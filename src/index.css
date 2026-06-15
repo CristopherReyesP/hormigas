@@ -1,0 +1,239 @@
+/* ════════════════════════════════════════════════════════════
+   PIXEL ART UI — design tokens mirrored from
+   src/engine/renderer/pixelart/palette.ts (PAL.ui*)
+   ════════════════════════════════════════════════════════════ */
+
+:root {
+  --ui-bg: #12100c;
+  --ui-panel: #1e1a14;
+  --ui-panel-light: #2a241b;
+  --ui-border: #4a3a26;
+  --ui-text: #d8d0c0;
+  --ui-text-dim: #8a8070;
+
+  --accent-green: #5fbf4a;
+  --accent-amber: #f0b541;
+  --accent-red: #e23d28;
+  --accent-blue: #4e9ad1;
+
+  --font-pixel: 'Press Start 2P', monospace;
+  --font-mono: 'Courier New', Courier, monospace;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  border-radius: 0; /* SHARP corners everywhere — pixel art has no curves */
+}
+
+html, body {
+  height: 100%;
+  background: var(--ui-bg);
+  color: var(--ui-text);
+  overflow: hidden;
+  font-family: var(--font-mono);
+}
+
+#root {
+  height: 100%;
+}
+
+/* ── Pixel panel: chunky stepped double border, zero blur ──── */
+.pixel-panel {
+  background: var(--ui-panel);
+  border: 2px solid var(--ui-border);
+  box-shadow:
+    0 0 0 2px var(--ui-bg),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+  color: var(--ui-text);
+  font-family: var(--font-mono);
+}
+
+/* ── Pixel heading: Press Start 2P, tiny and chunky ────────── */
+.pixel-heading {
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  line-height: 1.6;
+  color: var(--accent-amber);
+  text-transform: uppercase;
+}
+
+.pixel-number {
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+/* ── Chunky 3D pixel buttons ───────────────────────────────── */
+button {
+  outline: none;
+  transition: none; /* state changes are INSTANT */
+}
+
+.pixel-btn {
+  font-family: var(--font-mono);
+  background: var(--ui-panel-light);
+  color: var(--ui-text);
+  border: 2px solid var(--ui-border);
+  /* bottom/right darker edge + top/left light edge, 0 blur */
+  box-shadow:
+    inset -2px -2px 0 0 rgba(0, 0, 0, 0.45),
+    inset 2px 2px 0 0 rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+}
+
+.pixel-btn:hover:not(:disabled) {
+  background: #383022; /* one step brighter than --ui-panel-light */
+}
+
+.pixel-btn:active:not(:disabled) {
+  /* content shifts 1px down-right, edge flattens */
+  transform: translate(1px, 1px);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+
+.pixel-btn:disabled {
+  cursor: not-allowed;
+  color: var(--ui-text-dim);
+  background: var(--ui-panel);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+}
+
+.pixel-btn--active {
+  border-color: var(--accent-amber);
+  color: var(--accent-amber);
+  background: #3a2e14;
+}
+
+.pixel-btn--danger {
+  border-color: #7a2a1c;
+  color: #ffd8d0;
+  background: #4a1812;
+}
+
+.pixel-btn--danger:hover:not(:disabled) {
+  background: #5e1f16;
+}
+
+.pixel-btn--green {
+  border-color: #2e5a24;
+  color: var(--accent-green);
+  background: #1a2a14;
+}
+
+.pixel-btn--green:hover:not(:disabled) {
+  background: #22361a;
+}
+
+/* ── Segmented pixel progress bars (4px segments, 1px gaps) ── */
+.pixel-bar {
+  height: 8px;
+  background: var(--ui-bg);
+  border: 1px solid var(--ui-border);
+  overflow: hidden;
+}
+
+.pixel-bar-fill {
+  height: 100%;
+  /* segment mask: 4px of color, 1px gap */
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0px,
+    transparent 4px,
+    var(--ui-bg) 4px,
+    var(--ui-bg) 5px
+  );
+  /* width + background-color set inline per bar */
+}
+
+/* ── Notifications: stepped slide-in, accent left edge ─────── */
+@keyframes notif-slide-in {
+  0% {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.pixel-notif {
+  animation: notif-slide-in 0.25s steps(4) both;
+  border: 2px solid var(--ui-border);
+  background: var(--ui-panel);
+  color: var(--ui-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 14px;
+  white-space: nowrap;
+  box-shadow: 0 0 0 2px var(--ui-bg); /* stepped outer ring, no blur */
+}
+
+.pixel-notif--info    { border-left: 4px solid var(--accent-blue); }
+.pixel-notif--success { border-left: 4px solid var(--accent-green); }
+.pixel-notif--warning { border-left: 4px solid var(--accent-amber); }
+.pixel-notif--danger  { border-left: 4px solid var(--accent-red); }
+
+/* ── Stat-change flash (two identical anims so it re-triggers) ── */
+@keyframes stat-flash-a {
+  0%, 49%  { color: var(--accent-amber); }
+  50%, 100% { color: inherit; }
+}
+
+@keyframes stat-flash-b {
+  0%, 49%  { color: var(--accent-amber); }
+  50%, 100% { color: inherit; }
+}
+
+.flash-a { animation: stat-flash-a 0.3s steps(2, end); }
+.flash-b { animation: stat-flash-b 0.3s steps(2, end); }
+
+/* ── Game canvas: crisp integer-scaled pixels ──────────────── */
+.game-canvas-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ui-bg);
+  overflow: hidden;
+}
+
+.game-canvas {
+  display: block;
+  cursor: crosshair;
+  image-rendering: crisp-edges; /* fallback */
+  image-rendering: pixelated;
+  border: 2px solid var(--ui-border);
+  box-shadow: 0 0 0 2px var(--ui-bg);
+}
+
+/* ── Dithered overlay (checkerboard, no smooth alpha blur) ── */
+.dither-overlay {
+  background-image: repeating-conic-gradient(
+    rgba(0, 0, 0, 0.92) 0% 25%,
+    rgba(0, 0, 0, 0.72) 0% 50%
+  );
+  background-size: 4px 4px;
+}
+
+/* ── Scrollbars: sharp square pixel thumb ──────────────────── */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--ui-bg);
+  border-left: 2px solid var(--ui-panel);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ui-panel-light);
+  border: 2px solid var(--ui-border);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ui-border);
+}
