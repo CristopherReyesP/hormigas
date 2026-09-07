@@ -61,6 +61,17 @@ export function HUD({ stats }: HUDProps) {
         <div className={waveFlash} style={{ color: 'var(--accent-red)', fontWeight: 'bold' }}>
           🪲 ¡OLEADA {stats.invasion.waveNumber} EN CURSO! ({stats.invasion.invadersAlive} invasores)
         </div>
+      ) : stats.invasion.armed ? (
+        /* Armed: the countdown is over, only nightfall stands between the
+           player and the wave — show the trigger, not a stale number. */
+        <div style={{ color: 'var(--accent-red)', fontWeight: 'bold' }}>
+          🪲 Oleada {stats.invasion.waveNumber + 1} al anochecer
+          {stats.dayPhase === 'day' && (
+            <span style={{ color: 'var(--ui-text-dim)', fontWeight: 'normal' }}>
+              {' '}({stats.phaseRemaining}s)
+            </span>
+          )}
+        </div>
       ) : (
         <div
           style={{

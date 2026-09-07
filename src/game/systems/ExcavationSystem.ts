@@ -26,6 +26,12 @@ export class ExcavationSystem implements System {
 
   private jobs: DigJob[] = [];
 
+  /** Tiles with a pending dig order — read by the minimap (already tracked here,
+   *  so nothing has to rescan the grid for `designated`). */
+  getJobTiles(): Array<{ x: number; y: number }> {
+    return this.jobs.map((j) => ({ x: j.x, y: j.y }));
+  }
+
   private world: World;
   private grid: UndergroundGrid;
   private transitSystem: TransitSystem;
@@ -318,9 +324,20 @@ export class ExcavationSystem implements System {
     ant.stateTimer -= dt;
 
     if (ant.stateTimer <= 0) {
-      // Complete excavation
+      // Complete excavation. Compare entrance COUNT rather than just checking
+      // the row: digging beside an existing shaft widens it, it does not open a
+      // second one, and the player should not be told otherwise.
+      const entrancesBefore = this.grid.getEntrances().length;
       this.grid.excavate(job.x, job.y);
       this.world.metrics.tilesExcavated++;
+
+      const entrancesAfter = this.grid.getEntrances().length;
+      if (entrancesAfter > entrancesBefore) {
+        this.world.pushNotification(
+          'warning',
+          `🕳️ Nueva entrada abierta (${entrancesAfter} en total) — más flujo de forrajeo, pero otro frente por donde entran las oleadas`
+        );
+      }
 
       // Remove job
       const idx = this.jobs.indexOf(job);

@@ -12,7 +12,7 @@ function quantizeAlpha(a: number): number {
   return 0.75;
 }
 
-export type ParticleType = 'leaf' | 'dust' | 'spore' | 'bubble' | 'sand_grain' | 'pollen';
+export type ParticleType = 'leaf' | 'dust' | 'spore' | 'bubble' | 'sand_grain' | 'pollen' | 'firefly';
 
 interface Particle {
   x: number;          // world pixels
@@ -42,6 +42,20 @@ export class AmbientParticleSystem {
   private viewEndX = 30;
   private viewEndY = 22;
 
+  /** Night swaps the ambient life over: pollen and falling leaves are daytime
+   *  things, fireflies are not. Set by RenderSystem, which already tracks the
+   *  phase for the sky wash. */
+  private night = false;
+
+  /** Live particle count — used by tests to prove the system is actually ticked */
+  getParticleCount(): number {
+    return this.particles.length;
+  }
+
+  setNight(night: boolean): void {
+    this.night = night;
+  }
+
   constructor(grid: TileGrid, _world: World) {
     this.grid = grid;
   }
@@ -62,6 +76,11 @@ export class AmbientParticleSystem {
       // Bubbles rise and wobble
       if (p.type === 'bubble') {
         p.x += Math.sin(p.life * 5) * 0.5 * dt * TILE_SIZE;
+      }
+      // Fireflies wander on both axes — a lazy, untidy drift, not a straight line
+      if (p.type === 'firefly') {
+        p.x += Math.sin(p.life * 1.7 + p.rotation) * 1.2 * dt * TILE_SIZE;
+        p.y += Math.cos(p.life * 1.3 + p.rotation) * 0.9 * dt * TILE_SIZE;
       }
 
       if (p.life <= 0) {
@@ -126,6 +145,16 @@ export class AmbientParticleSystem {
           // Rising 1-art-px bubble
           ctx.fillRect(x - 1, y - 1, 2, 2);
         }
+      } else if (p.type === 'firefly') {
+        // Blink is a 2-STATE toggle, never a smooth pulse: same rule as the
+        // shroom shimmer underground. Lit frames get a halo ring around the core.
+        const lit = Math.floor(p.life * 2.5 + p.rotation) % 2 === 0;
+        if (lit) {
+          ctx.globalAlpha = quantizeAlpha(alpha * 0.35);
+          ctx.fillRect(x - 3, y - 3, 6, 6);
+          ctx.globalAlpha = alpha;
+        }
+        ctx.fillRect(x - 1, y - 1, 2, 2);
       } else {
         // pollen / dust / spore / sand_grain — single square art pixel
         ctx.fillRect(x - 1, y - 1, 2, 2);
@@ -153,6 +182,16 @@ export class AmbientParticleSystem {
 
     let particle: Particle | null = null;
 
+    // At night the daytime ambience is replaced rather than added to, so the
+    // particle budget does not double after dark.
+    if (this.night) {
+      if (tile.terrain === TerrainType.Stone || tile.terrain === TerrainType.Water) return;
+      if (Math.random() < 0.55) {
+        this.particles.push(this.createFirefly(worldX, worldY));
+      }
+      return;
+    }
+
     switch (tile.terrain) {
       case TerrainType.Grass:
         particle = this.createGrassParticle(worldX, worldY);
@@ -177,6 +216,24 @@ export class AmbientParticleSystem {
     if (particle) {
       this.particles.push(particle);
     }
+  }
+
+  /** Night-only mote: slow, blinking, warm. Long-lived so it can wander. */
+  private createFirefly(x: number, y: number): Particle {
+    const life = 6 + Math.random() * 5;
+    return {
+      x, y,
+      vx: (Math.random() - 0.5) * 5,
+      vy: (Math.random() - 0.5) * 4,
+      life,
+      maxLife: life,
+      size: 1,
+      type: 'firefly',
+      alpha: 0.75 + Math.random() * 0.25,
+      color: this.randomChoice([PAL.glowGreen, PAL.glowAmber, PAL.healthYellow]),
+      rotation: Math.random() * Math.PI * 2, // per-mote blink offset
+      rotationSpeed: 0,
+    };
   }
 
   private createGrassParticle(x: number, y: number): Particle {

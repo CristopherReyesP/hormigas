@@ -48,6 +48,13 @@ export class SpriteAtlas {
   // 4 roles × 4 frames = 16 base + 16 carrying = 32 total
   private antSprites: Map<string, SpriteFrame> = new Map();
   private antCarrySprites: Map<string, SpriteFrame> = new Map();
+  // No-shadow variant (Worker only) — used for underground queen rendering
+  private antNoShadowSprites: Map<string, SpriteFrame> = new Map();
+  private antNoShadowCanvas: HTMLCanvasElement;
+
+  // Dedicated queen ant sprite — large gaster, short legs, no shadow
+  private queenAntSprites: Map<string, SpriteFrame> = new Map();
+  private queenAntCanvas: HTMLCanvasElement;
 
   // Food sprites: 5 variants × 5 size levels = 25 sprites
   private foodSprites: SpriteFrame[] = [];
@@ -78,6 +85,8 @@ export class SpriteAtlas {
     this.antCanvas = document.createElement('canvas');
     this.foodCanvas = document.createElement('canvas');
     this.nestCanvas = document.createElement('canvas');
+    this.antNoShadowCanvas = document.createElement('canvas');
+    this.queenAntCanvas = document.createElement('canvas');
     this.beetleSprites = document.createElement('canvas');
     this.denSprite = document.createElement('canvas');
     this.cricketSprites = document.createElement('canvas');
@@ -85,6 +94,7 @@ export class SpriteAtlas {
     this.giantMushroomSprite = document.createElement('canvas');
 
     this.generateAntSprites();
+    this.generateQueenAntSprites();
     this.generateFoodSprites();
     this.generateNestSprite();
     this.generateBeetleSprites();
@@ -143,6 +153,21 @@ export class SpriteAtlas {
         });
       }
     }
+
+    // No-shadow Worker sprites — Worker role only, 4 frames, no ground shadow
+    this.antNoShadowCanvas.width = s * ANT_FRAMES;
+    this.antNoShadowCanvas.height = s;
+    const nsCtx = this.antNoShadowCanvas.getContext('2d')!;
+    nsCtx.imageSmoothingEnabled = false;
+    const nsPainter = new PixelPainter(nsCtx, ANT_SCALE);
+    for (let frame = 0; frame < ANT_FRAMES; frame++) {
+      const bx = frame * s;
+      this.paintAnt(nsPainter.at(bx, 0), AntRole.Worker, frame, false, false);
+      this.antNoShadowSprites.set(`${AntRole.Worker}-${frame}`, {
+        canvas: this.antNoShadowCanvas, x: bx, y: 0, w: s, h: s,
+        originX: s / 2, originY: s / 2,
+      });
+    }
   }
 
   /**
@@ -155,7 +180,7 @@ export class SpriteAtlas {
    *  - scout  : smallest gaster, longest legs and antennae
    *  - nurse  : rounder, paler gaster, compact stance
    */
-  private paintAnt(p: PixelPainter, role: AntRole, frame: number, carrying: boolean): void {
+  private paintAnt(p: PixelPainter, role: AntRole, frame: number, carrying: boolean, drawShadow = true): void {
     const cy = 8;
     const swing = GAIT[frame];
     const flick = frame % 2;
@@ -194,7 +219,7 @@ export class SpriteAtlas {
     const gDark = isN ? PAL.chitin[2] : PAL.chitin[1];
 
     // Dithered ground shadow — single row, detached from the body outline
-    p.shadow(8, 12, 4, 0.5, PAL.outline);
+    if (drawShadow) p.shadow(8, 12, 4, 0.5, PAL.outline);
 
     // Legs (behind body) — tripod gait: front+back of one side move with
     // the middle leg of the other side. Hips along the thorax.
@@ -256,6 +281,120 @@ export class SpriteAtlas {
       p.px(15, 8, PAL.leaf[2]);
       p.px(14, 9, PAL.leaf[0]);
     }
+  }
+
+  // ─── Queen Ant Sprite Generation ────────────────────────────
+
+  private generateQueenAntSprites(): void {
+    const s = ANT_SPRITE_SIZE;
+    this.queenAntCanvas.width = s * ANT_FRAMES;
+    this.queenAntCanvas.height = s;
+    const ctx = this.queenAntCanvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    const painter = new PixelPainter(ctx, ANT_SCALE);
+
+    for (let frame = 0; frame < ANT_FRAMES; frame++) {
+      const bx = frame * s;
+      this.paintQueenAnt(painter.at(bx, 0), frame);
+      this.queenAntSprites.set(`queen-${frame}`, {
+        canvas: this.queenAntCanvas, x: bx, y: 0, w: s, h: s,
+        originX: s / 2, originY: s / 2,
+      });
+    }
+  }
+
+  /**
+   * 16×16 art-pixel queen ant, facing right.
+   * Key differences from worker: very large gaster (egg-filled abdomen),
+   * short compact legs (reach=2 vs worker's 4) so they never bleed onto the
+   * chamber floor when the queen is scaled up, and no dithered ground shadow.
+   */
+  private paintQueenAnt(p: PixelPainter, frame: number): void {
+    const cy = 8;
+    const swing = GAIT[frame];
+    const flick = frame % 2;
+
+    // Queen uses Worker colors — role accent is the gold crown, not a band
+    const gBase = PAL.chitin[2];
+    const gLight = PAL.chitin[3];
+    const gDark = PAL.chitin[1];
+
+    // Queen anatomy: enlarged gaster (3× radius of a worker), compact legs
+    const gx = 4;
+    const grx = 3.0;   // worker = 2.2
+    const gry = 2.2;   // worker = 1.3 — visibly round, egg-laden
+    const petX = 7;
+    const thCx = 9;
+    const thRx = 1.2;
+    const hX = 11;
+    const hR = 1.4;
+    const reach = 2;   // worker = 4 — short legs don't reach the floor plane
+    const splay = 1;   // worker = 2
+    const hips = [8, 9, 10];
+    const antTipX = 14;
+    const antTipY = 4;
+
+    // Legs drawn first (behind body)
+    for (let side = -1; side <= 1; side += 2) {
+      for (let i = 0; i < 3; i++) {
+        const groupA = (i + (side === 1 ? 1 : 0)) % 2 === 0;
+        const s = groupA ? swing : -swing;
+        const ax = hips[i];
+        const footX = ax + (i - 1) * splay + s;
+        p.line(ax, cy + side, footX, cy + side * reach, PAL.outline);
+      }
+    }
+
+    // Body union (gaster + petiole + thorax + head + mandibles)
+    this.outlined((dx, dy, c) => {
+      p.ellipse(gx + dx, cy + dy, grx, gry, c ?? gBase);
+      p.px(petX + dx, cy + dy, c ?? PAL.chitin[2]);
+      p.ellipse(thCx + dx, cy + dy, thRx, 1.0, c ?? PAL.chitin[2]);
+      p.disc(hX + dx, cy + dy, hR, c ?? PAL.chitin[3]);
+      p.px(hX + 2 + dx, cy - 1 + dy, c ?? PAL.chitin[1]);
+      p.px(hX + 2 + dx, cy + 1 + dy, c ?? PAL.chitin[1]);
+    });
+
+    // Gaster shading (top-left light source)
+    p.px(gx - 1, 7, gLight);
+    p.px(gx - 2, 8, gLight);
+    p.px(gx - 1, 9, gDark);
+
+    // Queen abdomen accent stripe (worker-colored band — crown sets her apart)
+    p.rect(gx, 7, 2, 3, PAL.worker);
+
+    // Eyes
+    p.px(hX, 7, PAL.white);
+    p.px(hX, 9, PAL.white);
+
+    // Antennae
+    p.line(hX + 1, 6, antTipX, antTipY + flick, PAL.chitin[0]);
+    p.line(hX + 1, 10, antTipX, 16 - antTipY - flick, PAL.chitin[0]);
+  }
+
+  drawQueenAnt(
+    ctx: CanvasRenderingContext2D,
+    worldX: number,
+    worldY: number,
+    angle: number,
+    legPhase: number
+  ): void {
+    const TWO_PI = Math.PI * 2;
+    const normalizedPhase = ((legPhase % TWO_PI) + TWO_PI) % TWO_PI;
+    const frame = Math.floor(normalizedPhase / (TWO_PI / ANT_FRAMES)) % ANT_FRAMES;
+
+    const sprite = this.queenAntSprites.get(`queen-${frame}`);
+    if (!sprite) return;
+
+    ctx.save();
+    ctx.translate(worldX, worldY);
+    ctx.rotate(angle);
+    ctx.drawImage(
+      sprite.canvas,
+      sprite.x, sprite.y, sprite.w, sprite.h,
+      -sprite.originX, -sprite.originY, sprite.w, sprite.h
+    );
+    ctx.restore();
   }
 
   // ─── Beetle Sprite Generation ───────────────────────────────
@@ -723,7 +862,8 @@ export class SpriteAtlas {
     angle: number,
     legPhase: number,
     role: AntRole,
-    isCarrying: boolean
+    isCarrying: boolean,
+    noShadow = false
   ): void {
     // Map continuous legPhase to frame 0-3
     const TWO_PI = Math.PI * 2;
@@ -731,7 +871,9 @@ export class SpriteAtlas {
     const frame = Math.floor(normalizedPhase / (TWO_PI / ANT_FRAMES)) % ANT_FRAMES;
 
     const key = `${role}-${frame}`;
-    const sprite = isCarrying ? this.antCarrySprites.get(key) : this.antSprites.get(key);
+    const sprite = noShadow
+      ? this.antNoShadowSprites.get(key)
+      : isCarrying ? this.antCarrySprites.get(key) : this.antSprites.get(key);
     if (!sprite) return;
 
     // Smooth rotation at draw time — single rotate + drawImage is cheap

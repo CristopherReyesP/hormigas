@@ -1,4 +1,3 @@
-import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { CanvasRenderer } from '../../engine/renderer/CanvasRenderer';
 import type { TileGrid } from '../../simulation/world/TileGrid';
@@ -7,13 +6,15 @@ import type { Camera } from '../../engine/camera/Camera';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { TerrainRenderer } from '../../engine/renderer/TerrainRenderer';
 import { FoliageOverlay } from '../../engine/renderer/FoliageOverlay';
-import { PostProcessor } from '../../engine/renderer/PostProcessor';
+import { PostProcessor, type ScreenLight } from '../../engine/renderer/PostProcessor';
 import { SpriteAtlas } from '../../engine/renderer/SpriteAtlas';
+import { computeUndergroundLight, UG_LIGHT_RIM, UG_LIGHT_FULL } from './undergroundLight';
 import { FogRenderer } from '../../engine/renderer/FogRenderer';
 import {
   COMPONENT,
   AntRole,
   AntState,
+  FoodType,
   BeetleState,
   CricketState,
   Layer,
@@ -76,9 +77,16 @@ function pileRand(seed: number): number {
   return s - Math.floor(s);
 }
 
-export class RenderSystem implements System {
+/**
+ * NOTE: this is deliberately NOT a world System. It is driven by the render
+ * loop (GameManager.render -> renderInterpolated), once per animation frame,
+ * NOT by world.update. It used to declare `implements System` with a priority,
+ * which read as if the world ticked it — it never did, and the orphaned
+ * update() method silently froze animationTime, the ambient particles and the
+ * water shimmer for the entire life of the project.
+ */
+export class RenderSystem {
   readonly name = 'RenderSystem';
-  readonly priority = 100; // render last
   private world: World;
   private renderer: CanvasRenderer;
   private grid: TileGrid;
@@ -107,13 +115,16 @@ export class RenderSystem implements System {
   private fxHealthFrame!: OffscreenCanvas;
   private fxPheroStamps!: Record<'home' | 'food' | 'danger', OffscreenCanvas[]>;
   private fxGlows = new Map<string, OffscreenCanvas>();
-  private fxDitherDense!: OffscreenCanvas;
-  private fxDitherSparse!: OffscreenCanvas;
+  /** Darkness dither tiles indexed by light level 1-3 (0 = solid, 4 = clear) */
+  private fxDither: OffscreenCanvas[] = [];
 
   // === Underground light map cache (recomputed only when chambers/tunnels change) ===
   private ugLightLevel = new Uint8Array(UNDERGROUND_WIDTH * UNDERGROUND_HEIGHT);
   private ugLightColor = new Uint8Array(UNDERGROUND_WIDTH * UNDERGROUND_HEIGHT);
-  private ugLightSignature = 0;
+  /** Scratch brightness field the levels are quantized from (rebuilt with them) */
+  private ugLightBright = new Uint8Array(UNDERGROUND_WIDTH * UNDERGROUND_HEIGHT);
+  /** Layout version the cached light map was built from (-1 = never built) */
+  private ugLightVersion = -1;
 
   constructor(
     world: World,
@@ -228,24 +239,32 @@ export class RenderSystem implements System {
     this.fxGlows.set('yellow', makeGlow(PAL.healthYellow));
     this.fxGlows.set('green', makeGlow(PAL.glowGreen));
 
-    // --- Underground darkness dither tiles (level 1 = dense, level 2 = sparse) ---
-    const makeDither = (dense: boolean): OffscreenCanvas => {
+    // --- Underground darkness dither tiles, one per light level 1-3 ---
+    // Three Bayer-style densities (3/4, 2/4, 1/4 of the pixels darkened) give the
+    // falloff enough steps to read as a gradient across a big excavated colony,
+    // while staying strictly quantized — no alpha ramps on the tiles themselves.
+    const makeDither = (density: 3 | 2 | 1): OffscreenCanvas => {
       const c = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
       const dctx = c.getContext('2d')!;
       dctx.globalAlpha = 0.75; // same quantized level as solid darkness
       const p = new PixelPainter(dctx, 2);
       for (let iy = 0; iy < 16; iy++) {
         for (let ix = 0; ix < 16; ix++) {
-          const on = dense
-            ? (ix + iy) % 2 === 0 || (ix % 2 === 1 && iy % 2 === 1) // 3 of 4
-            : ix % 2 === 0 && iy % 2 === 0; // 1 of 4
+          const even = (ix + iy) % 2 === 0;
+          const on =
+            density === 3 ? even || (ix % 2 === 1 && iy % 2 === 1) // 3 of 4
+            : density === 2 ? even                                 // 2 of 4 (checker)
+            : ix % 2 === 0 && iy % 2 === 0;                        // 1 of 4
           if (on) p.px(ix, iy, PAL.black);
         }
       }
       return c;
     };
-    this.fxDitherDense = makeDither(true);
-    this.fxDitherSparse = makeDither(false);
+    // Index by light level: 1 = darkest dither … 3 = faintest
+    this.fxDither = [];
+    this.fxDither[1] = makeDither(3);
+    this.fxDither[2] = makeDither(2);
+    this.fxDither[3] = makeDither(1);
   }
 
   /** Stamp a pre-rendered dithered shadow, stretched to the requested radii. */
@@ -485,82 +504,18 @@ export class RenderSystem implements System {
     this.ugTextureReady = true;
   }
 
-  /** Build/refresh the per-tile underground light map (levels 0-3 + glow color).
-   *  Sources: chamber tiles (queen = amber, food/fungus = green, incubation = warm).
-   *  BFS falloff through walkable tiles; recomputed ONLY when the dig layout changes. */
+  invalidateUndergroundTexture(): void {
+    this.ugTextureReady = false;
+  }
+
+  /** Build/refresh the per-tile underground light map, only when the dig layout
+   *  changes. The O(1) version check matters: this used to hash all 5400 tiles
+   *  every frame just to decide whether to rebuild. */
   private ensureUgLightMap(grid: UndergroundGrid): void {
-    // Cheap layout signature — detects excavation/chamber changes without events
-    let sig = 17;
-    for (let y = 0; y < UNDERGROUND_HEIGHT; y++) {
-      for (let x = 0; x < UNDERGROUND_WIDTH; x++) {
-        const t = grid.getTile(x, y)!;
-        // chamberType is a string union — hash first char + length (distinct for all current types)
-        sig = (sig * 31 + (t.walkable ? 2 : 1) + (t.chamberType === null ? 0 : (t.chamberType.charCodeAt(0) * 13 + t.chamberType.length) * 7)) | 0;
-      }
-    }
-    if (sig === this.ugLightSignature) return;
-    this.ugLightSignature = sig;
-
-    const W = UNDERGROUND_WIDTH;
-    const H = UNDERGROUND_HEIGHT;
-    const dist = new Int16Array(W * H).fill(-1);
-    const color = this.ugLightColor;
-    color.fill(0);
-
-    const qx: number[] = [];
-    const qy: number[] = [];
-
-    // Seed BFS with chamber glow sources
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const t = grid.getTile(x, y)!;
-        if (t.terrain !== UndergroundTerrainType.Chamber) continue;
-        const i = y * W + x;
-        dist[i] = 0;
-        if (t.chamberType === ChamberType.FoodStorage || t.chamberType === ChamberType.FungusFarm) {
-          color[i] = 2; // green
-        } else if (t.chamberType === ChamberType.Incubation || t.chamberType === ChamberType.Egg) {
-          color[i] = 3; // warm
-        } else {
-          color[i] = 1; // amber (queen + general)
-        }
-        qx.push(x);
-        qy.push(y);
-      }
-    }
-
-    // 4-dir BFS: light travels through walkable tiles, leaks 1 tile into walls (for rims)
-    let head = 0;
-    while (head < qx.length) {
-      const x = qx[head];
-      const y = qy[head];
-      head++;
-      const i = y * W + x;
-      const d = dist[i];
-      if (d >= 6) continue;
-      const t = grid.getTile(x, y)!;
-      if (!t.walkable && d > 0) continue; // walls absorb light
-      const tryN = (nx: number, ny: number) => {
-        if (nx < 0 || nx >= W || ny < 0 || ny >= H) return;
-        const ni = ny * W + nx;
-        if (dist[ni] !== -1) return;
-        dist[ni] = d + 1;
-        color[ni] = color[i];
-        qx.push(nx);
-        qy.push(ny);
-      };
-      tryN(x - 1, y);
-      tryN(x + 1, y);
-      tryN(x, y - 1);
-      tryN(x, y + 1);
-    }
-
-    // Quantize distance → light level (3 = fully lit, 0 = dark)
-    const level = this.ugLightLevel;
-    for (let i = 0; i < W * H; i++) {
-      const d = dist[i];
-      level[i] = d < 0 ? 0 : d === 0 ? 3 : d <= 2 ? 2 : d <= 4 ? 1 : 0;
-    }
+    const version = grid.getLayoutVersion();
+    if (version === this.ugLightVersion) return;
+    this.ugLightVersion = version;
+    computeUndergroundLight(grid, this.ugLightLevel, this.ugLightColor, this.ugLightBright);
   }
 
   invalidateTerrain(): void {
@@ -568,9 +523,11 @@ export class RenderSystem implements System {
     this.foliageOverlay.invalidate();
   }
 
-  update(dt: number): void {
+  /** The single render path. `dt` is real frame time (0 while paused). */
+  renderInterpolated(interpolation: number, dt: number): void {
     this.animationTime += dt;
     this.terrainRenderer.update(dt);
+    if (this.getDayPhase) this.ambientParticles.setNight(this.getDayPhase().phase === 'night');
     this.ambientParticles.update(dt);
 
     const ctx = this.renderer.getContext();
@@ -578,36 +535,7 @@ export class RenderSystem implements System {
 
     // Branch: underground or surface
     if (this.getActiveLayer && this.getActiveLayer() === 'underground') {
-      this.renderUndergroundFrame(ctx);
-      return;
-    }
-
-    ctx.save();
-    if (this.camera) this.camera.applyTransform(ctx);
-    this.renderTerrain();
-    this.foliageOverlay.draw(ctx, this.camera);
-    this.renderPheromones();
-    this.renderParticles();
-    this.renderEntities();
-    this.renderDeathEffects(ctx, dt);
-    this.renderHitEffects(ctx, dt);
-    this.fogRenderer.update();
-    this.fogRenderer.draw(ctx);
-    ctx.restore();
-    if (this.getDayPhase) {
-      const dp = this.getDayPhase();
-      this.postProcessor.setDayPhase(dp.phase, dp.progress);
-    }
-    this.postProcessor.apply(ctx);
-  }
-
-  renderInterpolated(interpolation: number): void {
-    const ctx = this.renderer.getContext();
-    this.renderer.clear();
-
-    // Branch: underground or surface
-    if (this.getActiveLayer && this.getActiveLayer() === 'underground') {
-      this.renderUndergroundFrame(ctx);
+      this.renderUndergroundFrame(ctx, dt);
       return;
     }
 
@@ -618,20 +546,21 @@ export class RenderSystem implements System {
     this.renderPheromones();
     this.renderParticles();
     this.renderEntitiesInterpolated(interpolation);
-    this.renderDeathEffects(ctx, 1 / 60);
-    this.renderHitEffects(ctx, 1 / 60);
+    this.renderDeathEffects(ctx, dt);
+    this.renderHitEffects(ctx, dt);
     this.fogRenderer.update();
     this.fogRenderer.draw(ctx);
     ctx.restore();
     if (this.getDayPhase) {
       const dp = this.getDayPhase();
       this.postProcessor.setDayPhase(dp.phase, dp.progress);
+      this.postProcessor.setLights(dp.phase === 'night' ? this.collectSurfaceLights() : []);
     }
     this.postProcessor.apply(ctx);
   }
 
 
-  private renderUndergroundFrame(ctx: CanvasRenderingContext2D): void {
+  private renderUndergroundFrame(ctx: CanvasRenderingContext2D, dt: number): void {
     if (!this.ugGrid || !this.ugCamera) return;
 
     const frameTime = Date.now();
@@ -815,22 +744,20 @@ export class RenderSystem implements System {
         const tile = grid.getTile(x, y);
         if (!tile) continue;
         let level = this.ugLightLevel[y * UNDERGROUND_WIDTH + x];
-        if (tile.designated && level < 2) level = 2; // keep dig orders readable
-        if (level === 3) continue;
+        if (tile.designated && level < UG_LIGHT_RIM) level = UG_LIGHT_RIM; // keep dig orders readable
+        if (level >= UG_LIGHT_FULL) continue;
         const dpx = x * T;
         const dpy = y * T;
         if (level === 0) {
           ctx.fillRect(dpx, dpy, T, T); // solid dark
-        } else if (level === 1) {
-          ctx.drawImage(this.fxDitherDense, dpx, dpy);
         } else {
-          ctx.drawImage(this.fxDitherSparse, dpx, dpy);
+          ctx.drawImage(this.fxDither[level], dpx, dpy);
         }
       }
     }
 
     // Rim highlights: wall faces adjacent to well-lit tiles catch the glow color
-    const RIM_COLORS = [PAL.glowAmber, PAL.glowAmber, PAL.glowGreen, PAL.shroomCapLight];
+    const RIM_COLORS = [PAL.glowAmber, PAL.glowAmber, PAL.glowGreen, PAL.shroomCapLight, PAL.skyNoon];
     ctx.globalAlpha = 0.5;
     for (let y = startY; y < endY; y++) {
       for (let x = startX; x < endX; x++) {
@@ -842,7 +769,7 @@ export class RenderSystem implements System {
         const ln = grid.getTile(x - 1, y);
         if (ln && ln.walkable) {
           const i = y * UNDERGROUND_WIDTH + (x - 1);
-          if (this.ugLightLevel[i] >= 2) {
+          if (this.ugLightLevel[i] >= UG_LIGHT_RIM) {
             ctx.fillStyle = RIM_COLORS[this.ugLightColor[i]];
             ctx.fillRect(wpx, wpy, 2, T);
           }
@@ -850,7 +777,7 @@ export class RenderSystem implements System {
         const rn = grid.getTile(x + 1, y);
         if (rn && rn.walkable) {
           const i = y * UNDERGROUND_WIDTH + (x + 1);
-          if (this.ugLightLevel[i] >= 2) {
+          if (this.ugLightLevel[i] >= UG_LIGHT_RIM) {
             ctx.fillStyle = RIM_COLORS[this.ugLightColor[i]];
             ctx.fillRect(wpx + T - 2, wpy, 2, T);
           }
@@ -858,7 +785,7 @@ export class RenderSystem implements System {
         const tn = grid.getTile(x, y - 1);
         if (tn && tn.walkable) {
           const i = (y - 1) * UNDERGROUND_WIDTH + x;
-          if (this.ugLightLevel[i] >= 2) {
+          if (this.ugLightLevel[i] >= UG_LIGHT_RIM) {
             ctx.fillStyle = RIM_COLORS[this.ugLightColor[i]];
             ctx.fillRect(wpx, wpy, T, 2);
           }
@@ -866,7 +793,7 @@ export class RenderSystem implements System {
         const bn = grid.getTile(x, y + 1);
         if (bn && bn.walkable) {
           const i = (y + 1) * UNDERGROUND_WIDTH + x;
-          if (this.ugLightLevel[i] >= 2) {
+          if (this.ugLightLevel[i] >= UG_LIGHT_RIM) {
             ctx.fillStyle = RIM_COLORS[this.ugLightColor[i]];
             ctx.fillRect(wpx, wpy + T - 2, T, 2);
           }
@@ -877,7 +804,6 @@ export class RenderSystem implements System {
 
     // === PASS 3.5: Underground ambient particles ===
     // Update particle timer and spawn new particles
-    const dt = 1 / 60; // approximate dt for particle updates
     this.ugParticleTimer += dt;
 
     if (this.ugParticleTimer >= 0.15) {
@@ -1034,13 +960,20 @@ export class RenderSystem implements System {
         this.drawGlowStamp(ctx, px, py, TILE_SIZE * 3.0, 'amber');
         this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.2, 'amber');
 
-        // Draw queen as a scaled-up Worker ant sprite with abdomen pulse
+        // Read actual facing/movement data — angle tracks where she walks,
+        // legPhase only advances when MovementSystem moves her (idle = frozen legs)
+        const queenFacing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
+        const queenAngle = queenFacing?.angle ?? 0;
+        const queenLegPhase = queenFacing?.legPhase ?? 0;
+
+        // Draw dedicated queen sprite — large gaster, short compact legs.
+        // Using her own sprite (not a scaled Worker) ensures the legs never
+        // bleed onto the chamber floor and look like moving ground.
         ctx.save();
         ctx.translate(px, py);
         ctx.scale(2.2 * bodyPulse, 2.2 * bodyPulse);
         ctx.translate(-px, -py);
-        const queenLegPhase = (frameTime * 0.002) % (Math.PI * 2);
-        this.spriteAtlas.drawAnt(ctx, px, py, 0, queenLegPhase, AntRole.Worker, false);
+        this.spriteAtlas.drawQueenAnt(ctx, px, py, queenAngle, queenLegPhase);
         ctx.restore();
 
         // Pixel crown above queen (3 spikes + base, palette colors)
@@ -1210,6 +1143,42 @@ export class RenderSystem implements System {
     ctx.restore(); // restore camera transform
   }
 
+  /**
+   * Surface light sources for the night pass, in SCREEN pixels.
+   *
+   * Only the nest and giant mushrooms qualify: the nest because the colony's
+   * home has to stay readable after dark (and because it makes "get back before
+   * nightfall" legible), giant mushrooms because a glowing fungus is the one
+   * light the world plausibly has. Ordinary food and ants deliberately do NOT
+   * glow — if everything is a light source, nothing is.
+   */
+  private collectSurfaceLights(): ScreenLight[] {
+    if (!this.camera) return [];
+    const lights: ScreenLight[] = [];
+    const zoom = this.camera.getZoom();
+
+    const add = (tileX: number, tileY: number, radiusTiles: number) => {
+      const s = this.camera!.worldToScreen(tileX * TILE_SIZE, tileY * TILE_SIZE);
+      lights.push({ x: s.x, y: s.y, radius: radiusTiles * TILE_SIZE * zoom });
+    };
+
+    for (const id of this.world.query(COMPONENT.NEST, COMPONENT.POSITION)) {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      add(pos.x, pos.y, 7);
+    }
+
+    for (const id of this.world.query(COMPONENT.FOOD_SOURCE, COMPONENT.POSITION)) {
+      const src = this.world.getComponent<FoodSourceComponent>(id, COMPONENT.FOOD_SOURCE);
+      if (!src || src.resourceType !== FoodType.GiantMushroom) continue;
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+      if (layer && layer.layer !== Layer.Surface) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      add(pos.x, pos.y, 3.5);
+    }
+
+    return lights;
+  }
+
   private renderTerrain(): void {
     // Draw pre-rendered terrain (ONE blit operation for all terrain)
     const ctx = this.renderer.getContext();
@@ -1276,135 +1245,7 @@ export class RenderSystem implements System {
     this.ambientParticles.render(ctx, startX, startY, endX, endY);
   }
 
-  private renderEntities(): void {
-    const ctx = this.renderer.getContext();
-    const cull = this.surfaceCullBounds();
-
-    // Separate entities by type for proper render order
-    const foodEntities: Array<{ id: number; pos: PositionComponent; radius: number }> = [];
-    const nestEntities: Array<{ id: number; pos: PositionComponent; radius: number }> = [];
-    const denEntities: Array<{ id: number; pos: PositionComponent }> = [];
-    const cricketDenEntities: Array<{ id: number; pos: PositionComponent }> = [];
-    const beetleEntities: Array<{ id: number; pos: PositionComponent }> = [];
-    const cricketEntities: Array<{ id: number; pos: PositionComponent }> = [];
-    const antEntities: Array<{ id: number; pos: PositionComponent }> = [];
-
-    const entities = this.world.query(COMPONENT.POSITION, COMPONENT.RENDER);
-    for (const id of entities) {
-      // Skip underground entities when rendering surface
-      const layerComp = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
-      if (layerComp && layerComp.layer === Layer.Underground) continue;
-
-      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-      const render = this.world.getComponent<RenderComponent>(id, COMPONENT.RENDER)!;
-
-      // Cull only the high-count, dependency-free shapes (ants + food piles);
-      // crickets stay — the nest "being robbed" check reads them even offscreen
-      if (
-        (render.shape === 'ant' || render.shape === 'food') &&
-        (pos.x < cull.minX || pos.x > cull.maxX || pos.y < cull.minY || pos.y > cull.maxY)
-      ) continue;
-
-      if (render.shape === 'giant_mushroom') {
-        foodEntities.push({ id, pos, radius: render.radius });
-      } else if (render.shape === 'food') {
-        foodEntities.push({ id, pos, radius: render.radius });
-      } else if (render.shape === 'nest') {
-        nestEntities.push({ id, pos, radius: render.radius });
-      } else if (render.shape === 'beetle_den') {
-        denEntities.push({ id, pos });
-      } else if (render.shape === 'cricket_den') {
-        cricketDenEntities.push({ id, pos });
-      } else if (render.shape === 'beetle') {
-        beetleEntities.push({ id, pos });
-      } else if (render.shape === 'cricket') {
-        cricketEntities.push({ id, pos });
-      } else if (render.shape === 'ant') {
-        antEntities.push({ id, pos });
-      }
-    }
-
-    // Render order: food → nest → beetle_dens → cricket_dens → beetles → crickets → ants
-    for (const { id, pos } of foodEntities) {
-      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
-      this.drawFood(ctx, pos.x, pos.y, id);
-    }
-
-    // Check if nest is being robbed by any cricket
-    const isNestBeingRobbed = cricketEntities.some(({ id }) => {
-      const c = this.world.getComponent<CricketComponent>(id, COMPONENT.CRICKET);
-      return c && c.state === CricketState.StealingFood;
-    });
-
-    for (const { id, pos, radius } of nestEntities) {
-      const nest = this.world.getComponent<NestComponent>(id, COMPONENT.NEST);
-      this.drawNest(ctx, pos.x, pos.y, radius, isNestBeingRobbed, nest);
-    }
-
-    for (const { id, pos } of denEntities) {
-      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
-      this.drawBeetleDen(ctx, pos.x, pos.y, id);
-    }
-
-    for (const { id, pos } of cricketDenEntities) {
-      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
-      this.drawCricketDen(ctx, pos.x, pos.y, id);
-    }
-
-    for (const { id, pos } of beetleEntities) {
-      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
-      const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE);
-      const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
-      if (facing) {
-        const isAttacking = beetle && beetle.state === BeetleState.Attacking;
-        this.drawBeetle(ctx, pos.x, pos.y, facing.angle, facing.legPhase, id, isAttacking);
-      }
-    }
-
-    for (const { id, pos } of cricketEntities) {
-      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
-      const cricket = this.world.getComponent<CricketComponent>(id, COMPONENT.CRICKET);
-      const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
-      if (facing) {
-        const isAttacking = cricket && cricket.state === CricketState.Attacking;
-        const isStealing = cricket && cricket.state === CricketState.StealingFood;
-        this.drawCricket(ctx, pos.x, pos.y, facing.angle, facing.legPhase, id, isAttacking, isStealing);
-      }
-    }
-
-    for (const { id, pos } of antEntities) {
-      const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
-      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT);
-      const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING);
-      const selectable = this.world.getComponent<SelectableComponent>(id, COMPONENT.SELECTABLE);
-
-      if (facing && ant) {
-        const isCarrying = !!(carrying && carrying.amount > 0);
-        const isSelected = !!(selectable && selectable.selected);
-        const isInCombat = ant.state === AntState.AttackingEnemy || ant.state === AntState.AttackingDen;
-        const isFleeing = ant.state === AntState.Fleeing;
-        this.drawAnt(ctx, pos.x, pos.y, facing.angle, facing.legPhase, ant.role, isSelected, isCarrying, isInCombat, isFleeing);
-
-        // Health bar for damaged ants
-        const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-        if (health && health.current < health.max) {
-          const px = pos.x * TILE_SIZE + TILE_SIZE / 2;
-          const py = pos.y * TILE_SIZE + TILE_SIZE / 2;
-          this.drawHealthBar(ctx, px, py, health.current, health.max);
-        }
-
-        // Healing indicator — pulsing green cross
-        if (ant.state === AntState.Healing) {
-          const px = pos.x * TILE_SIZE + TILE_SIZE / 2;
-          const py = pos.y * TILE_SIZE + TILE_SIZE / 2;
-          this.drawHealingIndicator(ctx, px, py, ant.stateTimer);
-        }
-      }
-    }
-  }
-
-  /** Viewport bounds in tiles (+margin) — ants/food outside are skipped when drawing.
-   *  With 400+ ants, categorizing and drawing offscreen sprites was real per-frame cost. */
+  /** Tile-space viewport bounds with margin — shared entity culling */
   private surfaceCullBounds(): { minX: number; minY: number; maxX: number; maxY: number } {
     if (!this.camera) return { minX: -Infinity, minY: -Infinity, maxX: Infinity, maxY: Infinity };
     const margin = 3;

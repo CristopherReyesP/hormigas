@@ -1,6 +1,6 @@
 import { UndergroundTerrainType, ChamberType } from './types';
 import type { WalkableGrid } from './WalkableGrid';
-import { UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT, QUEEN_CHAMBER_SIZE, STARTING_FOOD_CHAMBER_SIZE, INCUBATION_CHAMBER_SIZE, PANTRY_TILE_CAPACITY, ROCK_POCKET_COUNT } from '../../shared/constants';
+import { UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT, QUEEN_CHAMBER_SIZE, STARTING_FOOD_CHAMBER_SIZE, INCUBATION_CHAMBER_SIZE, PANTRY_TILE_CAPACITY, ROCK_POCKET_COUNT, ENTRANCE_ROW } from '../../shared/constants';
 
 export type PantryFoodType = 'leaf' | 'mushroom' | 'meat';
 
@@ -155,7 +155,77 @@ export class UndergroundGrid implements WalkableGrid {
       tile.terrain = terrain;
       tile.walkable = true;
       tile.chamberType = chamber;
+      this.layoutVersion++;
     }
+  }
+
+  // ── Layout versioning ──────────────────────────────────────────────
+  // Bumped by every mutation that changes the walkable/chamber layout, so
+  // consumers (light map, minimap) can compare one integer instead of
+  // rescanning all UNDERGROUND_WIDTH * UNDERGROUND_HEIGHT tiles per frame
+  // just to ask "did anything change?".
+  //
+  // `designated` deliberately does NOT bump it: dig markers are drawn live
+  // each frame and never feed the cached light BFS.
+  private layoutVersion = 0;
+
+  getLayoutVersion(): number {
+    return this.layoutVersion;
+  }
+
+  /** Force consumers to rebuild — for mutations made outside this class */
+  markLayoutChanged(): void {
+    this.layoutVersion++;
+  }
+
+  // ── Entrances ──────────────────────────────────────────────────────
+  // An entrance is a contiguous run of walkable tiles on ENTRANCE_ROW, the
+  // topmost diggable row. So the player opens one simply by digging a column
+  // up to the surface — no build mode, no cost UI. A run is collapsed to ONE
+  // entrance so the 2-wide starting shaft counts once, not twice.
+  //
+  // More entrances = shorter walks to the shaft and less crowding on a single
+  // artery, but UndergroundInvasionSystem breaches through a random one, so
+  // every entrance is also a front to defend.
+
+  private entranceCache: Array<{ x: number; y: number }> | null = null;
+  private entranceCacheVersion = -1;
+
+  getEntrances(): Array<{ x: number; y: number }> {
+    if (this.entranceCache !== null && this.entranceCacheVersion === this.layoutVersion) {
+      return this.entranceCache;
+    }
+
+    const list: Array<{ x: number; y: number }> = [];
+    let runStart = -1;
+    for (let x = 0; x <= this.width; x++) {
+      const open = x < this.width && this.isWalkable(x, ENTRANCE_ROW);
+      if (open && runStart === -1) {
+        runStart = x;
+      } else if (!open && runStart !== -1) {
+        list.push({ x: Math.floor((runStart + x - 1) / 2), y: ENTRANCE_ROW });
+        runStart = -1;
+      }
+    }
+
+    this.entranceCache = list;
+    this.entranceCacheVersion = this.layoutVersion;
+    return list;
+  }
+
+  /** Closest entrance to a point, or null when the nest is fully sealed */
+  findNearestEntrance(fromX: number, fromY: number): { x: number; y: number } | null {
+    const entrances = this.getEntrances();
+    let best: { x: number; y: number } | null = null;
+    let bestDist = Infinity;
+    for (const e of entrances) {
+      const d = Math.hypot(e.x + 0.5 - fromX, e.y + 0.5 - fromY);
+      if (d < bestDist) {
+        bestDist = d;
+        best = e;
+      }
+    }
+    return best;
   }
 
   getTile(x: number, y: number): UndergroundTile | null {
@@ -267,6 +337,7 @@ export class UndergroundGrid implements WalkableGrid {
     tile.terrain = UndergroundTerrainType.Tunnel;
     tile.walkable = true;
     tile.designated = false;
+    this.layoutVersion++;
     return true;
   }
 
@@ -386,6 +457,9 @@ export class UndergroundGrid implements WalkableGrid {
   invalidateChamberCache(): void {
     this.chamberCoords = null;
     this.chamberRegions = null;
+    // GameManager mutates tile.chamberType directly for player designations and
+    // always funnels through here, so this is the layout-change hook for them.
+    this.layoutVersion++;
   }
 
   private getChamberCoords(): { pantry: Array<{ x: number; y: number }>; farm: Array<{ x: number; y: number }> } {

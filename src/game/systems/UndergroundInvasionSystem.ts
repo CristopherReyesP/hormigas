@@ -2,6 +2,7 @@ import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { TransitSystem } from './TransitSystem';
+import type { DayNightSystem, DayPhase } from './DayNightSystem';
 import type { EntityId } from '../../shared/types';
 import {
   COMPONENT,
@@ -28,14 +29,27 @@ import {
 
 export interface InvasionInfo {
   waveNumber: number;
-  nextWaveIn: number; // seconds (0 while a wave is active)
+  /** Seconds until the next wave ARMS. 0 while a wave is active or already armed. */
+  nextWaveIn: number;
   active: boolean;
   invadersAlive: number;
+  /** Armed and waiting for nightfall to strike */
+  armed: boolean;
 }
 
 /**
  * Survival waves: predators periodically break into the nest through the
  * entrance tunnel and march on the queen. Soldiers are auto-deployed to defend.
+ *
+ * Waves are ARMED by a timer but LAUNCHED by nightfall, so pressure always
+ * lands on the day->night flip instead of drifting against it. Previously the
+ * wave clock (INVASION_WAVE_INTERVAL) and the day/night clock
+ * (DAY_DURATION + NIGHT_DURATION) ran independently and aliased: a wave could
+ * coincide with night (double pressure) or land at noon (trivial), at random.
+ *
+ * Splitting "armed" from "launched" keeps INVASION_WAVE_INTERVAL as the real
+ * escalation knob: shorter than a full day/night cycle means a wave nearly
+ * every night, longer means quiet nights appear on their own.
  */
 export class UndergroundInvasionSystem implements System {
   readonly name = 'UndergroundInvasionSystem';
@@ -44,10 +58,18 @@ export class UndergroundInvasionSystem implements System {
   private world: World;
   private grid: UndergroundGrid;
   private transitSystem: TransitSystem;
+  private dayNight: DayNightSystem;
 
   private waveTimer = INVASION_FIRST_WAVE_TIME;
   private waveNumber = 0;
   private waveActive = false;
+  /** Timer elapsed: the wave is ready and strikes at the next nightfall */
+  private waveArmed = false;
+  /** Previous tick's phase — used to detect the day->night edge */
+  private prevPhase: DayPhase = 'day';
+  /** The single entrance this wave breaches through. Picked once per wave so
+   *  the attack reads as one breach the player can answer, not a scatter. */
+  private waveEntrance: { x: number; y: number } | null = null;
   private invaders = new Set<EntityId>();
   private repathTimer = 0;
   /** Invaders enter one by one (staged break-in, not a teleported blob) */
@@ -66,18 +88,25 @@ export class UndergroundInvasionSystem implements System {
     return this.garrisonTarget;
   }
 
-  constructor(world: World, grid: UndergroundGrid, transitSystem: TransitSystem) {
+  constructor(
+    world: World,
+    grid: UndergroundGrid,
+    transitSystem: TransitSystem,
+    dayNight: DayNightSystem
+  ) {
     this.world = world;
     this.grid = grid;
     this.transitSystem = transitSystem;
+    this.dayNight = dayNight;
   }
 
   getInfo(): InvasionInfo {
     return {
       waveNumber: this.waveNumber,
-      nextWaveIn: this.waveActive ? 0 : Math.max(0, this.waveTimer),
+      nextWaveIn: this.waveActive || this.waveArmed ? 0 : Math.max(0, this.waveTimer),
       active: this.waveActive,
       invadersAlive: this.invaders.size,
+      armed: this.waveArmed,
     };
   }
 
@@ -100,19 +129,33 @@ export class UndergroundInvasionSystem implements System {
       }
     }
 
+    // Track the day->night edge every tick, before any branch can skip it.
+    // DayNightSystem has priority 4 and this system 8, so the flip is already
+    // visible on the same tick it happens.
+    const phase = this.dayNight.getPhase();
+    const nightfall = phase === 'night' && this.prevPhase === 'day';
+    this.prevPhase = phase;
+
     // Wave repelled?
     if (this.waveActive && this.pendingSpawns === 0 && this.invaders.size === 0) {
       this.waveActive = false;
+      this.waveArmed = false;
       this.waveTimer = INVASION_WAVE_INTERVAL;
       this.restoreDrafted();
       this.world.metrics.wavesRepelled++;
       this.world.pushNotification('success', `🛡️ ¡Oleada ${this.waveNumber} repelida!`);
     }
 
-    // Countdown to next wave (paused while one is active)
-    if (!this.waveActive) {
+    // Countdown ARMS the next wave (paused while one is active or already armed)
+    if (!this.waveActive && !this.waveArmed) {
       this.waveTimer -= dt;
-      if (this.waveTimer <= 0) this.launchWave();
+      if (this.waveTimer <= 0) this.armWave();
+    }
+
+    // Nightfall LAUNCHES it. A wave armed mid-night waits for the next dusk,
+    // and the !waveActive guard means waves never stack on top of each other.
+    if (nightfall && this.waveArmed && !this.waveActive) {
+      this.launchWave();
     }
 
     // Drive invaders and defenders (throttled — pathfinding is not free)
@@ -125,9 +168,18 @@ export class UndergroundInvasionSystem implements System {
     }
   }
 
+  /** Rough compass label so the alert tells the player WHERE to send soldiers */
+  private entranceLabel(x: number): string {
+    if (x < UNDERGROUND_WIDTH / 3) return 'oeste';
+    if (x > (UNDERGROUND_WIDTH * 2) / 3) return 'este';
+    return 'centro';
+  }
+
   private spawnInvader(): void {
-    const entranceX = Math.floor(UNDERGROUND_WIDTH / 2) + 0.5;
-    const id = createBeetle(this.world, entranceX, 1.5, null);
+    const e = this.waveEntrance;
+    const ex = e ? e.x + 0.5 : Math.floor(UNDERGROUND_WIDTH / 2) + 0.5;
+    const ey = e ? e.y + 0.5 : 1.5;
+    const id = createBeetle(this.world, ex, ey, null);
     const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
     if (layer) layer.layer = Layer.Underground;
     this.invaders.add(id);
@@ -167,9 +219,25 @@ export class UndergroundInvasionSystem implements System {
     }
   }
 
+  /** Timer elapsed — telegraph the wave so the player can prepare before dusk */
+  private armWave(): void {
+    this.waveArmed = true;
+    this.world.pushNotification(
+      'warning',
+      `🪲 Movimiento en el túnel — la oleada ${this.waveNumber + 1} atacará al anochecer`
+    );
+  }
+
   private launchWave(): void {
     this.waveNumber++;
     this.waveActive = true;
+    this.waveArmed = false;
+
+    // Every entrance the player dug is another way in. One is picked per wave,
+    // so extra shafts buy throughput at the price of an unpredictable breach.
+    const entrances = this.grid.getEntrances();
+    this.waveEntrance =
+      entrances.length > 0 ? entrances[Math.floor(Math.random() * entrances.length)] : null;
 
     const count = Math.min(1 + Math.floor((this.waveNumber - 1) / 2), INVASION_MAX_INVADERS);
     // First invader enters immediately, the rest break in one by one
@@ -177,9 +245,13 @@ export class UndergroundInvasionSystem implements System {
     this.pendingSpawns = count - 1;
     this.spawnTimer = 1.2;
 
+    const where =
+      this.waveEntrance !== null && entrances.length > 1
+        ? ` por la entrada ${this.entranceLabel(this.waveEntrance.x)}`
+        : '';
     this.world.pushNotification(
       'danger',
-      `🪲 ¡OLEADA ${this.waveNumber}! ${count > 1 ? `${count} escarabajos están entrando` : 'Un escarabajo entró'} al hormiguero`
+      `🪲 ¡OLEADA ${this.waveNumber}! ${count > 1 ? `${count} escarabajos están entrando` : 'Un escarabajo entró'}${where}`
     );
 
     this.deploySoldiers(Math.max(count + 1, 3));

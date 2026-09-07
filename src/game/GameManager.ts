@@ -163,6 +163,14 @@ export interface GameOverStats {
   wavesRepelled: number;
 }
 
+/** One dot on the underground minimap */
+export interface MinimapEntity {
+  /** Tile coordinates (fractional — ants move between tiles) */
+  x: number;
+  y: number;
+  kind: AntRole | 'queen' | 'invader';
+}
+
 export interface GameStats {
   antCount: number;
   workerCount: number;
@@ -261,11 +269,11 @@ export class GameManager {
     const movementSystem = new MovementSystem(this.world, this.grid, modifiers, this.undergroundGrid);
     const pheromoneSystem = new PheromoneSystem(this.grid, modifiers);
     this.antAISystem = new AntAISystem(this.world, this.grid, this.visibilityGrid, modifiers);
-    const beetleAISystem = new BeetleAISystem(this.world, this.grid);
-    const cricketAISystem = new CricketAISystem(this.world, this.grid);
+    const beetleAISystem = new BeetleAISystem(this.world, this.grid, modifiers);
+    const cricketAISystem = new CricketAISystem(this.world, this.grid, this.undergroundGrid, modifiers);
     const combatSystem = new CombatSystem(this.world, this.grid);
     const beetleSpawnSystem = new BeetleSpawnSystem(this.world, this.grid, modifiers);
-    const cricketSpawnSystem = new CricketSpawnSystem(this.world, this.grid, modifiers);
+    const cricketSpawnSystem = new CricketSpawnSystem(this.world, this.grid, this.undergroundGrid, modifiers);
     this.dayNightSystem = new DayNightSystem(this.world, modifiers);
     const hungerSystem = new HungerSystem(this.world, modifiers);
     const breedingSystem = new BreedingSystem(this.world);
@@ -311,8 +319,15 @@ export class GameManager {
     this.world.addSystem(porterSystem);
     this.objectiveSystem = new ObjectiveSystem(this.world, this.undergroundGrid);
     this.world.addSystem(this.objectiveSystem);
-    this.invasionSystem = new UndergroundInvasionSystem(this.world, this.undergroundGrid, transitSystem);
+    this.invasionSystem = new UndergroundInvasionSystem(
+      this.world,
+      this.undergroundGrid,
+      transitSystem,
+      this.dayNightSystem
+    );
     this.world.addSystem(this.invasionSystem);
+    // Waves land at nightfall, so the dusk warning doubles as the last call
+    this.dayNightSystem.setWaveArmedProvider(() => this.invasionSystem.getInfo().armed);
     this.world.addSystem(new SpoilageSystem(this.world));
     this.fungusFarmSystem = new FungusFarmSystem(this.world, this.undergroundGrid);
     this.world.addSystem(this.fungusFarmSystem);
@@ -322,7 +337,7 @@ export class GameManager {
     // Create game loop
     this.gameLoop = new GameLoop(
       (dt) => this.update(dt),
-      (interpolation) => this.render(interpolation)
+      (interpolation, dt) => this.render(interpolation, dt)
     );
 
     // Setup input
@@ -595,8 +610,8 @@ export class GameManager {
     }
   }
 
-  private render(interpolation: number): void {
-    this.renderSystem.renderInterpolated(interpolation);
+  private render(interpolation: number, dt: number): void {
+    this.renderSystem.renderInterpolated(interpolation, dt);
   }
 
   start(): void {
@@ -1001,7 +1016,7 @@ export class GameManager {
     tile.chamberType = tile.chamberType === ChamberType.FungusFarm ? ChamberType.General : ChamberType.FungusFarm;
     this.undergroundGrid.invalidateChamberCache();
     if (this.renderSystem) {
-      (this.renderSystem as any).ugTextureReady = false;
+      this.renderSystem.invalidateUndergroundTexture();
     }
     return true;
   }
@@ -1034,7 +1049,7 @@ export class GameManager {
     this.undergroundGrid.invalidateChamberCache();
     // Invalidate texture cache
     if (this.renderSystem) {
-      (this.renderSystem as any).ugTextureReady = false;
+      this.renderSystem.invalidateUndergroundTexture();
     }
     return true;
   }
@@ -1054,7 +1069,7 @@ export class GameManager {
     tile.chamberType = tile.chamberType === ChamberType.Defense ? ChamberType.General : ChamberType.Defense;
     this.undergroundGrid.invalidateChamberCache();
     if (this.renderSystem) {
-      (this.renderSystem as any).ugTextureReady = false;
+      this.renderSystem.invalidateUndergroundTexture();
     }
     return true;
   }
@@ -1075,7 +1090,7 @@ export class GameManager {
     tile.chamberType = designating ? ChamberType.Queen : ChamberType.General;
     this.undergroundGrid.invalidateChamberCache();
     if (this.renderSystem) {
-      (this.renderSystem as any).ugTextureReady = false;
+      this.renderSystem.invalidateUndergroundTexture();
     }
     // Teach the command at the moment it becomes available
     if (designating) {
@@ -1163,7 +1178,7 @@ export class GameManager {
     this.undergroundGrid.invalidateChamberCache();
     // Invalidate texture cache
     if (this.renderSystem) {
-      (this.renderSystem as any).ugTextureReady = false;
+      this.renderSystem.invalidateUndergroundTexture();
     }
     return true;
   }
@@ -1192,6 +1207,58 @@ export class GameManager {
 
   getUndergroundGrid(): UndergroundGrid {
     return this.undergroundGrid;
+  }
+
+  // ── Underground minimap ────────────────────────────────────────────
+  // The underground is 90x60 tiles but a 1x-zoom viewport shows ~25x18, so the
+  // player sees under 10% of a base they dug themselves. These feed the minimap.
+
+  /** Camera viewport as a tile rect — drawn as the "you are here" box */
+  getUndergroundView(): { x: number; y: number; w: number; h: number } {
+    return this.undergroundCamera.getViewRectTiles();
+  }
+
+  /** Entrances the colony currently has — every one is also a breach point */
+  getUndergroundEntrances(): Array<{ x: number; y: number }> {
+    return this.undergroundGrid.getEntrances();
+  }
+
+  /** Pending dig orders as tiles — minimap markers */
+  getUndergroundDigOrders(): Array<{ x: number; y: number }> {
+    return this.excavationSystem.getJobTiles();
+  }
+
+  /** Recenter the underground camera on a tile (minimap click-to-navigate) */
+  centerUndergroundOn(tileX: number, tileY: number): void {
+    this.undergroundCamera.centerOn(tileX * TILE_SIZE, tileY * TILE_SIZE);
+  }
+
+  /** Live dots for the minimap. Polled a few times a second, never per frame. */
+  getUndergroundEntities(): MinimapEntity[] {
+    const out: MinimapEntity[] = [];
+
+    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.LAYER)) {
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
+      if (layer.layer !== Layer.Underground) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      out.push({ x: pos.x, y: pos.y, kind: ant.role });
+    }
+
+    for (const id of this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.POSITION)) {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      out.push({ x: pos.x, y: pos.y, kind: 'queen' });
+    }
+
+    // Beetles underground are wave invaders — the single most urgent dot
+    for (const id of this.world.query(COMPONENT.BEETLE, COMPONENT.POSITION, COMPONENT.LAYER)) {
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
+      if (layer.layer !== Layer.Underground) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      out.push({ x: pos.x, y: pos.y, kind: 'invader' });
+    }
+
+    return out;
   }
 
   getQueenStats(): { health: number; maxHealth: number; hunger: number; maxHunger: number; isLaying: boolean } | null {

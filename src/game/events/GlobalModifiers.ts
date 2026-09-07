@@ -5,6 +5,7 @@ export interface GlobalModifiers {
   foodSpawnMultiplier: number;         // 1.0 = normal, >1 = more food spawns
   decisionNoiseMultiplier: number;     // 1.0 = normal, >1 = more random decisions
   enemySpawnMultiplier: number;        // 1.0 = normal, >1 = predators spawn faster (night, events)
+  enemyAggressionMultiplier: number;   // 1.0 = normal, >1 = predators see further and commit harder (night)
 }
 
 export function createDefaultModifiers(): GlobalModifiers {
@@ -15,5 +16,6 @@ export function createDefaultModifiers(): GlobalModifiers {
     foodSpawnMultiplier: 1.0,
     decisionNoiseMultiplier: 1.0,
     enemySpawnMultiplier: 1.0,
+    enemyAggressionMultiplier: 1.0,
   };
 }

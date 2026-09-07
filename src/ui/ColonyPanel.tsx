@@ -49,7 +49,7 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
   const handleDispatchAttack = () => {
     if (!gameManager || !stats.selectedEntity) return;
     const sent = gameManager.dispatchAttackWave(stats.selectedEntity.entityId, attackCount);
-    setLastDispatch(`${sent} soldiers sent!`);
+    setLastDispatch(`¡${sent} soldados en camino!`);
     setTimeout(() => setLastDispatch(null), 3000);
   };
 
@@ -61,28 +61,46 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
     [AntRole.Defender]: '🛡️',
   };
 
+  // Every AntState value must appear here — a missing key leaks the raw enum
+  // (`hauling`, `tending_egg`) straight into the panel.
   const stateLabels: Record<string, string> = {
-    idle: 'Idle',
-    searching: 'Searching',
-    going_to_food: 'Going to Food',
-    harvesting: 'Harvesting',
-    returning_home: 'Returning Home',
-    depositing: 'Depositing',
-    fleeing: 'Fleeing!',
-    chasing_enemy: 'Chasing Enemy',
-    attacking_enemy: 'In Combat',
-    patrolling_nest: 'Patrolling',
-    going_to_den: 'Heading to Den',
-    attacking_den: 'Destroying Den',
-    healing: 'Healing 💚',
+    idle: 'En espera',
+    searching: 'Buscando',
+    going_to_food: 'Yendo a la comida',
+    harvesting: 'Cosechando',
+    returning_home: 'Volviendo al nido',
+    fleeing: '¡Huyendo!',
+    chasing_enemy: 'Persiguiendo enemigo',
+    attacking_enemy: 'En combate',
+    patrolling_nest: 'Patrullando',
+    going_to_den: 'Yendo a la guarida',
+    attacking_den: 'Destruyendo guarida',
+    healing: 'Curándose 💚',
+    feeding_queen: 'Alimentando a la reina',
+    tending_egg: 'Cuidando huevos',
+    fetching_food: 'Buscando comida en despensa',
+    going_to_dig_site: 'Yendo a excavar',
+    excavating: 'Excavando',
+    moving_egg: 'Trasladando huevo',
+    eating: 'Comiendo',
+    hauling: 'Acarreando',
+    scavenging: 'Carroñeando',
   };
 
   const beetleStateLabels: Record<string, string> = {
-    roaming: 'Roaming',
-    chasing_food: 'Hunting Food',
-    eating: 'Eating',
-    chasing_ant: 'Chasing Ant',
-    attacking: 'Attacking',
+    roaming: 'Merodeando',
+    chasing_food: 'Cazando comida',
+    eating: 'Comiendo',
+    chasing_ant: 'Persiguiendo hormiga',
+    attacking: 'Atacando',
+    retreating: 'Herido, se retira',
+  };
+
+  const cricketStateLabels: Record<string, string> = {
+    going_to_nest: 'Yendo al nido',
+    stealing_food: 'Robando comida',
+    retreating: 'Retirándose',
+    attacking: 'Atacando',
   };
 
   const leafStored = Math.max(0, stats.foodStored - stats.mushroomStored - stats.meatStored);
@@ -104,19 +122,19 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
       {/* Colony Overview */}
       <section>
         <h3 className="pixel-heading" style={{ margin: '0 0 12px 0' }}>
-          Colony Overview
+          Resumen de la colonia
         </h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>🐜 Workers:</span>
+            <span>🐜 Obreras:</span>
             <strong className={`pixel-number ${workerFlash}`}>{stats.workerCount}</strong>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>⚔️ Soldiers:</span>
+            <span>⚔️ Soldados:</span>
             <strong className={`pixel-number ${soldierFlash}`}>{stats.soldierCount}</strong>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>🔭 Scouts:</span>
+            <span>🔭 Exploradoras:</span>
             <strong className={`pixel-number ${scoutFlash}`}>{stats.scoutCount}</strong>
           </div>
           <div style={{
@@ -126,21 +144,21 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
             border: '1px solid var(--ui-border)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--ui-text-dim)' }}>Total Food:</span>
+              <span style={{ fontSize: '11px', color: 'var(--ui-text-dim)' }}>Comida total:</span>
               <strong className={`pixel-number ${foodFlash}`} style={{ fontSize: '9px' }}>{stats.foodStored}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span>🍃 Leaves:</span>
+              <span>🍃 Hojas:</span>
               <strong style={{ color: 'var(--accent-green)' }}>{leafStored}</strong>
             </div>
             <PixelBar ratio={leafStored / 200} color="var(--accent-green)" />
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', marginBottom: '4px' }}>
-              <span>🍄 Mushrooms:</span>
+              <span>🍄 Hongos:</span>
               <strong style={{ color: 'var(--accent-amber)' }}>{stats.mushroomStored}</strong>
             </div>
             <PixelBar ratio={stats.mushroomStored / 200} color="var(--accent-amber)" />
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', marginBottom: '4px' }}>
-              <span>🥩 Beetle Meat:</span>
+              <span>🥩 Carne:</span>
               <strong style={{ color: 'var(--accent-red)' }}>{stats.meatStored}</strong>
             </div>
             <PixelBar ratio={stats.meatStored / 200} color="var(--accent-red)" />
@@ -156,15 +174,15 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
           border: '2px solid var(--accent-red)',
         }}>
           <h3 className="pixel-heading" style={{ margin: '0 0 8px 0', color: 'var(--accent-red)' }}>
-            ⚠️ Threats
+            ⚠️ Amenazas
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>🪲 Beetles:</span>
+              <span>🪲 Escarabajos:</span>
               <strong style={{ color: 'var(--accent-red)' }}>{stats.beetleCount}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>🕳️ Dens:</span>
+              <span>🕳️ Guaridas:</span>
               <strong style={{ color: 'var(--accent-red)' }}>{stats.beetleDenCount}</strong>
             </div>
           </div>
@@ -191,13 +209,13 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
       {/* Colony Priority */}
       <section>
         <h3 className="pixel-heading" style={{ margin: '0 0 12px 0' }}>
-          Colony Priority
+          Prioridad de la colonia
         </h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {[
-            { value: ColonyPriority.Gather, label: 'Gather', desc: 'Workers focus on food collection', icon: '🍃' },
-            { value: ColonyPriority.Explore, label: 'Explore', desc: 'Scouts wander further afield', icon: '🔭' },
-            { value: ColonyPriority.Defend, label: 'Defend', desc: 'Soldiers patrol nest and hunt beetles', icon: '⚔️' },
+            { value: ColonyPriority.Gather, label: 'Recolectar', desc: 'Las obreras se concentran en juntar comida', icon: '🍃' },
+            { value: ColonyPriority.Explore, label: 'Explorar', desc: 'Las exploradoras se alejan más del nido', icon: '🔭' },
+            { value: ColonyPriority.Defend, label: 'Defender', desc: 'Los soldados patrullan el nido y cazan escarabajos', icon: '⚔️' },
           ].map((priority) => (
             <button
               key={priority.value}
@@ -264,17 +282,17 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
             <div>
-              <strong>Position:</strong> ({stats.selectedEntity.position.x}, {stats.selectedEntity.position.y})
+              <strong>Posición:</strong> ({stats.selectedEntity.position.x}, {stats.selectedEntity.position.y})
             </div>
 
             {stats.selectedEntity.type === 'ant' && (
               <>
                 <div>
-                  <strong>State:</strong> {stateLabels[stats.selectedEntity.state!] || stats.selectedEntity.state}
+                  <strong>Estado:</strong> {stateLabels[stats.selectedEntity.state!] || stats.selectedEntity.state}
                 </div>
                 {stats.selectedEntity.health && (
                   <div>
-                    <strong>Health:</strong>
+                    <strong>Vida:</strong>
                     <div style={{ marginTop: '4px' }}>
                       <PixelBar
                         ratio={stats.selectedEntity.health.current / stats.selectedEntity.health.max}
@@ -288,7 +306,7 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
                 )}
                 {stats.selectedEntity.hunger && (
                   <div>
-                    <strong>Hunger:</strong>
+                    <strong>Hambre:</strong>
                     <div style={{ marginTop: '4px' }}>
                       <PixelBar
                         ratio={stats.selectedEntity.hunger.current / stats.selectedEntity.hunger.max}
@@ -302,7 +320,7 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
                 )}
                 {stats.selectedEntity.carrying && (
                   <div>
-                    <strong>Carrying:</strong>{' '}
+                    <strong>Llevando:</strong>{' '}
                     {stats.selectedEntity.carrying.type
                       ? `${Math.round(stats.selectedEntity.carrying.amount)} ${stats.selectedEntity.carrying.type}`
                       : 'nothing'}
@@ -314,12 +332,12 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
             {stats.selectedEntity.type === 'food' && (
               <>
                 <div>
-                  <strong>Type:</strong>{' '}
+                  <strong>Tipo:</strong>{' '}
                   {stats.selectedEntity.foodType === 'beetle_meat' ? '🥩 Beetle Meat' :
                    stats.selectedEntity.foodType === 'mushroom' ? '🍄 Mushroom' : '🍃 Leaf'}
                 </div>
                 <div>
-                  <strong>Amount:</strong> {stats.selectedEntity.foodAmount}
+                  <strong>Cantidad:</strong> {stats.selectedEntity.foodAmount}
                 </div>
               </>
             )}
@@ -327,16 +345,16 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
             {stats.selectedEntity.type === 'nest' && (
               <>
                 <div>
-                  <strong>🍃 Leaves:</strong> {Math.max(0, (stats.selectedEntity.foodStored ?? 0) - (stats.selectedEntity.mushroomStored ?? 0) - (stats.selectedEntity.meatStored ?? 0))}
+                  <strong>🍃 Hojas:</strong> {Math.max(0, (stats.selectedEntity.foodStored ?? 0) - (stats.selectedEntity.mushroomStored ?? 0) - (stats.selectedEntity.meatStored ?? 0))}
                 </div>
                 <div>
-                  <strong>🍄 Mushrooms:</strong> {stats.selectedEntity.mushroomStored ?? 0}
+                  <strong>🍄 Hongos:</strong> {stats.selectedEntity.mushroomStored ?? 0}
                 </div>
                 <div>
-                  <strong>🥩 Beetle Meat:</strong> {stats.selectedEntity.meatStored ?? 0}
+                  <strong>🥩 Carne:</strong> {stats.selectedEntity.meatStored ?? 0}
                 </div>
                 <div>
-                  <strong>Total Ants:</strong> {stats.selectedEntity.totalAnts}
+                  <strong>Hormigas totales:</strong> {stats.selectedEntity.totalAnts}
                 </div>
               </>
             )}
@@ -344,11 +362,11 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
             {stats.selectedEntity.type === 'beetle' && (
               <>
                 <div>
-                  <strong>State:</strong> {beetleStateLabels[stats.selectedEntity.beetleState!] || stats.selectedEntity.beetleState}
+                  <strong>Estado:</strong> {beetleStateLabels[stats.selectedEntity.beetleState!] || stats.selectedEntity.beetleState}
                 </div>
                 {stats.selectedEntity.beetleHealth && (
                   <div>
-                    <strong>Health:</strong>
+                    <strong>Vida:</strong>
                     <div style={{ marginTop: '4px' }}>
                       <PixelBar
                         ratio={stats.selectedEntity.beetleHealth.current / stats.selectedEntity.beetleHealth.max}
@@ -367,7 +385,7 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
               <>
                 {stats.selectedEntity.denHealth && (
                   <div>
-                    <strong>Health:</strong>
+                    <strong>Vida:</strong>
                     <div style={{ marginTop: '4px' }}>
                       <PixelBar
                         ratio={stats.selectedEntity.denHealth.current / stats.selectedEntity.denHealth.max}
@@ -380,17 +398,17 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
                   </div>
                 )}
                 <div>
-                  <strong>Active Beetles:</strong> {stats.selectedEntity.denActiveBeetles} / {stats.selectedEntity.denMaxBeetles}
+                  <strong>Escarabajos activos:</strong> {stats.selectedEntity.denActiveBeetles} / {stats.selectedEntity.denMaxBeetles}
                 </div>
               </>
             )}
 
             {stats.selectedEntity.type === 'cricket' && (
               <>
-                <div><strong>State:</strong> {stats.selectedEntity.cricketState}</div>
+                <div><strong>Estado:</strong> {cricketStateLabels[stats.selectedEntity.cricketState!] || stats.selectedEntity.cricketState}</div>
                 {stats.selectedEntity.cricketHealth && (
                   <div>
-                    <strong>Health:</strong>
+                    <strong>Vida:</strong>
                     <div style={{ marginTop: '4px' }}>
                       <PixelBar
                         ratio={stats.selectedEntity.cricketHealth.current / stats.selectedEntity.cricketHealth.max}
@@ -409,7 +427,7 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
               <>
                 {stats.selectedEntity.cricketDenHealth && (
                   <div>
-                    <strong>Health:</strong>
+                    <strong>Vida:</strong>
                     <div style={{ marginTop: '4px' }}>
                       <PixelBar
                         ratio={stats.selectedEntity.cricketDenHealth.current / stats.selectedEntity.cricketDenHealth.max}
@@ -422,7 +440,7 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
                   </div>
                 )}
                 <div>
-                  <strong>Active Crickets:</strong> {stats.selectedEntity.cricketDenActiveCrickets}
+                  <strong>Grillos activos:</strong> {stats.selectedEntity.cricketDenActiveCrickets}
                 </div>
               </>
             )}
@@ -437,9 +455,9 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
                   <span style={{ fontSize: '14px' }}>⚔️</span>
-                  <strong style={{ color: 'var(--accent-red)', fontSize: '12px' }}>Attack Wave</strong>
+                  <strong style={{ color: 'var(--accent-red)', fontSize: '12px' }}>Oleada de ataque</strong>
                   <span style={{ fontSize: '10px', color: 'var(--ui-text-dim)', marginLeft: 'auto' }}>
-                    {stats.availableSoldiers} available
+                    {stats.availableSoldiers} disponibles
                   </span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -466,7 +484,7 @@ export function ColonyPanel({ stats, gameManager }: ColonyPanelProps) {
                     fontWeight: 'bold',
                   }}
                 >
-                  Send {Math.min(attackCount, stats.availableSoldiers)} Soldiers
+                  Enviar {Math.min(attackCount, stats.availableSoldiers)} soldados
                 </button>
                 {lastDispatch && (
                   <div style={{ fontSize: '10px', color: 'var(--accent-green)', marginTop: '4px', textAlign: 'center' }}>

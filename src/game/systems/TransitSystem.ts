@@ -9,7 +9,7 @@ import {
   type AntComponent,
   type PathComponent,
 } from '../components/components';
-import { UNDERGROUND_WIDTH, WORLD_WIDTH, WORLD_HEIGHT, TRANSIT_DURATION } from '../../shared/constants';
+import { WORLD_WIDTH, WORLD_HEIGHT, TRANSIT_DURATION } from '../../shared/constants';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 
 export interface TransitRequest {
@@ -17,6 +17,10 @@ export interface TransitRequest {
   direction: 'enter' | 'exit';
   timer: number;
   phase: 'walking' | 'transitioning';
+  /** Which entrance this ant is using. Pinned at request time so the walk
+   *  target can't drift to a different shaft mid-journey. */
+  entranceX: number;
+  entranceY: number;
 }
 
 export class TransitSystem implements System {
@@ -24,6 +28,11 @@ export class TransitSystem implements System {
   readonly priority = 11;
 
   private transitQueue: TransitRequest[] = [];
+
+  /** Round-robin cursor for surface -> underground arrivals. Spreading arrivals
+   *  across entrances is the point of digging extra ones: with a single shaft
+   *  every ant pops out on the same tiles and the crowding cap does the rest. */
+  private enterRotation = 0;
 
   private world: World;
   private grid: UndergroundGrid;
@@ -42,23 +51,51 @@ export class TransitSystem implements System {
     if (this.transitQueue.some(t => t.entityId === entityId)) return;
 
     if (direction === 'exit') {
-      // Walk to underground entrance using BFS pathfinding
+      // Walk to the CLOSEST entrance, not a fixed one — that shorter walk is
+      // half the value of digging a second shaft.
       const pos = this.world.getComponent<PositionComponent>(entityId, COMPONENT.POSITION);
       const pathComp = this.world.getComponent<PathComponent>(entityId, COMPONENT.PATH);
-      const entranceX = Math.floor(UNDERGROUND_WIDTH / 2);
-      const entranceY = 2;
+      if (!pos) return;
 
-      if (pos && pathComp) {
-        const route = this.grid.findPath(pos.x, pos.y, entranceX, entranceY);
+      const entrance = this.grid.findNearestEntrance(pos.x, pos.y);
+      if (!entrance) return; // nest fully sealed — nobody can leave
+
+      if (pathComp) {
+        const route = this.grid.findPath(pos.x, pos.y, entrance.x, entrance.y);
         if (route && route.length > 0) {
           pathComp.waypoints = route;
           pathComp.currentIndex = 0;
         }
       }
-      this.transitQueue.push({ entityId, direction, timer: TRANSIT_DURATION, phase: 'walking' });
+      this.transitQueue.push({
+        entityId,
+        direction,
+        timer: TRANSIT_DURATION,
+        phase: 'walking',
+        entranceX: entrance.x,
+        entranceY: entrance.y,
+      });
     } else {
-      this.transitQueue.push({ entityId, direction, timer: TRANSIT_DURATION, phase: 'transitioning' });
+      const entrance = this.nextEnterEntrance();
+      if (!entrance) return;
+      this.transitQueue.push({
+        entityId,
+        direction,
+        timer: TRANSIT_DURATION,
+        phase: 'transitioning',
+        entranceX: entrance.x,
+        entranceY: entrance.y,
+      });
     }
+  }
+
+  /** Next entrance in rotation for an arriving ant */
+  private nextEnterEntrance(): { x: number; y: number } | null {
+    const entrances = this.grid.getEntrances();
+    if (entrances.length === 0) return null;
+    const pick = entrances[this.enterRotation % entrances.length];
+    this.enterRotation = (this.enterRotation + 1) % entrances.length;
+    return pick;
   }
 
   isInTransit(entityId: number): boolean {
@@ -79,8 +116,8 @@ export class TransitSystem implements System {
         const pos = this.world.getComponent<PositionComponent>(transit.entityId, COMPONENT.POSITION);
         if (!pos) { this.transitQueue.splice(i, 1); continue; }
 
-        const entranceX = Math.floor(UNDERGROUND_WIDTH / 2);
-        const entranceY = 2;
+        const entranceX = transit.entranceX;
+        const entranceY = transit.entranceY;
         const dx = (entranceX + 0.5) - pos.x;
         const dy = (entranceY + 0.5) - pos.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -120,9 +157,9 @@ export class TransitSystem implements System {
     if (transit.direction === 'enter') {
       // Surface → Underground
       layer.layer = Layer.Underground;
-      // Place at underground entrance (top-center) — tile CENTER is at +0.5 underground
-      pos.x = Math.floor(UNDERGROUND_WIDTH / 2) + 0.5;
-      pos.y = 2.5;
+      // Drop in at the entrance assigned by the rotation — tile CENTER is +0.5
+      pos.x = transit.entranceX + 0.5;
+      pos.y = transit.entranceY + 0.5;
       pos.prevX = pos.x;
       pos.prevY = pos.y;
     } else {

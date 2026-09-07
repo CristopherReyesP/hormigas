@@ -66,6 +66,28 @@ export class Camera {
     return this.zoom;
   }
 
+  /** World pixel -> screen pixel. Inverse of screenToWorld; keeps
+   *  PERSPECTIVE_Y_SCALE private so callers that place screen-space effects
+   *  (the night light pools) cannot drift out of sync with the transform. */
+  worldToScreen(worldX: number, worldY: number): { x: number; y: number } {
+    return {
+      x: (worldX - this.x) * this.zoom,
+      y: (worldY - this.y) * this.zoom * PERSPECTIVE_Y_SCALE,
+    };
+  }
+
+  /** Visible world rect expressed in TILES. Keeps PERSPECTIVE_Y_SCALE private
+   *  to this class — callers that draw a viewport box (the minimap) must not
+   *  re-derive it and drift out of sync. */
+  getViewRectTiles(): { x: number; y: number; w: number; h: number } {
+    return {
+      x: this.x / TILE_SIZE,
+      y: this.y / TILE_SIZE,
+      w: CANVAS_WIDTH / this.zoom / TILE_SIZE,
+      h: CANVAS_HEIGHT / (this.zoom * PERSPECTIVE_Y_SCALE) / TILE_SIZE,
+    };
+  }
+
   centerOn(worldPixelX: number, worldPixelY: number): void {
     const viewW = CANVAS_WIDTH / this.zoom;
     const viewH = CANVAS_HEIGHT / (this.zoom * PERSPECTIVE_Y_SCALE);

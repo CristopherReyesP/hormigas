@@ -41,6 +41,18 @@ export const PAL = {
   meat: ['#6e2f2f', '#8a3b3b', '#b8625a'],
   wood: ['#4a3220', '#6b4a2c', '#8f6a3e'],
 
+  // ── Sky washes: the surface time-of-day ramp ──────────────
+  // Ordered dawn -> noon -> dusk -> night. PostProcessor picks ONE of these per
+  // frame (never blends two) so the sky steps between states the way the rest
+  // of the art steps between shades.
+  skyDawn: '#e0834a',
+  skyMorning: '#f0b541',
+  skyNoon: '#f6e6bc',
+  skyAfternoon: '#e8a24e',
+  skyDusk: '#c9553a',
+  skyNightEdge: '#0d162e',
+  skyNightDeep: '#090e26',
+
   // ── Glows, pheromones, FX ─────────────────────────────────
   glowAmber: '#f0b541',
   glowGreen: '#8adb5a',

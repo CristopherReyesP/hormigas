@@ -3,8 +3,10 @@ import type { World } from '../../engine/ecs/World';
 import type { TileGrid } from '../../simulation/world/TileGrid';
 import {
   COMPONENT,
+  Layer,
   type PositionComponent,
   type BeetleDenComponent,
+  type LayerComponent,
 } from '../components/components';
 import { createBeetle } from '../entities/factories';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
@@ -33,7 +35,11 @@ export class BeetleSpawnSystem implements System {
   }
 
   update(dt: number): void {
-    const totalBeetles = this.world.query(COMPONENT.BEETLE).length;
+    // Only SURFACE beetles count against the cap. Invasion waves spawn beetles
+    // underground through UndergroundInvasionSystem; counting those here meant
+    // a 4-beetle wave silently froze surface spawning — the map went quiet
+    // exactly while the player was busiest, and stayed quiet after.
+    const totalBeetles = this.countSurfaceBeetles();
 
     // Den spawning
     const dens = this.world.query(COMPONENT.BEETLE_DEN, COMPONENT.POSITION);
@@ -72,6 +78,16 @@ export class BeetleSpawnSystem implements System {
         }
       }
     }
+  }
+
+  private countSurfaceBeetles(): number {
+    let count = 0;
+    for (const id of this.world.query(COMPONENT.BEETLE)) {
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+      if (layer && layer.layer !== Layer.Surface) continue;
+      count++;
+    }
+    return count;
   }
 
   private getRandomEdgePosition(): { x: number; y: number } | null {

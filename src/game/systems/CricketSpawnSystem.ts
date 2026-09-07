@@ -1,6 +1,7 @@
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { TileGrid } from '../../simulation/world/TileGrid';
+import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import {
   COMPONENT,
   type NestComponent,
@@ -21,11 +22,13 @@ export class CricketSpawnSystem implements System {
 
   private world: World;
   private grid: TileGrid;
+  private undergroundGrid: UndergroundGrid;
   private modifiers: GlobalModifiers;
 
-  constructor(world: World, grid: TileGrid, modifiers: GlobalModifiers) {
+  constructor(world: World, grid: TileGrid, undergroundGrid: UndergroundGrid, modifiers: GlobalModifiers) {
     this.world = world;
     this.grid = grid;
+    this.undergroundGrid = undergroundGrid;
     this.modifiers = modifiers;
   }
 
@@ -40,8 +43,12 @@ export class CricketSpawnSystem implements System {
 
     const { nest, nestPos } = nestData;
 
-    // Only spawn a den when food threshold is met and no dens exist
-    if (nest.foodStored < CRICKET_SPAWN_FOOD_THRESHOLD) return;
+    // Only spawn a den when the food threshold is met and no dens exist.
+    // The wealth that attracts crickets is the PANTRY: `nest.foodStored` is a
+    // porter buffer that only ever drains, so gating on it alone meant the
+    // threshold was never crossed and the entire cricket line was dead content.
+    const colonyFood = nest.foodStored + this.undergroundGrid.getPantryStored().total;
+    if (colonyFood < CRICKET_SPAWN_FOOD_THRESHOLD) return;
 
     const existingDens = this.world.query(COMPONENT.CRICKET_DEN);
     if (existingDens.length > 0) return;

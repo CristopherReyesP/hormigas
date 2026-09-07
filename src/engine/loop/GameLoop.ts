@@ -1,7 +1,9 @@
 import { FIXED_TIMESTEP, MAX_DELTA } from '../../shared/constants';
 
 export type UpdateFn = (dt: number) => void;
-export type RenderFn = (interpolation: number) => void;
+/** dt is the REAL frame delta in seconds, already scaled by game speed and
+ *  forced to 0 while paused — render-driven animation must obey both. */
+export type RenderFn = (interpolation: number, dt: number) => void;
 
 export class GameLoop {
   private running = false;
@@ -82,6 +84,10 @@ export class GameLoop {
     }
 
     const interpolation = this.accumulator / FIXED_TIMESTEP;
-    this.onRender(interpolation);
+    // Animation runs off wall-clock frame time, not a hardcoded 1/60: that was
+    // wrong on any display that is not exactly 60Hz, ignored the speed setting,
+    // and kept animating while paused.
+    const renderDt = this.paused ? 0 : (delta / 1000) * this.speed;
+    this.onRender(interpolation, renderDt);
   };
 }

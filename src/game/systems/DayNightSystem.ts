@@ -7,6 +7,7 @@ import {
   DUSK_WARNING,
   NIGHT_ENEMY_SPAWN_MULTIPLIER,
   NIGHT_FOOD_SPAWN_MULTIPLIER,
+  NIGHT_ENEMY_AGGRESSION_MULTIPLIER,
 } from '../../shared/constants';
 
 export type DayPhase = 'day' | 'night';
@@ -33,6 +34,13 @@ export class DayNightSystem implements System {
   private phaseTimer = DAY_DURATION;
   private dayNumber = 1;
   private duskWarned = false;
+  /** Optional: "is an invasion wave armed?" — waves launch at nightfall, so the
+   *  dusk warning is the last moment the player can still prepare for one. */
+  private isWaveArmed: (() => boolean) | null = null;
+
+  setWaveArmedProvider(fn: () => boolean): void {
+    this.isWaveArmed = fn;
+  }
 
   constructor(world: World, modifiers: GlobalModifiers) {
     this.world = world;
@@ -63,9 +71,12 @@ export class DayNightSystem implements System {
 
     if (this.phase === 'day' && !this.duskWarned && this.phaseTimer <= DUSK_WARNING) {
       this.duskWarned = true;
+      const armed = this.isWaveArmed !== null && this.isWaveArmed();
       this.world.pushNotification(
-        'warning',
-        `🌆 Anochece en ${DUSK_WARNING}s — los depredadores salen a cazar de noche`
+        armed ? 'danger' : 'warning',
+        armed
+          ? `🌆 Anochece en ${DUSK_WARNING}s — Y VIENE LA OLEADA. Última chance de replegar la guarnición`
+          : `🌆 Anochece en ${DUSK_WARNING}s — los depredadores salen a cazar de noche`
       );
     }
 
@@ -87,6 +98,10 @@ export class DayNightSystem implements System {
     if (this.phase === 'night') {
       this.modifiers.enemySpawnMultiplier *= NIGHT_ENEMY_SPAWN_MULTIPLIER;
       this.modifiers.foodSpawnMultiplier *= NIGHT_FOOD_SPAWN_MULTIPLIER;
+      // "At night the surface belongs to predators" used to be pure flavour: only
+      // the SPAWN rate changed, so a beetle at midnight hunted exactly like one at
+      // noon. Aggression widens their detection, which is what the message promises.
+      this.modifiers.enemyAggressionMultiplier *= NIGHT_ENEMY_AGGRESSION_MULTIPLIER;
     }
   }
 }

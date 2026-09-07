@@ -13,11 +13,32 @@ import {
   type CombatComponent,
   type FoodSourceComponent,
   type AntComponent,
+  type HealthComponent,
   type LayerComponent,
   Layer,
 } from '../components/components';
 import { findPath } from '../../simulation/pathfinding/AStar';
-import { BEETLE_STATS, DANGER_PHEROMONE_PASSIVE_STRENGTH, PHEROMONE_MAX } from '../../shared/constants';
+import type { GlobalModifiers } from '../events/GlobalModifiers';
+import {
+  BEETLE_STATS,
+  DANGER_PHEROMONE_PASSIVE_STRENGTH,
+  PHEROMONE_MAX,
+  BEETLE_RETREAT_HEALTH_RATIO,
+  BEETLE_RETREAT_DURATION,
+  BEETLE_REGEN_RATE,
+  BEETLE_CHASE_REPATH_INTERVAL,
+  BEETLE_SWARM_RADIUS,
+  BEETLE_SWARM_AVOIDANCE,
+  BEETLE_SOLDIER_AVOIDANCE,
+} from '../../shared/constants';
+
+/** Surface ants visible to predators this tick — one snapshot shared by every beetle */
+interface PreySnapshot {
+  id: EntityId;
+  x: number;
+  y: number;
+  isSoldier: boolean;
+}
 
 export class BeetleAISystem implements System {
   readonly name = 'BeetleAISystem';
@@ -25,13 +46,24 @@ export class BeetleAISystem implements System {
 
   private world: World;
   private grid: TileGrid;
+  private modifiers: GlobalModifiers;
 
-  constructor(world: World, grid: TileGrid) {
+  /** Rebuilt once per tick — beetles used to run a full world.query EACH, EVERY frame */
+  private prey: PreySnapshot[] = [];
+
+  constructor(world: World, grid: TileGrid, modifiers: GlobalModifiers) {
     this.world = world;
     this.grid = grid;
+    this.modifiers = modifiers;
+  }
+
+  /** Detection range, widened at night (GlobalModifiers.enemyAggressionMultiplier) */
+  private get visionRange(): number {
+    return BEETLE_STATS.visionRange * this.modifiers.enemyAggressionMultiplier;
   }
 
   update(dt: number): void {
+    this.buildPreySnapshot();
     const beetles = this.world.query(COMPONENT.BEETLE, COMPONENT.POSITION, COMPONENT.PATH);
 
     for (const id of beetles) {
@@ -45,6 +77,7 @@ export class BeetleAISystem implements System {
       const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT)!;
 
       beetle.stateTimer += dt;
+      if (beetle.repathTimer !== undefined) beetle.repathTimer -= dt;
 
       // All beetles emit passive danger pheromone
       const tile = this.grid.getTile(Math.round(pos.x), Math.round(pos.y));
@@ -52,7 +85,26 @@ export class BeetleAISystem implements System {
         tile.dangerPheromone = Math.min(PHEROMONE_MAX, tile.dangerPheromone + DANGER_PHEROMONE_PASSIVE_STRENGTH);
       }
 
+      // Self-preservation beats appetite: a beetle bleeding out disengages and
+      // runs instead of feeding the colony free meat. Underground invaders never
+      // get here (skipped above) — those are fanatics on purpose.
+      if (
+        beetle.state !== BeetleState.Retreating &&
+        this.healthRatio(id) < BEETLE_RETREAT_HEALTH_RATIO
+      ) {
+        beetle.state = BeetleState.Retreating;
+        beetle.stateTimer = 0;
+        beetle.targetEntityId = null;
+        combat.targetEntityId = null;
+        path.waypoints = [];
+        path.currentIndex = 0;
+      }
+
       switch (beetle.state) {
+        case BeetleState.Retreating:
+          this.handleRetreating(id, beetle, pos, path, dt);
+          break;
+
         case BeetleState.Roaming:
           this.handleRoaming(id, beetle, pos, path, combat);
           break;
@@ -84,7 +136,7 @@ export class BeetleAISystem implements System {
     combat: CombatComponent
   ): void {
     // Priority 1: Look for nearby ants
-    const nearbyAnt = this.findNearestAnt(pos, BEETLE_STATS.visionRange);
+    const nearbyAnt = this.findNearestAnt(pos, this.visionRange);
     if (nearbyAnt) {
       beetle.state = BeetleState.ChasingAnt;
       beetle.targetEntityId = nearbyAnt.id;
@@ -93,7 +145,7 @@ export class BeetleAISystem implements System {
     }
 
     // Priority 2: Look for nearby food
-    const nearbyFood = this.findNearestFood(pos, BEETLE_STATS.visionRange);
+    const nearbyFood = this.findNearestFood(pos, this.visionRange);
     if (nearbyFood) {
       beetle.state = BeetleState.ChasingFood;
       beetle.targetEntityId = nearbyFood.id;
@@ -261,7 +313,7 @@ export class BeetleAISystem implements System {
     }
 
     // Lost them — too far away
-    if (dist > BEETLE_STATS.visionRange * 2) {
+    if (dist > this.visionRange * 2) {
       beetle.state = BeetleState.Roaming;
       beetle.targetEntityId = null;
       beetle.stateTimer = 0;
@@ -276,8 +328,12 @@ export class BeetleAISystem implements System {
       return;
     }
 
-    // Update path to ant
-    if (path.waypoints.length === 0 || path.currentIndex >= path.waypoints.length) {
+    // Re-aim periodically: ants MOVE. Repathing only when the path ran out meant
+    // the beetle walked to where the ant stood seconds ago and lost every chase
+    // against anything faster than itself (every scout, and every fleeing worker).
+    const pathExhausted = path.waypoints.length === 0 || path.currentIndex >= path.waypoints.length;
+    if (pathExhausted || beetle.repathTimer === undefined || beetle.repathTimer <= 0) {
+      beetle.repathTimer = BEETLE_CHASE_REPATH_INTERVAL;
       const currentPos = { x: Math.round(pos.x), y: Math.round(pos.y) };
       const targetPos = { x: Math.round(antPos.x), y: Math.round(antPos.y) };
       const newPath = findPath(this.grid, currentPos, targetPos);
@@ -288,6 +344,69 @@ export class BeetleAISystem implements System {
     }
 
     void id;
+  }
+
+  /**
+   * Wounded: run for the den (or simply away from the ants), regenerating.
+   * The player now has a real decision — commit to the kill or let it come back.
+   */
+  private handleRetreating(
+    id: EntityId,
+    beetle: BeetleComponent,
+    pos: PositionComponent,
+    path: PathComponent,
+    dt: number
+  ): void {
+    const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+    if (health) {
+      health.current = Math.min(health.max, health.current + BEETLE_REGEN_RATE * dt);
+    }
+
+    const recovered = !health || health.current >= health.max * 0.9;
+    if (recovered || beetle.stateTimer > BEETLE_RETREAT_DURATION) {
+      beetle.state = BeetleState.Roaming;
+      beetle.stateTimer = 0;
+      path.waypoints = [];
+      path.currentIndex = 0;
+      return;
+    }
+
+    if (path.waypoints.length > 0 && path.currentIndex < path.waypoints.length) return;
+
+    // Home is the den; without one, just put distance between itself and the ants
+    let target: Vector2 | null = null;
+    if (beetle.denEntityId !== null && this.world.hasEntity(beetle.denEntityId)) {
+      const denPos = this.world.getComponent<PositionComponent>(beetle.denEntityId, COMPONENT.POSITION);
+      if (denPos) target = { x: Math.round(denPos.x), y: Math.round(denPos.y) };
+    }
+    if (!target) {
+      const threat = this.findNearestAnt(pos, this.visionRange * 2);
+      if (threat) {
+        const dx = pos.x - threat.pos.x;
+        const dy = pos.y - threat.pos.y;
+        const len = Math.hypot(dx, dy) || 1;
+        for (let d = 10; d >= 3; d -= 2) {
+          const tx = Math.round(pos.x + (dx / len) * d);
+          const ty = Math.round(pos.y + (dy / len) * d);
+          if (this.grid.isWalkable(tx, ty)) {
+            target = { x: tx, y: ty };
+            break;
+          }
+        }
+      }
+    }
+    if (!target) target = this.getRandomWalkTarget(pos);
+    if (!target) return;
+
+    const route = findPath(this.grid, { x: Math.round(pos.x), y: Math.round(pos.y) }, target);
+    path.waypoints = route && route.length > 0 ? route : [target];
+    path.currentIndex = 0;
+  }
+
+  private healthRatio(id: EntityId): number {
+    const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+    if (!health || health.max === 0) return 1;
+    return health.current / health.max;
   }
 
   private handleAttacking(
@@ -328,29 +447,64 @@ export class BeetleAISystem implements System {
     void id;
   }
 
-  private findNearestAnt(pos: PositionComponent, visionRange: number): { id: EntityId; pos: PositionComponent } | null {
-    const ants = this.world.query(COMPONENT.ANT, COMPONENT.POSITION);
-    let nearest: { id: EntityId; pos: PositionComponent } | null = null;
-    let nearestDist = Infinity;
-
-    for (const antId of ants) {
+  /**
+   * SURFACE ants only. Layers share coordinates, so an unfiltered query let a
+   * beetle standing on the lawn lock onto a nurse two chambers underground —
+   * it then walked to a spot where nothing was and CombatSystem (which does
+   * check layers) refused the hit. The whole chase was a hallucination.
+   */
+  private buildPreySnapshot(): void {
+    this.prey.length = 0;
+    for (const antId of this.world.query(COMPONENT.ANT, COMPONENT.POSITION)) {
+      const layer = this.world.getComponent<LayerComponent>(antId, COMPONENT.LAYER);
+      if (layer && layer.layer !== Layer.Surface) continue;
       const antPos = this.world.getComponent<PositionComponent>(antId, COMPONENT.POSITION)!;
-      const dist = this.distance(pos, antPos);
+      const ant = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT);
+      this.prey.push({
+        id: antId,
+        x: antPos.x,
+        y: antPos.y,
+        isSoldier: ant !== undefined && ant.role === AntRole.Soldier,
+      });
+    }
+  }
 
+  /**
+   * Picks prey by PERCEIVED cost, not raw distance: an ant surrounded by its
+   * sisters is a losing fight (ants get a flanking damage bonus for swarming),
+   * so a lone forager two tiles further away is the smarter meal.
+   */
+  private findNearestAnt(pos: PositionComponent, visionRange: number): { id: EntityId; pos: PositionComponent } | null {
+    let bestId: EntityId | null = null;
+    let bestPos: { x: number; y: number } | null = null;
+    let bestScore = Infinity;
+
+    for (const candidate of this.prey) {
+      const dist = Math.hypot(candidate.x - pos.x, candidate.y - pos.y);
       if (dist >= visionRange) continue;
 
-      // Prefer workers and scouts over soldiers
-      const ant = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT);
-      const preference = ant && ant.role === AntRole.Soldier ? 1.2 : 1.0;
-      const effectiveDist = dist * preference;
+      // How much backup does this ant have within biting distance?
+      let escorts = 0;
+      for (const other of this.prey) {
+        if (other.id === candidate.id) continue;
+        if (Math.hypot(other.x - candidate.x, other.y - candidate.y) < BEETLE_SWARM_RADIUS) escorts++;
+      }
 
-      if (effectiveDist < nearestDist) {
-        nearestDist = effectiveDist;
-        nearest = { id: antId, pos: antPos };
+      const score =
+        dist *
+        (candidate.isSoldier ? BEETLE_SOLDIER_AVOIDANCE : 1.0) *
+        (1 + BEETLE_SWARM_AVOIDANCE * escorts);
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestId = candidate.id;
+        bestPos = { x: candidate.x, y: candidate.y };
       }
     }
 
-    return nearest;
+    if (bestId === null || !bestPos) return null;
+    const livePos = this.world.getComponent<PositionComponent>(bestId, COMPONENT.POSITION);
+    return livePos ? { id: bestId, pos: livePos } : null;
   }
 
   private findNearestFood(pos: PositionComponent, visionRange: number): { id: EntityId; pos: PositionComponent } | null {

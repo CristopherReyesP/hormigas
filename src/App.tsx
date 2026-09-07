@@ -7,6 +7,7 @@ import { UndergroundPanel } from './ui/UndergroundPanel';
 import { UndergroundControls } from './ui/UndergroundControls';
 import { NotificationStack } from './ui/NotificationStack';
 import { BuildToolbar } from './ui/BuildToolbar';
+import { UndergroundMinimap } from './ui/UndergroundMinimap';
 import { PopulationChip } from './ui/PopulationChip';
 import { ObjectivePanel } from './ui/ObjectivePanel';
 import { GameOverScreen } from './ui/GameOverScreen';
@@ -44,7 +45,7 @@ const DEFAULT_STATS: GameStats = {
   selectedEntity: null,
   notifications: [],
   objective: null,
-  invasion: { waveNumber: 0, nextWaveIn: 180, active: false, invadersAlive: 0 },
+  invasion: { waveNumber: 0, nextWaveIn: 180, active: false, invadersAlive: 0, armed: false },
   gameOver: null,
   activeEvents: [],
   dayPhase: 'day',
@@ -56,6 +57,7 @@ export default function App() {
   const [stats, setStats] = useState<GameStats>(DEFAULT_STATS);
   const [gameKey, setGameKey] = useState(0);
   const gameManagerRef = useRef<GameManager | null>(null);
+  const [gameManager, setGameManager] = useState<GameManager | null>(null);
 
   const handleRestart = useCallback(() => {
     setStats(DEFAULT_STATS);
@@ -68,6 +70,7 @@ export default function App() {
 
   const handleGameManager = useCallback((gm: GameManager) => {
     gameManagerRef.current = gm;
+    setGameManager(gm);
   }, []);
 
   const handleTogglePause = useCallback(() => {
@@ -109,7 +112,7 @@ export default function App() {
         {stats.activeLayer === 'underground' && (
           <UndergroundControls
             onExitUnderground={handleExitUnderground}
-            gameManager={gameManagerRef.current}
+            gameManager={gameManager}
           />
         )}
       </div>
@@ -128,7 +131,8 @@ export default function App() {
               nurseCount={stats.nurseCount}
               defenderCount={stats.defenderCount}
             />
-            <BuildToolbar gameManager={gameManagerRef.current} />
+            <BuildToolbar gameManager={gameManager} />
+            <UndergroundMinimap gameManager={gameManager} />
           </>
         )}
         {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
@@ -142,9 +146,9 @@ export default function App() {
         overflowY: 'auto',
       }}>
         {stats.activeLayer === 'underground' ? (
-          <UndergroundPanel gameManager={gameManagerRef.current} />
+          <UndergroundPanel gameManager={gameManager} />
         ) : (
-          <ColonyPanel stats={stats} gameManager={gameManagerRef.current} />
+          <ColonyPanel stats={stats} gameManager={gameManager} />
         )}
       </div>
     </div>

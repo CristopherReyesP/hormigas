@@ -151,7 +151,11 @@ export const CRICKET_DEN_STATS = {
 } as const;
 
 // Cricket spawning
-export const CRICKET_SPAWN_FOOD_THRESHOLD = 1000;
+// Total colony food (surface buffer + underground pantry) that summons the
+// cricket mini-boss. Above the 450 the starting pantry holds, so it demands a
+// real expansion — but reachable, unlike the old 1000 measured against a
+// surface stockpile that nothing fills any more (crickets never spawned).
+export const CRICKET_SPAWN_FOOD_THRESHOLD = 600;
 export const CRICKET_DEN_MIN_NEST_DISTANCE = 40;
 export const MAX_TOTAL_CRICKETS = 4;
 
@@ -179,6 +183,11 @@ export const STARTING_FOOD_CHAMBER_SIZE = 3;
 export const EXCAVATION_TIME = 3;
 export const MAX_DIG_JOBS = 20;
 export const TRANSIT_DURATION = 1.5;
+
+// Topmost DIGGABLE underground row (row 0 is the Reinforced border). Any
+// walkable tile here touches the surface, so digging a column up to this row
+// opens a new entrance — more forage throughput, but another way in for waves.
+export const ENTRANCE_ROW = 1;
 
 // Porter logistics — idle workers physically carry surface stockpile food down to the pantry
 export const PORTER_MAX_COUNT = 4;          // hard cap on concurrent porters
@@ -250,11 +259,25 @@ export const TILE_SCORE = {
   FOOD_PHEROMONE_WEIGHT: 1.0,
   HOME_PHEROMONE_PENALTY: -0.3,
   DANGER_PHEROMONE_WEIGHT: 1.0,
+  // How hard a danger trail pushes an ant AWAY when it is not hunting. Scaled
+  // per role at use site (see AntAISystem.scoreTile): fear is the inverse of
+  // the role's danger weight, so workers detour and soldiers barely blink.
+  DANGER_AVOIDANCE_WEIGHT: 1.2,
   UNEXPLORED_BONUS: 0.8,
   DISTANCE_FROM_NEST_BIAS: 0.05,
-  TRAIL_LENGTH: 5,
+  TRAIL_LENGTH: 3,
   MIN_SCORE_THRESHOLD: 0.01,
 } as const;
+
+// Ant AI behavioral timing constants
+export const RETURNING_HOME_DROP_TIMEOUT = 25; // seconds before ReturningHome drops food (was hardcoded 15)
+export const STUCK_STALL_SECONDS = 4;          // seconds of sub-threshold displacement before declaring stuck
+export const STUCK_MIN_DISPLACEMENT = 0.15;    // tiles; below this per-frame = not moving
+export const HEALING_FAMINE_MAX_CYCLES = 3;    // consecutive Healing→Searching cycles with no underground food before surface escape
+// Seconds of forced foraging after giving up on healing. MUST be negative when
+// assigned to stateTimer: the health/hunger checks are gated on `stateTimer > 0`,
+// so a positive value is not a grace period at all — it re-triggers instantly.
+export const HEALING_FAMINE_ESCAPE_GRACE = 20;
 
 // Scoring Decision System — Action scoring constants
 export const ACTION_SCORE = {
@@ -264,3 +287,23 @@ export const ACTION_SCORE = {
   EXPLORE_UNEXPLORED_BONUS: 2.0,
   PATROL_DEFEND_BONUS: 4.0,
 } as const;
+
+// ── Predator intelligence ──────────────────────────────────────────
+// Beetles used to fight to the death and re-aim only when their path ran out.
+// These knobs turn them into hunters with self-preservation instead.
+export const BEETLE_RETREAT_HEALTH_RATIO = 0.3;   // break off the fight below 30% HP
+export const BEETLE_RETREAT_DURATION = 14;        // seconds spent licking wounds before hunting again
+export const BEETLE_REGEN_RATE = 6;               // HP/s recovered while retreating — finish the kill or it comes back
+export const BEETLE_CHASE_REPATH_INTERVAL = 0.7;  // seconds between re-aims at moving prey
+export const BEETLE_SWARM_RADIUS = 3;             // tiles around a prey counted as "it has backup"
+export const BEETLE_SWARM_AVOIDANCE = 0.18;       // per nearby ant: how much less attractive that prey looks
+export const BEETLE_SOLDIER_AVOIDANCE = 1.35;     // soldiers look this much "further away" than civilians
+export const NIGHT_ENEMY_AGGRESSION_MULTIPLIER = 1.5; // predators see further at night
+
+// ── Ant tactical intelligence ──────────────────────────────────────
+export const SOLDIER_RETREAT_HEALTH_RATIO = 0.25; // soldiers disengage to heal below 25% HP (only if the pantry can feed them)
+export const SOLDIER_FOCUS_FIRE_BONUS = 0.55;     // target-score bonus per ally already engaging that enemy (stacks with flanking)
+export const SOLDIER_MAX_FOCUS_ALLIES = 4;
+export const NEST_THREAT_RADIUS = 14;             // a predator this close to the nest raises the colony alarm
+export const NEST_ALARM_SCORE = 14;               // alarm chase score — outweighs foraging for soldiers
+export const FORAGE_ENEMY_AVOID_RADIUS = 5;       // non-soldiers refuse to harvest this close to a predator

@@ -123,7 +123,7 @@ export class MovementSystem implements System {
         const currentTileWalkable = grid.isWalkable(toTile(pos.x), toTile(pos.y));
         const newTileWalkable = grid.isWalkable(toTile(newX), toTile(newY));
 
-        let moved = false;
+        let moved: boolean;
 
         if (newTileWalkable) {
           pos.x = newX;

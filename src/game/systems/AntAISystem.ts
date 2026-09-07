@@ -15,7 +15,6 @@ import {
   type CarryingComponent,
   type PathComponent,
   type FoodSourceComponent,
-  type NestComponent,
   type RoleStatsComponent,
   type CombatComponent,
   type HealthComponent,
@@ -25,7 +24,7 @@ import {
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { findPath } from '../../simulation/pathfinding/AStar';
 import { buildAttackerMap, ensureCombatComponent } from './helpers/combatHelpers';
-import type { UndergroundGrid, PantryFoodType } from '../../simulation/world/UndergroundGrid';
+import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { TransitSystem } from './TransitSystem';
 import {
   ANT_HARVEST_RANGE,
@@ -42,18 +41,28 @@ import {
   BEETLE_MEAT_NUTRITION_MULTIPLIER,
   CRICKET_MEAT_NUTRITION_MULTIPLIER,
   SCOUT_FLEE_HEALTH_RATIO,
+  SCOUT_BEETLE_DETECT_RANGE,
   WORKER_FIGHT_RANGE,
   HEAL_HEALTH_THRESHOLD,
   HEAL_NEST_RANGE,
   SOLDIER_DANGER_CHASE_THRESHOLD,
   HUNGER_EAT_THRESHOLD,
-  HUNGER_PER_FOOD,
   GIANT_MUSHROOM_NUTRITION_MULTIPLIER,
-  HUNGER_EAT_RATE,
   ROLE_BASE_WEIGHTS,
   COLONY_PRIORITY_MULTIPLIERS,
   TILE_SCORE,
   ACTION_SCORE,
+  RETURNING_HOME_DROP_TIMEOUT,
+  STUCK_STALL_SECONDS,
+  STUCK_MIN_DISPLACEMENT,
+  HEALING_FAMINE_MAX_CYCLES,
+  HEALING_FAMINE_ESCAPE_GRACE,
+  SOLDIER_RETREAT_HEALTH_RATIO,
+  SOLDIER_FOCUS_FIRE_BONUS,
+  SOLDIER_MAX_FOCUS_ALLIES,
+  NEST_THREAT_RADIUS,
+  NEST_ALARM_SCORE,
+  FORAGE_ENEMY_AVOID_RADIUS,
 } from '../../shared/constants';
 
 interface ActionCandidate {
@@ -87,6 +96,10 @@ export class AntAISystem implements System {
   private attackerByTarget: Map<EntityId, EntityId> = new Map();
   private enemySnapshot: Array<{ id: EntityId; x: number; y: number }> = [];
   private foodSnapshot: Array<{ id: EntityId; x: number; y: number; type?: FoodType }> = [];
+  /** enemy id -> how many ants are already biting it (focus fire + flanking synergy) */
+  private antsEngaging: Map<EntityId, number> = new Map();
+  /** Recomputed once per tick — the health/hunger checks consult it per ant */
+  private undergroundFoodAvailable = false;
 
   constructor(world: World, grid: TileGrid, visibilityGrid: VisibilityGrid, modifiers: GlobalModifiers) {
     this.world = world;
@@ -127,6 +140,38 @@ export class AntAISystem implements System {
       const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
 
       ant.stateTimer += dt;
+      if (ant.forageGrace !== undefined && ant.forageGrace > 0) {
+        ant.forageGrace = Math.max(0, ant.forageGrace - dt);
+      }
+
+      // Bug 3: position-stall detection — catches stale non-empty paths.
+      // Lazy-init last-known position; accumulate stuckTimer when displacement
+      // is below threshold; reset and update when the ant actually moves.
+      ant.lastX ??= pos.x;
+      ant.lastY ??= pos.y;
+      ant.stuckTimer ??= 0;
+      const displacement = Math.hypot(pos.x - ant.lastX, pos.y - ant.lastY);
+      if (displacement < STUCK_MIN_DISPLACEMENT) {
+        ant.stuckTimer += dt;
+      } else {
+        ant.stuckTimer = 0;
+        ant.lastX = pos.x;
+        ant.lastY = pos.y;
+      }
+      if (ant.stuckTimer > STUCK_STALL_SECONDS) {
+        const isStallMovementState =
+          ant.state === AntState.GoingToFood ||
+          ant.state === AntState.ChasingEnemy ||
+          ant.state === AntState.Fleeing ||
+          ant.state === AntState.PatrollingNest;
+        if (isStallMovementState) {
+          ant.state = AntState.ReturningHome;
+          ant.stateTimer = 0;
+          ant.stuckTimer = 0;
+          this.pathToNest(pos, path);
+          continue;
+        }
+      }
 
       // Stuck safety net: if ant can't progress for too long, retreat to nest
       // GoingToDen excluded — has its own timeout, soldiers must commit to the mission
@@ -186,10 +231,6 @@ export class AntAISystem implements System {
           this.handleReturningHome(id, ant, pos, path, carrying);
           break;
 
-        case AntState.Depositing:
-          this.handleDepositing(id, ant, pos, carrying);
-          break;
-
         case AntState.Fleeing:
           this.handleFleeing(id, ant, pos, path);
           break;
@@ -218,24 +259,34 @@ export class AntAISystem implements System {
           this.handleHealing(id, ant, pos, path, dt);
           break;
       }
-
-      // Auto-feed: any ant near nest eats to restore hunger
-      if (nestDistPhero < HEAL_NEST_RANGE) {
-        this.feedAtNest(id, dt);
-      }
     }
   }
 
   /** One pass over predators and surface food — every ant reads these arrays instead of re-querying */
   private buildTickSnapshots(): void {
     this.attackerByTarget = buildAttackerMap(this.world);
+    this.undergroundFoodAvailable = this.computeUndergroundFood();
 
+    // SURFACE predators only. Invasion beetles live underground on the SAME
+    // coordinate space, so an unfiltered scan made surface soldiers charge at
+    // ghosts standing "inside" the nest — CombatSystem refuses cross-layer hits,
+    // so they arrived, found nothing, and the whole garrison thrashed.
     this.enemySnapshot.length = 0;
     for (const store of [COMPONENT.BEETLE, COMPONENT.CRICKET]) {
       for (const id of this.world.query(store, COMPONENT.POSITION)) {
+        const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+        if (layer && layer.layer !== Layer.Surface) continue;
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
         this.enemySnapshot.push({ id, x: pos.x, y: pos.y });
       }
+    }
+
+    // Who is already engaging whom — drives focus fire (see selectSoldierTarget)
+    this.antsEngaging.clear();
+    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.COMBAT)) {
+      const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT)!;
+      if (combat.targetEntityId === null) continue;
+      this.antsEngaging.set(combat.targetEntityId, (this.antsEngaging.get(combat.targetEntityId) ?? 0) + 1);
     }
 
     this.foodSnapshot.length = 0;
@@ -246,52 +297,6 @@ export class AntAISystem implements System {
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const source = this.world.getComponent<FoodSourceComponent>(id, COMPONENT.FOOD_SOURCE);
       this.foodSnapshot.push({ id, x: pos.x, y: pos.y, type: source?.resourceType as FoodType | undefined });
-    }
-  }
-
-  private feedAtNest(id: EntityId, dt: number): void {
-    const hunger = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
-    if (!hunger || hunger.current >= hunger.max) return;
-    if (this.nestEntityId === null) return;
-
-    const nest = this.world.getComponent<NestComponent>(this.nestEntityId, COMPONENT.NEST);
-    if (!nest || nest.foodStored < 0.01) return;
-
-    // Eat: consume food from nest, restore hunger
-    const hungerMissing = hunger.max - hunger.current;
-    const foodNeeded = hungerMissing / HUNGER_PER_FOOD;
-    const foodToEat = Math.min(foodNeeded, nest.foodStored, HUNGER_EAT_RATE * dt);
-
-    hunger.current += foodToEat * HUNGER_PER_FOOD;
-    if (hunger.current > hunger.max) hunger.current = hunger.max;
-
-    this.consumeFromNestStores(nest, foodToEat);
-  }
-
-  /**
-   * Deduct from the surface nest stores following the colony's consumption
-   * policy (leaf is the implicit remainder of foodStored, so "eating leaf"
-   * only shrinks the total). Falls back to leaf-first if no policy source.
-   */
-  private consumeFromNestStores(nest: NestComponent, amount: number): void {
-    const available: Record<PantryFoodType, number> = {
-      leaf: Math.max(0, nest.foodStored - nest.mushroomStored - nest.meatStored),
-      mushroom: nest.mushroomStored,
-      meat: nest.meatStored,
-    };
-    nest.foodStored = Math.max(0, nest.foodStored - amount);
-
-    const order: PantryFoodType[] = this.undergroundGrid
-      ? this.undergroundGrid.getConsumptionOrder()
-      : ['leaf', 'mushroom', 'meat'];
-
-    let remaining = amount;
-    for (const type of order) {
-      if (remaining <= 1e-9) break;
-      const eaten = Math.min(remaining, available[type]);
-      remaining -= eaten;
-      if (type === 'mushroom') nest.mushroomStored -= eaten;
-      else if (type === 'meat') nest.meatStored = Math.max(0, nest.meatStored - eaten);
     }
   }
 
@@ -311,23 +316,13 @@ export class AntAISystem implements System {
       const attackerPos = this.world.getComponent<PositionComponent>(attackerId, COMPONENT.POSITION);
       if (attackerPos) {
         if (ant.role === AntRole.Scout) {
-          const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-          if (health && health.current / health.max < SCOUT_FLEE_HEALTH_RATIO) {
-            // Hurt scout flees
-            this.emitDangerPheromone(pos, DANGER_PHEROMONE_EMIT_STRENGTH);
-            ant.state = AntState.Fleeing;
-            ant.stateTimer = 0;
-            this.pathAwayFrom(pos, { x: attackerPos.x, y: attackerPos.y }, path);
-            return;
-          } else {
-            // Healthy scout fights back
-            ant.state = AntState.AttackingEnemy;
-            ant.stateTimer = 0;
-            path.waypoints = [];
-            path.currentIndex = 0;
-            ensureCombatComponent(this.world, id, attackerId);
-            return;
-          }
+          // Scouts deal ZERO damage (ROLE_STATS.scout.damage = 0). "Fighting back"
+          // meant standing still taking hits for no reason — they mark and run.
+          this.emitDangerPheromone(pos, DANGER_PHEROMONE_EMIT_STRENGTH);
+          ant.state = AntState.Fleeing;
+          ant.stateTimer = 0;
+          this.pathAwayFrom(pos, { x: attackerPos.x, y: attackerPos.y }, path);
+          return;
         } else if (ant.role === AntRole.Worker) {
           const nestDist = this.distToNest(pos);
           if (nestDist < WORKER_FIGHT_RANGE) {
@@ -351,8 +346,14 @@ export class AntAISystem implements System {
     }
 
     // === Health check: hurt ants go heal at nest ===
-    // stateTimer < 0 = grace period after failed healing (no food) — let ant search first
-    if (ant.stateTimer > 0) {
+    // stateTimer < 0 = brief pause after failed healing; forageGrace > 0 = the
+    // ant gave up on healing entirely and must forage instead of trudging home.
+    // Going home only makes sense if there is something down there to eat:
+    // healing and feeding both consume pantry food. Without this the ant walks
+    // home, finds nothing, walks back out, and repeats — the famine-cycle
+    // machinery below exists only to unwind a trip that should never start.
+    const graced = (ant.forageGrace ?? 0) > 0 || !this.undergroundFoodAvailable;
+    if (ant.stateTimer > 0 && !graced) {
       const healthCheck = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
       if (healthCheck && healthCheck.current < healthCheck.max * HEAL_HEALTH_THRESHOLD) {
         ant.state = AntState.ReturningHome;
@@ -363,7 +364,7 @@ export class AntAISystem implements System {
     }
 
     // === Hunger check: starving ants go eat at nest ===
-    if (ant.stateTimer > 0) {
+    if (ant.stateTimer > 0 && !graced) {
       const hungerCheck = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
       if (hungerCheck && hungerCheck.current < hungerCheck.max * HUNGER_EAT_THRESHOLD) {
         ant.state = AntState.ReturningHome;
@@ -379,25 +380,25 @@ export class AntAISystem implements System {
     if (ant.role === AntRole.Scout && nearbyBeetle) {
       const roleStats = this.world.getComponent<RoleStatsComponent>(id, COMPONENT.ROLE_STATS);
       const scoutVision = roleStats ? roleStats.visionRange : 18;
-      if (nearbyBeetle.dist < scoutVision) {
+      // Scouts SMELL trouble further than they can survive it — that gap is the
+      // whole point of the role (SCOUT_BEETLE_DETECT_RANGE was declared for this
+      // and never wired up).
+      const alarmRange = Math.max(scoutVision, SCOUT_BEETLE_DETECT_RANGE);
+      if (nearbyBeetle.dist < alarmRange) {
+        // A scout that SEES a predator is the colony's early-warning system:
+        // it marks the spot every time, not only when it is already bleeding.
+        // That danger trail is exactly what soldiers follow (Priority 2 below).
+        this.emitDangerPheromone(pos, DANGER_PHEROMONE_EMIT_STRENGTH);
+
         const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-        if (health && health.current / health.max < SCOUT_FLEE_HEALTH_RATIO) {
-          // Scout is hurt — flee and emit danger pheromone
-          this.emitDangerPheromone(pos, DANGER_PHEROMONE_EMIT_STRENGTH);
+        const hurt = health !== undefined && health.current / health.max < SCOUT_FLEE_HEALTH_RATIO;
+        if (hurt || nearbyBeetle.dist < scoutVision * 0.6) {
           ant.state = AntState.Fleeing;
           ant.stateTimer = 0;
           this.pathAwayFrom(pos, nearbyBeetle, path);
           return;
-        } else if (nearbyBeetle.dist < SOLDIER_ATTACK_RANGE) {
-          // Scout fights back when beetle is in melee range and scout isn't hurt
-          ant.state = AntState.AttackingEnemy;
-          ant.stateTimer = 0;
-          path.waypoints = [];
-          path.currentIndex = 0;
-          ensureCombatComponent(this.world, id, nearbyBeetle.entityId);
-          return;
         }
-        // Scout is healthy and beetle not in melee — just keep doing scout things (ignore beetle)
+        // Far enough to keep watching — scouting continues
       }
     }
 
@@ -406,11 +407,14 @@ export class AntAISystem implements System {
       const roleStats = this.world.getComponent<RoleStatsComponent>(id, COMPONENT.ROLE_STATS);
       const soldierVision = roleStats ? roleStats.visionRange : 8;
 
-      if (nearbyBeetle && nearbyBeetle.dist < soldierVision) {
+      // Not "the closest bug" — the most THREATENING one: predators near the
+      // nest raise a colony-wide alarm, and targets sisters are already biting
+      // win ties so the squad focuses fire (which stacks with the flanking bonus).
+      const threat = this.selectSoldierTarget(pos, soldierVision);
+      if (threat) {
         ant.state = AntState.ChasingEnemy;
         ant.stateTimer = 0;
-        // Store beetle ID for tracking — use path to approach
-        this.pathToEntity(pos, nearbyBeetle.entityId, path);
+        this.pathToEntity(pos, threat.entityId, path);
         return;
       }
 
@@ -640,7 +644,17 @@ export class AntAISystem implements System {
     }
 
     // Stuck timeout: if returning home for too long, drop food and search again
-    if (ant.stateTimer > 15) {
+    if (ant.stateTimer > RETURNING_HOME_DROP_TIMEOUT) {
+      // Entrance-proximity exemption: ant is jostling at the entrance and
+      // about to deliver — don't waste food it's on the verge of dropping off.
+      const nestPosCheck = this.world.getComponent<PositionComponent>(this.nestEntityId!, COMPONENT.POSITION);
+      if (nestPosCheck) {
+        const distToEntrance = this.distance(pos, nestPosCheck);
+        if (distToEntrance < ANT_DEPOSIT_RANGE * 3) {
+          this.pathToNest(pos, path);
+          return;
+        }
+      }
       carrying.amount = 0;
       carrying.resourceType = null;
       ant.state = AntState.Searching;
@@ -654,45 +668,6 @@ export class AntAISystem implements System {
     if (path.currentIndex >= path.waypoints.length) {
       this.pathToNest(pos, path);
     }
-  }
-
-  private handleDepositing(
-    id: EntityId,
-    ant: AntComponent,
-    _pos: PositionComponent,
-    carrying: CarryingComponent
-  ): void {
-    if (!this.hasNest()) return;
-
-    const nest = this.world.getComponent<NestComponent>(this.nestEntityId!, COMPONENT.NEST);
-    if (nest && carrying.amount > 0) {
-      const nutritionMultiplier =
-        carrying.resourceType === FoodType.GiantMushroom ? GIANT_MUSHROOM_NUTRITION_MULTIPLIER :
-        carrying.resourceType === FoodType.BeetleMeat ? BEETLE_MEAT_NUTRITION_MULTIPLIER :
-        carrying.resourceType === FoodType.CricketMeat ? CRICKET_MEAT_NUTRITION_MULTIPLIER :
-        carrying.resourceType === FoodType.Mushroom ? MUSHROOM_NUTRITION_MULTIPLIER : 1.0;
-      const depositAmount = carrying.amount * nutritionMultiplier;
-      nest.foodStored += depositAmount;
-      if (carrying.resourceType === FoodType.BeetleMeat || carrying.resourceType === FoodType.CricketMeat) {
-        nest.meatStored += depositAmount;
-      } else if (carrying.resourceType === FoodType.Mushroom || carrying.resourceType === FoodType.GiantMushroom) {
-        nest.mushroomStored += depositAmount;
-      }
-      carrying.amount = 0;
-      carrying.resourceType = null;
-    }
-
-    // Check if significantly hurt — stay at nest to heal
-    const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-    if (health && health.current < health.max * HEAL_HEALTH_THRESHOLD) {
-      ant.state = AntState.Healing;
-      ant.stateTimer = 0;
-      return;
-    }
-
-    // Go search again
-    ant.state = AntState.Searching;
-    ant.stateTimer = 0;
   }
 
   private handleFleeing(
@@ -728,23 +703,35 @@ export class AntAISystem implements System {
     pos: PositionComponent,
     path: PathComponent
   ): void {
-    const nearbyBeetle = this.findNearestBeetle(pos);
+    // TARGET PERSISTENCE: re-picking "the nearest" every tick made squads
+    // oscillate — two beetles at similar range and half the soldiers swapped
+    // sides each frame, arriving nowhere. Stick with the committed target while
+    // it is still worth chasing; only then look for a new one.
+    const committed = this.committedTarget(id, pos);
+    const chosen =
+      committed ??
+      (ant.role === AntRole.Soldier
+        ? this.selectSoldierTarget(pos, SOLDIER_CHASE_RANGE)
+        : this.findNearestBeetle(pos));
 
     // Beetle visible and in chase range → actively pursue
-    if (nearbyBeetle && nearbyBeetle.dist <= SOLDIER_CHASE_RANGE) {
+    if (chosen && chosen.dist <= SOLDIER_CHASE_RANGE) {
       // In attack range → switch to attacking
-      if (nearbyBeetle.dist < SOLDIER_ATTACK_RANGE) {
+      if (chosen.dist < SOLDIER_ATTACK_RANGE) {
         ant.state = AntState.AttackingEnemy;
         ant.stateTimer = 0;
         path.waypoints = [];
         path.currentIndex = 0;
-        ensureCombatComponent(this.world, id, nearbyBeetle.entityId);
+        ensureCombatComponent(this.world, id, chosen.entityId);
         return;
       }
 
+      // Keep the claim fresh so allies see it in the focus-fire map
+      ensureCombatComponent(this.world, id, chosen.entityId);
+
       // Repath to beetle periodically
       if (path.currentIndex >= path.waypoints.length || ant.stateTimer > 2) {
-        this.pathToEntity(pos, nearbyBeetle.entityId, path);
+        this.pathToEntity(pos, chosen.entityId, path);
         if (ant.stateTimer > 2) ant.stateTimer = 0;
       }
       return;
@@ -810,14 +797,26 @@ export class AntAISystem implements System {
 
     // Role-specific combat exit conditions
     if (ant.role === AntRole.Scout) {
+      // Scouts do no damage — any melee is a losing trade regardless of HP
+      this.emitDangerPheromone(pos, DANGER_PHEROMONE_EMIT_STRENGTH);
+      ant.state = AntState.Fleeing;
+      ant.stateTimer = 0;
+      this.pathAwayFrom(pos, targetPos, path);
+      combat.targetEntityId = null;
+      return;
+    } else if (ant.role === AntRole.Soldier) {
+      // Soldiers used to fight to the death, every time. A wave could therefore
+      // erase the whole garrison for one beetle. A soldier at 25% pulls back to
+      // heal — but ONLY if the pantry can actually feed it, otherwise the walk
+      // home is a slower way of dying (same guard the hunger/heal checks use).
       const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-      if (health && health.current / health.max < SCOUT_FLEE_HEALTH_RATIO) {
-        // Scout is hurt — flee!
+      const canHeal = this.undergroundFoodAvailable && (ant.forageGrace ?? 0) <= 0;
+      if (health && canHeal && health.current / health.max < SOLDIER_RETREAT_HEALTH_RATIO) {
         this.emitDangerPheromone(pos, DANGER_PHEROMONE_EMIT_STRENGTH);
-        ant.state = AntState.Fleeing;
-        ant.stateTimer = 0;
-        this.pathAwayFrom(pos, targetPos, path);
         combat.targetEntityId = null;
+        ant.state = AntState.ReturningHome;
+        ant.stateTimer = 0;
+        this.pathToNest(pos, path);
         return;
       }
     } else if (ant.role === AntRole.Worker) {
@@ -843,15 +842,15 @@ export class AntAISystem implements System {
     pos: PositionComponent,
     path: PathComponent
   ): void {
-    // Check for nearby beetles while patrolling
-    const nearbyBeetle = this.findNearestBeetle(pos);
+    // Check for threats while patrolling — same policy soldiers use everywhere
     const roleStats = this.world.getComponent<RoleStatsComponent>(id, COMPONENT.ROLE_STATS);
     const vision = roleStats ? roleStats.visionRange : 8;
 
-    if (nearbyBeetle && nearbyBeetle.dist < vision) {
+    const patrolThreat = this.selectSoldierTarget(pos, vision);
+    if (patrolThreat) {
       ant.state = AntState.ChasingEnemy;
       ant.stateTimer = 0;
-      this.pathToEntity(pos, nearbyBeetle.entityId, path);
+      this.pathToEntity(pos, patrolThreat.entityId, path);
       return;
     }
 
@@ -1000,16 +999,14 @@ export class AntAISystem implements System {
       const attackerPos = this.world.getComponent<PositionComponent>(attackerId, COMPONENT.POSITION);
       if (attackerPos) {
         if (ant.role === AntRole.Scout) {
-          const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-          if (health && health.current / health.max < SCOUT_FLEE_HEALTH_RATIO) {
-            this.emitDangerPheromone(pos, DANGER_PHEROMONE_EMIT_STRENGTH);
-            ant.state = AntState.Fleeing;
-            ant.stateTimer = 0;
-            this.pathAwayFrom(pos, { x: attackerPos.x, y: attackerPos.y }, path);
-            return;
-          }
+          // Zero attack damage — a scout that stands and "fights" just dies slower
+          this.emitDangerPheromone(pos, DANGER_PHEROMONE_EMIT_STRENGTH);
+          ant.state = AntState.Fleeing;
+          ant.stateTimer = 0;
+          this.pathAwayFrom(pos, { x: attackerPos.x, y: attackerPos.y }, path);
+          return;
         }
-        // All roles fight back when attacked while healing
+        // Every other role fights back when attacked while healing
         ant.state = AntState.AttackingEnemy;
         ant.stateTimer = 0;
         path.waypoints = [];
@@ -1039,11 +1036,12 @@ export class AntAISystem implements System {
       return;
     }
 
-    // Fully healed and fed — back to work
+    // Fully healed and fed — back to work; reset famine counter
     if (health.current >= health.max) {
       const hunger = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
       const wellFed = !hunger || hunger.current >= hunger.max * 0.9;
       if (wellFed) {
+        ant.healingCycles = 0;
         ant.state = AntState.Searching;
         ant.stateTimer = 0;
         return;
@@ -1054,12 +1052,28 @@ export class AntAISystem implements System {
     // (pantry piles, farm mushrooms, or loose invader meat). Ride the shaft
     // down — UndergroundHealingSystem takes over from there (state stays Healing).
     if (this.transitSystem && this.undergroundGrid && this.hasUndergroundFood()) {
+      ant.healingCycles = 0;
       this.transitSystem.requestTransit(id, 'enter');
       return;
     }
 
-    // Truly nothing edible below — wait briefly, then go forage yourself
+    // Truly nothing edible below — wait briefly, then go forage yourself.
+    // Bug 6: track consecutive famine cycles; after HEALING_FAMINE_MAX_CYCLES
+    // force surface foraging regardless of health to break the infinite loop.
     if (ant.stateTimer > 5) {
+      ant.healingCycles = (ant.healingCycles ?? 0) + 1;
+      if (ant.healingCycles >= HEALING_FAMINE_MAX_CYCLES) {
+        ant.healingCycles = 0;
+        ant.state = AntState.Searching;
+        // stateTimer stays >= 0 so action scoring runs and the ant actually
+        // forages; forageGrace is what keeps it from turning straight back.
+        ant.stateTimer = 0;
+        ant.forageGrace = HEALING_FAMINE_ESCAPE_GRACE;
+        // No transit request here: handleHealing only ever runs for SURFACE
+        // ants (AntAISystem skips the underground layer), and asking to 'exit'
+        // from the surface leaves a walking request that can never complete.
+        return;
+      }
       // Negative stateTimer = grace period before health check sends us back
       ant.state = AntState.Searching;
       ant.stateTimer = -3;
@@ -1069,6 +1083,10 @@ export class AntAISystem implements System {
 
   /** Anything edible below? Pantry/farm piles or loose drops (invader meat) */
   private hasUndergroundFood(): boolean {
+    return this.undergroundFoodAvailable;
+  }
+
+  private computeUndergroundFood(): boolean {
     if (!this.undergroundGrid) return false;
     if (this.undergroundGrid.getPantryStored().total >= 1) return true;
     for (const fid of this.world.query(COMPONENT.FOOD_SOURCE, COMPONENT.LAYER)) {
@@ -1086,12 +1104,21 @@ export class AntAISystem implements System {
     const roleStats = this.world.getComponent<RoleStatsComponent>(entityId, COMPONENT.ROLE_STATS);
     const visionRange = roleStats ? roleStats.visionRange : 10;
 
+    // Foraging next to a beetle is how colonies feed their own predators. Ants
+    // skip guarded piles — unless they are starving, in which case the risk is
+    // the better bet, or they are soldiers, who are not the ones running away.
+    const hunger = this.world.getComponent<HungerComponent>(entityId, COMPONENT.HUNGER);
+    const desperate = hunger !== undefined && hunger.current < hunger.max * HUNGER_EAT_THRESHOLD;
+    const avoidGuarded = ant.role !== AntRole.Soldier && !desperate && this.enemySnapshot.length > 0;
+
     for (const f of this.foodSnapshot) {
       const dx = f.x - pos.x;
       const dy = f.y - pos.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       // Only "see" food within vision range
       if (dist >= visionRange) continue;
+
+      if (avoidGuarded && this.isGuardedByPredator(f.x, f.y)) continue;
 
       // Mushrooms are "perceived" as closer (more desirable)
       const effectiveDist = f.type === FoodType.Mushroom ? dist * MUSHROOM_PREFERENCE_MULTIPLIER : dist;
@@ -1102,10 +1129,70 @@ export class AntAISystem implements System {
       }
     }
 
-    // Suppress unused var warning
-    void ant;
-
     return nearest;
+  }
+
+  /** Is a surface predator sitting on top of this food pile? */
+  private isGuardedByPredator(x: number, y: number): boolean {
+    for (const e of this.enemySnapshot) {
+      if (Math.hypot(e.x - x, e.y - y) < FORAGE_ENEMY_AVOID_RADIUS) return true;
+    }
+    return false;
+  }
+
+  /** The enemy this ant already claimed, if it is alive, on the surface and still in reach */
+  private committedTarget(
+    id: EntityId,
+    pos: PositionComponent
+  ): { entityId: EntityId; dist: number; x: number; y: number } | null {
+    const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
+    if (!combat || combat.targetEntityId === null) return null;
+    const target = combat.targetEntityId;
+
+    for (const e of this.enemySnapshot) {
+      if (e.id !== target) continue;
+      const dist = Math.hypot(e.x - pos.x, e.y - pos.y);
+      return dist <= SOLDIER_CHASE_RANGE ? { entityId: e.id, dist, x: e.x, y: e.y } : null;
+    }
+    return null;
+  }
+
+  /**
+   * Soldier target policy — three ideas the old "nearest beetle" had none of:
+   *
+   * 1. PROXIMITY: closer is still better, but it is a weight, not a verdict.
+   * 2. ALARM: a predator inside NEST_THREAT_RADIUS of the nest outranks
+   *    anything else, and soldiers standing on home turf answer it even when
+   *    it sits outside their personal vision — that is what an alarm IS.
+   * 3. FOCUS FIRE: every sister already biting a target makes it more
+   *    attractive. CombatSystem grants a flanking damage bonus for swarming,
+   *    so converging is strictly better than each soldier picking its own bug.
+   */
+  private selectSoldierTarget(
+    pos: PositionComponent,
+    visionRange: number
+  ): { entityId: EntityId; dist: number; x: number; y: number; score: number } | null {
+    const selfNestDist = this.distToNest(pos);
+    let best: { entityId: EntityId; dist: number; x: number; y: number; score: number } | null = null;
+
+    for (const e of this.enemySnapshot) {
+      const dist = Math.hypot(e.x - pos.x, e.y - pos.y);
+      const enemyNestDist = this.distToNestXY(e.x, e.y);
+      const alarm = enemyNestDist < NEST_THREAT_RADIUS && selfNestDist < NEST_THREAT_RADIUS * 2;
+
+      if (dist >= visionRange && !alarm) continue;
+
+      let score = ACTION_SCORE.DANGER_NEARBY_BONUS * (visionRange / (visionRange + dist));
+      const engaged = Math.min(this.antsEngaging.get(e.id) ?? 0, SOLDIER_MAX_FOCUS_ALLIES);
+      score += SOLDIER_FOCUS_FIRE_BONUS * engaged;
+      if (alarm) score += NEST_ALARM_SCORE * (1 - enemyNestDist / NEST_THREAT_RADIUS);
+
+      if (!best || score > best.score) {
+        best = { entityId: e.id, dist, x: e.x, y: e.y, score };
+      }
+    }
+
+    return best;
   }
 
   private pathToNest(pos: PositionComponent, path: PathComponent): boolean {
@@ -1394,10 +1481,13 @@ export class AntAISystem implements System {
 
     if (intent === 'danger') {
       score += (tile.dangerPheromone / PHEROMONE_MAX) * TILE_SCORE.DANGER_PHEROMONE_WEIGHT * roleWeights.danger * priorityMult.danger;
-    } else {
-      if (tile.dangerPheromone > 5) {
-        score -= (tile.dangerPheromone / PHEROMONE_MAX) * 0.3;
-      }
+    } else if (tile.dangerPheromone > 5) {
+      // Fear is the INVERSE of the role's appetite for danger: a worker walks
+      // around a fresh danger trail, a soldier walks straight through it.
+      // The old flat 0.3 penalty was so small that foragers marched over the
+      // exact tiles a scout had just marked as lethal.
+      const fear = Math.max(0, 1.2 - roleWeights.danger);
+      score -= (tile.dangerPheromone / PHEROMONE_MAX) * TILE_SCORE.DANGER_AVOIDANCE_WEIGHT * fear;
     }
 
     if (intent === 'explore') {
@@ -1485,10 +1575,10 @@ export class AntAISystem implements System {
 
     // CHASE action (soldiers primarily)
     if (ant.role === AntRole.Soldier) {
-      const nearbyBeetle = this.findNearestBeetle(pos);
-      if (nearbyBeetle && nearbyBeetle.dist < visionRange) {
-        const score = ACTION_SCORE.DANGER_NEARBY_BONUS * roleWeights.danger * priorityMult.danger;
-        candidates.push({ action: 'chase', score, targetId: nearbyBeetle.entityId });
+      const threat = this.selectSoldierTarget(pos, visionRange);
+      if (threat) {
+        const score = threat.score * roleWeights.danger * priorityMult.danger;
+        candidates.push({ action: 'chase', score, targetId: threat.entityId });
       } else {
         const dangerLevel = this.sampleDangerPheromone(pos, 3);
         if (dangerLevel > SOLDIER_DANGER_CHASE_THRESHOLD) {

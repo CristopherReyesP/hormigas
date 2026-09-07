@@ -1,10 +1,14 @@
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { TileGrid } from '../../simulation/world/TileGrid';
+import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
+import type { GlobalModifiers } from '../events/GlobalModifiers';
 import type { EntityId } from '../../shared/types';
 import {
   COMPONENT,
   CricketState,
+  Layer,
+  type LayerComponent,
   type CricketComponent,
   type PositionComponent,
   type PathComponent,
@@ -29,16 +33,30 @@ export class CricketAISystem implements System {
 
   private world: World;
   private grid: TileGrid;
+  private undergroundGrid: UndergroundGrid;
+  private modifiers: GlobalModifiers;
 
-  constructor(world: World, grid: TileGrid) {
+  constructor(world: World, grid: TileGrid, undergroundGrid: UndergroundGrid, modifiers: GlobalModifiers) {
     this.world = world;
     this.grid = grid;
+    this.undergroundGrid = undergroundGrid;
+    this.modifiers = modifiers;
+  }
+
+  /** Detection range, widened at night (GlobalModifiers.enemyAggressionMultiplier) */
+  private get visionRange(): number {
+    return CRICKET_STATS.visionRange * this.modifiers.enemyAggressionMultiplier;
   }
 
   update(dt: number): void {
     const crickets = this.world.query(COMPONENT.CRICKET, COMPONENT.POSITION, COMPONENT.PATH);
 
     for (const id of crickets) {
+      // Crickets are a SURFACE raid; anything underground belongs to the
+      // invasion system (guards this system against future underground crickets)
+      const cricketLayer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+      if (cricketLayer && cricketLayer.layer !== Layer.Surface) continue;
+
       const cricket = this.world.getComponent<CricketComponent>(id, COMPONENT.CRICKET)!;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH)!;
@@ -88,7 +106,7 @@ export class CricketAISystem implements System {
     // HP > 50%: priority is the NEST — ignore ants, tank through
     // HP <= 50%: defensive mode — fight nearby ants
     if (healthRatio <= 0.5) {
-      const nearbyAnt = this.findNearestAnt(pos, CRICKET_STATS.visionRange);
+      const nearbyAnt = this.findNearestAnt(pos, this.visionRange);
       if (nearbyAnt) {
         cricket.previousState = CricketState.GoingToNest;
         cricket.state = CricketState.Attacking;
@@ -152,7 +170,7 @@ export class CricketAISystem implements System {
 
     // HP <= 50%: STOP stealing, proactively fight nearby ants
     if (healthRatio <= 0.5) {
-      const nearbyAnt = this.findNearestAnt(pos, CRICKET_STATS.visionRange);
+      const nearbyAnt = this.findNearestAnt(pos, this.visionRange);
       if (nearbyAnt) {
         cricket.previousState = CricketState.StealingFood;
         cricket.state = CricketState.Attacking;
@@ -176,30 +194,52 @@ export class CricketAISystem implements System {
     }
 
     const nest = this.world.getComponent<NestComponent>(nestId, COMPONENT.NEST);
-    if (!nest || nest.foodStored <= 0) {
-      // Nest emptied — retreat, job done
+    if (!nest || this.colonyFood(nest) <= 0) {
+      // Nothing left to take — retreat, job done
       cricket.state = CricketState.Retreating;
       cricket.stateTimer = 0;
       return;
     }
 
-    // Steal food CONTINUOUSLY — no timeout, drains until killed or nest empty
-    const stealRate = CRICKET_STEAL_AMOUNT * dt;
-    const actualSteal = Math.min(stealRate, nest.foodStored);
-
-    if (actualSteal > 0) {
-      const totalStored = nest.foodStored;
-      const mushroomRatio = nest.mushroomStored / totalStored;
-      const meatRatio = nest.meatStored / totalStored;
-
-      nest.mushroomStored = Math.max(0, nest.mushroomStored - actualSteal * mushroomRatio);
-      nest.meatStored = Math.max(0, nest.meatStored - actualSteal * meatRatio);
-      nest.foodStored = Math.max(0, nest.foodStored - actualSteal);
-
-      cricket.stolenFood += actualSteal;
-    }
+    // Steal food CONTINUOUSLY — no timeout, drains until killed or the colony is bare
+    const stolen = this.stealFood(nest, CRICKET_STEAL_AMOUNT * dt);
+    cricket.stolenFood += stolen;
 
     void pos;
+  }
+
+  /**
+   * Everything the colony owns. The surface `foodStored` is only a porter
+   * buffer these days (foragers carry their loads straight down the shaft), so
+   * a cricket that drained just that stole from an empty shelf and left —
+   * the mini-boss was, mechanically, a no-op.
+   */
+  private colonyFood(nest: NestComponent): number {
+    return nest.foodStored + this.undergroundGrid.getPantryStored().total;
+  }
+
+  /** Surface buffer first (it is right there at the entrance), then the pantry below */
+  private stealFood(nest: NestComponent, amount: number): number {
+    let remaining = amount;
+    let stolen = 0;
+
+    if (nest.foodStored > 0) {
+      const take = Math.min(remaining, nest.foodStored);
+      const mushroomRatio = nest.mushroomStored / nest.foodStored;
+      const meatRatio = nest.meatStored / nest.foodStored;
+      nest.mushroomStored = Math.max(0, nest.mushroomStored - take * mushroomRatio);
+      nest.meatStored = Math.max(0, nest.meatStored - take * meatRatio);
+      nest.foodStored = Math.max(0, nest.foodStored - take);
+      remaining -= take;
+      stolen += take;
+    }
+
+    if (remaining > 0) {
+      // Reaching down the entrance shaft and hauling piles out of the pantry
+      stolen += this.undergroundGrid.drainFood(remaining).total;
+    }
+
+    return stolen;
   }
 
   private handleRetreating(
@@ -213,7 +253,7 @@ export class CricketAISystem implements System {
     // HP > 50%: keep retreating, don't stop for ants
     // HP <= 50%: defensive — fight ants in wider range
     if (healthRatio <= 0.5) {
-      const detectRange = CRICKET_STATS.visionRange;
+      const detectRange = this.visionRange;
       const nearbyAnt = this.findNearestAnt(pos, detectRange);
       if (nearbyAnt) {
         cricket.previousState = CricketState.Retreating;
@@ -307,7 +347,7 @@ export class CricketAISystem implements System {
 
     // No target — find nearest ant
     if (cricket.targetEntityId === null) {
-      const searchRange = healthRatio <= 0.5 ? CRICKET_STATS.visionRange * 1.5 : CRICKET_STATS.visionRange;
+      const searchRange = healthRatio <= 0.5 ? this.visionRange * 1.5 : this.visionRange;
       const nearbyAnt = this.findNearestAnt(pos, searchRange);
       if (nearbyAnt) {
         cricket.targetEntityId = nearbyAnt.entityId;
@@ -326,7 +366,7 @@ export class CricketAISystem implements System {
     if (!this.world.hasEntity(cricket.targetEntityId!)) {
       // When wounded, immediately look for next target
       if (healthRatio <= 0.5) {
-        const nextTarget = this.findNearestAnt(pos, CRICKET_STATS.visionRange * 1.5);
+        const nextTarget = this.findNearestAnt(pos, this.visionRange * 1.5);
         if (nextTarget) {
           cricket.targetEntityId = nextTarget.entityId;
           combat.targetEntityId = nextTarget.entityId;
@@ -345,7 +385,7 @@ export class CricketAISystem implements System {
     if (targetHealth && targetHealth.current <= 0) {
       // When wounded, chain to next target
       if (healthRatio <= 0.5) {
-        const nextTarget = this.findNearestAnt(pos, CRICKET_STATS.visionRange * 1.5);
+        const nextTarget = this.findNearestAnt(pos, this.visionRange * 1.5);
         if (nextTarget) {
           cricket.targetEntityId = nextTarget.entityId;
           combat.targetEntityId = nextTarget.entityId;
@@ -426,6 +466,12 @@ export class CricketAISystem implements System {
     let nearestDist = Infinity;
 
     for (const antId of ants) {
+      // Layers share coordinates — without this a surface cricket "sees" ants
+      // walking the tunnels below and charges a target CombatSystem will never
+      // let it hit (it rejects cross-layer attacks).
+      const layer = this.world.getComponent<LayerComponent>(antId, COMPONENT.LAYER);
+      if (layer && layer.layer !== Layer.Surface) continue;
+
       const antPos = this.world.getComponent<PositionComponent>(antId, COMPONENT.POSITION)!;
       const dist = this.distance(pos, antPos);
 

@@ -411,6 +411,7 @@ export function createQueen(world: World, x: number, y: number): EntityId {
   // The queen can RELOCATE (player sends her to a designated throne area) —
   // she walks via the normal MovementSystem, slowly: she's heavy with eggs
   world.addComponent<PathComponent>(entity, COMPONENT.PATH, { waypoints: [], currentIndex: 0 });
+  world.addComponent<FacingComponent>(entity, COMPONENT.FACING, { angle: 0, legPhase: 0 });
   world.addComponent<RoleStatsComponent>(entity, COMPONENT.ROLE_STATS, {
     visionRange: 4,
     speedMultiplier: 0.35,

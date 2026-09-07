@@ -29,7 +29,6 @@ export const AntState = {
   GoingToFood: 'going_to_food',
   Harvesting: 'harvesting',
   ReturningHome: 'returning_home',
-  Depositing: 'depositing',
   Fleeing: 'fleeing',
   ChasingEnemy: 'chasing_enemy',
   AttackingEnemy: 'attacking_enemy',
@@ -65,6 +64,19 @@ export interface AntComponent {
   stateTimer: number; // time in current state
   commandTargetId: EntityId | null; // manual attack wave target (overrides auto-targeting)
   eggTargetTile?: { x: number; y: number } | null; // nurse: locked incubation tile while carrying an egg
+  stuckTimer?: number;    // seconds elapsed with sub-threshold displacement (Bug 3)
+  lastX?: number;         // last sampled world x for stall detection (Bug 3)
+  lastY?: number;         // last sampled world y for stall detection (Bug 3)
+  healingCycles?: number; // consecutive Healing→Searching cycles with no underground food (Bug 6)
+  /** Seconds of FORCED foraging: the health/hunger checks are suppressed while
+   *  this is positive, but the ant still acts normally.
+   *
+   *  This exists because stateTimer alone cannot express it. A negative
+   *  stateTimer suppresses the health check but ALSO skips action scoring
+   *  (the ant freezes); a positive one lets the ant act but re-triggers the
+   *  health check on the next tick. Starving-but-hurt ants need both halves,
+   *  so the "don't go home" gate had to leave stateTimer. */
+  forageGrace?: number;
 }
 
 export interface HungerComponent {
@@ -138,6 +150,8 @@ export const BeetleState = {
   Eating: 'eating',
   ChasingAnt: 'chasing_ant',
   Attacking: 'attacking',
+  /** Wounded: breaks off, runs for its den and licks its wounds before hunting again */
+  Retreating: 'retreating',
 } as const;
 export type BeetleState = typeof BeetleState[keyof typeof BeetleState];
 
@@ -146,6 +160,8 @@ export interface BeetleComponent {
   stateTimer: number;
   targetEntityId: EntityId | null;
   denEntityId: EntityId | null;
+  /** Countdown to the next re-aim while chasing a moving ant */
+  repathTimer?: number;
 }
 
 export interface BeetleDenComponent {

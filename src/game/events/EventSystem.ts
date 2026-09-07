@@ -126,6 +126,7 @@ export class EventSystem implements System {
     this.modifiers.foodSpawnMultiplier = 1.0;
     this.modifiers.decisionNoiseMultiplier = 1.0;
     this.modifiers.enemySpawnMultiplier = 1.0;
+    this.modifiers.enemyAggressionMultiplier = 1.0;
 
     // Apply all active event modifiers (multiplicative stacking)
     for (const event of this.activeEvents) {

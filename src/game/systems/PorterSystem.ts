@@ -56,11 +56,12 @@ export class PorterSystem implements System {
   private transitSystem: TransitSystem;
   private assignTimer = 0;
   private lastPantryFullNotify = 0;
-  private getPendingDigJobs: (() => number) | null = null;
 
-  /** Wired by GameManager — lets waiting haulers convert into diggers */
-  setDigJobsProvider(fn: () => number): void {
-    this.getPendingDigJobs = fn;
+  /** Retained for GameManager compatibility — the dig-jobs gate was removed (Bug 2 fix) */
+  setDigJobsProvider(_fn: () => number): void {
+    // No-op: the pantry-full branch now goes Idle unconditionally regardless of
+    // pending dig jobs. The loaded-idle resume check re-animates the ant when
+    // space frees, which is a cleaner reactivation path.
   }
 
   constructor(world: World, grid: UndergroundGrid, surfaceGrid: TileGrid, transitSystem: TransitSystem) {
@@ -149,6 +150,16 @@ export class PorterSystem implements System {
         recruit.stateTimer = 0;
         this.assignTimer = PORTER_ASSIGN_COOLDOWN;
         return;
+      }
+    }
+
+    // Bug 1: dispatch remaining idle unloaded underground workers back to surface.
+    // Runs after the loaded-idle resume check (lines 118-125) so ants with food
+    // that can now deposit resume Hauling rather than being sent up.
+    for (const ugId of idleUndergroundWorkers) {
+      const ugCarrying = this.world.getComponent<CarryingComponent>(ugId, COMPONENT.CARRYING)!;
+      if (ugCarrying.amount === 0 && !this.transitSystem.isInTransit(ugId)) {
+        this.transitSystem.requestTransit(ugId, 'exit');
       }
     }
 
@@ -288,10 +299,11 @@ export class PorterSystem implements System {
       // storage is exactly what unblocks the deposit.
       this.notifyPantryFull();
       this.clearPath(id);
-      if (this.getPendingDigJobs && this.getPendingDigJobs() > 0) {
-        ant.state = AntState.Idle;
-        ant.stateTimer = 0;
-      }
+      // Unconditionally go Idle — the loaded-idle resume check in update() will
+      // re-attempt hauling as soon as pantry space frees up, breaking the spin
+      // loop that previously locked the ant in this branch every frame.
+      ant.state = AntState.Idle;
+      ant.stateTimer = 0;
       return;
     }
 
