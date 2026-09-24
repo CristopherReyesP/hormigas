@@ -40,6 +40,9 @@ export class MovementSystem implements System {
 
   update(dt: number): void {
     const entities = this.world.query(COMPONENT.POSITION, COMPONENT.PATH);
+    for (const id of this.blockedTime.keys()) {
+      if (!this.world.hasEntity(id)) this.blockedTime.delete(id);
+    }
 
     // Underground crowding map: ANTS per tile (the queen has no ANT component,
     // so she is exempt — she always fits, and never gets walled in by workers).
@@ -66,6 +69,10 @@ export class MovementSystem implements System {
       }
 
       const { grid, underground } = this.resolveLayer(id);
+      const undergroundAnt = underground && !!this.world.getComponent(id, COMPONENT.ANT);
+      const fromKey = undergroundAnt
+        ? Math.floor(pos.y) * UNDERGROUND_WIDTH + Math.floor(pos.x)
+        : undefined;
       const toTile = underground ? Math.floor : Math.round;
       const target = path.waypoints[path.currentIndex];
       const dx = target.x - pos.x;
@@ -97,13 +104,12 @@ export class MovementSystem implements System {
         // traffic ALIVE: (1) the entrance shaft area is exempt — it's the one
         // choke point every ant must cross, teleports inject there, and two-way
         // flow would gridlock it; (2) an ant blocked too long SQUEEZES past.
-        if (underground && this.world.getComponent(id, COMPONENT.ANT)) {
+        if (undergroundAnt) {
           const entranceX = Math.floor(UNDERGROUND_WIDTH / 2);
           const nearEntrance =
             Math.abs(newX - (entranceX + 0.5)) <= 2.5 && newY <= 5.5;
-          const fromKey = Math.floor(pos.y) * UNDERGROUND_WIDTH + Math.floor(pos.x);
-          const toKey = Math.floor(newY) * UNDERGROUND_WIDTH + Math.floor(newX);
-          if (!nearEntrance && toKey !== fromKey && (occupancy.get(toKey) ?? 0) >= MAX_ANTS_PER_TILE_UNDERGROUND) {
+          const proposedKey = Math.floor(newY) * UNDERGROUND_WIDTH + Math.floor(newX);
+          if (!nearEntrance && proposedKey !== fromKey && (occupancy.get(proposedKey) ?? 0) >= MAX_ANTS_PER_TILE_UNDERGROUND) {
             const waited = (this.blockedTime.get(id) ?? 0) + dt;
             if (waited < CROWD_SQUEEZE_SECONDS) {
               this.blockedTime.set(id, waited);
@@ -113,10 +119,6 @@ export class MovementSystem implements System {
             this.blockedTime.delete(id);
           } else {
             this.blockedTime.delete(id);
-          }
-          if (toKey !== fromKey) {
-            occupancy.set(toKey, (occupancy.get(toKey) ?? 0) + 1);
-            occupancy.set(fromKey, Math.max(0, (occupancy.get(fromKey) ?? 1) - 1));
           }
         }
 
@@ -166,6 +168,14 @@ export class MovementSystem implements System {
               facing.legPhase += dt * 15;
             }
           }
+        }
+      }
+
+      if (fromKey !== undefined) {
+        const toKey = Math.floor(pos.y) * UNDERGROUND_WIDTH + Math.floor(pos.x);
+        if (toKey !== fromKey) {
+          occupancy.set(toKey, (occupancy.get(toKey) ?? 0) + 1);
+          occupancy.set(fromKey, Math.max(0, (occupancy.get(fromKey) ?? 1) - 1));
         }
       }
     }
