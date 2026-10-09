@@ -79,13 +79,13 @@ export function createAnt(
   world.addComponent<CarryingComponent>(entity, COMPONENT.CARRYING, {
     resourceType: null,
     amount: 0,
-    maxCapacity: Math.round(stats.carryCapacity * carryMult),
+    maxCapacity: Math.round(stats.carryCapacity * carryMult) + (role === AntRole.Worker ? world.runModifiers.workerCarryBonus : 0),
   });
 
   world.addComponent<HealthComponent>(entity, COMPONENT.HEALTH, {
     current: stats.health,
     max: stats.health,
-    damage: Math.round(stats.damage * damageMult),
+    damage: Math.round(stats.damage * damageMult) * (role === AntRole.Soldier ? world.runModifiers.soldierDamageMult : 1),
   });
 
   world.addComponent<PathComponent>(entity, COMPONENT.PATH, {

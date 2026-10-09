@@ -291,7 +291,7 @@ export class ExcavationSystem implements System {
     if (dist < 1.8) {
       // Close enough — start excavating (queen 'dig' upgrade shortens the job)
       ant.state = AntState.Excavating;
-      ant.stateTimer = EXCAVATION_TIME / this.world.upgrades.digSpeedMult;
+      ant.stateTimer = EXCAVATION_TIME / (this.world.upgrades.digSpeedMult * this.world.runModifiers.digSpeedMult);
     } else {
       // Re-path if MovementSystem cleared the route (blocked). If NO route
       // exists, release the job immediately — never walk a straight line

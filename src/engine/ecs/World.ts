@@ -1,3 +1,4 @@
+import { RunModifiers } from '../../game/run/RunModifiers';
 import type { ComponentMap, System } from './types';
 import type { EntityId } from '../../shared/types';
 
@@ -53,6 +54,12 @@ export class World {
     porterBonus: 0,
     healRateMult: 1,
   };
+
+  readonly runModifiers: RunModifiers;
+
+  constructor(runModifiers = new RunModifiers()) {
+    this.runModifiers = runModifiers;
+  }
 
   private nextNotificationId = 0;
   private notificationCooldowns: Map<string, number> = new Map();

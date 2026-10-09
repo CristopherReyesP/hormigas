@@ -92,7 +92,9 @@ export class MovementSystem implements System {
           speedMultiplier *= roleStats.carrySpeedPenalty;
         }
 
-        const speed = ANT_SPEED * speedMultiplier * this.modifiers.movementSpeedMultiplier * dt;
+        const mutationSpeed = this.world.getComponent(id, COMPONENT.ANT) || this.world.getComponent(id, COMPONENT.QUEEN_ENTITY)
+          ? this.world.runModifiers.movementSpeedMult : 1;
+        const speed = ANT_SPEED * mutationSpeed * speedMultiplier * this.modifiers.movementSpeedMultiplier * dt;
         const moveX = (dx / distance) * Math.min(speed, distance);
         const moveY = (dy / distance) * Math.min(speed, distance);
 

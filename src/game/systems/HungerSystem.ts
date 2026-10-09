@@ -30,7 +30,7 @@ export class HungerSystem implements System {
     const queens = this.world.query(COMPONENT.QUEEN_ENTITY);
     for (const id of queens) {
       const queen = this.world.getComponent<QueenEntityComponent>(id, COMPONENT.QUEEN_ENTITY)!;
-      queen.hunger = Math.max(0, queen.hunger - queen.hungerDecay * this.modifiers.hungerDecayMultiplier * dt);
+      queen.hunger = Math.max(0, queen.hunger - queen.hungerDecay * this.modifiers.hungerDecayMultiplier * this.world.runModifiers.hungerDecayMult * dt);
 
       // Global alert with hysteresis: warn once below 25%, re-arm after recovering past 40%
       if (!this.queenHungerAlerted && queen.hunger < queen.maxHunger * 0.25) {
@@ -54,7 +54,7 @@ export class HungerSystem implements System {
 
     for (const id of entities) {
       const hunger = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER)!;
-      hunger.current -= hunger.decayRate * this.modifiers.hungerDecayMultiplier * dt;
+      hunger.current -= hunger.decayRate * this.modifiers.hungerDecayMultiplier * this.world.runModifiers.hungerDecayMult * dt;
 
       // SURVIVAL LOGIC: a hungry ant carrying food EATS FROM ITS OWN MOUTH
       // before ever starving — no ant dies while holding a meal. This also

@@ -31,7 +31,7 @@ A fixed-length run (~25 min, 7 × 210 s day/night cycles) gives the game a goal,
 ## Tasks
 - [x] T1 — Victory at the dawn after night 7: run outcome state in `GameManager`, a victory screen that reuses the game-over overlay styling, defeat unchanged. Route: delegated (Codex via `cx`; 2+ non-trivial files).
 - [ ] T2 — Mutation layer: about 8 mutation definitions and run-scoped multipliers read at the stat sites (carry, soldier damage, dig speed, porter capacity, healing, movement, hunger, food respawn), composed with event modifiers and upgrades. Route: delegated (Codex via `cx`).
-- [ ] T3 — Dawn pick flow: on dawns of days 2–7, pause, offer 3 distinct mutations, apply the choice, resume; no offer on the final dawn. Route: delegated (Codex via `cx`).
+- [ ] T3 — Dawn pick flow, staged as the evolution chamber (see `odd/tasks/starcraft-hive-wars.md`): on dawns of days 2–7, pause, offer 3 distinct mutations as dramatic organic cards, apply the choice, resume; no offer on the final dawn. Route: delegated (Codex via `cx`).
 
 ## Acceptance criteria
 - The run ends in victory exactly at the start of day 8 when the queen is alive, and never earlier.
@@ -55,6 +55,11 @@ A fixed-length run (~25 min, 7 × 210 s day/night cycles) gives the game a goal,
 - T1 implemented by Codex (`src/game/run/RunOutcome.ts`, `GameManager.checkGameOver`, `GameOverScreen` victory variant, `RUN_NIGHTS_TO_WIN`). RED: `npm test` failed on the missing `RunOutcome` module. GREEN verified by the parent: `npm test` 23/23, `npm run lint` pass, `npm run build` pass. Browser play not exercised.
 - The user confirmed (2026-10-09) the 7-night victory stays; the StarCraft-style mix (rival alien colony as the final-night boss, direct control, mutant/alien art direction) is added as a separate feature, not a replacement.
 - T1 commit: `feat(run): win the run by surviving seven nights` (this commit). Verified by the parent: test 23/23, lint, build.
+
+- T1 committed as `38ada85`. RDD assess (base `ad7dc56`, committed-only): risk medium, `review_due` false, reason `under_budget` — pending in the slice until a later commit reaches the budget.
+
+- T2 implemented by Codex on `feat/roguelite-mutations`; the Codex run ended early on a usage limit, before its final report, so no RED evidence was reported. The parent verified the tree: all 8 mutations wired at their read sites, `applyMutation`/`getAppliedMutations`/`offerMutations` present, `npm test` 41/41, `npx tsc -b --noEmit`, `npm run lint`, `npm run build` pass.
+- T2 commit on hold until the visual and mechanics design audit returns, since it may revise the mutation set.
 
 ## Next step
 T2 — mutation layer (may be re-themed as an evolution chamber once the StarCraft art direction is defined).

@@ -1,3 +1,5 @@
+import { RunModifiers } from './run/RunModifiers';
+import type { MutationId } from './run/MutationDefinitions';
 import type { EntityId } from '../shared/types';
 import { World } from '../engine/ecs/World';
 import { GameLoop } from '../engine/loop/GameLoop';
@@ -213,6 +215,7 @@ export interface GameStats {
 }
 
 export class GameManager {
+  private readonly runModifiers = new RunModifiers();
   private world: World;
   private grid: TileGrid;
   private visibilityGrid: VisibilityGrid;
@@ -244,7 +247,7 @@ export class GameManager {
   private storageMode = false;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.world = new World();
+    this.world = new World(this.runModifiers);
     this.grid = new TileGrid();
     this.visibilityGrid = new VisibilityGrid(WORLD_WIDTH, WORLD_HEIGHT);
     this.renderer = new CanvasRenderer(canvas);
@@ -770,6 +773,32 @@ export class GameManager {
     return true;
   }
 
+  applyMutation(id: MutationId): void {
+    this.runModifiers.apply(id);
+    if (id === 'cargo_sacs' || id === 'acid_mandibles') this.retrofitAntStats();
+  }
+
+  getAppliedMutations(): MutationId[] {
+    return this.runModifiers.getAppliedMutations();
+  }
+
+  /** Recompute from base stats so purchase/pick order never compounds rounding. */
+  private retrofitAntStats(): void {
+    for (const antId of this.world.query(COMPONENT.ANT)) {
+      const ant = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT)!;
+      if (ant.role === AntRole.Worker) {
+        const carrying = this.world.getComponent<CarryingComponent>(antId, COMPONENT.CARRYING);
+        if (carrying) carrying.maxCapacity = Math.round(ROLE_STATS.worker.carryCapacity * this.world.upgrades.workerCarryMult) + this.runModifiers.workerCarryBonus;
+      } else if (ant.role === AntRole.Soldier) {
+        const damage = Math.round(ROLE_STATS.soldier.damage * this.world.upgrades.soldierDamageMult) * this.runModifiers.soldierDamageMult;
+        const health = this.world.getComponent<HealthComponent>(antId, COMPONENT.HEALTH);
+        if (health) health.damage = damage;
+        const combat = this.world.getComponent<CombatComponent>(antId, COMPONENT.COMBAT);
+        if (combat) combat.attackDamage = damage;
+      }
+    }
+  }
+
   // ── Queen upgrades ────────────────────────────────────────────────
 
   getUpgrades(): UpgradeInfo[] {
@@ -809,24 +838,11 @@ export class GameManager {
 
     if (id === 'carry') {
       this.world.upgrades.workerCarryMult = 1 + 0.25 * newLevel;
-      // Retrofit living workers
-      for (const antId of this.world.query(COMPONENT.ANT, COMPONENT.CARRYING)) {
-        const ant = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT)!;
-        if (ant.role !== AntRole.Worker) continue;
-        const carrying = this.world.getComponent<CarryingComponent>(antId, COMPONENT.CARRYING)!;
-        carrying.maxCapacity = Math.round(ROLE_STATS.worker.carryCapacity * this.world.upgrades.workerCarryMult);
-      }
+      this.retrofitAntStats();
       this.world.pushNotification('success', `👑 Mejora: obreras nivel ${newLevel} — cargan más comida`);
     } else if (id === 'damage') {
       this.world.upgrades.soldierDamageMult = 1 + 0.25 * newLevel;
-      const newDamage = Math.round(ROLE_STATS.soldier.damage * this.world.upgrades.soldierDamageMult);
-      for (const antId of this.world.query(COMPONENT.ANT, COMPONENT.HEALTH)) {
-        const ant = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT)!;
-        if (ant.role !== AntRole.Soldier) continue;
-        this.world.getComponent<HealthComponent>(antId, COMPONENT.HEALTH)!.damage = newDamage;
-        const combat = this.world.getComponent<CombatComponent>(antId, COMPONENT.COMBAT);
-        if (combat) combat.attackDamage = newDamage;
-      }
+      this.retrofitAntStats();
       this.world.pushNotification('success', `👑 Mejora: soldados nivel ${newLevel} — pegan más fuerte`);
     } else if (id === 'storage') {
       // Flat extra capacity on every pantry tile (scales with excavated pantry size)
