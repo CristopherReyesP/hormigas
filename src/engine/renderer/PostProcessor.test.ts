@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DUSK_ALARM_DURATION, PostProcessor, duskAlarmAlpha } from './PostProcessor';
+import { DUSK_ALARM_DURATION, NIGHT_GLOW_MAX, PostProcessor, duskAlarmAlpha, nightGlowAlpha } from './PostProcessor';
 
 /** A post processor that has just watched the day turn into night. */
 function atNightfall(): PostProcessor {
@@ -86,5 +86,24 @@ describe('duskAlarmAlpha (stepped double pulse)', () => {
     expect(duskAlarmAlpha(half)).toBeGreaterThan(0);
     expect(duskAlarmAlpha(half)).toBeLessThan(duskAlarmAlpha(0));
     expect(duskAlarmAlpha(half - 0.01)).toBeLessThan(duskAlarmAlpha(half));
+  });
+});
+
+describe('nightGlowAlpha (post-tint bioluminescence)', () => {
+  it('is off during the day', () => {
+    for (const p of [0, 0.3, 0.6, 0.99]) expect(nightGlowAlpha('day', p)).toBe(0);
+  });
+
+  it('glows at full strength in the deep night', () => {
+    expect(nightGlowAlpha('night', 0.5)).toBe(NIGHT_GLOW_MAX);
+  });
+
+  it('scales with night depth: the dusk/dawn edge glows less than the deep night', () => {
+    const edge = nightGlowAlpha('night', 0.05);
+    expect(edge).toBeGreaterThan(0);
+    expect(edge).toBeLessThan(NIGHT_GLOW_MAX);
+    expect(nightGlowAlpha('night', 0.95)).toBe(edge);
+    // Proportional to the tint it has to shine through (0.28 vs 0.5)
+    expect(edge / NIGHT_GLOW_MAX).toBeCloseTo(0.28 / 0.5);
   });
 });

@@ -3,6 +3,7 @@ import type { MutationId } from './run/MutationDefinitions';
 import { antSpawnStats } from './run/antStats';
 import { buildMutationOffer, shouldOfferMutation, summarizeMutationBuild, type MutationBuildEntry, type MutationOffer } from './run/DawnPick';
 import { createSeededRng, offerMutations } from './run/MutationOffers';
+import { pickCraterSite, type TilePos } from './run/craterSite';
 import type { EntityId } from '../shared/types';
 import { World } from '../engine/ecs/World';
 import { GameLoop } from '../engine/loop/GameLoop';
@@ -104,7 +105,13 @@ import {
   UNDERGROUND_HEIGHT,
   QUEEN_EGG_LAY_TIME,
   PANTRY_STORAGE_UPGRADE_PER_TILE,
+  CRATER_CLEAR_RADIUS,
+  CRATER_EDGE_MARGIN,
+  CRATER_FAR_FRACTION,
 } from '../shared/constants';
+
+/** Mixed into the run seed so the crater does not share the dawn offers' draws. */
+const CRATER_SEED_SALT = 0x9e3779b9;
 
 export interface SelectedEntityInfo {
   entityId: EntityId;
@@ -228,6 +235,14 @@ export class GameManager {
   private readonly offerRng = createSeededRng(this.runSeed);
   private mutationOffer: MutationOffer | null = null;
   private lastMutationPick: MutationId | null = null;
+  /**
+   * Where the opening meteorite struck: a reachable clearing on the far side
+   * of the map, fixed for the whole run. The crater decal sits here, the
+   * minimap marks it, and the Crystal Hive rises from it (P5).
+   */
+  private readonly craterSite: TilePos;
+  /** Canvas the intro-skip pointer listener is attached to */
+  private readonly canvas: HTMLCanvasElement;
   private world: World;
   private grid: TileGrid;
   private visibilityGrid: VisibilityGrid;
@@ -259,6 +274,7 @@ export class GameManager {
   private storageMode = false;
 
   constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
     this.world = new World(this.runModifiers);
     this.grid = new TileGrid();
     this.visibilityGrid = new VisibilityGrid(WORLD_WIDTH, WORLD_HEIGHT);
@@ -435,6 +451,37 @@ export class GameManager {
     const nestPixelX = Math.floor(WORLD_WIDTH / 2) * TILE_SIZE;
     const nestPixelY = Math.floor(WORLD_HEIGHT / 2) * TILE_SIZE;
     this.camera.centerOn(nestPixelX, nestPixelY);
+
+    // The run opens with the meteorite: purely visual, the simulation runs on
+    this.craterSite = pickCraterSite({
+      width: WORLD_WIDTH,
+      height: WORLD_HEIGHT,
+      nest: { x: nestX, y: nestY },
+      isWalkable: (x, y) => this.grid.isWalkable(x, y),
+      rng: createSeededRng(this.runSeed ^ CRATER_SEED_SALT),
+      clearRadius: CRATER_CLEAR_RADIUS,
+      edgeMargin: CRATER_EDGE_MARGIN,
+      farFraction: CRATER_FAR_FRACTION,
+    });
+    this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY });
+    window.addEventListener('keydown', this.skipIntro);
+    canvas.addEventListener('pointerdown', this.skipIntro);
+  }
+
+  /** First key or click of the run skips what is left of the intro (one-shot). */
+  private readonly skipIntro = (): void => {
+    this.renderSystem.skipIntro();
+    this.detachIntroSkip();
+  };
+
+  private detachIntroSkip(): void {
+    window.removeEventListener('keydown', this.skipIntro);
+    this.canvas.removeEventListener('pointerdown', this.skipIntro);
+  }
+
+  /** Tile where the meteorite struck (crater center); fixed for the whole run. */
+  getCraterSite(): TilePos {
+    return { x: this.craterSite.x, y: this.craterSite.y };
   }
 
   private spawnInitialEntities(): void {
@@ -686,6 +733,7 @@ export class GameManager {
   stop(): void {
     this.gameLoop.stop();
     this.input.destroy();
+    this.detachIntroSkip();
   }
 
   togglePause(): void {

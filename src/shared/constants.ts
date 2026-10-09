@@ -300,3 +300,8 @@ export const SOLDIER_MAX_FOCUS_ALLIES = 4;
 export const NEST_THREAT_RADIUS = 14;             // a predator this close to the nest raises the colony alarm
 export const NEST_ALARM_SCORE = 14;               // alarm chase score — outweighs foraging for soldiers
 export const FORAGE_ENEMY_AVOID_RADIUS = 5;       // non-soldiers refuse to harvest this close to a predator
+
+// === Meteorite crater (the run's opening impact; the Crystal Hive rises here later) ===
+export const CRATER_CLEAR_RADIUS = 3; // tiles around the impact that must be walkable
+export const CRATER_EDGE_MARGIN = 6; // tiles kept between the crater and the map edge
+export const CRATER_FAR_FRACTION = 0.75; // of the farthest clearing's distance from the nest

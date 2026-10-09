@@ -25,11 +25,13 @@ vi.mock('../../engine/input/InputManager', () => ({ InputManager: class {
 } }));
 vi.mock('../systems/RenderSystem', () => ({ RenderSystem: class {
   setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {}
-  setFarmStatusProvider() {} invalidateTerrain() {}
+  setFarmStatusProvider() {} invalidateTerrain() {} startMeteorIntro() {} skipIntro() {}
 } }));
+// The intro-skip listeners hang off window and the canvas; node has neither.
+vi.stubGlobal('window', new EventTarget());
 
 function manager() {
-  return new GameManager({ getContext: () => ({}) } as unknown as HTMLCanvasElement);
+  return new GameManager(Object.assign(new EventTarget(), { getContext: () => ({}) }) as unknown as HTMLCanvasElement);
 }
 
 function get<T>(world: World, id: number, component: string): T {

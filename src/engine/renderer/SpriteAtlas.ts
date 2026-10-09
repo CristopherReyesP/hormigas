@@ -97,6 +97,35 @@ const SWARM_CASTES: Record<AntRole, SwarmCaste> = {
   },
 };
 
+/** A glowing spot on an ant sprite, in sprite px relative to its rotation origin. */
+export interface AntGlowPoint {
+  along: number; // + toward the head
+  across: number; // + toward the sprite's lower half (before rotation)
+}
+
+const antGlowCache = new Map<AntRole, readonly AntGlowPoint[]>();
+
+/**
+ * Where an ant's vein and eyes sit on its sprite: gaster vein core, thorax
+ * node, then both eyes. Derived from SWARM_CASTES so the night glow pass
+ * stays on the vein if the anatomy or the art scale changes.
+ */
+export function antGlowPoints(role: AntRole): readonly AntGlowPoint[] {
+  const cached = antGlowCache.get(role);
+  if (cached) return cached;
+  const c = SWARM_CASTES[role];
+  const axis = 8; // body axis row on the 16×16 grid
+  const toSprite = (artPx: number) => (artPx + 0.5) * ANT_SCALE - ANT_SPRITE_SIZE / 2;
+  const points: AntGlowPoint[] = [
+    { along: toSprite(c.gx), across: toSprite(axis) },
+    { along: toSprite(c.thCx), across: toSprite(axis) },
+    { along: toSprite(c.eye[0]), across: toSprite(c.eye[1]) },
+    { along: toSprite(c.eye[0]), across: toSprite(2 * axis - c.eye[1]) },
+  ];
+  antGlowCache.set(role, points);
+  return points;
+}
+
 /**
  * Pre-renders all entity sprites to offscreen canvases at construction time.
  * Deliberate PIXEL ART: every sprite is authored on a logical art-pixel grid

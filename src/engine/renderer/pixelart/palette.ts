@@ -34,6 +34,17 @@ export const PAL = {
     outline: '#1a0a12',
   },
 
+  // ── The Crystal Hive (rival faction): faceted cyan shell ──
+  crystal: {
+    shell: ['#0e2a3a', '#1b5a73', '#2fa3b8', '#7fe8f0', '#e8ffff'],
+    shield: '#5ff3ff',
+    outline: '#0a1620',
+  },
+
+  // ── Meteorite opening: fireball trail (head → tail) and the crater ──
+  meteor: ['#fff4d0', '#ff7a2e', '#b0301e'],
+  crater: ['#2a2320', '#3b3346'],
+
   // ── Neutral wildlife: muted, no glow, never the faction hues ──
   beetle: ['#2b2a1e', '#4a4630', '#6e6844'], // olive shell
   beetleEye: '#ffb02e', // amber
