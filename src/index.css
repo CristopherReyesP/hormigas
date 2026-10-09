@@ -18,6 +18,21 @@
 
   --font-pixel: 'Press Start 2P', monospace;
   --font-mono: 'Courier New', Courier, monospace;
+
+  /* Hive chrome: UI palette of the StarCraft art direction
+     (odd/tasks/starcraft-hive-wars.md). Kept apart from --ui-* so the
+     legacy panels keep their look until the P2 restyle adopts these. */
+  --chrome-bg: #0e080b;
+  --chrome-panel: #160c12;
+  --chrome-panel-light: #241420;
+  --chrome-border: #5a3048;
+  --chrome-border-light: #8a4a6a;
+  --chrome-text: #e8d8dc;
+  --chrome-dim: #9a8088;
+  --chrome-accent: #c6ff3d;
+  --chrome-accent-dim: #5a8a1c; /* swarm.vein dark step */
+  --chrome-warn: #f0b541;
+  --chrome-danger: #ff3b3b;
 }
 
 * {
@@ -266,4 +281,370 @@ button {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--ui-border);
+}
+
+/* ════════════════════════════════════════════════════════════
+   HIVE CHROME — chamfered carapace plates, stepped hard shadows
+   ════════════════════════════════════════════════════════════ */
+
+/* Border layer of a plate; the inner layer is the face. Both are cut with
+   the same chamfer so the border also runs along the diagonal corners. */
+.chrome-plate {
+  --cut: 14px;
+  padding: 2px;
+  background: var(--chrome-border);
+  clip-path: polygon(
+    var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut)
+  );
+}
+
+.chrome-plate-inner {
+  --inner-cut: calc(var(--cut) - 1px);
+  background: var(--chrome-panel);
+  clip-path: polygon(
+    var(--inner-cut) 0, calc(100% - var(--inner-cut)) 0, 100% var(--inner-cut),
+    100% calc(100% - var(--inner-cut)), calc(100% - var(--inner-cut)) 100%,
+    var(--inner-cut) 100%, 0 calc(100% - var(--inner-cut)), 0 var(--inner-cut)
+  );
+}
+
+/* ── Evolution chamber (dawn mutation pick) ────────────────── */
+.evo-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  padding: 16px;
+  overflow-y: auto;
+  background-color: color-mix(in srgb, var(--chrome-bg) 72%, transparent);
+  background-image: repeating-conic-gradient(var(--chrome-bg) 0% 25%, transparent 0% 50%);
+  background-size: 4px 4px;
+  animation: evo-fade-in 240ms steps(3) both;
+}
+
+.evo-frame {
+  margin: auto;
+  width: min(780px, 100%);
+  filter: drop-shadow(6px 6px 0 var(--chrome-bg)) drop-shadow(4px 4px 0 #000);
+  animation: evo-panel-in 360ms steps(6) both;
+}
+
+.evo-frame--closing {
+  pointer-events: none;
+}
+
+.evo-panel-plate {
+  --cut: 18px;
+  animation: evo-heartbeat 1.5s steps(2) infinite;
+}
+
+.evo-panel {
+  padding: 22px 24px 18px;
+  color: var(--chrome-text);
+  font-family: var(--font-mono);
+}
+
+.evo-title {
+  font-family: var(--font-pixel);
+  font-size: 18px;
+  font-weight: normal;
+  line-height: 1.4;
+  letter-spacing: 1px;
+  text-align: center;
+  color: var(--chrome-accent);
+  text-shadow: 2px 2px 0 var(--chrome-accent-dim), 4px 4px 0 #000;
+}
+
+.evo-subtitle {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--chrome-dim);
+}
+
+/* Glowing vein under the title, beating with the panel border */
+.evo-vein {
+  width: 60%;
+  height: 2px;
+  margin: 12px auto 18px;
+  background: var(--chrome-accent-dim);
+  animation: evo-vein 1.5s steps(2) infinite;
+}
+
+.evo-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.evo-card-slot {
+  animation: evo-card-in 420ms steps(6) both;
+  animation-delay: calc(200ms + var(--evo-i, 0) * 130ms);
+}
+
+.evo-card {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  filter: drop-shadow(4px 4px 0 var(--chrome-bg));
+  transition: transform 120ms steps(3), filter 120ms steps(3);
+}
+
+.evo-card:hover:not(:disabled),
+.evo-card:focus-visible {
+  transform: translateY(-6px);
+  filter: drop-shadow(4px 10px 0 var(--chrome-bg));
+}
+
+.evo-card:focus-visible {
+  outline: 2px dashed var(--chrome-accent);
+  outline-offset: 4px;
+}
+
+.evo-card:disabled {
+  cursor: default;
+}
+
+.evo-card-plate {
+  --cut: 10px;
+  display: block;
+  height: 100%;
+}
+
+.evo-card:hover:not(:disabled) .evo-card-plate,
+.evo-card:focus-visible .evo-card-plate {
+  background: var(--chrome-border-light);
+}
+
+.evo-card-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  padding: 10px 12px 12px;
+  background: var(--chrome-panel-light);
+}
+
+.evo-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.evo-hotkey {
+  padding: 3px 4px 2px;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+  box-shadow: 2px 2px 0 var(--chrome-accent-dim);
+}
+
+.evo-pips {
+  display: flex;
+  gap: 3px;
+}
+
+.evo-pip {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--chrome-border-light);
+  background: var(--chrome-bg);
+}
+
+.evo-pip--owned {
+  border-color: var(--chrome-text);
+  background: var(--chrome-text);
+}
+
+/* The stack this pick would add */
+.evo-pip--next {
+  border-color: var(--chrome-accent);
+  animation: evo-blink 1s steps(1) infinite;
+}
+
+.evo-specimen {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0;
+  background: var(--chrome-bg);
+  border: 2px solid var(--chrome-border);
+  box-shadow: inset 2px 2px 0 #000;
+}
+
+.evo-preview {
+  width: 96px;
+  height: 96px;
+  image-rendering: pixelated;
+}
+
+.evo-card-name {
+  margin-top: 4px;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--chrome-text);
+}
+
+.evo-card-desc,
+.evo-card-up,
+.evo-card-cost {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.evo-card-desc {
+  font-style: italic;
+  color: var(--chrome-dim);
+}
+
+.evo-card-up {
+  color: var(--chrome-accent);
+}
+
+.evo-card-cost {
+  color: var(--chrome-danger);
+}
+
+.evo-card-cost--none {
+  color: var(--chrome-dim);
+}
+
+.evo-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.evo-tag {
+  padding: 1px 5px;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--chrome-dim);
+  border: 1px solid var(--chrome-border-light);
+}
+
+.evo-tag--assault { color: var(--chrome-danger); border-color: var(--chrome-danger); }
+.evo-tag--defense { color: var(--chrome-warn); border-color: var(--chrome-warn); }
+.evo-tag--capstone { color: var(--chrome-accent); border-color: var(--chrome-accent); }
+
+.evo-hint {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--chrome-dim);
+}
+
+.evo-card--chosen .evo-card-plate {
+  background: var(--chrome-accent);
+  animation: evo-chosen-plate 360ms steps(6) both;
+}
+
+.evo-card--chosen .evo-card-inner {
+  animation: evo-chosen-inner 360ms steps(3) both;
+}
+
+.evo-card--faded {
+  opacity: 0.35;
+}
+
+@keyframes evo-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes evo-panel-in {
+  0% { transform: scaleY(0.04); }
+  70% { transform: scaleY(1.03); }
+  100% { transform: none; }
+}
+
+@keyframes evo-card-in {
+  0% { opacity: 0; transform: translateY(28px); }
+  100% { opacity: 1; transform: none; }
+}
+
+/* Lub (accent) - dub (vein green) - rest */
+@keyframes evo-heartbeat {
+  0%, 24%, 100% { background-color: var(--chrome-border); }
+  4% { background-color: var(--chrome-accent); }
+  10% { background-color: var(--chrome-border-light); }
+  16% { background-color: var(--chrome-accent-dim); }
+}
+
+@keyframes evo-vein {
+  0%, 24%, 100% { background-color: var(--chrome-accent-dim); }
+  4%, 16% { background-color: var(--chrome-accent); }
+}
+
+@keyframes evo-blink {
+  0% { background: var(--chrome-accent-dim); }
+  50% { background: var(--chrome-bg); }
+}
+
+@keyframes evo-chosen-plate {
+  0%, 66% { background: var(--chrome-text); }
+  33%, 100% { background: var(--chrome-accent); }
+}
+
+@keyframes evo-chosen-inner {
+  0% { background: var(--chrome-accent-dim); }
+  100% { background: var(--chrome-panel-light); }
+}
+
+/* ── Run banner (victory) ──────────────────────────────────── */
+.run-banner {
+  width: 100%;
+  margin-bottom: 20px;
+  padding: 18px 16px;
+  text-align: center;
+  font-family: var(--font-pixel);
+  font-size: clamp(16px, 3.2vw, 30px);
+  line-height: 1.3;
+  color: var(--chrome-accent);
+  background: var(--chrome-panel);
+  border-top: 4px solid var(--chrome-accent);
+  border-bottom: 4px solid var(--chrome-accent);
+  box-shadow: 0 4px 0 var(--chrome-bg), 0 -4px 0 var(--chrome-bg);
+  text-shadow: 3px 3px 0 var(--chrome-accent-dim), 6px 6px 0 #000;
+  animation: run-banner-in 480ms steps(6) both;
+}
+
+@keyframes run-banner-in {
+  0% { transform: scaleX(0); }
+  100% { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .evo-backdrop,
+  .evo-frame,
+  .evo-panel-plate,
+  .evo-vein,
+  .evo-card-slot,
+  .evo-pip--next,
+  .evo-card--chosen .evo-card-plate,
+  .evo-card--chosen .evo-card-inner,
+  .run-banner {
+    animation: none;
+  }
+
+  .evo-card {
+    transition: none;
+  }
+
+  .evo-card:hover:not(:disabled),
+  .evo-card:focus-visible {
+    transform: none;
+  }
 }

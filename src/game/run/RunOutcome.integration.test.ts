@@ -5,6 +5,8 @@ import { GameManager, type GameOverStats } from '../GameManager';
 import { COMPONENT } from '../components/components';
 import { createDefaultModifiers } from '../events/GlobalModifiers';
 import { DayNightSystem } from '../systems/DayNightSystem';
+import { createSeededRng } from './MutationOffers';
+import { RunModifiers } from './RunModifiers';
 
 function setup() {
   const world = new World();
@@ -28,37 +30,51 @@ function setup() {
     dayNightSystem,
     gameLoop,
     gameOver: null,
+    runModifiers: new RunModifiers(),
+    offerRng: createSeededRng(1),
+    mutationOffer: null,
+    lastMutationPick: null,
     statsTicks: 0,
     statsCallback,
     getStats: () => ({ gameOver: state.gameOver, paused }),
   });
   const state = manager as unknown as {
     gameOver: GameOverStats | null;
+    mutationOffer: { options: Array<{ id: string }> } | null;
     update: (dt: number) => void;
   };
-  return { manager, state, world, health, update, gameLoop, statsCallback };
+  /** Dawns of days 2-7 open the evolution chamber; take the first card to keep going. */
+  const pickIfOffered = () => {
+    if (state.mutationOffer) manager.chooseMutation(state.mutationOffer.options[0].id);
+  };
+  return { manager, state, world, health, update, gameLoop, statsCallback, pickIfOffered };
 }
 
 describe('run outcome manager integration', () => {
   it('captures metrics, pauses, and immediately publishes at the final dawn only', () => {
-    const { state, world, gameLoop, statsCallback } = setup();
+    const { manager, state, world, gameLoop, statsCallback, pickIfOffered } = setup();
     for (let night = 1; night <= RUN_NIGHTS_TO_WIN; night++) {
       state.update(DAY_DURATION);
       expect(state.gameOver).toBeNull();
       statsCallback.mockClear();
       state.update(NIGHT_DURATION);
       if (night < RUN_NIGHTS_TO_WIN) expect(state.gameOver).toBeNull();
+      pickIfOffered();
     }
-    expect(state.gameOver).toEqual({ outcome: 'victory', survivedTicks: 123, ...world.metrics });
+    expect(manager.getAppliedMutations()).toHaveLength(RUN_NIGHTS_TO_WIN - 1);
+    expect(state.gameOver).toEqual({
+      outcome: 'victory', survivedTicks: 123, ...world.metrics, build: expect.any(Array),
+    });
     expect(gameLoop.isPaused()).toBe(true);
     expect(statsCallback).toHaveBeenCalledWith({ gameOver: state.gameOver, paused: true });
   });
 
   it('publishes defeat if the queen dies during the final transition tick', () => {
-    const { state, world, health, update, gameLoop, statsCallback } = setup();
+    const { state, world, health, update, gameLoop, statsCallback, pickIfOffered } = setup();
     for (let night = 1; night < RUN_NIGHTS_TO_WIN; night++) {
       state.update(DAY_DURATION);
       state.update(NIGHT_DURATION);
+      pickIfOffered();
     }
     state.update(DAY_DURATION);
     update.mockImplementationOnce((dt) => {

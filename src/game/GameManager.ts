@@ -1,6 +1,8 @@
 import { RunModifiers } from './run/RunModifiers';
 import type { MutationId } from './run/MutationDefinitions';
 import { antSpawnStats } from './run/antStats';
+import { buildMutationOffer, shouldOfferMutation, summarizeMutationBuild, type MutationBuildEntry, type MutationOffer } from './run/DawnPick';
+import { createSeededRng, offerMutations } from './run/MutationOffers';
 import type { EntityId } from '../shared/types';
 import { World } from '../engine/ecs/World';
 import { GameLoop } from '../engine/loop/GameLoop';
@@ -166,6 +168,7 @@ export interface GameOverStats {
   densDestroyed: number;
   tilesExcavated: number;
   wavesRepelled: number;
+  build: MutationBuildEntry[];
 }
 
 /** One dot on the underground minimap */
@@ -213,10 +216,18 @@ export interface GameStats {
   dayPhase: 'day' | 'night';
   dayNumber: number;
   phaseRemaining: number; // seconds left in the current phase
+  /** Pending dawn pick; the simulation stays paused while it is set. */
+  mutationOffer: MutationOffer | null;
+  lastMutationPick: MutationId | null;
 }
 
 export class GameManager {
   private readonly runModifiers = new RunModifiers();
+  /** Chosen once per run; every dawn offer of the run is drawn from it. */
+  private readonly runSeed = Math.floor(Math.random() * 0x100000000);
+  private readonly offerRng = createSeededRng(this.runSeed);
+  private mutationOffer: MutationOffer | null = null;
+  private lastMutationPick: MutationId | null = null;
   private world: World;
   private grid: TileGrid;
   private visibilityGrid: VisibilityGrid;
@@ -350,9 +361,16 @@ export class GameManager {
 
     // Setup input
     this.input.onKeyAction('Space', () => this.togglePause());
-    this.input.onKeyAction('Digit1', () => this.gameLoop.setSpeed(1));
-    this.input.onKeyAction('Digit2', () => this.gameLoop.setSpeed(2));
-    this.input.onKeyAction('Digit3', () => this.gameLoop.setSpeed(3));
+    this.input.onKeyAction('Digit1', () => this.handleSlotKey(1));
+    this.input.onKeyAction('Digit2', () => this.handleSlotKey(2));
+    this.input.onKeyAction('Digit3', () => this.handleSlotKey(3));
+    if (import.meta.env.DEV) {
+      // Dev-only preview of the evolution chamber; stripped from production builds.
+      // KeyE (evolution) because KeyM already toggles the underground minimap.
+      this.input.onKeyAction('KeyE', () => {
+        if (!this.gameOver && !this.mutationOffer) this.openMutationOffer();
+      });
+    }
     this.input.onKeyAction('Home', () => this.camera.reset());
     this.input.onKeyAction('KeyR', () => this.camera.reset());
 
@@ -572,7 +590,7 @@ export class GameManager {
 
   private update(dt: number): void {
     // A frame can contain more fixed updates after the loop has been paused.
-    if (this.gameOver) return;
+    if (this.gameOver || this.mutationOffer) return;
     const previousPhase = this.dayNightSystem.getPhase();
     try {
       this.world.update(dt);
@@ -581,6 +599,10 @@ export class GameManager {
     }
 
     this.checkGameOver(previousPhase);
+    const dayPhase = this.dayNightSystem.getPhase();
+    if (shouldOfferMutation(previousPhase, dayPhase, this.dayNightSystem.getDayNumber(), this.gameOver !== null)) {
+      this.openMutationOffer();
+    }
 
     // Send stats to UI (throttled every 10 ticks)
     this.statsTicks++;
@@ -620,13 +642,37 @@ export class GameManager {
       densDestroyed: this.world.metrics.densDestroyed,
       tilesExcavated: this.world.metrics.tilesExcavated,
       wavesRepelled: this.world.metrics.wavesRepelled,
+      build: summarizeMutationBuild(this.runModifiers.getAppliedMutations()),
     };
     this.gameLoop.setPaused(true);
 
     // Push final stats immediately so the UI shows the game-over screen without waiting
-    if (this.statsCallback) {
-      this.statsCallback(this.getStats());
+    this.publishStats();
+  }
+
+  /** Push a snapshot now: the throttled publish in update() stops while paused. */
+  private publishStats(): void {
+    this.statsCallback?.(this.getStats());
+  }
+
+  /** Pause the run and open the evolution chamber for the current day. */
+  private openMutationOffer(): void {
+    const ids = offerMutations(this.offerRng, this.runModifiers.getAppliedMutations());
+    if (ids.length === 0) return; // every mutation is at maxStacks
+    const dayNumber = this.dayNightSystem.getDayNumber();
+    this.mutationOffer = buildMutationOffer(dayNumber, ids, id => this.runModifiers.getStacks(id));
+    this.gameLoop.setPaused(true);
+    this.publishStats();
+  }
+
+  /** Keys 1-3 pick a card while the evolution chamber is open, otherwise they set game speed. */
+  private handleSlotKey(slot: number): void {
+    if (!this.mutationOffer) {
+      this.gameLoop.setSpeed(slot);
+      return;
     }
+    const option = this.mutationOffer.options[slot - 1];
+    if (option) this.chooseMutation(option.id);
   }
 
   private render(interpolation: number, dt: number): void {
@@ -643,12 +689,12 @@ export class GameManager {
   }
 
   togglePause(): void {
-    if (this.gameOver) return;
+    if (this.gameOver || this.mutationOffer) return;
     this.gameLoop.setPaused(!this.gameLoop.isPaused());
   }
 
   setPaused(paused: boolean): void {
-    if (this.gameOver) return;
+    if (this.gameOver || this.mutationOffer) return;
     this.gameLoop.setPaused(paused);
   }
 
@@ -782,6 +828,17 @@ export class GameManager {
   applyMutation(id: MutationId): boolean {
     if (!this.runModifiers.apply(id)) return false;
     this.retrofitAntStats();
+    return true;
+  }
+
+  /** Apply one card of the pending dawn offer and resume. False (no change) for any other id. */
+  chooseMutation(id: string): boolean {
+    const option = this.mutationOffer?.options.find(candidate => candidate.id === id);
+    if (!option || this.gameOver || !this.applyMutation(option.id)) return false;
+    this.mutationOffer = null;
+    this.lastMutationPick = option.id;
+    this.gameLoop.setPaused(false);
+    this.publishStats();
     return true;
   }
 
@@ -1573,6 +1630,8 @@ export class GameManager {
       dayPhase: this.dayNightSystem.getPhase(),
       dayNumber: this.dayNightSystem.getDayNumber(),
       phaseRemaining: Math.ceil(this.dayNightSystem.getPhaseRemaining()),
+      mutationOffer: this.mutationOffer,
+      lastMutationPick: this.lastMutationPick,
     };
   }
 

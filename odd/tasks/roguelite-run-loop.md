@@ -43,7 +43,7 @@ A fixed-length run (~25 min, 7 × 210 s day/night cycles) gives the game a goal,
   - `wing_stubs` (Info, mark: wing stubs): scout vision ×1.5. Revealing the breach is deferred.
   - `hive_mind` (capstone, mark: glowing antenna tips): flanking bonus ×2 (`src/shared/constants.ts:109`); unlocked after 2 picks tagged Tempo or Assault.
   - Offer rules: 3 distinct ids, never past `maxStacks`, the capstone only when unlocked, at least one Assault or Defense mutation per offer when available, extra weight for tags already owned, deterministic with a seeded rng.
-- [ ] T3 — Dawn pick flow, staged as the evolution chamber (see `odd/tasks/starcraft-hive-wars.md`): on dawns of days 2–7, pause, offer 3 distinct mutations as cards (upside in green, cost in red, tag chips, a mini ant preview with its mark, stack count), pixel panel and not glass; the dialog captures keys 1–3, which are game-speed hotkeys today; apply the choice and resume; no offer on the final dawn. The victory screen lists the mutation build and its button reads "NUEVA PARTIDA" instead of "REINTENTAR" (`src/ui/GameOverScreen.tsx:86-97`).
+- [x] T3 — Dawn pick flow, staged as the evolution chamber (see `odd/tasks/starcraft-hive-wars.md`): on dawns of days 2–7, pause, offer 3 distinct mutations as cards (upside in green, cost in red, tag chips, a mini ant preview with its mark, stack count), pixel panel and not glass; the dialog captures keys 1–3, which are game-speed hotkeys today; apply the choice and resume; no offer on the final dawn. The victory screen lists the mutation build and its button reads "NUEVA PARTIDA" instead of "REINTENTAR" (`src/ui/GameOverScreen.tsx:86-97`).
 - [ ] T4 — Wave pacing: arm waves by night number, send a 1-unit scout wave on night 1, use a rising curve (2, 3, 4, 5, 6, 8) instead of 1, 1, 2, 2, 3, 3, and make the HUD count down to the real attack instead of the arming time (`src/ui/HUD.tsx:81-84`, `src/game/systems/UndergroundInvasionSystem.ts:106,139-159`). Moved into scope by the design audit under the user's creative license. Route: delegated (Claude subagent while Codex is out of quota).
 
 ## Acceptance criteria
@@ -83,5 +83,10 @@ A fixed-length run (~25 min, 7 × 210 s day/night cycles) gives the game a goal,
 - Carried into T3: `src/ui/UndergroundPanel.tsx:248` hard-codes the soldier cost (35); it must read `getBreedCost(role)` so `titan_brood` shows.
 - T2b commit: `feat(run): redesign mutations with trade-offs, tags and offer rules` (this commit).
 
+- T3 implemented by a Claude subagent (resumed once after a transient API network error): `DawnPick.ts` (`shouldOfferMutation`, `buildMutationOffer`, `summarizeMutationBuild`), the dawn offer flow in `GameManager` (per-run seeded rng, pause, immediate publish, keys 1–3 pick, `chooseMutation`), `EvolutionChamber.tsx` (carapace plates, heartbeat border, staggered cards, upside/cost/tags/pips, atlas ant preview with a placeholder mark, reduced-motion support), victory banner "LA COLMENA PREVALECE" with the build and "NUEVA PARTIDA", breed costs from `getBreedCost`. RED: 15 failures (mostly assertions) before GREEN. Verified by the parent: `npm test` 109/109, `npx tsc -b --noEmit`, `npm run lint`, `npm run build` pass. Not yet played in the browser by the parent.
+- The art-direction UI tokens live as `--chrome-*` on `:root`, because the existing `--ui-*` tokens style the whole legacy UI; P2 can point `--ui-*` at them.
+- The parent moved the dev-only preview key from `M` (it clashed with the underground minimap toggle) to `E`. Known minor issue: holding a digit picks a card and its key repeats then change game speed.
+- T3 commit: `feat(run): offer mutations at dawn in the evolution chamber` (this commit).
+
 ## Next step
-T3 — the evolution chamber dialog, on `feat/roguelite-dawn-pick`.
+T4 — wave pacing, then P2.

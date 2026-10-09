@@ -96,20 +96,25 @@ export function UndergroundPanel({ gameManager }: UndergroundPanelProps) {
       <p style={{ margin: '0', fontSize: '10px', color: 'var(--ui-text-dim)' }}>{emptyText}</p>
     );
 
-  const breedButton = (role: AntRole, label: string, cost: number, color: string) => (
-    <button
-      onClick={() => handleBreed(role)}
-      disabled={food.total < cost}
-      className="pixel-btn"
-      style={{
-        padding: '8px 4px',
-        color: food.total >= cost ? color : undefined,
-        fontSize: '11px',
-      }}
-    >
-      {label} ({cost}🍖)
-    </button>
-  );
+  // Costs come from the manager so run mutations (titan_brood) show up here.
+  const breedButton = (role: AntRole, label: string, color: string) => {
+    const cost = gameManager?.getBreedCost(role);
+    const affordable = cost !== undefined && food.total >= cost;
+    return (
+      <button
+        onClick={() => handleBreed(role)}
+        disabled={!affordable}
+        className="pixel-btn"
+        style={{
+          padding: '8px 4px',
+          color: affordable ? color : undefined,
+          fontSize: '11px',
+        }}
+      >
+        {label} ({cost ?? '–'}🍖)
+      </button>
+    );
+  };
 
   return (
     <div style={{ color: 'var(--ui-text)', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
@@ -244,11 +249,11 @@ export function UndergroundPanel({ gameManager }: UndergroundPanelProps) {
       {/* 🥚 Breeding: buttons + queue + incubating in ONE place */}
       <Section title="🥚 Cría" defaultOpen badge={`${eggQueue.length + activeEggs.length} 🥚`}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '8px' }}>
-          {breedButton(AntRole.Worker, 'Obrera', 20, '#c08a4a')}
-          {breedButton(AntRole.Soldier, 'Soldado', 35, 'var(--accent-red)')}
-          {breedButton(AntRole.Scout, 'Explorad.', 25, 'var(--accent-blue)')}
-          {breedButton(AntRole.Nurse, 'Nodriza', 15, 'var(--accent-green)')}
-          {breedButton(AntRole.Defender, 'Defensora', 30, '#8a5fc8')}
+          {breedButton(AntRole.Worker, 'Obrera', '#c08a4a')}
+          {breedButton(AntRole.Soldier, 'Soldado', 'var(--accent-red)')}
+          {breedButton(AntRole.Scout, 'Explorad.', 'var(--accent-blue)')}
+          {breedButton(AntRole.Nurse, 'Nodriza', 'var(--accent-green)')}
+          {breedButton(AntRole.Defender, 'Defensora', '#8a5fc8')}
         </div>
         {eggQueue.length > 0 && (
           <>

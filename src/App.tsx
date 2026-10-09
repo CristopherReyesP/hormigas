@@ -11,7 +11,9 @@ import { UndergroundMinimap } from './ui/UndergroundMinimap';
 import { PopulationChip } from './ui/PopulationChip';
 import { ObjectivePanel } from './ui/ObjectivePanel';
 import { GameOverScreen } from './ui/GameOverScreen';
+import { EvolutionChamber } from './ui/EvolutionChamber';
 import type { GameManager, GameStats } from './game/GameManager';
+import type { MutationId } from './game/run/MutationDefinitions';
 import { ColonyPriority } from './game/components/components';
 
 const DEFAULT_STATS: GameStats = {
@@ -51,6 +53,8 @@ const DEFAULT_STATS: GameStats = {
   dayPhase: 'day',
   dayNumber: 1,
   phaseRemaining: 0,
+  mutationOffer: null,
+  lastMutationPick: null,
 };
 
 export default function App() {
@@ -83,6 +87,10 @@ export default function App() {
 
   const handleExitUnderground = useCallback(() => {
     gameManagerRef.current?.exitUnderground();
+  }, []);
+
+  const handleChooseMutation = useCallback((id: MutationId) => {
+    gameManagerRef.current?.chooseMutation(id);
   }, []);
 
   return (
@@ -137,6 +145,13 @@ export default function App() {
         )}
         {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
       </div>
+
+      {/* Dawn mutation pick: full-screen, above both sidebars */}
+      <EvolutionChamber
+        offer={stats.mutationOffer}
+        lastPick={stats.lastMutationPick}
+        onChoose={handleChooseMutation}
+      />
 
       {/* Right Sidebar — Context-dependent panel */}
       <div style={{
