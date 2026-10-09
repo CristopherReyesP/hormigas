@@ -32,7 +32,8 @@ import { UndergroundInvasionSystem, type InvasionInfo } from './systems/Undergro
 import { SpoilageSystem } from './systems/SpoilageSystem';
 import { FungusFarmSystem } from './systems/FungusFarmSystem';
 import { UndergroundHealingSystem } from './systems/UndergroundHealingSystem';
-import { DayNightSystem } from './systems/DayNightSystem';
+import { resolveRunOutcome, type RunOutcome } from './run/RunOutcome';
+import { DayNightSystem, type DayPhase } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
 import { createAnt, createFood, createNest, createBeetleDen, createQueen } from './entities/factories';
 import { createDefaultModifiers } from './events/GlobalModifiers';
@@ -156,6 +157,7 @@ export interface UpgradeInfo {
 const UPGRADE_COSTS = [40, 80, 140];
 
 export interface GameOverStats {
+  outcome: RunOutcome;
   survivedTicks: number;
   antsHatched: number;
   densDestroyed: number;
@@ -563,13 +565,16 @@ export class GameManager {
   }
 
   private update(dt: number): void {
+    // A frame can contain more fixed updates after the loop has been paused.
+    if (this.gameOver) return;
+    const previousPhase = this.dayNightSystem.getPhase();
     try {
       this.world.update(dt);
     } catch (e) {
       console.error('[GameManager] System update error:', e);
     }
 
-    this.checkGameOver();
+    this.checkGameOver(previousPhase);
 
     // Send stats to UI (throttled every 10 ticks)
     this.statsTicks++;
@@ -583,8 +588,8 @@ export class GameManager {
     }
   }
 
-  /** SURVIVAL: if the queen dies (starvation or invaders), the colony falls */
-  private checkGameOver(): void {
+  /** Queen death takes precedence over surviving the final night. */
+  private checkGameOver(previousPhase: DayPhase): void {
     if (this.gameOver) return;
 
     const queens = this.world.query(COMPONENT.QUEEN_ENTITY);
@@ -593,9 +598,17 @@ export class GameManager {
       const health = this.world.getComponent<HealthComponent>(queens[0], COMPONENT.HEALTH);
       if (health && health.current <= 0) queenDead = true;
     }
-    if (!queenDead) return;
+    const outcome = resolveRunOutcome(
+      null,
+      !queenDead,
+      previousPhase,
+      this.dayNightSystem.getPhase(),
+      this.dayNightSystem.getDayNumber(),
+    );
+    if (!outcome) return;
 
     this.gameOver = {
+      outcome,
       survivedTicks: this.gameLoop.getTickCount(),
       antsHatched: this.world.metrics.antsHatched,
       densDestroyed: this.world.metrics.densDestroyed,
@@ -624,10 +637,12 @@ export class GameManager {
   }
 
   togglePause(): void {
+    if (this.gameOver) return;
     this.gameLoop.setPaused(!this.gameLoop.isPaused());
   }
 
   setPaused(paused: boolean): void {
+    if (this.gameOver) return;
     this.gameLoop.setPaused(paused);
   }
 

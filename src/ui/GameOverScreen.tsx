@@ -1,3 +1,4 @@
+import { RUN_NIGHTS_TO_WIN } from '../shared/constants';
 import type { GameOverStats } from '../game/GameManager';
 
 interface GameOverScreenProps {
@@ -5,8 +6,10 @@ interface GameOverScreenProps {
   onRestart: () => void;
 }
 
-/** Full-canvas overlay shown when the queen dies — run stats + restart */
+/** Full-canvas end-of-run overlay with shared stats and restart. */
 export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
+  const victory = stats.outcome === 'victory';
+  const accent = victory ? 'var(--accent-green)' : 'var(--accent-red)';
   const minutes = Math.floor(stats.survivedTicks / 60 / 60);
   const seconds = Math.floor(stats.survivedTicks / 60) % 60;
 
@@ -33,27 +36,27 @@ export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
       <div
         className="pixel-panel"
         style={{
-          borderColor: 'var(--accent-red)',
+          borderColor: accent,
           padding: '28px 36px',
           minWidth: 320,
           textAlign: 'center',
           fontSize: 13,
         }}
       >
-        <div style={{ fontSize: 28, marginBottom: 12 }}>💀</div>
+        <div style={{ fontSize: 28, marginBottom: 12 }}>{victory ? '🏆' : '💀'}</div>
         <div
           style={{
             fontFamily: 'var(--font-pixel)',
             fontSize: 16,
             lineHeight: 1.6,
-            color: 'var(--accent-red)',
+            color: accent,
             marginBottom: 8,
           }}
         >
-          LA REINA HA MUERTO
+          {victory ? '¡VICTORIA!' : 'LA REINA HA MUERTO'}
         </div>
         <div style={{ color: 'var(--ui-text-dim)', marginBottom: 18 }}>
-          Sin reina no hay colonia.
+          {victory ? `La colonia sobrevivió ${RUN_NIGHTS_TO_WIN} noches.` : 'Sin reina no hay colonia.'}
         </div>
 
         <div style={{ fontSize: 13, textAlign: 'left', marginBottom: 22 }}>
@@ -83,7 +86,7 @@ export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
 
         <button
           onClick={onRestart}
-          className="pixel-btn pixel-btn--danger"
+          className={victory ? 'pixel-btn' : 'pixel-btn pixel-btn--danger'}
           style={{
             padding: '12px 28px',
             fontFamily: 'var(--font-pixel)',
