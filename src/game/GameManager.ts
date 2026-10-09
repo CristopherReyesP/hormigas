@@ -8,7 +8,8 @@ import { World } from '../engine/ecs/World';
 import { GameLoop } from '../engine/loop/GameLoop';
 import { CanvasRenderer } from '../engine/renderer/CanvasRenderer';
 import { InputManager } from '../engine/input/InputManager';
-import { Camera } from '../engine/camera/Camera';
+import { Camera, type ViewportRect } from '../engine/camera/Camera';
+import { isTileVisible, type VisibilityReader } from '../engine/renderer/fogVisibility';
 import { TileGrid } from '../simulation/world/TileGrid';
 import { VisibilityGrid } from '../simulation/world/VisibilityGrid';
 import { UndergroundGrid } from '../simulation/world/UndergroundGrid';
@@ -179,6 +180,13 @@ export interface MinimapEntity {
   kind: AntRole | 'queen' | 'invader';
 }
 
+/** One marker on the surface minimap (tile coordinates) */
+export interface SurfaceMinimapDot {
+  x: number;
+  y: number;
+  kind: 'ant' | 'enemy' | 'den' | 'food' | 'nest';
+}
+
 export interface GameStats {
   antCount: number;
   workerCount: number;
@@ -257,6 +265,7 @@ export class GameManager {
   private digMode = false;
   private incubationMode = false;
   private storageMode = false;
+  private viewportConfigured = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.world = new World(this.runModifiers);
@@ -691,6 +700,28 @@ export class GameManager {
   togglePause(): void {
     if (this.gameOver || this.mutationOffer) return;
     this.gameLoop.setPaused(!this.gameLoop.isPaused());
+  }
+
+  isPaused(): boolean {
+    return this.gameLoop.isPaused();
+  }
+
+  /**
+   * Screen layout from the UI: the part of the canvas the HUD leaves visible.
+   * The first call with a default zoom also applies that zoom and recenters
+   * both layers (surface on the nest); later calls keep the view centered.
+   */
+  setViewport(rect: ViewportRect, defaultZoom?: number): void {
+    this.camera.setViewport(rect);
+    this.undergroundCamera.setViewport(rect);
+    if (defaultZoom === undefined || this.viewportConfigured) return;
+    this.viewportConfigured = true;
+    for (const camera of [this.camera, this.undergroundCamera]) {
+      camera.setDefaultZoom(defaultZoom);
+      camera.zoom = camera.getDefaultZoom();
+    }
+    this.camera.centerOn(Math.floor(WORLD_WIDTH / 2) * TILE_SIZE, Math.floor(WORLD_HEIGHT / 2) * TILE_SIZE);
+    this.undergroundCamera.centerOn(Math.floor(UNDERGROUND_WIDTH / 2) * TILE_SIZE, Math.floor(UNDERGROUND_HEIGHT / 2) * TILE_SIZE);
   }
 
   setPaused(paused: boolean): void {
@@ -1363,6 +1394,71 @@ export class GameManager {
       out.push({ x: pos.x, y: pos.y, kind: 'invader' });
     }
 
+    return out;
+  }
+
+  // ── Surface minimap ────────────────────────────────────────────────
+
+  /** Surface terrain (static after world generation) — minimap base layer */
+  getSurfaceGrid(): TileGrid {
+    return this.grid;
+  }
+
+  /** Fog state: explored tiles and current brightness (read-only) */
+  getSurfaceFog(): VisibilityReader {
+    return this.visibilityGrid;
+  }
+
+  /** Surface camera viewport as a tile rect — the minimap "you are here" box */
+  getSurfaceView(): { x: number; y: number; w: number; h: number } {
+    return this.camera.getViewRectTiles();
+  }
+
+  /** Recenter the surface camera on a tile (minimap click-to-navigate) */
+  centerSurfaceOn(tileX: number, tileY: number): void {
+    this.camera.centerOn(tileX * TILE_SIZE, tileY * TILE_SIZE);
+  }
+
+  /**
+   * Live markers for the surface minimap: the colony's surface ants, enemies
+   * only where the fog is clear (the same rule the renderer uses), and dens
+   * and food on explored ground. Polled a few times a second, never per frame.
+   */
+  getSurfaceMinimapDots(): SurfaceMinimapDot[] {
+    const out: SurfaceMinimapDot[] = [];
+    const fog = this.visibilityGrid;
+    const onSurface = (id: EntityId) => {
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+      return !layer || layer.layer === Layer.Surface;
+    };
+    const explored = (pos: PositionComponent) => fog.isExplored(Math.floor(pos.x), Math.floor(pos.y));
+
+    for (const id of this.world.query(COMPONENT.FOOD_SOURCE, COMPONENT.POSITION)) {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'food' });
+    }
+    for (const component of [COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN]) {
+      for (const id of this.world.query(component, COMPONENT.POSITION)) {
+        const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+        if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'den' });
+      }
+    }
+    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.POSITION)) {
+      if (!onSurface(id)) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      out.push({ x: pos.x, y: pos.y, kind: 'ant' });
+    }
+    for (const component of [COMPONENT.BEETLE, COMPONENT.CRICKET]) {
+      for (const id of this.world.query(component, COMPONENT.POSITION)) {
+        if (!onSurface(id)) continue;
+        const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+        if (isTileVisible(fog, Math.floor(pos.x), Math.floor(pos.y))) out.push({ x: pos.x, y: pos.y, kind: 'enemy' });
+      }
+    }
+    for (const id of this.world.query(COMPONENT.NEST, COMPONENT.POSITION)) {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      out.push({ x: pos.x, y: pos.y, kind: 'nest' });
+    }
     return out;
   }
 

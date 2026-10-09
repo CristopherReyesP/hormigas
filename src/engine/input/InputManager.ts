@@ -18,9 +18,10 @@ export class InputManager {
     this.canvas = canvas;
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
-    canvas.addEventListener('mousemove', this.onMouseMove);
+    // Move/up live on the window so a right-drag pan keeps going over the HUD
+    window.addEventListener('mousemove', this.onMouseMove);
     canvas.addEventListener('mousedown', this.onMouseDown);
-    canvas.addEventListener('mouseup', this.onMouseUp);
+    window.addEventListener('mouseup', this.onMouseUp);
     canvas.addEventListener('click', this.onClick);
     canvas.addEventListener('contextmenu', this.onContextMenu);
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
@@ -45,9 +46,9 @@ export class InputManager {
   destroy(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
-    this.canvas.removeEventListener('mousemove', this.onMouseMove);
+    window.removeEventListener('mousemove', this.onMouseMove);
     this.canvas.removeEventListener('mousedown', this.onMouseDown);
-    this.canvas.removeEventListener('mouseup', this.onMouseUp);
+    window.removeEventListener('mouseup', this.onMouseUp);
     this.canvas.removeEventListener('click', this.onClick);
     this.canvas.removeEventListener('contextmenu', this.onContextMenu);
     this.canvas.removeEventListener('wheel', this.onWheel);
@@ -125,8 +126,10 @@ export class InputManager {
     e.preventDefault();
     if (!this.camera) return;
 
+    // Line/page wheel modes (Firefox) report tiny numbers; the camera counts pixels
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
     const pos = this.cssToCanvas(e);
-    this.camera.zoomAt(pos.x, pos.y, e.deltaY);
+    this.camera.zoomAt(pos.x, pos.y, e.deltaY * unit);
   };
 
   private onClick = (e: MouseEvent): void => {

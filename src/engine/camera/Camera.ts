@@ -2,18 +2,51 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT, TILE_SIZE } fro
 
 const PERSPECTIVE_Y_SCALE = 0.85;
 
-// Pixel art shimmers at fractional zoom — snap to fixed steps.
-const ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4] as const;
+// Pixel art shimmers at fractional zoom — zoom moves on a fixed 0.5 grid.
+export const ZOOM_STEP = 0.5;
+export const MIN_ZOOM = 0.5;
+export const MAX_ZOOM = 4;
+
+/** Wheel delta (px) that counts as one notch: a mouse notch is ~100, a trackpad sends many small deltas. */
+const WHEEL_NOTCH = 50;
+
+/** World edge slack (world px) the view may show past the map border. */
+const EDGE_PADDING = 50;
+
+function clampZoom(zoom: number): number {
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+}
+
+/** Nearest 0.5 step inside the zoom limits. */
+export function snapZoom(zoom: number): number {
+  return clampZoom(Math.round(zoom / ZOOM_STEP) * ZOOM_STEP);
+}
+
+/** Next 0.5 step from `current` in `direction` (+1 zooms in, -1 zooms out); off-grid values land on the grid. */
+export function stepZoom(current: number, direction: 1 | -1): number {
+  const steps = current / ZOOM_STEP;
+  const next = direction > 0 ? Math.floor(steps + 1e-9) + 1 : Math.ceil(steps - 1e-9) - 1;
+  return clampZoom(next * ZOOM_STEP);
+}
+
+/** Screen-space rect (canvas px) the player actually sees; HUD bars cover the rest. */
+export interface ViewportRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 export class Camera {
-  x = 0;  // world pixel offset (top-left corner of viewport)
+  x = 0;  // world pixel offset (top-left corner of the canvas)
   y = 0;
   zoom = 1;
 
-  private minZoom = 0.5;
-  private maxZoom = 4;
   private worldWidth: number;
   private worldHeight: number;
+  private viewport: ViewportRect = { x: 0, y: 0, w: CANVAS_WIDTH, h: CANVAS_HEIGHT };
+  private defaultZoom = 1;
+  private wheelAccum = 0;
 
   constructor(worldWidth: number = WORLD_WIDTH, worldHeight: number = WORLD_HEIGHT) {
     this.worldWidth = worldWidth;
@@ -46,15 +79,20 @@ export class Camera {
     this.clamp();
   }
 
+  /**
+   * Wheel zoom around the cursor. Deltas accumulate until a full notch so a
+   * trackpad's stream of tiny deltas cannot race through the steps.
+   * delta > 0 → zoom out, delta < 0 → zoom in.
+   */
   zoomAt(screenX: number, screenY: number, delta: number): void {
-    const worldBefore = this.screenToWorld(screenX, screenY);
+    if (delta === 0) return;
+    if (Math.sign(delta) !== Math.sign(this.wheelAccum)) this.wheelAccum = 0;
+    this.wheelAccum += delta;
+    if (Math.abs(this.wheelAccum) < WHEEL_NOTCH) return;
+    this.wheelAccum = 0;
 
-    // Snap to the next zoom step in the direction of the wheel delta.
-    // delta > 0 → zoom out (smaller), delta < 0 → zoom in (larger).
-    const next = delta > 0
-      ? [...ZOOM_STEPS].reverse().find((s) => s < this.zoom - 1e-9) ?? ZOOM_STEPS[0]
-      : ZOOM_STEPS.find((s) => s > this.zoom + 1e-9) ?? ZOOM_STEPS[ZOOM_STEPS.length - 1];
-    this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, next));
+    const worldBefore = this.screenToWorld(screenX, screenY);
+    this.zoom = stepZoom(this.zoom, delta > 0 ? -1 : 1);
 
     // Keep world point under mouse cursor stationary
     this.x = worldBefore.x - screenX / this.zoom;
@@ -64,6 +102,41 @@ export class Camera {
 
   getZoom(): number {
     return this.zoom;
+  }
+
+  /** Zoom that suits the current display scale; used at start and by reset(). */
+  setDefaultZoom(zoom: number): void {
+    this.defaultZoom = snapZoom(zoom);
+  }
+
+  getDefaultZoom(): number {
+    return this.defaultZoom;
+  }
+
+  /** Set the zoom directly (snapped to the 0.5 grid), keeping the viewport center fixed. */
+  setZoom(zoom: number): void {
+    const center = this.viewportCenterWorld();
+    this.zoom = snapZoom(zoom);
+    this.centerOn(center.x, center.y);
+  }
+
+  /**
+   * Declare which part of the canvas the player can see (the HUD covers the
+   * rest). The world point in the middle of the old viewport stays centered.
+   */
+  setViewport(rect: ViewportRect): void {
+    const center = this.viewportCenterWorld();
+    this.viewport = {
+      x: rect.x,
+      y: rect.y,
+      w: Math.max(1, rect.w),
+      h: Math.max(1, rect.h),
+    };
+    this.centerOn(center.x, center.y);
+  }
+
+  getViewport(): ViewportRect {
+    return { ...this.viewport };
   }
 
   /** World pixel -> screen pixel. Inverse of screenToWorld; keeps
@@ -80,36 +153,53 @@ export class Camera {
    *  to this class — callers that draw a viewport box (the minimap) must not
    *  re-derive it and drift out of sync. */
   getViewRectTiles(): { x: number; y: number; w: number; h: number } {
+    const topLeft = this.screenToWorld(this.viewport.x, this.viewport.y);
     return {
-      x: this.x / TILE_SIZE,
-      y: this.y / TILE_SIZE,
-      w: CANVAS_WIDTH / this.zoom / TILE_SIZE,
-      h: CANVAS_HEIGHT / (this.zoom * PERSPECTIVE_Y_SCALE) / TILE_SIZE,
+      x: topLeft.x / TILE_SIZE,
+      y: topLeft.y / TILE_SIZE,
+      w: this.viewport.w / this.zoom / TILE_SIZE,
+      h: this.viewport.h / (this.zoom * PERSPECTIVE_Y_SCALE) / TILE_SIZE,
     };
   }
 
+  /** Put a world point in the middle of the visible viewport. */
   centerOn(worldPixelX: number, worldPixelY: number): void {
-    const viewW = CANVAS_WIDTH / this.zoom;
-    const viewH = CANVAS_HEIGHT / (this.zoom * PERSPECTIVE_Y_SCALE);
-    this.x = worldPixelX - viewW / 2;
-    this.y = worldPixelY - viewH / 2;
+    const v = this.viewport;
+    this.x = worldPixelX - (v.x + v.w / 2) / this.zoom;
+    this.y = worldPixelY - (v.y + v.h / 2) / (this.zoom * PERSPECTIVE_Y_SCALE);
     this.clamp();
   }
 
-  private clamp(): void {
-    const worldPixelW = this.worldWidth * TILE_SIZE;
-    const worldPixelH = this.worldHeight * TILE_SIZE;
-    const viewW = CANVAS_WIDTH / this.zoom;
-    const viewH = CANVAS_HEIGHT / (this.zoom * PERSPECTIVE_Y_SCALE);
-
-    const padding = 50;
-    this.x = Math.max(-padding, Math.min(worldPixelW - viewW + padding, this.x));
-    this.y = Math.max(-padding, Math.min(worldPixelH - viewH + padding, this.y));
+  private viewportCenterWorld(): { x: number; y: number } {
+    const v = this.viewport;
+    return this.screenToWorld(v.x + v.w / 2, v.y + v.h / 2);
   }
 
+  /** Keep the VISIBLE viewport on the map (with a little edge slack). */
+  private clamp(): void {
+    const v = this.viewport;
+    const viewW = v.w / this.zoom;
+    const viewH = v.h / (this.zoom * PERSPECTIVE_Y_SCALE);
+    const left = Camera.clampAxis(this.x + v.x / this.zoom, viewW, this.worldWidth * TILE_SIZE);
+    const top = Camera.clampAxis(this.y + v.y / (this.zoom * PERSPECTIVE_Y_SCALE), viewH, this.worldHeight * TILE_SIZE);
+    this.x = left - v.x / this.zoom;
+    this.y = top - v.y / (this.zoom * PERSPECTIVE_Y_SCALE);
+  }
+
+  /** Clamp the view's leading edge; a view wider than the padded world is centered instead. */
+  private static clampAxis(start: number, viewSize: number, worldSize: number): number {
+    const min = -EDGE_PADDING;
+    const max = worldSize - viewSize + EDGE_PADDING;
+    if (max < min) return (worldSize - viewSize) / 2;
+    return Math.max(min, Math.min(max, start));
+  }
+
+  /** Back to the default zoom with the world's top-left corner in view. */
   reset(): void {
-    this.x = 0;
-    this.y = 0;
-    this.zoom = 1;
+    this.zoom = this.defaultZoom;
+    this.wheelAccum = 0;
+    this.x = -this.viewport.x / this.zoom;
+    this.y = -this.viewport.y / (this.zoom * PERSPECTIVE_Y_SCALE);
+    this.clamp();
   }
 }

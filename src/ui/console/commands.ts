@@ -1,0 +1,311 @@
+import type { GameManager, GameStats, UpgradeId, UpgradeInfo } from '../../game/GameManager';
+import { AntRole, ColonyPriority } from '../../game/components/components';
+import { CARD_SLOTS } from './commandCardLayout';
+import type { IconName } from './pixelIcons';
+import type { ColonyDetails } from './useColonyDetails';
+import { ROLE_BLURB, ROLE_LABEL, stripEmoji } from './format';
+
+/**
+ * Command card contents per context. Every button maps an action the game
+ * already had (colony priorities, retreat horn, time control, breeding, nest
+ * build tools, garrison, queen upgrades, diet); nothing here invents gameplay.
+ */
+
+export type BuildMode = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense';
+export type CardPage = 'root' | 'colony';
+
+export interface CommandDef {
+  id: string;
+  /** Tooltip title */
+  label: string;
+  icon?: IconName;
+  /** Short text drawn instead of an icon (speed buttons) */
+  glyph?: string;
+  description: string;
+  cost?: { amount: number; resource: 'comida' | 'hongos' };
+  /** Small corner text: queue size, tile count, upgrade level */
+  badge?: string;
+  /** Extra keys that also trigger this action, for the tooltip */
+  altKeys?: string;
+  active?: boolean;
+  disabled?: boolean;
+  /** Why it is disabled, for the tooltip */
+  disabledReason?: string;
+  tone?: 'danger';
+  run: () => void;
+}
+
+export interface CommandContext {
+  gm: GameManager;
+  stats: GameStats;
+  details: ColonyDetails;
+  page: CardPage;
+  buildMode: BuildMode | null;
+  attackCount: number;
+  setPage: (page: CardPage) => void;
+  toggleBuildMode: (mode: BuildMode) => void;
+  switchLayer: (layer: 'surface' | 'underground') => void;
+  /** Re-read stats and details right after an action */
+  refresh: () => void;
+  /** Short-lived message in the feed */
+  notify: (message: string) => void;
+}
+
+type Slot = CommandDef | null;
+
+const MAX_GARRISON = 8;
+
+const BREED_ORDER: ReadonlyArray<{ role: AntRole; icon: IconName }> = [
+  { role: AntRole.Worker, icon: 'worker' },
+  { role: AntRole.Soldier, icon: 'sword' },
+  { role: AntRole.Scout, icon: 'eye' },
+  { role: AntRole.Nurse, icon: 'nurse' },
+  { role: AntRole.Defender, icon: 'shield' },
+];
+
+const UPGRADE_ICON: Record<UpgradeId, IconName> = {
+  carry: 'leaf',
+  damage: 'sword',
+  storage: 'crate',
+  dig: 'pick',
+  porters: 'ant',
+  heal: 'heart',
+};
+
+const BUILD_TOOLS: ReadonlyArray<{ mode: BuildMode; label: string; icon: IconName; description: string }> = [
+  { mode: 'dig', label: 'Excavar', icon: 'pick', description: 'Haz clic en casillas de tierra para marcarlas. Las obreras cavan túneles allí.' },
+  { mode: 'incubation', label: 'Incubación', icon: 'egg', description: 'Haz clic en casillas excavadas para marcar el área donde se incuban los huevos.' },
+  { mode: 'farm', label: 'Granja de hongos', icon: 'fungus', description: 'Haz clic en casillas excavadas: la granja convierte hojas de la despensa en hongos, el doble de nutritivos.' },
+  { mode: 'storage', label: 'Almacén', icon: 'crate', description: 'Haz clic en casillas excavadas para ampliar la despensa de comida.' },
+];
+
+/** Hint shown above the console while a build tool is armed. */
+export const BUILD_MODE_HINT: Record<BuildMode, string> = {
+  dig: 'EXCAVAR: haz clic en casillas de tierra para marcar túneles · Esc cancela',
+  incubation: 'INCUBACIÓN: haz clic en casillas excavadas · Esc cancela',
+  farm: 'GRANJA: haz clic en casillas excavadas para sembrar hongos · Esc cancela',
+  storage: 'ALMACÉN: haz clic en casillas excavadas para ampliar la despensa · Esc cancela',
+  throne: 'TRONO: marca casillas de trono; luego, sin herramienta, haz clic en un trono para mudar a la reina · Esc cancela',
+  defense: 'DEFENSA: haz clic en casillas excavadas; las defensoras montan guardia allí · Esc cancela',
+};
+
+function act(ctx: CommandContext, action: () => void): () => void {
+  return () => {
+    action();
+    ctx.refresh();
+  };
+}
+
+function priority(ctx: CommandContext, value: ColonyPriority, id: string, label: string, icon: IconName, description: string): CommandDef {
+  return {
+    id,
+    label,
+    icon,
+    description: `Prioridad de la colonia: ${description}`,
+    active: ctx.stats.colonyPriority === value,
+    run: act(ctx, () => ctx.gm.setColonyPriority(value)),
+  };
+}
+
+function breedCommands(ctx: CommandContext): CommandDef[] {
+  return BREED_ORDER.map(({ role, icon }) => {
+    const cost = ctx.gm.getBreedCost(role);
+    const queued = ctx.details.eggQueue.filter((egg) => egg.role === role).length;
+    const affordable = ctx.details.food.total >= cost;
+    return {
+      id: `breed-${role}`,
+      label: `Criar ${ROLE_LABEL[role].toLowerCase()}`,
+      icon,
+      description: `La reina pone un huevo. ${ROLE_BLURB[role]} Se paga con comida de la despensa.`,
+      cost: { amount: cost, resource: 'comida' as const },
+      badge: queued > 0 ? String(queued) : undefined,
+      disabled: !affordable,
+      disabledReason: affordable ? undefined : 'No hay suficiente comida en la despensa.',
+      run: act(ctx, () => ctx.gm.queueBreed(role)),
+    };
+  });
+}
+
+function timeCommands(ctx: CommandContext): CommandDef[] {
+  const { paused, speed } = ctx.stats;
+  return [
+    {
+      id: 'pause',
+      label: paused ? 'Reanudar' : 'Pausa',
+      icon: paused ? 'play' : 'pause',
+      description: paused ? 'Reanuda la partida.' : 'Detiene la partida.',
+      altKeys: 'Espacio',
+      active: paused,
+      run: act(ctx, () => ctx.gm.togglePause()),
+    },
+    ...[1, 2, 3].map((n) => ({
+      id: `speed-${n}`,
+      label: `Velocidad ×${n}`,
+      glyph: `×${n}`,
+      description: n === 1 ? 'Ritmo normal.' : `El tiempo corre ${n} veces más rápido.`,
+      altKeys: String(n),
+      active: speed === n,
+      run: act(ctx, () => ctx.gm.setSpeed(n)),
+    })),
+  ];
+}
+
+function attackDen(ctx: CommandContext): CommandDef {
+  const selected = ctx.stats.selectedEntity;
+  const isDen = selected?.type === 'beetle_den' || selected?.type === 'cricket_den';
+  const count = Math.min(ctx.attackCount, ctx.stats.availableSoldiers);
+  const ready = isDen && count > 0;
+  return {
+    id: 'attack-den',
+    label: 'Atacar guarida',
+    icon: 'sword',
+    description: 'Envía soldados libres contra la guarida seleccionada. Ajusta cuántos en el panel central.',
+    badge: ready ? String(count) : undefined,
+    tone: 'danger',
+    disabled: !ready,
+    disabledReason: !isDen ? 'Selecciona una guarida enemiga.' : 'No hay soldados libres.',
+    run: act(ctx, () => {
+      if (!selected || !ready) return;
+      const sent = ctx.gm.dispatchAttackWave(selected.entityId, count);
+      ctx.notify(`¡${sent} soldados en camino a la guarida!`);
+    }),
+  };
+}
+
+function buildTool(ctx: CommandContext, mode: BuildMode, label: string, icon: IconName, description: string, badge?: number): CommandDef {
+  return {
+    id: mode,
+    label,
+    icon,
+    description,
+    badge: badge ? String(badge) : undefined,
+    active: ctx.buildMode === mode,
+    run: act(ctx, () => ctx.toggleBuildMode(mode)),
+  };
+}
+
+function surfaceRoot(ctx: CommandContext): Slot[] {
+  return [
+    priority(ctx, ColonyPriority.Gather, 'gather', 'Recolectar', 'leaf', 'las obreras se concentran en juntar comida.'),
+    priority(ctx, ColonyPriority.Explore, 'explore', 'Explorar', 'eye', 'las exploradoras se alejan más del nido.'),
+    priority(ctx, ColonyPriority.Defend, 'defend', 'Defender', 'shield', 'los soldados patrullan el nido y cazan escarabajos.'),
+    {
+      id: 'retreat',
+      label: '¡Retirada al nido!',
+      icon: 'horn',
+      description: 'Todas las hormigas de la superficie vuelven al nido.',
+      tone: 'danger',
+      run: act(ctx, () => ctx.gm.soundRetreat()),
+    },
+    {
+      id: 'descend',
+      label: 'Bajar al nido',
+      icon: 'descend',
+      description: 'Cambia a la vista del hormiguero subterráneo.',
+      altKeys: 'clic en el nido seleccionado',
+      run: act(ctx, () => ctx.switchLayer('underground')),
+    },
+    ...breedCommands(ctx),
+    ...timeCommands(ctx),
+    attackDen(ctx),
+  ];
+}
+
+function nestRoot(ctx: CommandContext): Slot[] {
+  const counts: Partial<Record<BuildMode, number>> = {
+    farm: ctx.details.farm.tiles,
+    storage: ctx.details.storageTiles,
+  };
+  return [
+    ...BUILD_TOOLS.map((tool) => buildTool(ctx, tool.mode, tool.label, tool.icon, tool.description, counts[tool.mode])),
+    {
+      id: 'ascend',
+      label: 'Subir a la superficie',
+      icon: 'ascend',
+      description: 'Vuelve a la vista de la superficie.',
+      run: act(ctx, () => ctx.switchLayer('surface')),
+    },
+    ...breedCommands(ctx),
+    ...timeCommands(ctx),
+    {
+      id: 'colony-page',
+      label: 'Colonia',
+      icon: 'crown',
+      description: 'Trono, área de defensa, guarnición, mejoras de la reina y dieta.',
+      run: () => ctx.setPage('colony'),
+    },
+  ];
+}
+
+function upgradeCommand(ctx: CommandContext, upgrade: UpgradeInfo | undefined): Slot {
+  if (!upgrade) return null;
+  const maxed = upgrade.nextCost === null;
+  const affordable = !maxed && ctx.details.food.mushrooms >= (upgrade.nextCost ?? 0);
+  return {
+    id: `upgrade-${upgrade.id}`,
+    label: stripEmoji(upgrade.name),
+    icon: UPGRADE_ICON[upgrade.id],
+    description: `Mejora de la reina: ${upgrade.description}.`,
+    cost: maxed ? undefined : { amount: upgrade.nextCost ?? 0, resource: 'hongos' },
+    badge: `${upgrade.level}/${upgrade.maxLevel}`,
+    disabled: maxed || !affordable,
+    disabledReason: maxed ? 'Nivel máximo.' : 'Faltan hongos de la granja.',
+    run: act(ctx, () => ctx.gm.purchaseUpgrade(upgrade.id)),
+  };
+}
+
+function colonyPage(ctx: CommandContext): Slot[] {
+  const { garrison, upgrades, eatFirst } = ctx.details;
+  const diet = (type: 'leaf' | 'mushroom' | 'meat', label: string, icon: IconName): CommandDef => ({
+    id: `diet-${type}`,
+    label: `Comer primero: ${label}`,
+    icon,
+    description: 'La colonia come primero este tipo de comida (cría, nodrizas, curación). Si no queda, come lo que haya.',
+    active: eatFirst === type,
+    run: act(ctx, () => ctx.gm.setConsumptionPriority(type)),
+  });
+  return [
+    buildTool(ctx, 'throne', 'Trono', 'crown', 'Marca casillas de trono. Luego, sin herramienta activa, haz clic en un trono para mudar a la reina.'),
+    buildTool(ctx, 'defense', 'Área de defensa', 'shield', 'Haz clic en casillas excavadas: las defensoras montan guardia allí y atacan a los intrusos.'),
+    {
+      id: 'garrison-down',
+      label: 'Menos guarnición',
+      icon: 'minus',
+      description: `Soldados que custodian a la reina entre oleadas: ${garrison.current}/${garrison.target}.`,
+      badge: String(garrison.target),
+      disabled: garrison.target <= 0,
+      run: act(ctx, () => ctx.gm.setGarrisonSize(garrison.target - 1)),
+    },
+    {
+      id: 'garrison-up',
+      label: 'Más guarnición',
+      icon: 'plus',
+      description: `Soldados que custodian a la reina entre oleadas: ${garrison.current}/${garrison.target}.`,
+      badge: String(garrison.target),
+      disabled: garrison.target >= MAX_GARRISON,
+      run: act(ctx, () => ctx.gm.setGarrisonSize(garrison.target + 1)),
+    },
+    null,
+    ...[0, 1, 2, 3, 4, 5].map((i) => upgradeCommand(ctx, upgrades[i])),
+    diet('leaf', 'hojas', 'leaf'),
+    diet('mushroom', 'hongos', 'fungus'),
+    diet('meat', 'carne', 'meat'),
+    {
+      id: 'back',
+      label: 'Volver',
+      icon: 'back',
+      description: 'Regresa a los comandos principales.',
+      altKeys: 'Esc',
+      run: () => ctx.setPage('root'),
+    },
+  ];
+}
+
+/** The 15 slots of the card for the current layer and page (null = empty slot). */
+export function buildCommands(ctx: CommandContext): Slot[] {
+  const slots =
+    ctx.stats.activeLayer === 'underground'
+      ? ctx.page === 'colony' ? colonyPage(ctx) : nestRoot(ctx)
+      : surfaceRoot(ctx);
+  return Array.from({ length: CARD_SLOTS }, (_, i) => slots[i] ?? null);
+}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { SpriteAtlas } from '../engine/renderer/SpriteAtlas';
+import { getSpriteAtlas } from './sharedAtlas';
 import { AntRole } from '../game/components/components';
 import type { MutationOffer, MutationOfferOption } from '../game/run/DawnPick';
 import type { MutationId, MutationTag } from '../game/run/MutationDefinitions';
@@ -202,12 +202,6 @@ const MARKS: Record<string, readonly MarkRun[]> = {
   ],
 };
 
-let atlas: SpriteAtlas | null = null;
-function getAtlas(): SpriteAtlas {
-  atlas ??= new SpriteAtlas();
-  return atlas;
-}
-
 function previewRole(tags: readonly MutationTag[]): AntRole {
   return tags.includes('Assault') || tags.includes('Defense') ? AntRole.Soldier : AntRole.Worker;
 }
@@ -228,7 +222,7 @@ function AntPreview({ tags, mark }: { tags: readonly MutationTag[]; mark: string
       ctx.setTransform(PREVIEW_SCALE, 0, 0, PREVIEW_SCALE, 0, 0);
       // legPhase centered in frame (step % 4) of the atlas walk cycle
       const legPhase = ((step % 4) + 0.5) * (Math.PI / 2);
-      getAtlas().drawAnt(ctx, SPRITE_SIZE / 2, SPRITE_SIZE / 2, 0, legPhase, role, false);
+      getSpriteAtlas().drawAnt(ctx, SPRITE_SIZE / 2, SPRITE_SIZE / 2, 0, legPhase, role, false);
       const glow = Math.floor(step / 3) % 2 === 0;
       for (const run of runs) {
         ctx.fillStyle = glow && run.pulse ? run.pulse : run.color;
