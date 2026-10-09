@@ -49,6 +49,24 @@ const DAY_STEPS: Array<{ until: number; step: SkyStep }> = [
 const NIGHT_EDGE: SkyStep = { color: PAL.skyNightEdge, alpha: 0.28 };
 const NIGHT_DEEP: SkyStep = { color: PAL.skyNightDeep, alpha: 0.5 };
 
+/** First and last 15% of the night are the dusk/dawn edge step. */
+function nightStep(progress: number): SkyStep {
+  return progress < 0.15 || progress > 0.85 ? NIGHT_EDGE : NIGHT_DEEP;
+}
+
+/** Strongest alpha of the post-tint bioluminescence (Swarm veins, crater cracks). */
+export const NIGHT_GLOW_MAX = 0.85;
+
+/**
+ * Alpha for glows drawn AFTER the night tint: zero by day, scaled by how dark
+ * the current night step is, so the veins shine through exactly as much
+ * darkness as there is to shine through.
+ */
+export function nightGlowAlpha(phase: 'day' | 'night', progress: number): number {
+  if (phase !== 'night') return 0;
+  return NIGHT_GLOW_MAX * (nightStep(progress).alpha / NIGHT_DEEP.alpha);
+}
+
 /** Size of the pre-rendered light mask. Scaled per light at draw time. */
 const MASK_SIZE = 256;
 
@@ -95,8 +113,7 @@ export class PostProcessor {
       this.sky = (DAY_STEPS.find((s) => p < s.until) ?? DAY_STEPS[DAY_STEPS.length - 1]).step;
     } else {
       this.isNight = true;
-      // First and last 15% of the night are the dusk/dawn edge step
-      this.sky = progress < 0.15 || progress > 0.85 ? NIGHT_EDGE : NIGHT_DEEP;
+      this.sky = nightStep(progress);
     }
   }
 

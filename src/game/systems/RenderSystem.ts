@@ -6,8 +6,8 @@ import type { Camera } from '../../engine/camera/Camera';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { TerrainRenderer } from '../../engine/renderer/TerrainRenderer';
 import { FoliageOverlay } from '../../engine/renderer/FoliageOverlay';
-import { PostProcessor, type ScreenLight } from '../../engine/renderer/PostProcessor';
-import { SpriteAtlas } from '../../engine/renderer/SpriteAtlas';
+import { PostProcessor, nightGlowAlpha, type ScreenLight } from '../../engine/renderer/PostProcessor';
+import { SpriteAtlas, antGlowPoints } from '../../engine/renderer/SpriteAtlas';
 import { computeUndergroundLight, UG_LIGHT_RIM, UG_LIGHT_FULL } from './undergroundLight';
 import { FogRenderer } from '../../engine/renderer/FogRenderer';
 import { isTileVisible } from '../../engine/renderer/fogVisibility';
@@ -39,6 +39,9 @@ import { UndergroundTerrainType, ChamberType } from '../../simulation/world/type
 import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
+import { MeteorIntro } from '../render/MeteorIntro';
+import type { Vec2 } from '../render/introTimeline';
+import type { TilePos } from '../run/craterSite';
 
 // === Food pile rendering (nest stockpile + underground pantry) ===
 // Max dots drawn per pile (perf cap — flat fills only, deterministic positions)
@@ -76,6 +79,16 @@ const SHADE_DEEP = withAlpha(PAL.black, ALPHA_STEPS[0]);
 const SHADE_HALF = withAlpha(PAL.black, ALPHA_STEPS[1]);
 const SHADE_QUARTER = withAlpha(PAL.black, ALPHA_STEPS[2]);
 
+const NO_SHAKE: Vec2 = { x: 0, y: 0 };
+
+/** An ant drawn this frame, replayed by the night glow pass (world px). */
+interface GlowAnt {
+  x: number;
+  y: number;
+  angle: number;
+  role: AntRole;
+}
+
 /** Deterministic pseudo-random in [0,1) from an integer seed (same technique as egg speckles). */
 function pileRand(seed: number): number {
   const s = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
@@ -111,6 +124,12 @@ export class RenderSystem {
   private ugParticleTimer = 0;
   private ugTextureCanvas: OffscreenCanvas | null = null;
   private ugTextureReady = false;
+  /** The run's opening (meteor, impact, crater); null until GameManager stages it */
+  private intro: MeteorIntro | null = null;
+  private craterTile: TilePos | null = null;
+  /** Reused per frame: ants on screen, for the post-tint vein glow */
+  private glowAnts: GlowAnt[] = [];
+  private glowAntCount = 0;
 
   // === Pre-rendered pixel-art FX caches (built once in initFxCaches) ===
   private fxShadowSmall!: OffscreenCanvas;
@@ -325,6 +344,21 @@ export class RenderSystem {
   /** Surface tint follows the day/night cycle — wired by GameManager */
   setDayPhaseProvider(fn: () => { phase: 'day' | 'night'; progress: number }): void {
     this.getDayPhase = fn;
+  }
+
+  /** Stage the run's opening: the meteor strikes `impactTile` and leaves its crater there. */
+  startMeteorIntro(impactTile: TilePos, nestTile: TilePos): void {
+    this.intro = new MeteorIntro(impactTile, nestTile);
+    this.craterTile = { x: impactTile.x, y: impactTile.y };
+  }
+
+  /** Any key or click: drop the remaining intro effects (the crater stays). */
+  skipIntro(): void {
+    this.intro?.skip();
+  }
+
+  isIntroPlaying(): boolean {
+    return this.intro?.isPlaying() ?? false;
   }
 
   /** Pre-render earth texture tiles to offscreen canvas (called once) */
@@ -543,20 +577,27 @@ export class RenderSystem {
     }
     this.postProcessor.advance(dt);
     this.ambientParticles.update(dt);
+    this.intro?.advance(dt);
+    // The impact shakes whichever layer the player is watching
+    const shake = this.intro?.getShake() ?? NO_SHAKE;
 
     const ctx = this.renderer.getContext();
     this.renderer.clear();
 
     // Branch: underground or surface
     if (this.getActiveLayer && this.getActiveLayer() === 'underground') {
-      this.renderUndergroundFrame(ctx, dt);
+      this.renderUndergroundFrame(ctx, dt, shake);
+      this.intro?.drawScreenFx(ctx, null);
       return;
     }
 
     ctx.save();
+    ctx.translate(shake.x, shake.y);
     if (this.camera) this.camera.applyTransform(ctx);
     this.renderTerrain();
     this.foliageOverlay.draw(ctx, this.camera);
+    // The crater is ground: under trails and units, hidden by unexplored fog
+    this.intro?.drawCrater(ctx, this.animationTime);
     this.renderPheromones();
     this.renderParticles();
     this.renderEntitiesInterpolated(interpolation);
@@ -564,13 +605,58 @@ export class RenderSystem {
     this.renderHitEffects(ctx, dt);
     this.fogRenderer.update();
     this.fogRenderer.draw(ctx);
+    if (this.camera) this.intro?.drawWorldFx(ctx, this.camera);
     ctx.restore();
     this.postProcessor.setLights(dayPhase?.phase === 'night' ? this.collectSurfaceLights() : []);
     this.postProcessor.apply(ctx);
+    if (dayPhase) this.renderNightGlow(ctx, dayPhase.phase, dayPhase.progress, shake);
+    if (this.camera) this.intro?.drawScreenFx(ctx, this.camera);
+  }
+
+  /**
+   * Bioluminescence, drawn AFTER the night tint so it is not dimmed by it:
+   * additive chartreuse on every on-screen ant's vein and eyes, the nest
+   * entrance (the queen's beacon on the surface), and the crater's cracks.
+   * Alpha follows the night step, so dusk glows softer than deep night.
+   */
+  private renderNightGlow(ctx: CanvasRenderingContext2D, phase: 'day' | 'night', progress: number, shake: Vec2): void {
+    const alpha = nightGlowAlpha(phase, progress);
+    if (alpha <= 0 || !this.camera) return;
+    ctx.save();
+    ctx.translate(shake.x, shake.y);
+    this.camera.applyTransform(ctx);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = alpha;
+
+    for (const id of this.world.query(COMPONENT.NEST, COMPONENT.POSITION)) {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const px = pos.x * TILE_SIZE + TILE_SIZE / 2;
+      const py = pos.y * TILE_SIZE + TILE_SIZE / 2;
+      this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.7, 'swarmVein');
+    }
+
+    ctx.fillStyle = PAL.swarm.vein[1];
+    for (let i = 0; i < this.glowAntCount; i++) {
+      const a = this.glowAnts[i];
+      const cos = Math.cos(a.angle);
+      const sin = Math.sin(a.angle);
+      const points = antGlowPoints(a.role);
+      for (let k = 0; k < points.length; k++) {
+        const x = a.x + cos * points[k].along - sin * points[k].across;
+        const y = a.y + sin * points[k].along + cos * points[k].across;
+        if (k === 0) this.drawGlowStamp(ctx, x, y, 7, 'swarmVein'); // halo on the gaster vein
+        ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 3, 3);
+      }
+    }
+
+    if (this.intro && this.craterTile && this.visibilityGrid.isExplored(this.craterTile.x, this.craterTile.y)) {
+      this.intro.drawCrackGlow(ctx, this.animationTime);
+    }
+    ctx.restore();
   }
 
 
-  private renderUndergroundFrame(ctx: CanvasRenderingContext2D, dt: number): void {
+  private renderUndergroundFrame(ctx: CanvasRenderingContext2D, dt: number, shake: Vec2): void {
     if (!this.ugGrid || !this.ugCamera) return;
 
     const frameTime = Date.now();
@@ -580,6 +666,7 @@ export class RenderSystem {
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     ctx.save();
+    ctx.translate(shake.x, shake.y);
     this.ugCamera.applyTransform(ctx);
 
     const grid = this.ugGrid;
@@ -1280,6 +1367,7 @@ export class RenderSystem {
   private renderEntitiesInterpolated(interpolation: number): void {
     const ctx = this.renderer.getContext();
     const cull = this.surfaceCullBounds();
+    this.glowAntCount = 0;
 
     // Separate entities by type for proper render order
     const foodEntities: Array<{ id: number; pos: PositionComponent; radius: number }> = [];
@@ -1402,6 +1490,7 @@ export class RenderSystem {
         const isInCombat = ant.state === AntState.AttackingEnemy || ant.state === AntState.AttackingDen;
         const isFleeing = ant.state === AntState.Fleeing;
         this.drawAnt(ctx, x, y, facing.angle, facing.legPhase, ant.role, isSelected, isCarrying, isInCombat, isFleeing);
+        this.recordGlowAnt(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2, facing.angle, ant.role);
 
         // Health bar for damaged ants
         const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
@@ -1419,6 +1508,19 @@ export class RenderSystem {
         }
       }
     }
+  }
+
+  private recordGlowAnt(x: number, y: number, angle: number, role: AntRole): void {
+    let slot = this.glowAnts[this.glowAntCount];
+    if (!slot) {
+      slot = { x, y, angle, role };
+      this.glowAnts.push(slot);
+    }
+    slot.x = x;
+    slot.y = y;
+    slot.angle = angle;
+    slot.role = role;
+    this.glowAntCount++;
   }
 
   /** Chunky segmented pixel health bar: pre-rendered frame (1px outline border)
