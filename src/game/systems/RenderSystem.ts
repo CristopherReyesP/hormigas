@@ -11,6 +11,7 @@ import { SpriteAtlas, antGlowPoints } from '../../engine/renderer/SpriteAtlas';
 import { computeUndergroundLight, UG_LIGHT_RIM, UG_LIGHT_FULL } from './undergroundLight';
 import { FogRenderer } from '../../engine/renderer/FogRenderer';
 import { isTileVisible } from '../../engine/renderer/fogVisibility';
+import { DECOR_SEED, crystalShardsAround } from '../../engine/renderer/alienDecor';
 import {
   COMPONENT,
   AntRole,
@@ -35,7 +36,7 @@ import {
   type NestComponent,
 } from '../components/components';
 import { TILE_SIZE, PHEROMONE_MAX, CANVAS_WIDTH, CANVAS_HEIGHT, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
-import { UndergroundTerrainType, ChamberType } from '../../simulation/world/types';
+import { UndergroundTerrainType, ChamberType, TerrainType } from '../../simulation/world/types';
 import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
@@ -348,7 +349,12 @@ export class RenderSystem {
 
   /** Stage the run's opening: the meteor strikes `impactTile` and leaves its crater there. */
   startMeteorIntro(impactTile: TilePos, nestTile: TilePos): void {
-    this.intro = new MeteorIntro(impactTile, nestTile);
+    // The Hive's corruption: crystal shards on the ground around the impact
+    const shards = crystalShardsAround(impactTile, DECOR_SEED, (x, y) => {
+      const tile = this.grid.getTile(x, y);
+      return tile !== null && tile.terrain !== TerrainType.Water;
+    });
+    this.intro = new MeteorIntro(impactTile, nestTile, shards);
     this.craterTile = { x: impactTile.x, y: impactTile.y };
   }
 
@@ -421,6 +427,26 @@ export class RenderSystem {
       renderTile(i, 7, PAL.earth[2], PAL.earth[1], PAL.earth[3], null); // designated earth
     }
 
+    // Wall veins: faint glowing filaments wandering through the chitin-rock,
+    // on two of the four wall variants (picked by tile hash, so no lattice)
+    for (const col of [0, 2]) {
+      const p = new PixelPainter(ctx, 2, col * T, 0);
+      const seed = col * 7 + 977;
+      let vx = 1 + Math.floor(hash2(seed, 2) * 5);
+      let vy = 3 + Math.floor(hash2(seed, 3) * 10);
+      const len = 10 + Math.floor(hash2(seed, 1) * 6);
+      for (let k = 0; k < len && vx < 16; k++) {
+        p.px(vx, vy, k % 5 === 3 ? PAL.rockVein[1] : PAL.rockVein[0]);
+        // Wander: mostly forward, sometimes a diagonal kink up or down
+        const turn = hash2(seed, k + 10);
+        if (turn < 0.25) vy = Math.max(1, vy - 1);
+        else if (turn > 0.75) vy = Math.min(14, vy + 1);
+        if (turn > 0.15 && turn < 0.85) vx++;
+        // One short fork off the middle of the filament
+        if (k === 5) p.line(vx, vy, vx + 2, vy + (col === 0 ? 2 : -2), PAL.rockVein[0]);
+      }
+    }
+
     // ── Chamber floors as MATERIAL SPRITES — you see leaves, you know it's the
     // larder; you see straw, it's the nursery. The material IS the label. ──
 
@@ -432,16 +458,16 @@ export class RenderSystem {
         p.rect(x + 1, y, 1, 5, lit);
         p.rect(x, y + 1, 3, 3, body);
         p.vline(x + 1, y + 1, 3, PAL.grass[0]); // vein
-        p.px(x + 1, y + 5, PAL.wood[1]); // stem
+        p.px(x + 1, y + 5, PAL.flora.stalk[1]); // stem
       } else {
         p.rect(x, y + 1, 5, 1, lit);
         p.rect(x + 1, y, 3, 3, body);
         p.hline(x + 1, y + 1, 3, PAL.grass[0]); // vein
-        p.px(x + 5, y + 1, PAL.wood[1]); // stem
+        p.px(x + 5, y + 1, PAL.flora.stalk[1]); // stem
       }
     };
 
-    // Row 3 FOOD STORAGE: a carpet of stored LEAVES over packed earth.
+    // Row 3 FOOD STORAGE: a carpet of stored FRONDS over the burrow floor.
     // Stratified placement (2×3 cells + jitter) — even coverage, shapes intact
     for (let i = 0; i < 4; i++) {
       const p = new PixelPainter(ctx, 2, i * T, 3 * T);
@@ -456,8 +482,8 @@ export class RenderSystem {
       }
     }
 
-    // Row 4 INCUBATION: STRAW bedding — golden strands crisscrossed in layers,
-    // stratified rows so the whole tile reads as a nest lining
+    // Row 4 INCUBATION: SILK bedding — pale lilac strands crisscrossed in
+    // layers with cream tips, stratified rows so the tile reads as a lining
     for (let i = 0; i < 4; i++) {
       const p = new PixelPainter(ctx, 2, i * T, 4 * T);
       const seed = i * 7 + 4 * 131;
@@ -466,27 +492,28 @@ export class RenderSystem {
       for (let k = 0; k < 8; k++) {
         const sx = (k % 2) * 6 + Math.floor(hash2(seed, k * 3) * 5);
         const sy = k * 2 + Math.floor(hash2(seed, k * 3 + 1) * 2);
-        p.hline(sx, sy, 4 + Math.floor(hash2(seed, k * 3 + 2) * 3), PAL.sand[0]);
+        p.hline(sx, sy, 4 + Math.floor(hash2(seed, k * 3 + 2) * 3), PAL.dust[1]);
       }
       // Top layer: bright straw, stratified in both axes, mixed directions
       for (let k = 0; k < 6; k++) {
         const sx = ((k + 1) % 2) * 6 + Math.floor(hash2(seed + 17, k * 3) * 5);
         const sy = k * 2 + 1 + Math.floor(hash2(seed + 17, k * 3 + 1) * 2);
-        if (k % 3 === 2) p.vline(sx, sy, 4, PAL.sand[1]);
-        else p.hline(sx, sy, 5, PAL.sand[1]);
-        p.px(sx, sy, PAL.sand[2]); // lit tip
+        if (k % 3 === 2) p.vline(sx, sy, 4, PAL.mineralFleck);
+        else p.hline(sx, sy, 5, PAL.mineralFleck);
+        p.px(sx, sy, PAL.flora.pod[2]); // lit tip
       }
     }
 
-    // Row 2 QUEEN: woven golden mat — the throne floor is DRESSED, not dug
+    // Row 2 QUEEN: woven mauve resin mat with gold threads — the throne floor
+    // is DRESSED, not dug
     for (let i = 0; i < 4; i++) {
       const p = new PixelPainter(ctx, 2, i * T, 2 * T);
       const seed = i * 7 + 2 * 131;
-      p.rect(0, 0, 16, 16, PAL.wood[1]);
+      p.rect(0, 0, 16, 16, PAL.flora.fan[1]);
       // Weave: alternating warp/weft bands every 4px
       for (let b = 0; b < 4; b++) {
-        p.hline(0, b * 4 + 1, 16, PAL.wood[2]);
-        p.vline(b * 4 + 2, 0, 16, PAL.wood[0]);
+        p.hline(0, b * 4 + 1, 16, PAL.flora.fan[2]);
+        p.vline(b * 4 + 2, 0, 16, PAL.flora.fan[0]);
       }
       // Golden threads woven through + a catch-light
       for (let k = 0; k < 3; k++) {
@@ -652,6 +679,10 @@ export class RenderSystem {
     if (this.intro && this.craterTile && this.visibilityGrid.isExplored(this.craterTile.x, this.craterTile.y)) {
       this.intro.drawCrackGlow(ctx, this.animationTime);
     }
+
+    // Alien flora pods glow softly on explored ground (dimmer than the Swarm)
+    ctx.globalAlpha = alpha * 0.6;
+    this.foliageOverlay.drawPodGlow(ctx, this.camera, (x, y) => this.visibilityGrid.isExplored(x, y));
     ctx.restore();
   }
 
@@ -698,8 +729,8 @@ export class RenderSystem {
         const px = x * T;
         const py = y * T;
 
-        // Pick texture variant based on tile position (deterministic)
-        const col = ((x * 7 + y * 13) % 4 + 4) % 4;
+        // Pick texture variant by tile hash (deterministic, no visible lattice)
+        const col = Math.floor(hash2(x * 3 + 1, y * 5 + 2) * 4);
         let row: number;
 
         switch (tile.terrain) {
