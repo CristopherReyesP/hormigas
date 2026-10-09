@@ -40,7 +40,7 @@ interface SkyStep {
 const DAY_STEPS: Array<{ until: number; step: SkyStep }> = [
   { until: 0.12, step: { color: PAL.skyDawn, alpha: 0.16 } },
   { until: 0.32, step: { color: PAL.skyMorning, alpha: 0.09 } },
-  { until: 0.62, step: { color: PAL.skyNoon, alpha: 0.04 } },
+  { until: 0.62, step: { color: PAL.skyNoon, alpha: 0.07 } }, // faint alien violet
   { until: 0.84, step: { color: PAL.skyAfternoon, alpha: 0.1 } },
   { until: 1.01, step: { color: PAL.skyDusk, alpha: 0.2 } },
 ];

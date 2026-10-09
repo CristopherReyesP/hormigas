@@ -4,6 +4,7 @@ import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 import { drawPixelText, textWidth, GLYPH_H } from '../../engine/renderer/pixelart/PixelFont';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, TILE_SIZE } from '../../shared/constants';
 import type { TilePos } from '../run/craterSite';
+import type { CrystalShard } from '../../engine/renderer/alienDecor';
 import {
   INTRO_TIMELINE,
   INTRO_TITLE_LINES,
@@ -75,8 +76,14 @@ export class MeteorIntro {
   private meteorHalo: OffscreenCanvas | null = null;
   private meteorCore: OffscreenCanvas | null = null;
   private crystalHalo: OffscreenCanvas | null = null;
+  /** Crystal shards around the crater (the Hive's corruption) and their tips */
+  private readonly shards: readonly CrystalShard[];
+  private shardLayer: OffscreenCanvas | null = null;
+  private shardGlints: OffscreenCanvas | null = null;
+  private shardReach = 0;
 
-  constructor(impactTile: TilePos, nestTile: TilePos) {
+  constructor(impactTile: TilePos, nestTile: TilePos, shards: readonly CrystalShard[] = []) {
+    this.shards = shards;
     this.seed = { x: impactTile.x, y: impactTile.y };
     this.impact = { x: impactTile.x * TILE_SIZE + TILE_SIZE / 2, y: impactTile.y * TILE_SIZE + TILE_SIZE / 2 };
     this.nest = { x: nestTile.x * TILE_SIZE + TILE_SIZE / 2, y: nestTile.y * TILE_SIZE + TILE_SIZE / 2 };
@@ -117,6 +124,15 @@ export class MeteorIntro {
     const y = Math.round(this.impact.y) - CR_CY * ART;
     ctx.drawImage(this.craterBase!, x, y);
     ctx.drawImage(this.crackLayers[crackPulseStep(time)], x, y);
+    if (this.shardLayer) ctx.drawImage(this.shardLayer, this.shardOrigin().x, this.shardOrigin().y);
+  }
+
+  /** World px of the shard layer's top-left corner (it is centered on the impact tile). */
+  private shardOrigin(): Vec2 {
+    return {
+      x: (this.seed.x - this.shardReach) * TILE_SIZE,
+      y: (this.seed.y - this.shardReach) * TILE_SIZE,
+    };
   }
 
   /** World space, post-tint, additive: the cracks shine through the night. */
@@ -125,6 +141,7 @@ export class MeteorIntro {
     const x = Math.round(this.impact.x) - CR_CX * ART;
     const y = Math.round(this.impact.y) - CR_CY * ART;
     ctx.drawImage(this.crackLayers[crackPulseStep(time)], x, y);
+    if (this.shardGlints) ctx.drawImage(this.shardGlints, this.shardOrigin().x, this.shardOrigin().y);
     const h = this.crystalHalo.width / 2;
     ctx.drawImage(this.crystalHalo, Math.round(this.impact.x - h), Math.round(this.impact.y - h));
   }
@@ -412,5 +429,56 @@ export class MeteorIntro {
       return layer;
     });
     this.crystalHalo = makeHalo(PAL.crystal.shield, 10);
+    this.buildShardArt();
+  }
+
+  /**
+   * One shard: a 2-px faceted column (lit left, shaded right) narrowing to a
+   * 1-px white tip, outlined dark, seated in the ground. Its tip also goes on
+   * the glint layer for the night glow.
+   */
+  private paintShard(p: PixelPainter, g: PixelPainter, bx: number, by: number, height: number, lean: number): void {
+    const body: Array<[number, number]> = [];
+    for (let k = 0; k < height; k++) body.push([bx + (k >= height / 2 ? lean : 0), by - k]);
+    const [tx, ty] = body[body.length - 1];
+    p.hline(bx - 1, by + 1, 4, PAL.crystal.outline);
+    for (const [x, y] of body) p.hline(x - 1, y, 4, PAL.crystal.outline);
+    p.hline(tx - 1 + (lean > 0 ? 1 : 0), ty - 1, 3, PAL.crystal.outline);
+    p.px(tx + (lean > 0 ? 1 : 0), ty - 2, PAL.crystal.outline);
+    for (const [x, y] of body) {
+      p.px(x, y, PAL.crystal.shell[3]); // lit facet
+      p.px(x + 1, y, PAL.crystal.shell[1]); // shaded facet
+    }
+    p.px(bx + 1, by, PAL.crystal.shell[0]);
+    const tipX = tx + (lean > 0 ? 1 : 0);
+    p.px(tipX, ty - 1, PAL.crystal.shell[4]); // pointed tip
+    p.px(tx, ty, PAL.crystal.shell[3]);
+    g.px(tipX, ty - 1, PAL.crystal.shell[4]);
+    g.px(tx, ty, PAL.crystal.shell[2]);
+  }
+
+  /**
+   * Crystal shards poking out of the ground: faceted columns (lit left facet,
+   * shaded right facet, white tip) with a dark outline, plus a tips-only
+   * layer the night glow replays additively.
+   */
+  private buildShardArt(): void {
+    if (this.shards.length === 0) return;
+    const TILE_ART = TILE_SIZE / ART;
+    let reach = 0;
+    for (const s of this.shards) reach = Math.max(reach, Math.abs(s.tileX - this.seed.x), Math.abs(s.tileY - this.seed.y));
+    this.shardReach = reach;
+    const size = (reach * 2 + 1) * TILE_SIZE;
+    this.shardLayer = new OffscreenCanvas(size, size);
+    this.shardGlints = new OffscreenCanvas(size, size);
+    const p = new PixelPainter(this.shardLayer.getContext('2d')!, ART);
+    const g = new PixelPainter(this.shardGlints.getContext('2d')!, ART);
+    for (const s of this.shards) {
+      const bx = (s.tileX - this.seed.x + reach) * TILE_ART + s.ax;
+      const by = (s.tileY - this.seed.y + reach) * TILE_ART + s.ay;
+      // A smaller upright twin beside the main shard, drawn first (behind)
+      if (s.twin) this.paintShard(p, g, bx + (s.lean > 0 ? -2 : 2), by, Math.max(2, Math.floor(s.height * 0.6)), 0);
+      this.paintShard(p, g, bx, by, s.height, s.lean);
+    }
   }
 }

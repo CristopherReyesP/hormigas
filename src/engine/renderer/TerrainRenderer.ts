@@ -2,6 +2,7 @@ import { TILE_SIZE, WORLD_WIDTH, WORLD_HEIGHT } from '../../shared/constants';
 import type { TileGrid } from '../../simulation/world/TileGrid';
 import { TerrainType } from '../../simulation/world/types';
 import { TerrainDecorator } from './TerrainDecorator';
+import { DECOR_SEED, patchNoise } from './alienDecor';
 import { PAL, hash2 } from './pixelart/palette';
 import { PixelPainter } from './pixelart/PixelPainter';
 
@@ -11,12 +12,35 @@ const SCALE = TILE_SIZE / ART;
 
 /** Material ramp per terrain type — all colors come from PAL, nowhere else. */
 const RAMPS: Record<TerrainType, readonly string[]> = {
-  [TerrainType.Dirt]: PAL.soil,
-  [TerrainType.Grass]: PAL.grass,
-  [TerrainType.Sand]: PAL.sand,
-  [TerrainType.Stone]: PAL.stone,
-  [TerrainType.Water]: PAL.water,
+  [TerrainType.Dirt]: PAL.soil, // violet regolith
+  [TerrainType.Grass]: PAL.grass, // bioluminescent moss
+  [TerrainType.Sand]: PAL.dust, // pale ash flats
+  [TerrainType.Stone]: PAL.stone, // alien outcrops
+  [TerrainType.Water]: PAL.water, // ink pools
 };
+
+/**
+ * Base fill steps per terrain, picked by large soft patches (patchNoise) so the
+ * ground has lowlands and drifts instead of a flat per-tile checker. The
+ * regolith spans three steps; the 5-step ramp keeps darker/lighter ones for
+ * speckle, drifts and pockmark rims.
+ */
+const BASE_STEPS: Record<TerrainType, readonly number[]> = {
+  [TerrainType.Dirt]: [1, 2, 3],
+  [TerrainType.Grass]: [1, 2],
+  [TerrainType.Sand]: [1, 2],
+  [TerrainType.Stone]: [1, 2],
+  [TerrainType.Water]: [1, 2],
+};
+/** Patch size in tiles */
+const PATCH_CELL = 5;
+/** Noise width of the dithered fringe where one patch step meets the next */
+const PATCH_DITHER = 0.05;
+/** 4×4 ordered-dither (Bayer) thresholds, 0-15 */
+const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5] as const;
+
+/** Regolith dust drift shape: [row, first px, length] */
+const DRIFT_ROWS: ReadonlyArray<readonly [number, number, number]> = [[0, 1, 3], [1, 0, 6], [2, 2, 4]];
 
 type Edge = 'top' | 'bottom' | 'left' | 'right';
 
@@ -74,10 +98,62 @@ export class TerrainRenderer {
     }
   }
 
-  /** Base fill color: ramp step 1 or 2 picked deterministically per tile. */
-  private baseColor(terrain: TerrainType, tileX: number, tileY: number): string {
+  /** Patch step for a noise value, offset by an ordered-dither threshold (0-15). */
+  private stepFor(terrain: TerrainType, n: number, bayer: number): number {
+    const steps = BASE_STEPS[terrain];
+    const v = n + (bayer / 15 - 0.5) * PATCH_DITHER;
+    return steps[Math.max(0, Math.min(steps.length - 1, Math.floor(v * steps.length)))];
+  }
+
+  /** Patch noise at the tile's four corners: [top-left, top-right, bottom-left, bottom-right]. */
+  private cornerNoise(tileX: number, tileY: number): [number, number, number, number] {
+    return [
+      patchNoise(tileX, tileY, DECOR_SEED, PATCH_CELL),
+      patchNoise(tileX + 1, tileY, DECOR_SEED, PATCH_CELL),
+      patchNoise(tileX, tileY + 1, DECOR_SEED, PATCH_CELL),
+      patchNoise(tileX + 1, tileY + 1, DECOR_SEED, PATCH_CELL),
+    ];
+  }
+
+  /** Base fill step: the patch step at the tile center. */
+  private baseIndex(terrain: TerrainType, tileX: number, tileY: number): number {
+    const [a, b, c, d] = this.cornerNoise(tileX, tileY);
+    return this.stepFor(terrain, (a + b + c + d) / 4, 7.5);
+  }
+
+  /**
+   * Where a patch border crosses this tile, repaint the art pixels that fall
+   * on the other step: the noise is interpolated between the tile corners and
+   * Bayer-dithered, so borders come out as organic dithered contours. Tiles
+   * whose corner range stays on the base step keep their flat fill.
+   */
+  private patchContour(p: PixelPainter, terrain: TerrainType, tileX: number, tileY: number, baseIdx: number): void {
+    const [n00, n10, n01, n11] = this.cornerNoise(tileX, tileY);
+    const lo = Math.min(n00, n10, n01, n11);
+    const hi = Math.max(n00, n10, n01, n11);
+    if (this.stepFor(terrain, lo, 0) === baseIdx && this.stepFor(terrain, hi, 15) === baseIdx) return;
     const ramp = RAMPS[terrain];
-    return hash2(tileX, tileY) < 0.5 ? ramp[1] : ramp[2];
+    for (let ay = 0; ay < ART; ay++) {
+      const fy = (ay + 0.5) / ART;
+      const left = n00 + (n01 - n00) * fy;
+      const right = n10 + (n11 - n10) * fy;
+      // Merge same-step runs into one rect per run (fewer fillRect calls)
+      let runStart = 0;
+      let runStep = baseIdx;
+      for (let ax = 0; ax <= ART; ax++) {
+        const step = ax === ART
+          ? -1
+          : this.stepFor(terrain, left + (right - left) * ((ax + 0.5) / ART), BAYER4[(ay & 3) * 4 + (ax & 3)]);
+        if (step === runStep) continue;
+        if (runStep !== baseIdx) p.hline(runStart, ay, ax - runStart, ramp[runStep]);
+        runStart = ax;
+        runStep = step;
+      }
+    }
+  }
+
+  private baseColor(terrain: TerrainType, tileX: number, tileY: number): string {
+    return RAMPS[terrain][this.baseIndex(terrain, tileX, tileY)];
   }
 
   private renderTile(tileX: number, tileY: number, terrain: TerrainType): void {
@@ -88,8 +164,9 @@ export class TerrainRenderer {
 
     const p = new PixelPainter(this.offscreenCtx, SCALE).at(tileX * TILE_SIZE, tileY * TILE_SIZE);
     const ramp = RAMPS[terrain];
-    const baseIdx = hash2(tileX, tileY) < 0.5 ? 1 : 2;
+    const baseIdx = this.baseIndex(terrain, tileX, tileY);
     p.rect(0, 0, ART, ART, ramp[baseIdx]);
+    this.patchContour(p, terrain, tileX, tileY, baseIdx);
 
     // 4-8 scattered single art pixels of adjacent ramp steps (opaque texture)
     const noiseCount = 4 + Math.floor(hash2(tileX * 3 + 1, tileY * 7 + 1) * 5);
@@ -116,19 +193,38 @@ export class TerrainRenderer {
     this.addBiomeTransitions(p, tileX, tileY, terrain);
   }
 
-  /** Grass: occasional 1×2 blade marks in the lightest grass tone. */
+  /** Moss: low cushions — a lit 2px top over a dark 1px underside. */
   private detailGrass(p: PixelPainter, tileX: number, tileY: number): void {
-    const blades = hash2(tileX * 11 + 2, tileY * 13 + 5) < 0.5 ? 2 : 1;
-    for (let i = 0; i < blades; i++) {
+    const cushions = hash2(tileX * 11 + 2, tileY * 13 + 5) < 0.5 ? 2 : 1;
+    for (let i = 0; i < cushions; i++) {
       if (hash2(tileX * 37 + i, tileY * 41 + i) > 0.6) continue;
-      const bx = 1 + Math.floor(hash2(tileX * 53 + i * 3, tileY * 59 + i * 7) * (ART - 2));
+      const bx = 1 + Math.floor(hash2(tileX * 53 + i * 3, tileY * 59 + i * 7) * (ART - 3));
       const by = 1 + Math.floor(hash2(tileX * 61 + i * 11, tileY * 67 + i * 5) * (ART - 3));
-      p.vline(bx, by, 2, PAL.grass[3]);
+      p.hline(bx, by, 2, PAL.grass[3]);
+      p.px(bx + 1, by + 1, PAL.grass[0]);
     }
   }
 
-  /** Dirt: pebble clusters — 2×2 stone with a 1px top-left highlight. */
+  /**
+   * Regolith: a dithered dust drift (checker of the step below), outcrop
+   * pebbles, and the odd pale mineral fleck.
+   */
   private detailDirt(p: PixelPainter, tileX: number, tileY: number): void {
+    if (hash2(tileX * 7 + 5, tileY * 3 + 9) < 0.5) {
+      const dx = Math.floor(hash2(tileX * 211 + 3, tileY * 5) * (ART - 6));
+      const dy = Math.floor(hash2(tileX * 13, tileY * 227 + 1) * (ART - 3));
+      const shade = PAL.soil[this.baseIndex(TerrainType.Dirt, tileX, tileY) - 1];
+      // Ragged drift (rows 3/6/4 px wide), checker pixels only
+      for (const [row, from, len] of DRIFT_ROWS) {
+        for (let i = from; i < from + len; i++) if ((i + row) % 2 === 0) p.px(dx + i, dy + row, shade);
+      }
+    }
+    if (hash2(tileX * 233 + 2, tileY * 239 + 7) < 0.14) {
+      const fx = 1 + Math.floor(hash2(tileX * 241, tileY * 251) * (ART - 2));
+      const fy = 1 + Math.floor(hash2(tileX * 257, tileY * 263) * (ART - 2));
+      p.px(fx, fy, PAL.mineralFleck);
+    }
+    if (hash2(tileX * 331 + 3, tileY * 337 + 1) < 0.06) this.pockmark(p, tileX, tileY);
     if (hash2(tileX * 19 + 4, tileY * 31 + 8) > 0.45) return;
     const clusters = hash2(tileX * 43, tileY * 47) < 0.25 ? 2 : 1;
     for (let i = 0; i < clusters; i++) {
@@ -136,6 +232,26 @@ export class TerrainRenderer {
       const cy = 1 + Math.floor(hash2(tileX * 79 + i * 5, tileY * 83 + i * 11) * (ART - 3));
       p.rect(cx, cy, 2, 2, PAL.stone[1]);
       p.px(cx, cy, PAL.stone[3]);
+    }
+  }
+
+  /**
+   * Pockmark: a tiny impact crater in the regolith — dark bowl, rim shaded on
+   * its upper-left, lit on its lower-right (light comes from the top-left).
+   */
+  private pockmark(p: PixelPainter, tileX: number, tileY: number): void {
+    const r = hash2(tileX * 347, tileY * 349) < 0.5 ? 2 : 3;
+    const ry = r - 1;
+    const cx = r + 1 + Math.floor(hash2(tileX * 353, tileY * 359) * (ART - 2 * r - 2));
+    const cy = ry + 1 + Math.floor(hash2(tileX * 367, tileY * 373) * (ART - 2 * ry - 2));
+    for (let dy = -ry; dy <= ry; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const outer = (dx * dx) / ((r + 0.4) * (r + 0.4)) + (dy * dy) / ((ry + 0.4) * (ry + 0.4));
+        if (outer > 1) continue;
+        const inner = (dx * dx) / (r * r * 0.45) + (dy * dy) / (ry * ry * 0.45);
+        const color = inner <= 1 ? PAL.soil[0] : dx + dy * 2 > 0 ? PAL.soil[4] : PAL.soil[1];
+        p.px(cx + dx, cy + dy, color);
+      }
     }
   }
 
@@ -149,12 +265,12 @@ export class TerrainRenderer {
       for (let i = 0; i < len; i++) {
         const ax = rx + i;
         if (ax >= ART) break;
-        if ((i + r) % 2 === 0) p.px(ax, ry, PAL.sand[0]);
+        if ((i + r) % 2 === 0) p.px(ax, ry, PAL.dust[0]);
       }
     }
   }
 
-  /** Stone: 1px crack lines (darkest stone) + rare white mineral glints. */
+  /** Outcrop: 1px crack lines, a faint vein line through the rock, rare mineral glints. */
   private detailStone(p: PixelPainter, tileX: number, tileY: number): void {
     if (hash2(tileX * 13 + 9, tileY * 17 + 3) < 0.35) {
       const x0 = 2 + Math.floor(hash2(tileX * 113, tileY * 127) * (ART - 8));
@@ -166,11 +282,20 @@ export class TerrainRenderer {
       p.line(x0, y0, xm, ym, PAL.stone[0]);
       p.line(xm, ym, Math.min(ART - 1, x1), Math.max(0, Math.min(ART - 1, y1)), PAL.stone[0]);
     }
+    // Faint vein: a long shallow diagonal, broken every few pixels
+    if (hash2(tileX * 269 + 1, tileY * 271 + 5) < 0.45) {
+      const vy = 3 + Math.floor(hash2(tileX * 277, tileY * 281) * (ART - 6));
+      const slope = hash2(tileX * 283, tileY * 293) < 0.5 ? -1 : 1;
+      for (let i = 0; i < ART; i++) {
+        if (hash2(tileX * 307 + i, tileY * 311) < 0.25) continue;
+        p.px(i, Math.max(0, Math.min(ART - 1, vy + slope * Math.floor(i / 4))), PAL.outcropVein);
+      }
+    }
     // Rare mineral glint
     if (hash2(tileX * 181 + 7, tileY * 191 + 1) < 0.08) {
       const gx = 2 + Math.floor(hash2(tileX * 193, tileY * 197) * (ART - 4));
       const gy = 2 + Math.floor(hash2(tileX * 199, tileY * 211) * (ART - 4));
-      p.px(gx, gy, PAL.white);
+      p.px(gx, gy, PAL.mineralFleck);
     }
   }
 
@@ -184,7 +309,7 @@ export class TerrainRenderer {
       if (!neighborTile) continue;
 
       const neighborTerrain = neighborTile.terrain;
-      if (neighborTerrain === terrain) continue;
+      if (neighborTerrain === terrain) continue; // patch borders are drawn per pixel
 
       if (neighborTerrain === TerrainType.Water) {
         // Land side of a shoreline: 1 art-px sand highlight with hash gaps
@@ -221,12 +346,12 @@ export class TerrainRenderer {
     }
   }
 
-  /** Land side of a water edge: 1 art-px sand[2] highlight, broken by hash gaps. */
+  /** Land side of a water edge: 1 art-px pale dust highlight, broken by hash gaps. */
   private drawShorelineHighlight(p: PixelPainter, edge: Edge, tileX: number, tileY: number): void {
     for (let i = 0; i < ART; i++) {
       if (hash2(tileX * 211 + i, tileY * 223 + i * 3) < 0.2) continue; // organic gaps
       const { ax, ay } = edgeCoord(edge, 0, i);
-      p.px(ax, ay, PAL.sand[2]);
+      p.px(ax, ay, PAL.dust[2]);
     }
   }
 

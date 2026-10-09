@@ -1,5 +1,7 @@
 // Pixel art palette — single source of truth for every color in the game.
-// Derived from DawnBringer-32 hues, re-tuned for an earthy ant-colony world.
+// Derived from DawnBringer-32 hues, re-tuned for an alien world: the meteorite's
+// spores turned the garden into violet regolith, blue-green moss and glowing
+// flora. Terrain stays low-saturation and mid-dark so the factions pop.
 // RULES:
 //  - No color literals anywhere else in rendering code. Import from here.
 //  - No alpha gradients on sprites: shading is done with ramp steps + dithering.
@@ -11,16 +13,30 @@ export const PAL = {
   outline: '#1a1410', // universal sprite outline (warm near-black, NOT pure black)
   white: '#f4f0e8',
 
-  // ── Surface terrain ramps ─────────────────────────────────
-  soil: ['#3e2d1c', '#5a4226', '#7a5a33', '#9a7847'],
-  grass: ['#2e4a23', '#3f6630', '#558741', '#73a85a'],
-  sand: ['#9c7e4e', '#bfa066', '#d9c084'],
-  stone: ['#3f3f46', '#5a5a64', '#7d7d88', '#a0a0aa'],
-  water: ['#1d3a5f', '#2c5784', '#4179ad', '#7db3d9'],
+  // ── Surface terrain ramps (alien) ─────────────────────────
+  // Key names keep the tile types they paint: `soil` is Dirt, `grass` is Grass…
+  soil: ['#1c1424', '#2a1d36', '#3a2a4a', '#4e3a5e', '#6a5078'], // violet-grey regolith dust
+  grass: ['#142826', '#1f3a37', '#2b5550', '#3f7468'], // low bioluminescent moss
+  dust: ['#3e3248', '#5a4c66', '#7a6c88'], // pale ash flats (Sand tiles)
+  stone: ['#262030', '#3b3347', '#575066', '#7a7290'], // alien outcrops
+  sand: ['#9c7e4e', '#bfa066', '#d9c084'], // straw, eggs and nest wood only
+  water: ['#120f24', '#1d1838', '#2c2852', '#7a6aa8'], // ink pools, lilac glints
+  mineralFleck: '#b8aac8', // pale mineral flecks in the regolith
+  outcropVein: '#6c8c94', // faint vein lines through outcrops
+  mossGlow: '#8cc4b0', // pale bioluminescent beads on moss cushions
+  fogVoid: '#0a0610', // unexplored void (fog colour)
 
-  // ── Underground ramps ─────────────────────────────────────
-  earth: ['#171210', '#241b15', '#33271d', '#453425'],
-  tunnel: ['#2a2018', '#3a2c1f', '#4c3a28'],
+  // ── Alien flora: thin stalks with soft glowing pods, fungal fans ──
+  flora: {
+    stalk: ['#2e2638', '#6e5f80'],
+    pod: ['#9c8260', '#e6d2a8', '#fbf0d4'], // pale amber/cream, glows at night
+    fan: ['#3d2f44', '#5f4b66', '#86708a'], // dusty mauve shelf fungus
+  },
+
+  // ── Underground ramps: violet chitin-rock with faint glowing veins ──
+  earth: ['#140e18', '#21182a', '#31243d', '#433352'],
+  tunnel: ['#2a2034', '#382b45', '#4a3a5a'],
+  rockVein: ['#2c4446', '#4f7f78'],
 
   // ── Chitin (insect bodies) ────────────────────────────────
   chitin: ['#241712', '#3c2418', '#5c3a22', '#80522e'],
@@ -59,7 +75,8 @@ export const PAL = {
   queen: '#e0b347',
 
   // ── Flora & food ──────────────────────────────────────────
-  leaf: ['#2e4a23', '#558741', '#8adb5a'],
+  // Alien fronds: still the food-leaf shape, pale teal-lime, brighter than moss
+  leaf: ['#2c5a48', '#5cb890', '#aeeccb'],
   // Muted rust cap (panther-cap Amanita): food must not out-shout units, and
   // must never be mistaken for the UI danger red.
   shroomCap: '#93583a',
@@ -74,7 +91,7 @@ export const PAL = {
   // of the art steps between shades.
   skyDawn: '#e0834a',
   skyMorning: '#f0b541',
-  skyNoon: '#f6e6bc',
+  skyNoon: '#c8b4f0', // alien noon: a faint violet cast
   skyAfternoon: '#e8a24e',
   skyDusk: '#c9553a',
   // Night is red-violet (the Swarm's hour), not navy
