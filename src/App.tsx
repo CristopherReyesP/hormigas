@@ -94,7 +94,7 @@ export default function App() {
     <div className="hive-screen">
       {/* The world fills the window; every HUD element floats above it */}
       <GameCanvas key={gameKey} onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} />
-      <TopStrip stats={stats} />
+      <TopStrip stats={stats} gameManager={gameManager} />
       {/* Defaults carry no objective: wait for the first real snapshot */}
       {stats.tickCount > 0 && <ObjectivePanel objective={stats.objective} />}
       <Console key={gameKey} stats={stats} gameManager={gameManager} refreshStats={refreshStats} />

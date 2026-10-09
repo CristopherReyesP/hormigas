@@ -1,11 +1,14 @@
-import type { GameStats } from '../../game/GameManager';
+import type { GameManager, GameStats } from '../../game/GameManager';
 import { PixelIcon } from './PixelIcon';
 import type { IconName } from './pixelIcons';
 import { formatClock, stripEmoji } from './format';
 import { useFlashOnChange } from '../useFlashOnChange';
 
+type FoodType = 'leaf' | 'mushroom' | 'meat';
+
 interface TopStripProps {
   stats: GameStats;
+  gameManager?: GameManager | null;
 }
 
 function Resource({ icon, value, label, tone }: { icon: IconName; value: number; label: string; tone?: string }) {
@@ -15,6 +18,34 @@ function Resource({ icon, value, label, tone }: { icon: IconName; value: number;
       <PixelIcon name={icon} />
       <span className={`strip-value ${flash}`} style={tone ? { color: tone } : undefined}>{value}</span>
     </span>
+  );
+}
+
+/** A food stock that doubles as the diet toggle: click to make the colony eat this food first. */
+function FoodResource({ icon, value, label, active, onSelect }: {
+  icon: IconName;
+  value: number;
+  label: string;
+  active: boolean;
+  onSelect?: () => void;
+}) {
+  const flash = useFlashOnChange(value);
+  const title = active
+    ? `${label}: la colonia come esto primero`
+    : `${label}: clic para que la colonia coma esto primero`;
+  return (
+    <button
+      type="button"
+      className={`strip-item strip-food${active ? ' strip-food--active' : ''}`}
+      title={title}
+      aria-pressed={active}
+      onClick={onSelect}
+      disabled={!onSelect}
+    >
+      <PixelIcon name={icon} />
+      <span className={`strip-value ${flash}`}>{value}</span>
+      {active && <span className="strip-food-badge">1º</span>}
+    </button>
   );
 }
 
@@ -46,16 +77,18 @@ function WaveStatus({ stats }: { stats: GameStats }) {
 }
 
 /** Thin full-width resource bar: economy left, clock and waves center, time control right. */
-export function TopStrip({ stats }: TopStripProps) {
+export function TopStrip({ stats, gameManager }: TopStripProps) {
   const leaves = Math.max(0, stats.foodStored - stats.mushroomStored - stats.meatStored);
   const night = stats.dayPhase === 'night';
+  const eatFirst = gameManager?.getConsumptionPriority();
+  const select = (type: FoodType) => (gameManager ? () => gameManager.setConsumptionPriority(type) : undefined);
 
   return (
     <header className="top-strip">
       <div className="strip-group">
-        <Resource icon="leaf" value={leaves} label="Hojas" />
-        <Resource icon="fungus" value={stats.mushroomStored} label="Hongos" />
-        <Resource icon="meat" value={stats.meatStored} label="Carne" />
+        <FoodResource icon="leaf" value={leaves} label="Hojas" active={eatFirst === 'leaf'} onSelect={select('leaf')} />
+        <FoodResource icon="fungus" value={stats.mushroomStored} label="Hongos" active={eatFirst === 'mushroom'} onSelect={select('mushroom')} />
+        <FoodResource icon="meat" value={stats.meatStored} label="Carne" active={eatFirst === 'meat'} onSelect={select('meat')} />
         <span className="strip-sep" aria-hidden="true" />
         <Resource icon="ant" value={stats.antCount} label="Población total" tone="var(--chrome-text)" />
         <Resource icon="worker" value={stats.workerCount} label="Obreras" />

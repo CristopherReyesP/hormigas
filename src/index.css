@@ -664,6 +664,28 @@ button:focus-visible {
   color: var(--chrome-text);
 }
 
+/* Food stocks double as the diet toggle (eat this first) */
+.strip-food {
+  position: relative;
+  font: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 1px 5px;
+  cursor: pointer;
+}
+.strip-food:hover:not(:disabled) { border-color: var(--chrome-border-light); }
+.strip-food:disabled { cursor: default; }
+.strip-food--active {
+  border-color: var(--chrome-accent);
+  box-shadow: 2px 2px 0 var(--chrome-bg);
+}
+.strip-food-badge {
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+  padding: 0 3px;
+  font-size: 0.8em;
+}
+
 .strip-item--warn { color: var(--chrome-warn); }
 .strip-item--danger { color: var(--chrome-danger); }
 .strip-item--accent { color: var(--chrome-accent); }
