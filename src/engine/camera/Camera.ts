@@ -37,6 +37,13 @@ export interface ViewportRect {
   h: number;
 }
 
+/** A scripted framing: the world point (px) to center on and the zoom (snapped to the grid). */
+export interface CameraShot {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
 export class Camera {
   x = 0;  // world pixel offset (top-left corner of the canvas)
   y = 0;
@@ -47,6 +54,8 @@ export class Camera {
   private viewport: ViewportRect = { x: 0, y: 0, w: CANVAS_WIDTH, h: CANVAS_HEIGHT };
   private defaultZoom = 1;
   private wheelAccum = 0;
+  /** True while a cinematic owns the view; player pan, wheel zoom and reset are ignored. */
+  private directed = false;
 
   constructor(worldWidth: number = WORLD_WIDTH, worldHeight: number = WORLD_HEIGHT) {
     this.worldWidth = worldWidth;
@@ -74,6 +83,7 @@ export class Camera {
   }
 
   pan(screenDx: number, screenDy: number): void {
+    if (this.directed) return;
     this.x -= screenDx / this.zoom;
     this.y -= screenDy / (this.zoom * PERSPECTIVE_Y_SCALE);
     this.clamp();
@@ -85,7 +95,7 @@ export class Camera {
    * delta > 0 → zoom out, delta < 0 → zoom in.
    */
   zoomAt(screenX: number, screenY: number, delta: number): void {
-    if (delta === 0) return;
+    if (delta === 0 || this.directed) return;
     if (Math.sign(delta) !== Math.sign(this.wheelAccum)) this.wheelAccum = 0;
     this.wheelAccum += delta;
     if (Math.abs(this.wheelAccum) < WHEEL_NOTCH) return;
@@ -194,8 +204,34 @@ export class Camera {
     return Math.max(min, Math.min(max, start));
   }
 
+  /**
+   * Frame a scripted shot (the intro cinematic). From the first shot until
+   * release() the camera belongs to the script: player pan, wheel zoom and
+   * reset are ignored so they cannot fight it.
+   */
+  direct(shot: CameraShot): void {
+    this.directed = true;
+    this.zoom = snapZoom(shot.zoom);
+    this.centerOn(shot.x, shot.y);
+  }
+
+  /** Hand the camera back to the player, optionally on a last shot. */
+  release(finalShot?: CameraShot): void {
+    if (finalShot) {
+      this.zoom = snapZoom(finalShot.zoom);
+      this.centerOn(finalShot.x, finalShot.y);
+    }
+    this.directed = false;
+    this.wheelAccum = 0;
+  }
+
+  isDirected(): boolean {
+    return this.directed;
+  }
+
   /** Back to the default zoom with the world's top-left corner in view. */
   reset(): void {
+    if (this.directed) return;
     this.zoom = this.defaultZoom;
     this.wheelAccum = 0;
     this.x = -this.viewport.x / this.zoom;

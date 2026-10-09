@@ -113,3 +113,43 @@ describe('camera viewport', () => {
     expect(camera.zoom).toBe(0.5);
   });
 });
+
+describe('directed camera (cinematics)', () => {
+  const viewport = { x: 0, y: 0, w: 800, h: 600 };
+  const viewCenter = (camera: Camera) => camera.screenToWorld(viewport.w / 2, viewport.h / 2);
+
+  it('frames a scripted shot: centered on the point, zoom snapped to the grid', () => {
+    const camera = new Camera();
+    camera.setViewport(viewport);
+    camera.direct({ x: 1900, y: 1400, zoom: 1.4 });
+    expect(camera.isDirected()).toBe(true);
+    expect(camera.zoom).toBe(1.5);
+    expect(viewCenter(camera).x).toBeCloseTo(1900);
+    expect(viewCenter(camera).y).toBeCloseTo(1400);
+  });
+
+  it('ignores player pan, wheel zoom and reset while a shot is running', () => {
+    const camera = new Camera();
+    camera.setViewport(viewport);
+    camera.setDefaultZoom(0.5);
+    camera.direct({ x: 1900, y: 1400, zoom: 1 });
+    const before = { x: camera.x, y: camera.y, zoom: camera.zoom };
+    camera.pan(120, -80);
+    camera.zoomAt(400, 300, -200);
+    camera.reset();
+    expect({ x: camera.x, y: camera.y, zoom: camera.zoom }).toEqual(before);
+  });
+
+  it('hands control back on release, optionally on a final shot', () => {
+    const camera = new Camera();
+    camera.setViewport(viewport);
+    camera.direct({ x: 3000, y: 700, zoom: 1.5 });
+    camera.release({ x: 1900, y: 1400, zoom: 1 });
+    expect(camera.isDirected()).toBe(false);
+    expect(camera.zoom).toBe(1);
+    expect(viewCenter(camera).x).toBeCloseTo(1900);
+    const x = camera.x;
+    camera.pan(100, 0);
+    expect(camera.x).toBeCloseTo(x - 100);
+  });
+});

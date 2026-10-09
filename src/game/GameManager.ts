@@ -43,6 +43,7 @@ import { UndergroundHealingSystem } from './systems/UndergroundHealingSystem';
 import { resolveRunOutcome, type RunOutcome } from './run/RunOutcome';
 import { DayNightSystem, type DayPhase } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
+import { IntroDirector } from './render/IntroDirector';
 import { createAnt, createFood, createNest, createBeetleDen, createQueen } from './entities/factories';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
@@ -251,6 +252,8 @@ export class GameManager {
   private readonly craterSite: TilePos;
   /** Canvas the intro-skip pointer listener is attached to */
   private readonly canvas: HTMLCanvasElement;
+  /** Camera work for the opening cinematic; it owns the surface camera until the intro ends */
+  private readonly introDirector: IntroDirector;
   private world: World;
   private grid: TileGrid;
   private visibilityGrid: VisibilityGrid;
@@ -473,13 +476,24 @@ export class GameManager {
       farFraction: CRATER_FAR_FRACTION,
     });
     this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY });
+    const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
+    // The fireball lights the ground it flies over and the crater, so the chase
+    // crosses lit terrain; what it lit stays explored, a scorched trail to the crater
+    this.introDirector = new IntroDirector(
+      this.camera,
+      tileCenter({ x: nestX, y: nestY }),
+      tileCenter(this.craterSite),
+      (x, y, r) => this.visibilityGrid.revealCircle(x, y, r),
+    );
     window.addEventListener('keydown', this.skipIntro);
     canvas.addEventListener('pointerdown', this.skipIntro);
   }
 
-  /** First key or click after the title appears skips what is left of the intro (one-shot). */
+  /** First key or click after the impact skips to the intro's end state (one-shot). */
   private readonly skipIntro = (): void => {
-    if (this.renderSystem.skipIntro()) this.detachIntroSkip();
+    if (!this.renderSystem.skipIntro()) return;
+    this.introDirector.finish();
+    this.detachIntroSkip();
   };
 
   private detachIntroSkip(): void {
@@ -731,6 +745,8 @@ export class GameManager {
   }
 
   private render(interpolation: number, dt: number): void {
+    // Same dt as the MeteorIntro inside RenderSystem, so camera and art share one intro time
+    this.introDirector.frame(dt);
     this.renderSystem.renderInterpolated(interpolation, dt);
   }
 
@@ -1463,6 +1479,7 @@ export class GameManager {
 
   /** Recenter the surface camera on a tile (minimap click-to-navigate) */
   centerSurfaceOn(tileX: number, tileY: number): void {
+    if (this.camera.isDirected()) return; // the intro cinematic owns the camera
     this.camera.centerOn(tileX * TILE_SIZE, tileY * TILE_SIZE);
   }
 

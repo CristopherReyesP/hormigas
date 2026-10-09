@@ -55,6 +55,7 @@ export const PAL = {
     shell: ['#0e2a3a', '#1b5a73', '#2fa3b8', '#7fe8f0', '#e8ffff'],
     shield: '#5ff3ff',
     outline: '#0a1620',
+    gold: ['#8a6a1c', '#d9a935', '#ffe27a'], // straight pincers and spire bands
   },
 
   // ── Meteorite opening: fireball trail (head → tail) and the crater ──
