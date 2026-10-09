@@ -67,7 +67,7 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
   - [ ] P2.3 Meteorite opening: impact flash, screen shake and a crater decal with pulsing cyan cracks at run start; plus the Swarm vein glow drawn after the night tint. Route: delegated (Claude subagent in an isolated worktree on `feat/hive-intro`, merged into `feat/hive-look`).
   - [ ] P2.5+ StarCraft screen (raised in priority after the user said the change still looked minimal, 2026-10-09). A headless screenshot showed the game canvas as an 800×600 box centered in a mostly empty dark window, with the old brown side panels. Scope: a full-viewport canvas, a top resource strip and the bottom console (minimap, info panel, 3×5 command card with hotkeys) in the chrome tokens, pixel icons instead of emoji, one pixel font, Spanish only, and a readable default zoom. Route: delegated (Claude subagent in the main worktree).
   - [x] P2.3 done on `feat/hive-intro` as b451bf3 (fireball and trail, flash, shake, shockwave, crater with cyan cracks, spores, "EL ENJAMBRE DESPIERTA" in a canvas pixel font, night glow for veins, entrance and crater). The parent checked tests (170/170), tsc, lint, build and the frames. Not yet merged into `feat/hive-look`.
-  - [ ] P2.7 Alien terrain (user, 2026-10-09: the map "needs something less Earth-like, more alien"): violet regolith, bioluminescent blue-green moss, alien flora with pale glowing pods, veined outcrops, crystal shards near the crater, teal-lime frond food, violet chitin underground. Visual only; terrain stays low-saturation so units pop. Route: delegated (Claude subagent in the `feat/hive-intro` worktree).
+  - [x] P2.7 Alien terrain (user, 2026-10-09: the map "needs something less Earth-like, more alien"): violet regolith, bioluminescent blue-green moss, alien flora with pale glowing pods, veined outcrops, crystal shards near the crater, teal-lime frond food, violet chitin underground. Visual only; terrain stays low-saturation so units pop. Route: delegated (Claude subagent in the `feat/hive-intro` worktree).
   - [x] P2.5+ StarCraft screen done (0b0ed7b) and merged with P2.3 (954d922). Follow-ups:
     - The intro skip waits for the title (a8c9f03).
     - The diet toggle moved to the food stocks in the top strip (d31164d).
@@ -119,10 +119,10 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
 
 ## Next step: "continuemos con la mejora gráfica"
 When the user says this in a new session, run this plan in order. Each item is one work-unit commit on `feat/hive-look`, delegated to one writer with a headless-Edge screenshot check.
-1. Recover P2.7 alien terrain. A Claude subagent was writing it in the worktree `/private/tmp/claude-501/-Users-cristopherreyes/46e53525-d792-43fe-b2ff-f8cde921e41c/scratchpad/hormigas-intro` (branch `feat/hive-intro`, base b451bf3).
-   - If that worktree still exists and its changes pass the checks, commit them there and `git merge feat/hive-intro` into `feat/hive-look`.
-   - Otherwise relaunch P2.7 from its brief above, directly on `feat/hive-look`.
-   - Clean up stale worktrees with `git worktree prune`.
+1. Done: P2.7 alien terrain (ae9fa6b, merged in 67bf9c3; 227 tests, tsc, lint and build pass; the worktree and the `feat/hive-intro` branch were removed). Small follow-ups that fit item 2 or 3:
+   - The surface minimap colors in `src/simulation/world/types.ts` (`TERRAIN_COLORS`) are still brown/green; point them at `PAL`.
+   - The nest is still a brown tree stump, the last Earth-like element; reskin it as an alien hive mound.
+   - The terrain build takes ~55 ms and runs twice at startup.
 2. P2.8 cinematic intro v2: camera follows the meteor, enemy deployment at the crater, camera returns to the colony.
 3. Real window-size rendering: make `CANVAS_WIDTH/HEIGHT` dynamic and rebuild the PostProcessor and FoliageOverlay caches on resize, so the world is not an upscaled 800×600.
 4. P2.4 mutation marks on sprites, and P2.6 single pixel scale with 16-direction rotation snapping.
