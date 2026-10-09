@@ -68,6 +68,17 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
   - [ ] P2.5+ StarCraft screen (raised in priority after the user said the change still looked minimal, 2026-10-09). A headless screenshot showed the game canvas as an 800×600 box centered in a mostly empty dark window, with the old brown side panels. Scope: a full-viewport canvas, a top resource strip and the bottom console (minimap, info panel, 3×5 command card with hotkeys) in the chrome tokens, pixel icons instead of emoji, one pixel font, Spanish only, and a readable default zoom. Route: delegated (Claude subagent in the main worktree).
   - [x] P2.3 done on `feat/hive-intro` as b451bf3 (fireball and trail, flash, shake, shockwave, crater with cyan cracks, spores, "EL ENJAMBRE DESPIERTA" in a canvas pixel font, night glow for veins, entrance and crater). The parent checked tests (170/170), tsc, lint, build and the frames. Not yet merged into `feat/hive-look`.
   - [ ] P2.7 Alien terrain (user, 2026-10-09: the map "needs something less Earth-like, more alien"): violet regolith, bioluminescent blue-green moss, alien flora with pale glowing pods, veined outcrops, crystal shards near the crater, teal-lime frond food, violet chitin underground. Visual only; terrain stays low-saturation so units pop. Route: delegated (Claude subagent in the `feat/hive-intro` worktree).
+  - [x] P2.5+ StarCraft screen done (0b0ed7b) and merged with P2.3 (954d922). Follow-ups:
+    - The intro skip waits for the title (a8c9f03).
+    - The diet toggle moved to the food stocks in the top strip (d31164d).
+    - The canvas is still the 800×600 render scaled to cover the window, because RenderSystem, PostProcessor and FoliageOverlay hard-code `CANVAS_WIDTH/HEIGHT`.
+  - [ ] P2.8 Cinematic intro v2 (user, 2026-10-09: "más cinematográfico, que siga hasta donde se estrella y ver una animación donde se ve que se despliega el enemigo"):
+    - Letterbox bars.
+    - The camera follows the meteor from the colony across the map to the impact (eased pan), with a brief slow-motion at impact, flash, shake and shockwave.
+    - Then the enemy deploys from the crater: crystal spires grow, a cyan pulse rings out, and the first Crystal drones unfold and crawl out. This is a visual-only foreshadowing of P5 that reuses the crystal palette and silhouette rules.
+    - The camera glides back to the colony and "EL ENJAMBRE DESPIERTA" appears.
+    - Skippable after the impact, with the crater kept.
+    - The intro needs a camera-control hook in GameManager/Camera; today the intro is screen-space with no camera move.
   - [ ] P2.4 Mutation marks drawn on ant sprites for applied mutations.
   - [ ] P2.5 Bottom console and UI restyle (`--ui-*` → `--chrome-*`, pixel icons, one font, Spanish only).
   - [ ] P2.6 One art-pixel scale for every unit, 16-direction rotation snapping, zoom steps of 0.5.
@@ -106,5 +117,18 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
 - Design audit (Claude subagent, read-only, 2026-10-09): art direction and mechanics notes recorded above; its P1 items became T2b, T3 details and T4 in `odd/tasks/roguelite-run-loop.md`.
 - Engram mirror (`odd/starcraft-hive-wars/tasks`): synced 2026-10-09.
 
-## Next step
-P1 — `odd/tasks/roguelite-run-loop.md` T2b, T3, T4; then P2.
+## Next step: "continuemos con la mejora gráfica"
+When the user says this in a new session, run this plan in order. Each item is one work-unit commit on `feat/hive-look`, delegated to one writer with a headless-Edge screenshot check.
+1. Recover P2.7 alien terrain. A Claude subagent was writing it in the worktree `/private/tmp/claude-501/-Users-cristopherreyes/46e53525-d792-43fe-b2ff-f8cde921e41c/scratchpad/hormigas-intro` (branch `feat/hive-intro`, base b451bf3).
+   - If that worktree still exists and its changes pass the checks, commit them there and `git merge feat/hive-intro` into `feat/hive-look`.
+   - Otherwise relaunch P2.7 from its brief above, directly on `feat/hive-look`.
+   - Clean up stale worktrees with `git worktree prune`.
+2. P2.8 cinematic intro v2: camera follows the meteor, enemy deployment at the crater, camera returns to the colony.
+3. Real window-size rendering: make `CANVAS_WIDTH/HEIGHT` dynamic and rebuild the PostProcessor and FoliageOverlay caches on resize, so the world is not an upscaled 800×600.
+4. P2.4 mutation marks on sprites, and P2.6 single pixel scale with 16-direction rotation snapping.
+5. Combat and death VFX from the art direction: acid droplets, Swarm goo, crystal shards, wildlife carcass.
+Then T4 wave pacing (`odd/tasks/roguelite-run-loop.md`) and the balance follow-ups:
+- the soldier retreat is gone, so combat deaths rose;
+- nurses and defenders don't heal by eating;
+- voseo strings remain in ObjectiveSystem and GameManager notifications, and should become neutral Spanish;
+- holding a digit key repeats into game speed.
