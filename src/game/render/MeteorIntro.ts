@@ -6,6 +6,7 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT, TILE_SIZE } from '../../shared/constants';
 import type { TilePos } from '../run/craterSite';
 import {
   INTRO_TIMELINE,
+  canSkipIntro,
   INTRO_TITLE_LINES,
   SPORE_COUNT,
   crackPulseStep,
@@ -92,9 +93,11 @@ export class MeteorIntro {
     }
   }
 
-  /** Drop every remaining effect; the crater stays. */
-  skip(): void {
+  /** Drop every remaining effect; the crater stays. Returns false while skipping is not allowed yet. */
+  skip(): boolean {
+    if (!canSkipIntro(this.elapsed)) return false;
     this.skipped = true;
+    return true;
   }
 
   isPlaying(): boolean {

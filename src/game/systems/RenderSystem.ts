@@ -352,9 +352,9 @@ export class RenderSystem {
     this.craterTile = { x: impactTile.x, y: impactTile.y };
   }
 
-  /** Any key or click: drop the remaining intro effects (the crater stays). */
-  skipIntro(): void {
-    this.intro?.skip();
+  /** Any key or click once the title shows: drop the remaining intro effects (the crater stays). */
+  skipIntro(): boolean {
+    return this.intro?.skip() ?? true;
   }
 
   isIntroPlaying(): boolean {

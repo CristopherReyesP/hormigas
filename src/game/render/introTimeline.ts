@@ -30,6 +30,11 @@ export const INTRO_TIMELINE = {
   end: 6.0,
 } as const;
 
+/** Skip input is ignored until the title shows, so a focus click cannot hide the meteor. */
+export function canSkipIntro(t: number): boolean {
+  return t >= INTRO_TIMELINE.titleStart;
+}
+
 export type IntroPhase = 'calm' | 'meteor' | 'impact' | 'aftermath' | 'done';
 
 export function introPhase(t: number): IntroPhase {

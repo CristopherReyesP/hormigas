@@ -477,10 +477,9 @@ export class GameManager {
     canvas.addEventListener('pointerdown', this.skipIntro);
   }
 
-  /** First key or click of the run skips what is left of the intro (one-shot). */
+  /** First key or click after the title appears skips what is left of the intro (one-shot). */
   private readonly skipIntro = (): void => {
-    this.renderSystem.skipIntro();
-    this.detachIntroSkip();
+    if (this.renderSystem.skipIntro()) this.detachIntroSkip();
   };
 
   private detachIntroSkip(): void {

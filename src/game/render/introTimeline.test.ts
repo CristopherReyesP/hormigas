@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   INTRO_TIMELINE as T,
   SPORE_COUNT,
+  canSkipIntro,
   crackPulseStep,
   INTRO_TITLE,
   INTRO_TITLE_LINES,
@@ -187,5 +188,13 @@ describe('title card copy', () => {
   it('splits the title over two lines so it can be drawn big', () => {
     expect(INTRO_TITLE_LINES.join(' ')).toBe(INTRO_TITLE);
     expect(INTRO_TITLE_LINES).toHaveLength(2);
+  });
+
+  it('ignores skip input until the title appears, so the first click cannot hide the meteor', () => {
+    expect(canSkipIntro(0)).toBe(false);
+    expect(canSkipIntro(T.impact)).toBe(false);
+    expect(canSkipIntro(T.titleStart - 0.01)).toBe(false);
+    expect(canSkipIntro(T.titleStart)).toBe(true);
+    expect(canSkipIntro(T.end)).toBe(true);
   });
 });
