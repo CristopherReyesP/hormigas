@@ -120,16 +120,14 @@ export const INVASION_CIVILIAN_ATTACK_DAMAGE = 4; // drafted workers/nurses bite
 export const NURSE_DEFENSE_RADIUS = 6; // nurses only fight invaders within this range — they guard, never chase
 export const QUEEN_STARVATION_DAMAGE = 5;    // HP/s drained while hunger is at 0
 
-// Healing
-export const HEAL_RATE = 2.0; // 2 HP per second
+// Healing — ants heal by EATING: whatever a meal holds beyond what hunger
+// needs turns into HP. There is no healing trip to the nest.
 export const HEAL_HP_PER_FOOD = 2; // 1 food unit restores 2 HP (costs more food to heal)
-export const HEAL_HEALTH_THRESHOLD = 0.7; // go heal when below 70% health
-export const HEAL_NEST_RANGE = 1.5; // tiles — must be this close to nest to heal
 
 // Feeding (hunger restoration)
 export const HUNGER_EAT_THRESHOLD = 0.5; // go eat at nest when below 50% hunger
 export const HUNGER_PER_FOOD = 100; // 1 food unit restores 100 hunger points
-export const HUNGER_EAT_RATE = 10; // food units consumed per second while eating at nest
+export const HUNGER_EAT_RATE = 10; // food units consumed per second while eating — also paces healing
 
 // Cricket stats
 export const CRICKET_STATS = {
@@ -274,11 +272,6 @@ export const TILE_SCORE = {
 export const RETURNING_HOME_DROP_TIMEOUT = 25; // seconds before ReturningHome drops food (was hardcoded 15)
 export const STUCK_STALL_SECONDS = 4;          // seconds of sub-threshold displacement before declaring stuck
 export const STUCK_MIN_DISPLACEMENT = 0.15;    // tiles; below this per-frame = not moving
-export const HEALING_FAMINE_MAX_CYCLES = 3;    // consecutive Healing→Searching cycles with no underground food before surface escape
-// Seconds of forced foraging after giving up on healing. MUST be negative when
-// assigned to stateTimer: the health/hunger checks are gated on `stateTimer > 0`,
-// so a positive value is not a grace period at all — it re-triggers instantly.
-export const HEALING_FAMINE_ESCAPE_GRACE = 20;
 
 // Scoring Decision System — Action scoring constants
 export const ACTION_SCORE = {
@@ -302,7 +295,6 @@ export const BEETLE_SOLDIER_AVOIDANCE = 1.35;     // soldiers look this much "fu
 export const NIGHT_ENEMY_AGGRESSION_MULTIPLIER = 1.5; // predators see further at night
 
 // ── Ant tactical intelligence ──────────────────────────────────────
-export const SOLDIER_RETREAT_HEALTH_RATIO = 0.25; // soldiers disengage to heal below 25% HP (only if the pantry can feed them)
 export const SOLDIER_FOCUS_FIRE_BONUS = 0.55;     // target-score bonus per ally already engaging that enemy (stacks with flanking)
 export const SOLDIER_MAX_FOCUS_ALLIES = 4;
 export const NEST_THREAT_RADIUS = 14;             // a predator this close to the nest raises the colony alarm

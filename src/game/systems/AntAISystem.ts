@@ -20,6 +20,7 @@ import {
   type HealthComponent,
   type HungerComponent,
   type LayerComponent,
+  type NestComponent,
 } from '../components/components';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { findPath } from '../../simulation/pathfinding/AStar';
@@ -43,8 +44,6 @@ import {
   SCOUT_FLEE_HEALTH_RATIO,
   SCOUT_BEETLE_DETECT_RANGE,
   WORKER_FIGHT_RANGE,
-  HEAL_HEALTH_THRESHOLD,
-  HEAL_NEST_RANGE,
   SOLDIER_DANGER_CHASE_THRESHOLD,
   HUNGER_EAT_THRESHOLD,
   GIANT_MUSHROOM_NUTRITION_MULTIPLIER,
@@ -55,9 +54,6 @@ import {
   RETURNING_HOME_DROP_TIMEOUT,
   STUCK_STALL_SECONDS,
   STUCK_MIN_DISPLACEMENT,
-  HEALING_FAMINE_MAX_CYCLES,
-  HEALING_FAMINE_ESCAPE_GRACE,
-  SOLDIER_RETREAT_HEALTH_RATIO,
   SOLDIER_FOCUS_FIRE_BONUS,
   SOLDIER_MAX_FOCUS_ALLIES,
   NEST_THREAT_RADIUS,
@@ -98,7 +94,7 @@ export class AntAISystem implements System {
   private foodSnapshot: Array<{ id: EntityId; x: number; y: number; type?: FoodType }> = [];
   /** enemy id -> how many ants are already biting it (focus fire + flanking synergy) */
   private antsEngaging: Map<EntityId, number> = new Map();
-  /** Recomputed once per tick — the health/hunger checks consult it per ant */
+  /** Recomputed once per tick — the hunger checks consult it per ant */
   private undergroundFoodAvailable = false;
 
   constructor(world: World, grid: TileGrid, visibilityGrid: VisibilityGrid, modifiers: GlobalModifiers) {
@@ -140,9 +136,6 @@ export class AntAISystem implements System {
       const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
 
       ant.stateTimer += dt;
-      if (ant.forageGrace !== undefined && ant.forageGrace > 0) {
-        ant.forageGrace = Math.max(0, ant.forageGrace - dt);
-      }
 
       // Bug 3: position-stall detection — catches stale non-empty paths.
       // Lazy-init last-known position; accumulate stuckTimer when displacement
@@ -256,7 +249,13 @@ export class AntAISystem implements System {
           break;
 
         case AntState.Healing:
-          this.handleHealing(id, ant, pos, path, dt);
+          // Riding the shaft down to eat — UndergroundHealingSystem feeds it
+          // below. One still up here without a ride must not stand at the
+          // entrance: back to work.
+          if (!this.transitSystem?.isInTransit(id)) {
+            ant.state = AntState.Searching;
+            ant.stateTimer = 0;
+          }
           break;
       }
     }
@@ -345,33 +344,16 @@ export class AntAISystem implements System {
       }
     }
 
-    // === Health check: hurt ants go heal at nest ===
-    // stateTimer < 0 = brief pause after failed healing; forageGrace > 0 = the
-    // ant gave up on healing entirely and must forage instead of trudging home.
-    // Going home only makes sense if there is something down there to eat:
-    // healing and feeding both consume pantry food. Without this the ant walks
-    // home, finds nothing, walks back out, and repeats — the famine-cycle
-    // machinery below exists only to unwind a trip that should never start.
-    const graced = (ant.forageGrace ?? 0) > 0 || !this.undergroundFoodAvailable;
-    if (ant.stateTimer > 0 && !graced) {
-      const healthCheck = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-      if (healthCheck && healthCheck.current < healthCheck.max * HEAL_HEALTH_THRESHOLD) {
-        ant.state = AntState.ReturningHome;
-        ant.stateTimer = 0;
-        this.pathToNest(pos, path);
-        return;
-      }
-    }
-
-    // === Hunger check: starving ants go eat at nest ===
-    if (ant.stateTimer > 0 && !graced) {
-      const hungerCheck = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
-      if (hungerCheck && hungerCheck.current < hungerCheck.max * HUNGER_EAT_THRESHOLD) {
-        ant.state = AntState.ReturningHome;
-        ant.stateTimer = 0;
-        this.pathToNest(pos, path);
-        return;
-      }
+    // === Hunger check: hungry ants go home to eat ===
+    // Being hurt is NOT a reason to go home: ants heal by eating (see eat() in
+    // HungerSystem), so a meal is what fixes both. And the trip only makes
+    // sense if there is something down there to eat — otherwise the ant walks
+    // home, finds nothing and walks back out, forever.
+    if (ant.stateTimer > 0 && this.undergroundFoodAvailable && this.isHungry(id)) {
+      ant.state = AntState.ReturningHome;
+      ant.stateTimer = 0;
+      this.pathToNest(pos, path);
+      return;
     }
 
     // === Beetle detection (all roles) ===
@@ -628,33 +610,37 @@ export class AntAISystem implements System {
 
     const dist = this.distance(pos, nestPos);
     if (dist < ANT_DEPOSIT_RANGE) {
-      if (carrying.amount > 0) {
+      ant.stateTimer = 0;
+      if (carrying.amount > 0 && ant.role === AntRole.Worker) {
         // FOOD IS ONLY STORED UNDERGROUND: the load is already in stored units
         // (converted at harvest) — carry it down to the pantry. PorterSystem's
         // Hauling drives the rest; if the pantry is full the ant holds the food.
         ant.state = AntState.Hauling;
-        ant.stateTimer = 0;
         if (this.transitSystem) this.transitSystem.requestTransit(_id, 'enter');
-      } else {
-        // Arrived at nest without food — here to heal
+      } else if (carrying.amount > 0) {
+        // Soldiers and scouts are not porters: PorterSystem only drives
+        // workers, so a non-worker sent down as a Hauler froze at the shaft
+        // holding its load (soldiers got bounced back up and froze on the nest
+        // tile). They drop the load on the nest stockpile — worker porters
+        // carry it below — and go back to their own job.
+        this.dropAtStockpile(carrying);
+        ant.state = AntState.Searching;
+      } else if (this.isHungry(_id) && this.undergroundFoodAvailable && this.transitSystem) {
+        // Came home hungry: ride down and eat (eating also heals)
         ant.state = AntState.Healing;
-        ant.stateTimer = 0;
+        this.transitSystem.requestTransit(_id, 'enter');
+      } else {
+        // Nothing to deliver, nothing to eat — never stand at the entrance
+        ant.state = AntState.Searching;
       }
       return;
     }
 
-    // Stuck timeout: if returning home for too long, drop food and search again
-    if (ant.stateTimer > RETURNING_HOME_DROP_TIMEOUT) {
-      // Entrance-proximity exemption: ant is jostling at the entrance and
-      // about to deliver — don't waste food it's on the verge of dropping off.
-      const nestPosCheck = this.world.getComponent<PositionComponent>(this.nestEntityId!, COMPONENT.POSITION);
-      if (nestPosCheck) {
-        const distToEntrance = this.distance(pos, nestPosCheck);
-        if (distToEntrance < ANT_DEPOSIT_RANGE * 3) {
-          this.pathToNest(pos, path);
-          return;
-        }
-      }
+    // Stuck timeout: if returning home for too long, drop food and search again.
+    // Entrance-proximity exemption: an ant this close is about to deliver, so it
+    // keeps walking its route (re-pathing it here EVERY tick froze the ant: an
+    // A* route starts at the ant's own tile, so each tick it snapped back there).
+    if (ant.stateTimer > RETURNING_HOME_DROP_TIMEOUT && dist >= ANT_DEPOSIT_RANGE * 3) {
       carrying.amount = 0;
       carrying.resourceType = null;
       ant.state = AntState.Searching;
@@ -804,21 +790,6 @@ export class AntAISystem implements System {
       this.pathAwayFrom(pos, targetPos, path);
       combat.targetEntityId = null;
       return;
-    } else if (ant.role === AntRole.Soldier) {
-      // Soldiers used to fight to the death, every time. A wave could therefore
-      // erase the whole garrison for one beetle. A soldier at 25% pulls back to
-      // heal — but ONLY if the pantry can actually feed it, otherwise the walk
-      // home is a slower way of dying (same guard the hunger/heal checks use).
-      const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-      const canHeal = this.undergroundFoodAvailable && (ant.forageGrace ?? 0) <= 0;
-      if (health && canHeal && health.current / health.max < SOLDIER_RETREAT_HEALTH_RATIO) {
-        this.emitDangerPheromone(pos, DANGER_PHEROMONE_EMIT_STRENGTH);
-        combat.targetEntityId = null;
-        ant.state = AntState.ReturningHome;
-        ant.stateTimer = 0;
-        this.pathToNest(pos, path);
-        return;
-      }
     } else if (ant.role === AntRole.Worker) {
       const nestDist = this.distToNest(pos);
       if (nestDist > WORKER_FIGHT_RANGE) {
@@ -867,19 +838,10 @@ export class AntAISystem implements System {
       }
     }
 
-    // Health check: hurt soldiers go heal
-    const patrolHealth = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-    if (patrolHealth && patrolHealth.current < patrolHealth.max * HEAL_HEALTH_THRESHOLD) {
-      ant.state = AntState.ReturningHome;
-      ant.stateTimer = 0;
-      this.pathToNest(pos, path);
-      return;
-    }
-
-    // Hunger check: starving soldiers break patrol to go eat — this was missing
-    // and patrolling soldiers starved to death next to an empty surface stockpile
-    const patrolHunger = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
-    if (patrolHunger && patrolHunger.current < patrolHunger.max * HUNGER_EAT_THRESHOLD) {
+    // Hunger check: hungry soldiers break patrol to go eat — if there is food
+    // below. Without that guard a starving soldier would flip-flop between patrol
+    // and the nest entrance. (Being hurt is no reason to leave: eating heals.)
+    if (this.undergroundFoodAvailable && this.isHungry(id)) {
       ant.state = AntState.ReturningHome;
       ant.stateTimer = 0;
       this.pathToNest(pos, path);
@@ -986,104 +948,20 @@ export class AntAISystem implements System {
     path.currentIndex = 0;
   }
 
-  private handleHealing(
-    id: EntityId,
-    ant: AntComponent,
-    pos: PositionComponent,
-    path: PathComponent,
-    dt: number
-  ): void {
-    // Priority: if attacked, stop healing and react
-    const attackerId = this.attackerByTarget.get(id) ?? null;
-    if (attackerId !== null) {
-      const attackerPos = this.world.getComponent<PositionComponent>(attackerId, COMPONENT.POSITION);
-      if (attackerPos) {
-        if (ant.role === AntRole.Scout) {
-          // Zero attack damage — a scout that stands and "fights" just dies slower
-          this.emitDangerPheromone(pos, DANGER_PHEROMONE_EMIT_STRENGTH);
-          ant.state = AntState.Fleeing;
-          ant.stateTimer = 0;
-          this.pathAwayFrom(pos, { x: attackerPos.x, y: attackerPos.y }, path);
-          return;
-        }
-        // Every other role fights back when attacked while healing
-        ant.state = AntState.AttackingEnemy;
-        ant.stateTimer = 0;
-        path.waypoints = [];
-        path.currentIndex = 0;
-        ensureCombatComponent(this.world, id, attackerId);
-        return;
-      }
-    }
-
-    // Must be near nest — walk there first
-    const nestDist = this.distToNest(pos);
-    if (nestDist > HEAL_NEST_RANGE) {
-      if (path.waypoints.length === 0 || path.currentIndex >= path.waypoints.length) {
-        this.pathToNest(pos, path);
-      }
-      return;
-    }
-
-    // At nest — stay still while healing
-    path.waypoints = [];
-    path.currentIndex = 0;
-
-    const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-    if (!health || !this.hasNest()) {
-      ant.state = AntState.Searching;
-      ant.stateTimer = 0;
-      return;
-    }
-
-    // Fully healed and fed — back to work; reset famine counter
-    if (health.current >= health.max) {
-      const hunger = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
-      const wellFed = !hunger || hunger.current >= hunger.max * 0.9;
-      if (wellFed) {
-        ant.healingCycles = 0;
-        ant.state = AntState.Searching;
-        ant.stateTimer = 0;
-        return;
-      }
-    }
-
-    // HEALING HAPPENS INSIDE THE NEST, ALWAYS: food only lives underground
-    // (pantry piles, farm mushrooms, or loose invader meat). Ride the shaft
-    // down — UndergroundHealingSystem takes over from there (state stays Healing).
-    if (this.transitSystem && this.undergroundGrid && this.hasUndergroundFood()) {
-      ant.healingCycles = 0;
-      this.transitSystem.requestTransit(id, 'enter');
-      return;
-    }
-
-    // Truly nothing edible below — wait briefly, then go forage yourself.
-    // Bug 6: track consecutive famine cycles; after HEALING_FAMINE_MAX_CYCLES
-    // force surface foraging regardless of health to break the infinite loop.
-    if (ant.stateTimer > 5) {
-      ant.healingCycles = (ant.healingCycles ?? 0) + 1;
-      if (ant.healingCycles >= HEALING_FAMINE_MAX_CYCLES) {
-        ant.healingCycles = 0;
-        ant.state = AntState.Searching;
-        // stateTimer stays >= 0 so action scoring runs and the ant actually
-        // forages; forageGrace is what keeps it from turning straight back.
-        ant.stateTimer = 0;
-        ant.forageGrace = HEALING_FAMINE_ESCAPE_GRACE;
-        // No transit request here: handleHealing only ever runs for SURFACE
-        // ants (AntAISystem skips the underground layer), and asking to 'exit'
-        // from the surface leaves a walking request that can never complete.
-        return;
-      }
-      // Negative stateTimer = grace period before health check sends us back
-      ant.state = AntState.Searching;
-      ant.stateTimer = -3;
-    }
-    void dt;
+  private isHungry(id: EntityId): boolean {
+    const hunger = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
+    return hunger !== undefined && hunger.current < hunger.max * HUNGER_EAT_THRESHOLD;
   }
 
-  /** Anything edible below? Pantry/farm piles or loose drops (invader meat) */
-  private hasUndergroundFood(): boolean {
-    return this.undergroundFoodAvailable;
+  /** Hand a load to the nest's surface stockpile — worker porters haul it below */
+  private dropAtStockpile(carrying: CarryingComponent): void {
+    const nest = this.world.getComponent<NestComponent>(this.nestEntityId!, COMPONENT.NEST);
+    if (!nest) return;
+    nest.foodStored += carrying.amount;
+    if (carrying.resourceType === 'mushroom') nest.mushroomStored += carrying.amount;
+    else if (carrying.resourceType === 'meat') nest.meatStored += carrying.amount;
+    carrying.amount = 0;
+    carrying.resourceType = null;
   }
 
   private computeUndergroundFood(): boolean {

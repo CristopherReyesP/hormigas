@@ -35,7 +35,7 @@ export const AntState = {
   PatrollingNest: 'patrolling_nest',
   GoingToDen: 'going_to_den',
   AttackingDen: 'attacking_den',
-  Healing: 'healing',
+  Healing: 'healing', // went below to eat — eating is what heals (UndergroundHealingSystem)
   FeedingQueen: 'feeding_queen',
   TendingEgg: 'tending_egg',
   FetchingFood: 'fetching_food',
@@ -67,16 +67,6 @@ export interface AntComponent {
   stuckTimer?: number;    // seconds elapsed with sub-threshold displacement (Bug 3)
   lastX?: number;         // last sampled world x for stall detection (Bug 3)
   lastY?: number;         // last sampled world y for stall detection (Bug 3)
-  healingCycles?: number; // consecutive Healing→Searching cycles with no underground food (Bug 6)
-  /** Seconds of FORCED foraging: the health/hunger checks are suppressed while
-   *  this is positive, but the ant still acts normally.
-   *
-   *  This exists because stateTimer alone cannot express it. A negative
-   *  stateTimer suppresses the health check but ALSO skips action scoring
-   *  (the ant freezes); a positive one lets the ant act but re-triggers the
-   *  health check on the next tick. Starving-but-hurt ants need both halves,
-   *  so the "don't go home" gate had to leave stateTimer. */
-  forageGrace?: number;
 }
 
 export interface HungerComponent {

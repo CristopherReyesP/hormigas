@@ -15,18 +15,13 @@ import {
   type HungerComponent,
   type FoodSourceComponent,
 } from '../components/components';
-import {
-  HEAL_RATE,
-  HEAL_HP_PER_FOOD,
-  HUNGER_PER_FOOD,
-  HUNGER_EAT_RATE,
-} from '../../shared/constants';
+import { eat } from './HungerSystem';
 
 /**
- * Drives ants that came DOWN to the colony to eat and heal: AntAISystem sends
- * Healing ants underground when the surface stockpile is empty (porters haul
- * everything below), and this system walks them to the nearest food pile
- * (pantry or fungus farm), feeds/heals them, then sends them back up.
+ * Drives ants that came DOWN to the colony to eat: AntAISystem sends hungry
+ * surface ants below (state Healing), and this system walks them to the
+ * nearest food pile (pantry or fungus farm) or loose food, lets them eat —
+ * eating is also how ants heal, see eat() — then sends them back up.
  *
  * AntAISystem skips the underground layer entirely, so without this system a
  * Healing ant below ground would stand frozen forever.
@@ -121,16 +116,11 @@ export class UndergroundHealingSystem implements System {
     if (bestDist < 1.2) {
       const food = this.world.getComponent<FoodSourceComponent>(best.id, COMPONENT.FOOD_SOURCE);
       if (!food || food.amount <= 0) return true; // gone this tick — retarget next frame
-      const want = Math.min(
-        food.amount,
-        HUNGER_EAT_RATE * dt,
-        hunger ? (hunger.max - hunger.current) / HUNGER_PER_FOOD : HUNGER_EAT_RATE * dt
-      );
-      food.amount -= want;
-      if (hunger) hunger.current = Math.min(hunger.max, hunger.current + want * HUNGER_PER_FOOD);
-      if (health && health.current < health.max) {
-        health.current = Math.min(health.max, health.current + HEAL_RATE * this.world.upgrades.healRateMult * dt);
-      }
+      eat(this.world, hunger, health, dt, (want) => {
+        const bite = Math.min(want, food.amount);
+        food.amount -= bite;
+        return bite;
+      });
       if (food.amount <= 0) this.world.destroyEntity(best.id);
       ant.stateTimer = 0; // eating is progress
       this.clearPath(id);
@@ -140,7 +130,7 @@ export class UndergroundHealingSystem implements System {
     return true;
   }
 
-  /** Eat from the pile: hunger first, then convert food into HP at the heal rate */
+  /** Eat from the pile (stored units are already nutrition-normalized) — hunger first, the rest heals */
   private eatAndHeal(
     id: number,
     ant: AntComponent,
@@ -149,31 +139,11 @@ export class UndergroundHealingSystem implements System {
     hunger: HungerComponent | undefined,
     dt: number
   ): void {
-    // Stored units are already nutrition-normalized (multipliers applied at deposit)
-    const hungerFood = hunger ? (hunger.max - hunger.current) / HUNGER_PER_FOOD : 0;
-    const healHp = health
-      ? Math.min(HEAL_RATE * this.world.upgrades.healRateMult * dt, health.max - health.current)
-      : 0;
-    const healFood = healHp / HEAL_HP_PER_FOOD;
-
-    const wantFood = Math.min(HUNGER_EAT_RATE * dt, hungerFood + healFood);
-    if (wantFood <= 0) return;
-
-    const { taken } = this.grid.takeFood(pile.x, pile.y, wantFood);
-    if (taken <= 0) return; // pile emptied this tick — findFetchTile retargets next frame
+    const eaten = eat(this.world, hunger, health, dt, (want) => this.grid.takeFood(pile.x, pile.y, want).taken);
+    if (eaten <= 0) return; // pile emptied this tick — findFetchTile retargets next frame
 
     // Eating IS progress — the 30s safety timeout is only for ants stuck walking
     ant.stateTimer = 0;
-
-    let remaining = taken;
-    if (hunger) {
-      const toHunger = Math.min(remaining, hungerFood);
-      hunger.current = Math.min(hunger.max, hunger.current + toHunger * HUNGER_PER_FOOD);
-      remaining -= toHunger;
-    }
-    if (health && remaining > 0) {
-      health.current = Math.min(health.max, health.current + remaining * HEAL_HP_PER_FOOD);
-    }
 
     // Keep the ant parked on the pile while it eats
     this.clearPath(id);

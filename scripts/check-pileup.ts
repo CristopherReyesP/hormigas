@@ -2,16 +2,11 @@
 //
 // Symptom: hurt ants stood frozen at the nest entrance instead of working.
 //
-// Root cause: the health/hunger checks sent an ant home whenever it was hurt,
-// with no regard for whether the colony had any food to heal with. With an
-// empty pantry the ant walked home, found nothing, and bounced between Healing
-// and Searching forever. The famine-cycle escape hatch that was supposed to
-// break this could not: it signalled "keep foraging" through `stateTimer`, but
-// that one field also gates action scoring — negative freezes the ant, positive
-// re-triggers the trip home. No value of it can mean both.
-//
-// Fix: never walk home for food the colony does not have, and carry the
-// "forced foraging" flag in its own field (AntComponent.forageGrace).
+// History: the health check sent an ant home whenever it was hurt, and an empty
+// pantry left it bouncing between Healing and Searching at the door. Now ants
+// heal by EATING (see eat() in HungerSystem): being hurt is never a reason to
+// walk home, so hurt-but-fed ants keep working whether the pantry is empty or
+// stocked.
 import { World } from '../src/engine/ecs/World';
 import { TileGrid } from '../src/simulation/world/TileGrid';
 import { UndergroundGrid } from '../src/simulation/world/UndergroundGrid';
@@ -28,7 +23,9 @@ import {
   type NestComponent, type HealthComponent, type PositionComponent, type LayerComponent, type AntComponent,
 } from '../src/game/components/components';
 import { TerrainType as TT } from '../src/simulation/world/types';
-import { WORLD_WIDTH, WORLD_HEIGHT, HEAL_NEST_RANGE } from '../src/shared/constants';
+import { WORLD_WIDTH, WORLD_HEIGHT } from '../src/shared/constants';
+
+const NEAR_NEST = 1.5; // tiles — standing "at the entrance"
 
 let seed = 0x9e3779b9;
 Math.random = () => {
@@ -94,7 +91,7 @@ for (let f = 0; f < 60 * 180; f++) {
     stateTicks.set(st, (stateTicks.get(st) ?? 0) + 1);
     const l = world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
     const p = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-    const near = l.layer === Layer.Surface && Math.hypot(p.x - nestPos.x, p.y - nestPos.y) < HEAL_NEST_RANGE + 0.5;
+    const near = l.layer === Layer.Surface && Math.hypot(p.x - nestPos.x, p.y - nestPos.y) < NEAR_NEST + 0.5;
     const run = near ? parked.get(id)! + 1 : 0;
     parked.set(id, run);
     if (run > worst.get(id)!) worst.set(id, run);
@@ -123,9 +120,10 @@ check('hambruna: nadie acampa', famine.worstParkedSec < 20, `peor estadia ${fami
 check('hambruna: salen a trabajar', famine.workingPct > 50, `trabajando ${famine.workingPct.toFixed(0)}% del tiempo`);
 check('hambruna: no insisten en curarse', famine.healingPct < 10, `curandose ${famine.healingPct.toFixed(0)}%`);
 
-// Stocked pantry: healing must still happen — the fix must not disable it.
+// Stocked pantry: still no healing trip — fed ants heal at their next meal.
 const fed = run(50);
-check('con despensa: se curan igual', fed.healingPct > 5, `curandose ${fed.healingPct.toFixed(0)}%`);
+check('con despensa: siguen trabajando', fed.workingPct > 50, `trabajando ${fed.workingPct.toFixed(0)}% del tiempo`);
+check('con despensa: no bajan a curarse', fed.healingPct < 10, `curandose ${fed.healingPct.toFixed(0)}%`);
 check('con despensa: tampoco acampan', fed.worstParkedSec < 20, `peor estadia ${fed.worstParkedSec.toFixed(1)}s`);
 
 let failed = 0;

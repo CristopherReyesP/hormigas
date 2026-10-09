@@ -68,7 +68,22 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
   - [ ] P2.4 Mutation marks drawn on ant sprites for applied mutations.
   - [ ] P2.5 Bottom console and UI restyle (`--ui-*` → `--chrome-*`, pixel icons, one font, Spanish only).
   - [ ] P2.6 One art-pixel scale for every unit, 16-direction rotation snapping, zoom steps of 0.5.
-- [ ] Bug — ants pile up at the nest entrance (user report, 2026-10-09). User hypothesis: entrance healing. User design decision: remove healing at the entrance; ants heal by eating. Diagnosed and fixed by a Claude subagent in an isolated worktree, then applied here.
+- [x] Bug — ants pile up at the nest entrance (user report, 2026-10-09). User hypothesis: entrance healing. User design decision: remove healing at the entrance; ants heal by eating. Diagnosed and fixed by a Claude subagent in an isolated worktree, then applied here.
+  - Repro: `npx tsx scripts/repro-entrance-jam.ts [days] [seed] [workers] [soldiers] [scouts]` (full-system headless run, stuck-ant histogram by role:state@layer). The existing scripts never showed the jam.
+  - The hypothesis was ruled out: Healing or heading-to-heal ants were 0.0% of stuck ant-seconds in 7 runs.
+  - Root causes, both present since the initial commit:
+    - About 95% of the jam: soldiers and scouts arriving with food were put in Hauling, but PorterSystem only drives workers, so they froze at the shaft or on the nest tile.
+    - The rest: late returners re-pathed every tick, and A* starts at the ant's own tile, so they never moved.
+  - Fix in `AntAISystem`:
+    - Non-workers drop food on the nest stockpile and go back to work.
+    - An empty-handed arrival goes below only when the ant is hungry and food exists down there.
+    - Late returners keep their route instead of re-pathing.
+  - Heal by eating: `HungerSystem.eat()` (hunger first, the rest of the meal becomes HP at `HEAL_HP_PER_FOOD`). The hurt-ant trip home, the soldier retreat, the famine-cycle logic, `forageGrace` and the dead constants were removed.
+  - RED: 11 tests failed before the fix.
+  - Verification by the parent on `feat/hive-look`: `npm test` 138/138, tsc, lint, build. The repro went from 7345 to 73 stuck ant-seconds (5 days, seed 1). In the agent's runs the large colony went from 18975 to 203.
+  - Open:
+    - Combat deaths rose in the large colony (5 → 28) because hurt soldiers no longer retreat. This needs a balance review.
+    - Nurses and defenders do not heal by eating yet (`NurseAISystem`, `DefenderAISystem`).
 - [ ] P3 — RTS control: drag selection, right-click move/attack, control groups (Ctrl+1–9; digits 1–3 currently set game speed at `src/game/GameManager.ts:346-349`), a `PlayerOrder` component the AI yields to. Cost: medium.
 - [ ] P4 — Factions: ownership component in targeting, damage, vision and economy; faction-filtered fog; remove first-nest assumptions (`src/game/systems/AntAISystem.ts:123-125`). Cost: expensive; foundation for P5.
 - [ ] P5 — Crystal Hive: rival nest on the far side of the map, scripted build order, night waves sourced from it, Crystal Queen boss on night 7, victory on hive destruction. Cost: expensive.

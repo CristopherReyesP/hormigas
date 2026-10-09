@@ -1,7 +1,7 @@
 // Headless check for the entrance pile-up.
 //
 // Symptom: ants parked at the nest entrance instead of working. Cause: the old
-// `feedAtNest` auto-feed topped up hunger for ANY ant within HEAL_NEST_RANGE of
+// `feedAtNest` auto-feed topped up hunger for ANY ant within 1.5 tiles of
 // the nest, every tick, regardless of state — while health could only recover
 // underground. An ant parked in Healing at the entrance therefore had zero
 // pressure to move on.
@@ -24,7 +24,9 @@ import {
   type NestComponent, type HungerComponent, type PositionComponent, type LayerComponent,
 } from '../src/game/components/components';
 import { TerrainType as TT } from '../src/simulation/world/types';
-import { WORLD_WIDTH, WORLD_HEIGHT, HEAL_NEST_RANGE } from '../src/shared/constants';
+import { WORLD_WIDTH, WORLD_HEIGHT } from '../src/shared/constants';
+
+const NEAR_NEST = 1.5; // tiles — standing "at the entrance"
 
 // The ant AI calls Math.random for exploration, so an unseeded run makes this
 // a dice roll. Seed it: a regression check must fail for a reason, not by luck.
@@ -94,7 +96,7 @@ for (let f = 0; f < 60 * 120; f++) {
   for (const id of antIds) {
     const l = world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
     const p = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-    const near = l.layer === Layer.Surface && Math.hypot(p.x - nestPos.x, p.y - nestPos.y) < HEAL_NEST_RANGE + 0.5;
+    const near = l.layer === Layer.Surface && Math.hypot(p.x - nestPos.x, p.y - nestPos.y) < NEAR_NEST + 0.5;
     const run = near ? parkedTicks.get(id)! + 1 : 0;
     parkedTicks.set(id, run);
     if (run > maxParked.get(id)!) maxParked.set(id, run);
