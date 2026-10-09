@@ -59,7 +59,16 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
 
 ## Tasks (phases; each phase is broken into tasks when it starts)
 - [ ] P1 — Evolution chamber: finish the roguelite (T2, T3 in `odd/tasks/roguelite-run-loop.md`) with mutant-themed mutations. Cost: medium.
-- [ ] P2 — StarCraft look: faction palettes, mutant and alien sprites in the atlas, bottom console (minimap, selection portrait, command card). Cost: medium.
+- [ ] P2 — StarCraft look: faction palettes, mutant and alien sprites in the atlas, bottom console (minimap, selection portrait, command card). Cost: medium. Branch `feat/hive-look` (from `feat/roguelite-dawn-pick` 69e7e03).
+  - [x] P2.1 Swarm skin and wildlife recolor: player ants and queen in the Swarm palette (magenta flesh, chartreuse glowing vein, dark outline, scythe mandibles, spine bumps, roles distinct by silhouette); beetles olive with amber eyes, crickets straw; the red mushroom toned down so units pop. Route: delegated (Claude subagent).
+  - [x] P2.2 Night and fog: red-violet night with a dusk alarm pulse; enemies drawn only on currently visible tiles. Route: delegated (same writer as P2.1).
+    - Done by a Claude subagent: `SWARM_CASTES` body plans per role (soldier huge head and jaws, scout thin and long-legged, nurse pale round gaster, defender armored with a horn), role color bands removed from bodies, queen as a veined egg sac with a magenta/green halo and crest, olive beetles with amber eyes, straw crickets, rust mushrooms, a glowing green entrance ring on the nest; red-violet night (0.28/0.5) with a 1.6 s dithered red dusk alarm on both layers (game time, holds on pause); enemies drawn only where fog is fully clear (`fogVisibility.ts`, threshold shared with `FogRenderer`). RED: missing fog module and 10/11 PostProcessor tests failing before GREEN. Sprites checked by eye from rendered PNGs (parent reviewed them too). Verified by the parent: `npm test` 125/125, `npx tsc -b --noEmit`, `npm run lint`, `npm run build`.
+    - Decision (parent, creative license): "visible" means fully clear fog (~70% of an ant's reveal radius), as in StarCraft. Open: veins dim at night; a post-tint glow pass fits P2.3/P2.4.
+  - [ ] P2.3 Meteorite opening: impact flash, screen shake and a crater decal with pulsing cyan cracks at run start.
+  - [ ] P2.4 Mutation marks drawn on ant sprites for applied mutations.
+  - [ ] P2.5 Bottom console and UI restyle (`--ui-*` → `--chrome-*`, pixel icons, one font, Spanish only).
+  - [ ] P2.6 One art-pixel scale for every unit, 16-direction rotation snapping, zoom steps of 0.5.
+- [ ] Bug — ants pile up at the nest entrance (user report, 2026-10-09). User hypothesis: entrance healing. User design decision: remove healing at the entrance; ants heal by eating. Diagnosed and fixed by a Claude subagent in an isolated worktree, then applied here.
 - [ ] P3 — RTS control: drag selection, right-click move/attack, control groups (Ctrl+1–9; digits 1–3 currently set game speed at `src/game/GameManager.ts:346-349`), a `PlayerOrder` component the AI yields to. Cost: medium.
 - [ ] P4 — Factions: ownership component in targeting, damage, vision and economy; faction-filtered fog; remove first-nest assumptions (`src/game/systems/AntAISystem.ts:123-125`). Cost: expensive; foundation for P5.
 - [ ] P5 — Crystal Hive: rival nest on the far side of the map, scripted build order, night waves sourced from it, Crystal Queen boss on night 7, victory on hive destruction. Cost: expensive.

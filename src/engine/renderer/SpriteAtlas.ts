@@ -36,6 +36,67 @@ const GIANT_MUSHROOM_SCALE = 4; // 64 = 16 × 4
 // Tripod-gait swing offsets (art px) for the 4-frame walk cycle.
 const GAIT = [1, 0, -1, 0];
 
+/** Art-pixel point on the UPPER half of the ant grid; painters mirror it about the body axis. */
+type UpperPx = readonly [number, number];
+/** Upper-half mandible pixel: x, y, flesh ramp index. */
+type JawPx = readonly [number, number, number];
+
+/**
+ * Swarm caste anatomy on the 16×16 ant grid (facing right, body axis y = 8).
+ * Castes differ by SILHOUETTE — head size, jaw shape, leg reach, spines —
+ * plus tone shifts inside the one flesh ramp, never by a foreign accent color.
+ */
+interface SwarmCaste {
+  gx: number; grx: number; gry: number;   // gaster center x + radii
+  skin: 'flesh' | 'pale' | 'plated';      // gaster finish
+  petX: number;                            // petiole (waist) x
+  thCx: number; thRx: number;              // thorax
+  hX: number; hR: number; shieldHead?: boolean;
+  reach: number; splay: number; hips: readonly [number, number, number];
+  antRoot: UpperPx; antTip: UpperPx;
+  spines: readonly UpperPx[];              // 1px bone bumps on the silhouette edge
+  jaws: readonly JawPx[];                  // scythe mandibles (unoutlined)
+  eye: UpperPx;
+}
+
+const SWARM_CASTES: Record<AntRole, SwarmCaste> = {
+  // Drone: the baseline body plan, short hooked scythes, one spine pair
+  [AntRole.Worker]: {
+    gx: 4, grx: 2.4, gry: 2.0, skin: 'flesh', petX: 7, thCx: 9, thRx: 1.2,
+    hX: 12, hR: 1.2, reach: 4, splay: 2, hips: [8, 9, 10],
+    antRoot: [12, 6], antTip: [14, 3], spines: [[3, 4]],
+    jaws: [[14, 6, 4], [15, 7, 4]], eye: [12, 7],
+  },
+  // Slasher: small gaster, huge head, long curved scythes, stocky legs
+  [AntRole.Soldier]: {
+    gx: 3, grx: 1.9, gry: 1.6, skin: 'flesh', petX: 6, thCx: 8, thRx: 1.2,
+    hX: 11, hR: 2.1, reach: 3, splay: 2, hips: [7, 8, 9],
+    antRoot: [11, 5], antTip: [13, 2], spines: [[2, 5]],
+    jaws: [[13, 5, 3], [14, 5, 4], [15, 6, 4], [14, 7, 4]], eye: [12, 6],
+  },
+  // Scout: sleek and spineless — slimmest gaster, longest legs and antennae
+  [AntRole.Scout]: {
+    gx: 5, grx: 2.0, gry: 1.0, skin: 'flesh', petX: 8, thCx: 10, thRx: 0.8,
+    hX: 13, hR: 1.0, reach: 5, splay: 3, hips: [9, 10, 11],
+    antRoot: [13, 6], antTip: [15, 1], spines: [],
+    jaws: [[15, 7, 4]], eye: [13, 7],
+  },
+  // Nurse: soft, pale brood-tender — round gaster, small head, short legs
+  [AntRole.Nurse]: {
+    gx: 4, grx: 2.2, gry: 2.0, skin: 'pale', petX: 7, thCx: 9, thRx: 1.0,
+    hX: 11, hR: 1.2, reach: 3, splay: 1, hips: [8, 9, 10],
+    antRoot: [11, 6], antTip: [14, 4], spines: [],
+    jaws: [[13, 7, 4]], eye: [11, 7],
+  },
+  // Armored: dark plated gaster, square shield head, blunt jaws, spine rows + horn
+  [AntRole.Defender]: {
+    gx: 4, grx: 2.4, gry: 2.0, skin: 'plated', petX: 7, thCx: 9, thRx: 1.6,
+    hX: 12, hR: 1.2, shieldHead: true, reach: 3, splay: 1, hips: [8, 9, 10],
+    antRoot: [12, 5], antTip: [14, 3], spines: [[2, 4], [4, 4], [11, 4]],
+    jaws: [[15, 7, 3]], eye: [13, 6],
+  },
+};
+
 /**
  * Pre-renders all entity sprites to offscreen canvases at construction time.
  * Deliberate PIXEL ART: every sprite is authored on a logical art-pixel grid
@@ -105,14 +166,14 @@ export class SpriteAtlas {
   }
 
   // ─── Outline helper ────────────────────────────────────────
-  // Draws the shape callback 8 times offset by 1 art px in PAL.outline,
+  // Draws the shape callback 8 times offset by 1 art px in the outline color,
   // then once at (0,0) with color = null so the callback uses its own fills.
   // Guarantees an exact 1-art-pixel outline around the silhouette.
 
-  private outlined(draw: (dx: number, dy: number, color: string | null) => void): void {
+  private outlined(draw: (dx: number, dy: number, color: string | null) => void, outline: string = PAL.outline): void {
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
-        if (dx !== 0 || dy !== 0) draw(dx, dy, PAL.outline);
+        if (dx !== 0 || dy !== 0) draw(dx, dy, outline);
       }
     }
     draw(0, 0, null);
@@ -171,55 +232,32 @@ export class SpriteAtlas {
   }
 
   /**
-   * 16×16 art-pixel ant, facing right. Slim three-segment body — gaster,
-   * 1px petiole (waist), thorax, head — with a continuous 1px outline around
-   * the whole union so the waist pinch reads cleanly. Role identity is by
-   * SILHOUETTE first (head size, gaster shape, leg reach), accent color second:
-   *  - worker : baseline proportions
-   *  - soldier: oversized diamond head + 2px pincer jaws, stocky short legs
-   *  - scout  : smallest gaster, longest legs and antennae
-   *  - nurse  : rounder, paler gaster, compact stance
+   * 16×16 art-pixel Swarm ant, facing right. The ant body plan is intact —
+   * bulbous gaster, 1px petiole (waist), thorax, head, 6 legs, 2 antennae —
+   * but mutated: magenta flesh, a glowing chartreuse vein down the body axis,
+   * glowing eyes, pale scythe mandibles and 1px bone spines. Castes read by
+   * SILHOUETTE (see SWARM_CASTES), with tone shifts inside the one flesh ramp.
+   * Shading is symmetric about the body axis (lit ridge beside the vein,
+   * darker flanks), so it stays correct at any rotation.
    */
   private paintAnt(p: PixelPainter, role: AntRole, frame: number, carrying: boolean, drawShadow = true): void {
     const cy = 8;
     const swing = GAIT[frame];
     const flick = frame % 2;
+    const c = SWARM_CASTES[role];
+    const F = PAL.swarm.flesh;
+    const V = PAL.swarm.vein;
+    const O = PAL.swarm.outline;
+    const mirror = (y: number): number => 2 * cy - y;
 
-    const accent =
-      role === AntRole.Soldier ? PAL.soldier :
-      role === AntRole.Scout ? PAL.scout :
-      role === AntRole.Nurse ? PAL.nurse :
-      role === AntRole.Defender ? PAL.defender : PAL.worker;
-
-    // Defenders share the soldier silhouette (big head, pincers, stocky) —
-    // the violet accent is what tells them apart
-    const isS = role === AntRole.Soldier || role === AntRole.Defender;
-    const isC = role === AntRole.Scout;
-    const isN = role === AntRole.Nurse;
-
-    // ── Per-role anatomy (art-pixel coordinates) ──
-    const gx = isS ? 3 : isC ? 5 : 4;                  // gaster center x
-    const grx = isS ? 1.9 : isC ? 1.5 : isN ? 2.0 : 2.2; // gaster radii
-    const gry = isC ? 1.0 : isN ? 1.5 : 1.3;
-    const petX = isS ? 6 : isC ? 8 : 7;                // petiole (waist) px
-    const thCx = isS ? 8 : isC ? 10 : 9;               // thorax center x
-    const thRx = isS ? 1.2 : isN ? 1.0 : isC ? 0.8 : 1.2;
-    const hX = isS || isN ? 11 : 12;                   // head center x
-    const hR = isS ? 2.1 : isC ? 1.0 : 1.2;
-    const reach = isC ? 5 : isS || isN ? 3 : 4;        // leg vertical reach
-    const splay = isC ? 3 : isN ? 1 : 2;               // leg fore/aft splay
-    const hips = isS ? [7, 8, 9] : isC ? [9, 10, 11] : [8, 9, 10];
-    const antTipX = isS ? 14 : 15;                     // antenna tip
-    const antTipY = isC ? 2 : 4;
-
-    // Body fills sit HIGH on the chitin ramp so the silhouette separates from
-    // the near-black outline — low-contrast fills made the old ant read as a blob.
-    const gBase = isN ? PAL.chitin[3] : PAL.chitin[2]; // nurse = paler gaster
-    const gLight = isN ? PAL.sand[0] : PAL.chitin[3];
-    const gDark = isN ? PAL.chitin[2] : PAL.chitin[1];
+    // Gaster finish: [flank, body, ridge]
+    const tones =
+      c.skin === 'pale' ? [F[3], F[4], F[4]] :
+      c.skin === 'plated' ? [F[1], F[2], F[4]] :
+      [F[2], F[3], F[4]];
 
     // Dithered ground shadow — single row, detached from the body outline
-    if (drawShadow) p.shadow(8, 12, 4, 0.5, PAL.outline);
+    if (drawShadow) p.shadow(8, 12, 4, 0.5, O);
 
     // Legs (behind body) — tripod gait: front+back of one side move with
     // the middle leg of the other side. Hips along the thorax.
@@ -227,48 +265,68 @@ export class SpriteAtlas {
       for (let i = 0; i < 3; i++) {
         const groupA = (i + (side === 1 ? 1 : 0)) % 2 === 0;
         const s = groupA ? swing : -swing;
-        const ax = hips[i];
-        const footX = ax + (i - 1) * splay + s; // back legs splay back, front forward
-        p.line(ax, cy + side, footX, cy + side * reach, PAL.outline);
+        const ax = c.hips[i];
+        const footX = ax + (i - 1) * c.splay + s; // back legs splay back, front forward
+        p.line(ax, cy + side, footX, cy + side * c.reach, O);
       }
     }
 
     // Body silhouette as ONE outlined union so the petiole pinch gets a
-    // clean, continuous 1px outline: gaster + petiole + thorax + head + jaws.
-    this.outlined((dx, dy, c) => {
-      p.ellipse(gx + dx, cy + dy, grx, gry, c ?? gBase);       // gaster
-      p.px(petX + dx, cy + dy, c ?? PAL.chitin[2]);            // petiole (waist)
-      p.ellipse(thCx + dx, cy + dy, thRx, 1.0, c ?? PAL.chitin[2]); // thorax
-      p.disc(hX + dx, cy + dy, hR, c ?? PAL.chitin[3]);        // head (lightest tone)
-      if (isS) {
-        // Soldier: two prominent 2px pincer prongs, opening forward
-        p.px(14 + dx, 6 + dy, c ?? PAL.chitin[1]);
-        p.px(14 + dx, 7 + dy, c ?? PAL.chitin[1]);
-        p.px(14 + dx, 9 + dy, c ?? PAL.chitin[1]);
-        p.px(14 + dx, 10 + dy, c ?? PAL.chitin[1]);
-      } else if (isC) {
-        p.px(hX + 2 + dx, cy + dy, c ?? PAL.chitin[1]);        // tiny forward jaw
-      } else {
-        p.px(hX + 2 + dx, cy - 1 + dy, c ?? PAL.chitin[1]);    // small mandibles
-        p.px(hX + 2 + dx, cy + 1 + dy, c ?? PAL.chitin[1]);
-      }
-    });
+    // clean, continuous 1px outline: gaster + petiole + thorax + head.
+    this.outlined((dx, dy, col) => {
+      p.ellipse(c.gx + dx, cy + dy, c.grx, c.gry, col ?? tones[0]);       // gaster (flank tone)
+      p.px(c.petX + dx, cy + dy, col ?? F[2]);                             // petiole (waist)
+      p.ellipse(c.thCx + dx, cy + dy, c.thRx, 1.0, col ?? (c.skin === 'plated' ? F[2] : F[3])); // thorax
+      if (c.shieldHead) p.rect(c.hX - 1 + dx, cy - 2 + dy, 3, 5, col ?? F[2]); // flat shield head
+      else p.disc(c.hX + dx, cy + dy, c.hR, col ?? F[3]);                      // head (lightest tone)
+    }, O);
 
-    // Gaster shading — light up-left, dark down-left (right is the accent band)
-    p.px(gx - 1, 7, gLight);
-    if (grx >= 2) p.px(gx - 2, 8, gLight);
-    p.px(gx - 1, 9, gDark);
+    // Gaster: body tone inside the dark flanks, lit ridge on both sides of the vein
+    p.ellipse(c.gx, cy, c.grx, c.gry - 1, tones[1]);
+    p.px(c.gx, cy - 1, tones[2]);
+    p.px(c.gx, mirror(cy - 1), tones[2]);
 
-    // Role accent: solid 2px-wide band across the gaster (survives 100% zoom)
-    p.rect(gx, 7, 2, 3, accent);
+    // The glowing vein: bright core along the body axis, dim tips, thorax node.
+    // Plated defenders show only the middle of it between their armor plates.
+    const half = Math.floor(c.grx + 0.25);
+    if (c.skin === 'plated') {
+      p.px(c.gx - 1, cy, V[0]);
+      p.px(c.gx, cy, V[1]);
+      p.px(c.gx + 1, cy, V[0]);
+    } else {
+      p.hline(c.gx - half, cy, half * 2 + 1, V[1]);
+      p.px(c.gx - half, cy, V[0]);
+      p.px(c.gx + half, cy, V[0]);
+    }
+    p.px(c.thCx, cy, V[1]);
 
-    // Side eyes (top-down view) on the light head
-    p.px(hX, 7, PAL.white);
-    p.px(hX, 9, PAL.white);
+    // Head: domed highlight, or the shield head's lit front plate
+    if (c.shieldHead) {
+      p.vline(c.hX + 1, cy - 1, 3, F[3]);
+      p.px(c.hX, cy, F[3]);
+    } else if (c.hR >= 1.2) {
+      p.px(c.hX, cy, F[4]);
+    }
+
+    // Glowing eyes on the head flanks
+    p.px(c.eye[0], c.eye[1], V[1]);
+    p.px(c.eye[0], mirror(c.eye[1]), V[1]);
+
+    // Scythe mandibles (pale bone, unoutlined so the hooks stay 1px sharp)
+    for (const [jx, jy, ri] of c.jaws) {
+      p.px(jx, jy, F[ri]);
+      p.px(jx, mirror(jy), F[ri]);
+    }
+
+    // 1px bone spines on the silhouette edge
+    for (const [sx, sy] of c.spines) {
+      p.px(sx, sy, F[3]);
+      p.px(sx, mirror(sy), F[3]);
+    }
 
     // Antennae — bent lines that flick across frames (scout's are longest)
-    p.line(hX + 1, 6, antTipX, antTipY + flick, PAL.chitin[0]);
-    p.line(hX + 1, 10, antTipX, 16 - antTipY - flick, PAL.chitin[0]);
+    p.line(c.antRoot[0], c.antRoot[1], c.antTip[0], c.antTip[1] + flick, F[3]);
+    p.line(c.antRoot[0], mirror(c.antRoot[1]), c.antTip[0], mirror(c.antTip[1]) - flick, F[3]);
 
     // Carrying state: leaf chunk held in the mandibles, ahead of the head
     if (carrying) {
@@ -304,35 +362,30 @@ export class SpriteAtlas {
   }
 
   /**
-   * 16×16 art-pixel queen ant, facing right.
-   * Key differences from worker: very large gaster (egg-filled abdomen),
-   * short compact legs (reach=2 vs worker's 4) so they never bleed onto the
-   * chamber floor when the queen is scaled up, and no dithered ground shadow.
+   * 16×16 art-pixel Swarm queen, facing right — the brood mother. A bloated
+   * egg sac dwarfs the rest of the body and carries the colony's densest
+   * vein network (her glow is the strongest; RenderSystem adds the halo).
+   * Legs stay short (reach 2) so they never bleed onto the chamber floor
+   * when she is drawn at 2.2×, and she has no dithered ground shadow.
    */
   private paintQueenAnt(p: PixelPainter, frame: number): void {
     const cy = 8;
     const swing = GAIT[frame];
     const flick = frame % 2;
+    const F = PAL.swarm.flesh;
+    const V = PAL.swarm.vein;
+    const O = PAL.swarm.outline;
 
-    // Queen uses Worker colors — role accent is the gold crown, not a band
-    const gBase = PAL.chitin[2];
-    const gLight = PAL.chitin[3];
-    const gDark = PAL.chitin[1];
-
-    // Queen anatomy: enlarged gaster (3× radius of a worker), compact legs
-    const gx = 4;
-    const grx = 3.0;   // worker = 2.2
-    const gry = 2.2;   // worker = 1.3 — visibly round, egg-laden
-    const petX = 7;
-    const thCx = 9;
-    const thRx = 1.2;
-    const hX = 11;
-    const hR = 1.4;
-    const reach = 2;   // worker = 4 — short legs don't reach the floor plane
-    const splay = 1;   // worker = 2
-    const hips = [8, 9, 10];
-    const antTipX = 14;
-    const antTipY = 4;
+    // Brood-mother anatomy: a 7×7 egg sac, compact legs
+    const gx = 5;
+    const grx = 3.6;
+    const gry = 3.2;
+    const petX = 9;
+    const thCx = 11;
+    const hX = 13;
+    const reach = 2;
+    const splay = 1;
+    const hips = [10, 11, 12];
 
     // Legs drawn first (behind body)
     for (let side = -1; side <= 1; side += 2) {
@@ -341,35 +394,46 @@ export class SpriteAtlas {
         const s = groupA ? swing : -swing;
         const ax = hips[i];
         const footX = ax + (i - 1) * splay + s;
-        p.line(ax, cy + side, footX, cy + side * reach, PAL.outline);
+        p.line(ax, cy + side, footX, cy + side * reach, O);
       }
     }
 
-    // Body union (gaster + petiole + thorax + head + mandibles)
+    // Body union (egg sac + petiole + thorax + head)
     this.outlined((dx, dy, c) => {
-      p.ellipse(gx + dx, cy + dy, grx, gry, c ?? gBase);
-      p.px(petX + dx, cy + dy, c ?? PAL.chitin[2]);
-      p.ellipse(thCx + dx, cy + dy, thRx, 1.0, c ?? PAL.chitin[2]);
-      p.disc(hX + dx, cy + dy, hR, c ?? PAL.chitin[3]);
-      p.px(hX + 2 + dx, cy - 1 + dy, c ?? PAL.chitin[1]);
-      p.px(hX + 2 + dx, cy + 1 + dy, c ?? PAL.chitin[1]);
-    });
+      p.ellipse(gx + dx, cy + dy, grx, gry, c ?? F[1]);
+      p.px(petX + dx, cy + dy, c ?? F[1]);
+      p.ellipse(thCx + dx, cy + dy, 1.0, 1.0, c ?? F[2]);
+      p.disc(hX + dx, cy + dy, 1.2, c ?? F[3]);
+    }, O);
 
-    // Gaster shading (top-left light source)
-    p.px(gx - 1, 7, gLight);
-    p.px(gx - 2, 8, gLight);
-    p.px(gx - 1, 9, gDark);
+    // Sac shading: dark flanks → body → lit ridge along the vein
+    p.ellipse(gx, cy, grx - 0.8, gry - 1, F[2]);
+    p.ellipse(gx, cy, grx - 1.8, gry - 2, F[3]);
 
-    // Queen abdomen accent stripe (worker-colored band — crown sets her apart)
-    p.rect(gx, 7, 2, 3, PAL.worker);
+    // Vein network: bright spine with fishbone tributaries swept toward the tail
+    p.hline(gx - 3, cy, 7, V[1]);
+    p.px(gx - 3, cy, V[0]);
+    p.px(gx + 3, cy, V[0]);
+    for (const sy of [-1, 1]) {
+      for (const bx of [gx - 1, gx + 2]) {
+        p.px(bx, cy + sy, V[1]);
+        p.px(bx - 1, cy + sy * 2, V[0]);
+      }
+      // Eggs glowing through the stretched skin, between the tributaries
+      p.px(gx, cy + sy * 2, F[4]);
+    }
+    p.px(thCx, cy, V[1]);
 
-    // Eyes
-    p.px(hX, 7, PAL.white);
-    p.px(hX, 9, PAL.white);
+    // Head: domed highlight, glowing eyes, short scythes
+    p.px(hX, cy, F[4]);
+    p.px(hX, 7, V[1]);
+    p.px(hX, 9, V[1]);
+    p.px(15, 7, F[4]);
+    p.px(15, 9, F[4]);
 
     // Antennae
-    p.line(hX + 1, 6, antTipX, antTipY + flick, PAL.chitin[0]);
-    p.line(hX + 1, 10, antTipX, 16 - antTipY - flick, PAL.chitin[0]);
+    p.line(hX, 6, 15, 4 + flick, F[3]);
+    p.line(hX, 10, 15, 12 - flick, F[3]);
   }
 
   drawQueenAnt(
@@ -414,7 +478,8 @@ export class SpriteAtlas {
 
   /**
    * 14×14 art-pixel beetle, facing right. Dome elytra with axial seam,
-   * dithered top-left shell highlight, stubby legs, red eye pixels.
+   * dithered top-left shell highlight, stubby legs, amber eye pixels.
+   * Olive wildlife shell — never the Swarm's flesh or the UI danger red.
    */
   private paintBeetle(p: PixelPainter, frame: number): void {
     const cy = 7;
@@ -433,26 +498,26 @@ export class SpriteAtlas {
     }
 
     // Elytra dome
-    this.outlined((dx, dy, c) => p.ellipse(6 + dx, cy + dy, 4, 3.2, c ?? PAL.chitin[1]));
+    this.outlined((dx, dy, c) => p.ellipse(6 + dx, cy + dy, 4, 3.2, c ?? PAL.beetle[1]));
     // Top-left dithered highlight
-    p.dither(4, 5, 3, 2, PAL.chitin[2], PAL.chitin[1]);
-    p.px(4, 5, PAL.chitin[3]);
+    p.dither(4, 5, 3, 2, PAL.beetle[2], PAL.beetle[1]);
+    p.px(4, 5, PAL.beetle[2]);
     // Bottom-right dithered shading
-    p.dither(7, 8, 3, 2, PAL.chitin[0], PAL.chitin[1]);
+    p.dither(7, 8, 3, 2, PAL.beetle[0], PAL.beetle[1]);
     // Elytra seam along the body axis (1 art px)
-    p.hline(3, 7, 7, PAL.chitin[0]);
+    p.hline(3, 7, 7, PAL.beetle[0]);
 
     // Head
-    this.outlined((dx, dy, c) => p.disc(11 + dx, cy + dy, 1.4, c ?? PAL.chitin[1]));
-    p.px(10, 6, PAL.chitin[2]); // top-left highlight
+    this.outlined((dx, dy, c) => p.disc(11 + dx, cy + dy, 1.4, c ?? PAL.beetle[1]));
+    p.px(10, 6, PAL.beetle[2]); // top-left highlight
 
-    // Eyes — danger red
-    p.px(12, 6, PAL.dangerRed);
-    p.px(12, 8, PAL.dangerRed);
+    // Eyes — amber
+    p.px(12, 6, PAL.beetleEye);
+    p.px(12, 8, PAL.beetleEye);
 
     // Mandibles
-    p.px(13, 6, PAL.chitin[0]);
-    p.px(13, 8, PAL.chitin[0]);
+    p.px(13, 6, PAL.beetle[0]);
+    p.px(13, 8, PAL.beetle[0]);
   }
 
   // ─── Beetle Den Sprite Generation ───────────────────────────
@@ -554,13 +619,13 @@ export class SpriteAtlas {
       p.px(2 + flex, cy + s * 2, PAL.wood[0]);
       // Femur: 3 px thick, hip → knee well outside the body
       this.outlined((dx, dy, c) => {
-        const col = c ?? PAL.grass[1];
+        const col = c ?? PAL.cricket[1];
         p.line(13 + dx, cy + s * 2 + dy, 8 + dx, cy + s * 8 + dy, col);
         p.line(14 + dx, cy + s * 2 + dy, 9 + dx, cy + s * 8 + dy, col);
         p.line(14 + dx, cy + s * 3 + dy, 9 + dx, cy + s * 9 + dy, col);
       });
-      p.px(9, cy + s * 8, PAL.grass[2]); // knee highlight
-      p.line(13, cy + s * 3, 10, cy + s * 7, PAL.grass[0]); // trailing-edge shade
+      p.px(9, cy + s * 8, PAL.cricket[2]); // knee highlight
+      p.line(13, cy + s * 3, 10, cy + s * 7, PAL.cricket[0]); // trailing-edge shade
     }
 
     // Walking legs — 2 small brown pairs, alternating gait
@@ -574,39 +639,39 @@ export class SpriteAtlas {
     this.outlined((dx, dy, c) => {
       for (let x = 4; x <= 16; x++) {
         const halfH = Math.round(1 + ((x - 4) / 12) * 2); // 1 at tail → 3 at thorax
-        p.vline(x + dx, cy - halfH + dy, halfH * 2 + 1, c ?? PAL.grass[1]);
+        p.vline(x + dx, cy - halfH + dy, halfH * 2 + 1, c ?? PAL.cricket[1]);
       }
     });
     // Folded wings: light dorsal stripe, dark seam + under-edge
-    p.line(7, cy - 1, 15, cy - 1, PAL.grass[2]);
-    p.line(5, cy, 10, cy, PAL.grass[0]); // wing seam over the tail half
-    p.line(8, cy + 2, 15, cy + 2, PAL.grass[0]);
+    p.line(7, cy - 1, 15, cy - 1, PAL.cricket[2]);
+    p.line(5, cy, 10, cy, PAL.cricket[0]); // wing seam over the tail half
+    p.line(8, cy + 2, 15, cy + 2, PAL.cricket[0]);
     // Abdomen segment chevrons peeking under the wings (stay inside the fill)
-    p.px(6, cy + 1, PAL.grass[0]);
-    p.vline(9, cy + 1, 2, PAL.grass[0]);
-    p.px(12, cy + 2, PAL.grass[0]);
-    p.dither(12, cy - 2, 4, 1, PAL.grass[2], PAL.grass[1]);
+    p.px(6, cy + 1, PAL.cricket[0]);
+    p.vline(9, cy + 1, 2, PAL.cricket[0]);
+    p.px(12, cy + 2, PAL.cricket[0]);
+    p.dither(12, cy - 2, 4, 1, PAL.cricket[2], PAL.cricket[1]);
 
     // Head first — the pronotum saddle overlaps its rear, like the reference
-    this.outlined((dx, dy, c) => p.ellipse(21 + dx, cy + dy, 2.4, 2.6, c ?? PAL.grass[1]));
+    this.outlined((dx, dy, c) => p.ellipse(21 + dx, cy + dy, 2.4, 2.6, c ?? PAL.cricket[1]));
 
     // Pronotum saddle — wide darker plate riding over body rear + head front
-    this.outlined((dx, dy, c) => p.rect(15 + dx, cy - 3 + dy, 4, 7, c ?? PAL.grass[0]));
-    p.line(15, cy - 3, 18, cy - 3, PAL.grass[1]); // top-lit edge
+    this.outlined((dx, dy, c) => p.rect(15 + dx, cy - 3 + dy, 4, 7, c ?? PAL.cricket[0]));
+    p.line(15, cy - 3, 18, cy - 3, PAL.cricket[1]); // top-lit edge
 
     // Big black eyes at the sides + highlight
-    p.px(20, cy - 2, PAL.grass[2]); // top-left highlight
+    p.px(20, cy - 2, PAL.cricket[2]); // top-left highlight
     p.rect(21, cy - 2, 2, 1, PAL.black);
     p.rect(21, cy + 2, 2, 1, PAL.black);
     // Mouth palps
-    p.px(24, cy - 1, PAL.grass[0]);
-    p.px(24, cy + 1, PAL.grass[0]);
+    p.px(24, cy - 1, PAL.cricket[0]);
+    p.px(24, cy + 1, PAL.cricket[0]);
 
     // Long antennae swept forward-out, flicking across frames
-    p.line(23, cy - 1, 28, cy - 5 + flick, PAL.grass[0]);
-    p.line(23, cy + 1, 28, cy + 5 - flick, PAL.grass[0]);
-    p.px(29, cy - 6 + flick, PAL.grass[0]);
-    p.px(29, cy + 6 - flick, PAL.grass[0]);
+    p.line(23, cy - 1, 28, cy - 5 + flick, PAL.cricket[0]);
+    p.line(23, cy + 1, 28, cy + 5 - flick, PAL.cricket[0]);
+    p.px(29, cy - 6 + flick, PAL.cricket[0]);
+    p.px(29, cy + 6 - flick, PAL.cricket[0]);
   }
 
   // ─── Cricket Den Sprite Generation ────────────────────────
@@ -632,7 +697,7 @@ export class SpriteAtlas {
   }
 
   /**
-   * 16×16 art-pixel Amanita: red cap with white spot clusters,
+   * 16×16 art-pixel panther-cap Amanita: muted rust cap with white spots,
    * cream stem with dithered right-side shading.
    */
   private paintGiantMushroom(p: PixelPainter): void {
@@ -689,7 +754,7 @@ export class SpriteAtlas {
     } else if (variant === 3) {
       this.paintMeat(p, sizeLevel, PAL.meat);
     } else if (variant === 4) {
-      this.paintMeat(p, sizeLevel, [PAL.grass[0], PAL.grass[1], PAL.grass[2]]);
+      this.paintMeat(p, sizeLevel, PAL.cricket);
       p.px(6, 5, PAL.meat[2]); // raw-flesh fleck on cricket meat
     } else {
       this.paintLeaf(p, sizeLevel, variant === 1);
@@ -727,7 +792,7 @@ export class SpriteAtlas {
     if (sl >= 3) p.px(vertical ? 4 : 3, vertical ? 3 : 4, PAL.leaf[2]);
   }
 
-  /** Small Amanita food item: red cap, white spots, cream stem. */
+  /** Small panther-cap food item: muted rust cap, white spots, cream stem. */
   private paintMushroomFood(p: PixelPainter, sl: number): void {
     const CRX = [1.2, 1.6, 2.0, 2.5, 3.0];
     const CRY = [0.9, 1.1, 1.3, 1.6, 1.9];
@@ -786,8 +851,9 @@ export class SpriteAtlas {
   }
 
   /**
-   * 40×40 art-pixel tree-stump nest: bark ring, wood growth rings,
-   * dark entrance with amber rim, moss pixels, root lines.
+   * 40×40 art-pixel tree-stump nest, infested by the Swarm: bark ring, wood
+   * growth rings, dark entrance with a glowing vein rim, flesh nodules
+   * bulging from the bark, root lines.
    */
   private paintNest(p: PixelPainter): void {
     const cx = 20;
@@ -818,19 +884,19 @@ export class SpriteAtlas {
       );
     }
 
-    // Entrance hole with 1px amber rim
-    p.ellipse(cx, 19, 4.6, 2.6, PAL.glowAmber);
+    // Entrance hole with a 1px glowing vein rim
+    p.ellipse(cx, 19, 4.6, 2.6, PAL.swarm.vein[1]);
     p.ellipse(cx, 19, 3.8, 2.0, PAL.earth[0]);
     p.ellipse(cx, 19, 2.2, 1.1, PAL.black);
 
-    // Moss clumps on the bark ring
+    // Swarm flesh nodules bulging from the bark ring
     for (let i = 0; i < 9; i++) {
       const a = hash2(i, 5) * Math.PI * 2;
       const d = 13.5 + hash2(i, 9) * 2;
       const mx = Math.round(cx + Math.cos(a) * d);
       const my = Math.round(cy + Math.sin(a) * d * 0.52);
-      p.px(mx, my, PAL.grass[2]);
-      p.px(mx + 1, my, PAL.grass[1]);
+      p.px(mx, my, PAL.swarm.flesh[3]);
+      p.px(mx + 1, my, PAL.swarm.flesh[2]);
     }
 
     // Roots (dark underline + lit top line)

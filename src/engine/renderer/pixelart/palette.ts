@@ -25,6 +25,20 @@ export const PAL = {
   // ── Chitin (insect bodies) ────────────────────────────────
   chitin: ['#241712', '#3c2418', '#5c3a22', '#80522e'],
 
+  // ── The Swarm (player faction): mutant flesh + glowing vein ──
+  // Magenta flesh so the colony never melts into brown soil; the chartreuse
+  // vein is the faction's "glow" (a lit 1px line, no alpha on sprites).
+  swarm: {
+    flesh: ['#2a0f1f', '#4a1736', '#7a2453', '#b03a72', '#e06a9a'],
+    vein: ['#5a8a1c', '#c6ff3d'],
+    outline: '#1a0a12',
+  },
+
+  // ── Neutral wildlife: muted, no glow, never the faction hues ──
+  beetle: ['#2b2a1e', '#4a4630', '#6e6844'], // olive shell
+  beetleEye: '#ffb02e', // amber
+  cricket: ['#5c5a2e', '#8a8444', '#b8b062'], // straw — reads on grass
+
   // ── Role accents (kept close to current hues for recognition) ──
   worker: '#c08a4a',
   soldier: '#c4452f',
@@ -35,8 +49,10 @@ export const PAL = {
 
   // ── Flora & food ──────────────────────────────────────────
   leaf: ['#2e4a23', '#558741', '#8adb5a'],
-  shroomCap: '#b03a2e',
-  shroomCapLight: '#d9694f',
+  // Muted rust cap (panther-cap Amanita): food must not out-shout units, and
+  // must never be mistaken for the UI danger red.
+  shroomCap: '#93583a',
+  shroomCapLight: '#b5794f',
   shroomStem: '#e8d8b8',
   meat: ['#6e2f2f', '#8a3b3b', '#b8625a'],
   wood: ['#4a3220', '#6b4a2c', '#8f6a3e'],
@@ -50,8 +66,10 @@ export const PAL = {
   skyNoon: '#f6e6bc',
   skyAfternoon: '#e8a24e',
   skyDusk: '#c9553a',
-  skyNightEdge: '#0d162e',
-  skyNightDeep: '#090e26',
+  // Night is red-violet (the Swarm's hour), not navy
+  skyNightEdge: '#2a0d1e',
+  skyNightDeep: '#1a0612',
+  nightAlarm: '#ff2d2d', // dusk alarm vignette pulse
 
   // ── Glows, pheromones, FX ─────────────────────────────────
   glowAmber: '#f0b541',
@@ -71,6 +89,15 @@ export const PAL = {
   uiText: '#d8d0c0',
   uiTextDim: '#8a8070',
 } as const;
+
+/** `#rrggbb` palette token → `rgba()` string for screen-space washes. */
+export function withAlpha(hex: string, alpha: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 // Deterministic 2D hash — stable per tile/entity, no Math.random in render code.
 export function hash2(x: number, y: number): number {

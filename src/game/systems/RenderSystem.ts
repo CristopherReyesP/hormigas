@@ -10,6 +10,7 @@ import { PostProcessor, type ScreenLight } from '../../engine/renderer/PostProce
 import { SpriteAtlas } from '../../engine/renderer/SpriteAtlas';
 import { computeUndergroundLight, UG_LIGHT_RIM, UG_LIGHT_FULL } from './undergroundLight';
 import { FogRenderer } from '../../engine/renderer/FogRenderer';
+import { isTileVisible } from '../../engine/renderer/fogVisibility';
 import {
   COMPONENT,
   AntRole,
@@ -36,7 +37,7 @@ import {
 import { TILE_SIZE, PHEROMONE_MAX, CANVAS_WIDTH, CANVAS_HEIGHT, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
 import { UndergroundTerrainType, ChamberType } from '../../simulation/world/types';
 import { AmbientParticleSystem } from '../particles';
-import { PAL, hash2 } from '../../engine/renderer/pixelart/palette';
+import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 
 // === Food pile rendering (nest stockpile + underground pantry) ===
@@ -70,6 +71,10 @@ const RING_TICKS_8: ReadonlyArray<readonly [number, number]> = Array.from(
 
 // Quantized alpha steps used across all FX compositing (pixel art = discrete levels)
 const ALPHA_STEPS = [0.75, 0.5, 0.25] as const;
+// Black at those same steps — underground wall shadows and darkness
+const SHADE_DEEP = withAlpha(PAL.black, ALPHA_STEPS[0]);
+const SHADE_HALF = withAlpha(PAL.black, ALPHA_STEPS[1]);
+const SHADE_QUARTER = withAlpha(PAL.black, ALPHA_STEPS[2]);
 
 /** Deterministic pseudo-random in [0,1) from an integer seed (same technique as egg speckles). */
 function pileRand(seed: number): number {
@@ -238,6 +243,8 @@ export class RenderSystem {
     this.fxGlows.set('amber', makeGlow(PAL.glowAmber));
     this.fxGlows.set('yellow', makeGlow(PAL.healthYellow));
     this.fxGlows.set('green', makeGlow(PAL.glowGreen));
+    this.fxGlows.set('swarmVein', makeGlow(PAL.swarm.vein[1]));
+    this.fxGlows.set('swarmFlesh', makeGlow(PAL.swarm.flesh[3]));
 
     // --- Underground darkness dither tiles, one per light level 1-3 ---
     // Three Bayer-style densities (3/4, 2/4, 1/4 of the pixels darkened) give the
@@ -527,7 +534,14 @@ export class RenderSystem {
   renderInterpolated(interpolation: number, dt: number): void {
     this.animationTime += dt;
     this.terrainRenderer.update(dt);
-    if (this.getDayPhase) this.ambientParticles.setNight(this.getDayPhase().phase === 'night');
+    // Day phase is read on BOTH layers so the dusk alarm fires at the real
+    // nightfall even when the player is watching the underground
+    const dayPhase = this.getDayPhase ? this.getDayPhase() : null;
+    if (dayPhase) {
+      this.ambientParticles.setNight(dayPhase.phase === 'night');
+      this.postProcessor.setDayPhase(dayPhase.phase, dayPhase.progress);
+    }
+    this.postProcessor.advance(dt);
     this.ambientParticles.update(dt);
 
     const ctx = this.renderer.getContext();
@@ -551,11 +565,7 @@ export class RenderSystem {
     this.fogRenderer.update();
     this.fogRenderer.draw(ctx);
     ctx.restore();
-    if (this.getDayPhase) {
-      const dp = this.getDayPhase();
-      this.postProcessor.setDayPhase(dp.phase, dp.progress);
-      this.postProcessor.setLights(dp.phase === 'night' ? this.collectSurfaceLights() : []);
-    }
+    this.postProcessor.setLights(dayPhase?.phase === 'night' ? this.collectSurfaceLights() : []);
     this.postProcessor.apply(ctx);
   }
 
@@ -708,27 +718,27 @@ export class RenderSystem {
 
         // Two-step quantized edge shadows (4px @0.5 + 4px @0.25 — discrete bands)
         if (top && !top.walkable) {
-          ctx.fillStyle = 'rgba(0,0,0,0.5)';
+          ctx.fillStyle = SHADE_HALF;
           ctx.fillRect(px, py, TILE_SIZE, 4);
-          ctx.fillStyle = 'rgba(0,0,0,0.25)';
+          ctx.fillStyle = SHADE_QUARTER;
           ctx.fillRect(px, py + 4, TILE_SIZE, 4);
         }
         if (bottom && !bottom.walkable) {
-          ctx.fillStyle = 'rgba(0,0,0,0.5)';
+          ctx.fillStyle = SHADE_HALF;
           ctx.fillRect(px, py + TILE_SIZE - 4, TILE_SIZE, 4);
-          ctx.fillStyle = 'rgba(0,0,0,0.25)';
+          ctx.fillStyle = SHADE_QUARTER;
           ctx.fillRect(px, py + TILE_SIZE - 8, TILE_SIZE, 4);
         }
         if (left && !left.walkable) {
-          ctx.fillStyle = 'rgba(0,0,0,0.5)';
+          ctx.fillStyle = SHADE_HALF;
           ctx.fillRect(px, py, 4, TILE_SIZE);
-          ctx.fillStyle = 'rgba(0,0,0,0.25)';
+          ctx.fillStyle = SHADE_QUARTER;
           ctx.fillRect(px + 4, py, 4, TILE_SIZE);
         }
         if (right && !right.walkable) {
-          ctx.fillStyle = 'rgba(0,0,0,0.5)';
+          ctx.fillStyle = SHADE_HALF;
           ctx.fillRect(px + TILE_SIZE - 4, py, 4, TILE_SIZE);
-          ctx.fillStyle = 'rgba(0,0,0,0.25)';
+          ctx.fillStyle = SHADE_QUARTER;
           ctx.fillRect(px + TILE_SIZE - 8, py, 4, TILE_SIZE);
         }
       }
@@ -738,7 +748,7 @@ export class RenderSystem {
     // Darkness rendered as dithered black overlay; recomputed only on layout change.
     this.ensureUgLightMap(grid);
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillStyle = SHADE_DEEP;
     for (let y = startY; y < endY; y++) {
       for (let x = startX; x < endX; x++) {
         const tile = grid.getTile(x, y);
@@ -956,9 +966,14 @@ export class RenderSystem {
         // Body pulse quantized to 2 discrete steps (no smooth sin-scaling)
         const bodyPulse = Math.sin(frameTime * 0.002) > 0 ? 1.04 : 1.0;
 
-        // Outer + core glow (pre-rendered dither, quantized alpha baked in)
-        this.drawGlowStamp(ctx, px, py, TILE_SIZE * 3.0, 'amber');
-        this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.2, 'amber');
+        // Brood-mother halo — the strongest glow in the colony: magenta flesh
+        // outer ring + chartreuse vein core, added (not painted) onto the chamber
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        this.drawGlowStamp(ctx, px, py, TILE_SIZE * 3.0, 'swarmFlesh');
+        this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.4, 'swarmVein');
+        if (bodyPulse > 1) this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.9, 'swarmVein');
+        ctx.restore();
 
         // Read actual facing/movement data — angle tracks where she walks,
         // legPhase only advances when MovementSystem moves her (idle = frozen legs)
@@ -976,15 +991,15 @@ export class RenderSystem {
         this.spriteAtlas.drawQueenAnt(ctx, px, py, queenAngle, queenLegPhase);
         ctx.restore();
 
-        // Pixel crown above queen (3 spikes + base, palette colors)
+        // Glowing vein crest above the queen (3 spikes + base, Swarm palette)
         const cp = new PixelPainter(ctx, 2);
         const ccx = Math.round(px / 2);
         const ccy = Math.round((py - TILE_SIZE * 0.75) / 2);
-        cp.rect(ccx - 4, ccy + 1, 8, 2, PAL.queen); // base
-        cp.hline(ccx - 4, ccy + 3, 8, PAL.outline); // base underline
-        cp.rect(ccx - 4, ccy - 1, 2, 2, PAL.queen); // left spike
-        cp.rect(ccx - 1, ccy - 2, 2, 3, PAL.queen); // center spike (taller)
-        cp.rect(ccx + 2, ccy - 1, 2, 2, PAL.queen); // right spike
+        cp.rect(ccx - 4, ccy + 1, 8, 2, PAL.swarm.vein[0]); // base
+        cp.hline(ccx - 4, ccy + 3, 8, PAL.swarm.outline); // base underline
+        cp.rect(ccx - 4, ccy - 1, 2, 2, PAL.swarm.vein[1]); // left spike
+        cp.rect(ccx - 1, ccy - 2, 2, 3, PAL.swarm.vein[1]); // center spike (taller)
+        cp.rect(ccx + 2, ccy - 1, 2, 2, PAL.swarm.vein[1]); // right spike
         cp.px(ccx - 1, ccy - 2, PAL.white); // catch-light
       } else if (render.shape === 'beetle') {
         // Underground invaders — same sprite as surface beetles (NOT a plain circle)
@@ -1141,6 +1156,9 @@ export class RenderSystem {
     }
 
     ctx.restore(); // restore camera transform
+
+    // Nightfall reaches the player down here too
+    this.postProcessor.applyAlarm(ctx);
   }
 
   /**
@@ -1342,8 +1360,10 @@ export class RenderSystem {
       this.drawCricketDen(ctx, x, y, id);
     }
 
+    // Moving wildlife hides under fog: drawn only where the colony sees RIGHT
+    // NOW (dens above stay remembered on explored ground)
     for (const { id, pos } of beetleEntities) {
-      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
+      if (!isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
       const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE);
@@ -1355,7 +1375,7 @@ export class RenderSystem {
     }
 
     for (const { id, pos } of cricketEntities) {
-      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
+      if (!isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
       const cricket = this.world.getComponent<CricketComponent>(id, COMPONENT.CRICKET);
@@ -1709,7 +1729,7 @@ export class RenderSystem {
 
     ctx.save();
     ctx.translate(px, py);
-    ctx.fillStyle = PAL.chitin[0];
+    ctx.fillStyle = PAL.swarm.flesh[2];
     for (let i = 0; i < 4; i++) {
       const t = (activityPhase + i * 1.5) % 6;
       const progress = t / 6;

@@ -1,11 +1,12 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../shared/constants';
-import { PAL } from './pixelart/palette';
+import { PAL, withAlpha } from './pixelart/palette';
 
 /**
  * Screen-space pass applied after all world rendering (surface layer only —
- * underground frames return before this and run their own BFS light map).
+ * underground frames return before this and run their own BFS light map;
+ * they borrow just the dusk alarm via applyAlarm()).
  *
- * Two jobs:
+ * Three jobs:
  *
  * 1. TIME OF DAY. The sky steps through discrete states — dawn, morning, noon,
  *    afternoon, dusk, then two night steps. Exactly one is applied per frame and
@@ -17,6 +18,10 @@ import { PAL } from './pixelart/palette';
  *    (destination-out with a dithered disc) instead of covering the world in a
  *    uniform sheet. The nest reads as a beacon, the far field goes properly
  *    dark, and "come home before nightfall" becomes something you can SEE.
+ *
+ * 3. DUSK ALARM. When day turns into night, a red dithered frame beats twice
+ *    around the screen. It runs on game time (advance(dt)), so a paused game
+ *    holds the pulse instead of playing it out behind the pause.
  */
 
 /** One light source, in SCREEN pixels (the caller converts via Camera.worldToScreen) */
@@ -40,31 +45,50 @@ const DAY_STEPS: Array<{ until: number; step: SkyStep }> = [
   { until: 1.01, step: { color: PAL.skyDusk, alpha: 0.2 } },
 ];
 
-const NIGHT_EDGE: SkyStep = { color: PAL.skyNightEdge, alpha: 0.24 };
-const NIGHT_DEEP: SkyStep = { color: PAL.skyNightDeep, alpha: 0.46 };
+// Red-violet night: the Swarm's hour, not a navy sky
+const NIGHT_EDGE: SkyStep = { color: PAL.skyNightEdge, alpha: 0.28 };
+const NIGHT_DEEP: SkyStep = { color: PAL.skyNightDeep, alpha: 0.5 };
 
 /** Size of the pre-rendered light mask. Scaled per light at draw time. */
 const MASK_SIZE = 256;
 
-function withAlpha(hex: string, alpha: number): string {
-  const h = hex.replace('#', '');
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+/** Seconds the dusk alarm runs: two beats of equal length. */
+export const DUSK_ALARM_DURATION = 1.6;
+/** Stepped alarm levels; beat one walks the whole ladder, beat two starts one rung down. */
+const ALARM_STEPS = [0.6, 0.4, 0.2, 0] as const;
+
+/**
+ * Dusk alarm strength `t` seconds after nightfall: a stepped double pulse
+ * (0.6 → 0.4 → 0.2 → 0, then 0.4 → 0.2 → 0), never a smooth fade.
+ */
+export function duskAlarmAlpha(t: number): number {
+  if (t < 0 || t >= DUSK_ALARM_DURATION) return 0;
+  const beatLen = DUSK_ALARM_DURATION / 2;
+  const beat = Math.floor(t / beatLen);
+  const quarter = Math.floor(((t % beatLen) / beatLen) * 4);
+  return ALARM_STEPS[Math.min(ALARM_STEPS.length - 1, beat + quarter)];
 }
 
 export class PostProcessor {
   private vignetteCanvas: OffscreenCanvas | null = null;
   private nightCanvas: OffscreenCanvas | null = null;
   private lightMask: OffscreenCanvas | null = null;
+  private alarmCanvas: OffscreenCanvas | null = null;
 
   private sky: SkyStep = DAY_STEPS[2].step;
   private isNight = false;
   private lights: ScreenLight[] = [];
+  /** Phase seen on the previous call — null until the first frame */
+  private lastPhase: 'day' | 'night' | null = null;
+  /** Seconds since the dusk alarm fired; negative = idle */
+  private alarmTime = -1;
 
   /** Pick the single sky step for this frame (never a blend of two) */
   setDayPhase(phase: 'day' | 'night', progress: number): void {
+    // Only a witnessed day → night flip fires the alarm (not a load into night)
+    if (this.lastPhase === 'day' && phase === 'night') this.alarmTime = 0;
+    this.lastPhase = phase;
+
     if (phase === 'day') {
       this.isNight = false;
       const p = Math.max(0, Math.min(1, progress));
@@ -79,6 +103,18 @@ export class PostProcessor {
   /** Current sky state — read by tests and any UI that wants to mirror it */
   getSkyState(): { color: string; alpha: number; night: boolean } {
     return { color: this.sky.color, alpha: this.sky.alpha, night: this.isNight };
+  }
+
+  /** Advance time-based effects by game time (dt = 0 while paused holds them). */
+  advance(dt: number): void {
+    if (this.alarmTime < 0) return;
+    this.alarmTime += dt;
+    if (this.alarmTime >= DUSK_ALARM_DURATION) this.alarmTime = -1;
+  }
+
+  /** Current dusk alarm alpha (0 when idle) — read by tests and the draw pass */
+  getAlarmLevel(): number {
+    return this.alarmTime < 0 ? 0 : duskAlarmAlpha(this.alarmTime);
   }
 
   /**
@@ -103,7 +139,7 @@ export class PostProcessor {
 
     // Two quantized bands: outer band sparse dither @0.15, corner band checker @0.3
     for (let band = 0; band < 2; band++) {
-      ctx.fillStyle = band === 0 ? 'rgba(0, 0, 0, 0.15)' : 'rgba(0, 0, 0, 0.3)';
+      ctx.fillStyle = withAlpha(PAL.black, band === 0 ? 0.15 : 0.3);
       for (let iy = 0; iy < rowsN; iy++) {
         for (let ix = 0; ix < cols; ix++) {
           const px = ix * CELL + CELL / 2;
@@ -132,7 +168,7 @@ export class PostProcessor {
     const CELL = 4; // chunky on purpose — survives being scaled per light
     const c = MASK_SIZE / 2;
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = PAL.white; // destination-out reads alpha only
     for (let iy = 0; iy < MASK_SIZE / CELL; iy++) {
       for (let ix = 0; ix < MASK_SIZE / CELL; ix++) {
         const px = ix * CELL + CELL / 2;
@@ -151,13 +187,54 @@ export class PostProcessor {
   }
 
   /**
+   * Red alarm frame: 4px cells, solid at the screen edge, then checker, then
+   * sparse — the same stepped density language as the vignette.
+   */
+  private buildAlarmVignette(): OffscreenCanvas {
+    const canvas = new OffscreenCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = canvas.getContext('2d')!;
+    const CELL = 4;
+    ctx.fillStyle = PAL.nightAlarm;
+    for (let iy = 0; iy < CANVAS_HEIGHT / CELL; iy++) {
+      for (let ix = 0; ix < CANVAS_WIDTH / CELL; ix++) {
+        const px = ix * CELL + CELL / 2;
+        const py = iy * CELL + CELL / 2;
+        const edge = Math.min(px, py, CANVAS_WIDTH - px, CANVAS_HEIGHT - py);
+        const on =
+          edge < 16 ? true :                              // solid rim
+          edge < 36 ? (ix + iy) % 2 === 0 :               // checker
+          edge < 60 ? ix % 2 === 0 && iy % 2 === 0 :      // sparse
+          false;
+        if (on) ctx.fillRect(ix * CELL, iy * CELL, CELL, CELL);
+      }
+    }
+    return canvas;
+  }
+
+  /** Draw the dusk alarm pulse (screen space). Shared by surface and underground frames. */
+  applyAlarm(ctx: CanvasRenderingContext2D): void {
+    const level = this.getAlarmLevel();
+    if (level <= 0) return;
+    if (!this.alarmCanvas) this.alarmCanvas = this.buildAlarmVignette();
+    const prev = ctx.globalAlpha;
+    ctx.globalAlpha = level;
+    ctx.drawImage(this.alarmCanvas, 0, 0);
+    ctx.globalAlpha = prev;
+  }
+
+  /**
    * Apply post-processing effects to the provided context.
    * Should be called AFTER camera transform is undone (in screen space).
    */
   apply(ctx: CanvasRenderingContext2D): void {
     if (!this.vignetteCanvas) this.vignetteCanvas = this.buildVignette();
     ctx.drawImage(this.vignetteCanvas, 0, 0);
+    this.applySky(ctx);
+    this.applyAlarm(ctx);
+  }
 
+  /** Time-of-day wash, with light pools punched through it at night. */
+  private applySky(ctx: CanvasRenderingContext2D): void {
     const wash = withAlpha(this.sky.color, this.sky.alpha);
 
     // Daylight (and a lightless night) is a flat wash — one fillRect, as before.

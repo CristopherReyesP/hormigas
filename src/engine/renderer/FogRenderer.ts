@@ -1,11 +1,12 @@
 import { WORLD_WIDTH, WORLD_HEIGHT, TILE_SIZE } from '../../shared/constants';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
+import { FOG_CLEAR_BRIGHTNESS } from './fogVisibility';
 
 // Quantized fog levels — pixel art reads as stepped bands, not smooth fades.
 // Per-tile alpha snaps to one of exactly three levels: 0 / 0.45 / 0.9.
 const FOG_UNEXPLORED = 230; // 0.9
 const FOG_EXPLORED = 115; // 0.45
-const BRIGHTNESS_CLEAR_THRESHOLD = 128; // >= half-bright snaps to fully clear
+const BRIGHTNESS_CLEAR_THRESHOLD = FOG_CLEAR_BRIGHTNESS; // >= half-bright snaps to fully clear
 
 export class FogRenderer {
   private fogCanvas: HTMLCanvasElement;
