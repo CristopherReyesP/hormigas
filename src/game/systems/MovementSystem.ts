@@ -2,7 +2,7 @@ import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { WalkableGrid } from '../../simulation/world/WalkableGrid';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
-import { COMPONENT, Layer, type PositionComponent, type PathComponent, type RoleStatsComponent, type CarryingComponent, type FacingComponent, type LayerComponent } from '../components/components';
+import { AntRole, COMPONENT, Layer, type AntComponent, type PositionComponent, type PathComponent, type RoleStatsComponent, type CarryingComponent, type FacingComponent, type LayerComponent } from '../components/components';
 import { ANT_SPEED, MAX_ANTS_PER_TILE_UNDERGROUND, UNDERGROUND_WIDTH, CROWD_SQUEEZE_SECONDS } from '../../shared/constants';
 
 export class MovementSystem implements System {
@@ -92,8 +92,15 @@ export class MovementSystem implements System {
           speedMultiplier *= roleStats.carrySpeedPenalty;
         }
 
-        const mutationSpeed = this.world.getComponent(id, COMPONENT.ANT) || this.world.getComponent(id, COMPONENT.QUEEN_ENTITY)
-          ? this.world.runModifiers.movementSpeedMult : 1;
+        // Run mutations move the colony only (ants and the queen), never wildlife
+        const run = this.world.runModifiers;
+        const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT);
+        let mutationSpeed = 1;
+        if (ant || this.world.getComponent(id, COMPONENT.QUEEN_ENTITY)) {
+          mutationSpeed = run.movementSpeedMult;
+          if (ant?.role === AntRole.Soldier) mutationSpeed *= run.soldierSpeedMult;
+          if (ant && carrying && carrying.amount > 0) mutationSpeed *= run.carryingSpeedMult;
+        }
         const speed = ANT_SPEED * mutationSpeed * speedMultiplier * this.modifiers.movementSpeedMultiplier * dt;
         const moveX = (dx / distance) * Math.min(speed, distance);
         const moveY = (dy / distance) * Math.min(speed, distance);

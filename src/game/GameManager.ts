@@ -1,5 +1,6 @@
 import { RunModifiers } from './run/RunModifiers';
 import type { MutationId } from './run/MutationDefinitions';
+import { antSpawnStats } from './run/antStats';
 import type { EntityId } from '../shared/types';
 import { World } from '../engine/ecs/World';
 import { GameLoop } from '../engine/loop/GameLoop';
@@ -20,6 +21,7 @@ import { CombatSystem } from './systems/CombatSystem';
 import { BeetleSpawnSystem } from './systems/BeetleSpawnSystem';
 import { CricketSpawnSystem } from './systems/CricketSpawnSystem';
 import { HungerSystem } from './systems/HungerSystem';
+import { RegenerationSystem } from './systems/RegenerationSystem';
 import { BreedingSystem } from './systems/BreedingSystem';
 import { SelectionSystem } from './systems/SelectionSystem';
 import { FoodRespawnSystem } from './systems/FoodRespawnSystem';
@@ -76,7 +78,6 @@ import {
   WORLD_WIDTH,
   WORLD_HEIGHT,
   TILE_SIZE,
-  ROLE_STATS,
   BREED_COST_WORKER,
   BREED_COST_SOLDIER,
   BREED_COST_SCOUT,
@@ -281,6 +282,7 @@ export class GameManager {
     const cricketSpawnSystem = new CricketSpawnSystem(this.world, this.grid, this.undergroundGrid, modifiers);
     this.dayNightSystem = new DayNightSystem(this.world, modifiers);
     const hungerSystem = new HungerSystem(this.world, modifiers);
+    const regenerationSystem = new RegenerationSystem(this.world);
     const breedingSystem = new BreedingSystem(this.world);
     this.selectionSystem = new SelectionSystem(this.world);
     const foodRespawnSystem = new FoodRespawnSystem(this.world, this.grid, modifiers);
@@ -301,6 +303,7 @@ export class GameManager {
     this.world.addSystem(movementSystem);
     this.world.addSystem(pheromoneSystem);
     this.world.addSystem(hungerSystem);
+    this.world.addSystem(regenerationSystem);
     this.world.addSystem(breedingSystem);
     const transitSystem = new TransitSystem(this.world, this.undergroundGrid);
     this.world.addSystem(transitSystem);
@@ -692,16 +695,15 @@ export class GameManager {
     if (queen.isBreeding) return false;
 
     // Determine cost and time based on role
-    let cost = BREED_COST_WORKER;
+    // Legacy nest breeding prices every role other than soldier and scout as a worker
+    const cost = this.getBreedCost(role === AntRole.Soldier || role === AntRole.Scout ? role : AntRole.Worker);
     let time = BREED_TIME_WORKER;
 
     switch (role) {
       case AntRole.Soldier:
-        cost = BREED_COST_SOLDIER;
         time = BREED_TIME_SOLDIER;
         break;
       case AntRole.Scout:
-        cost = BREED_COST_SCOUT;
         time = BREED_TIME_SCOUT;
         break;
     }
@@ -745,16 +747,8 @@ export class GameManager {
     const countForRole = eggQueue.queue.filter(e => e.role === role).length;
     if (countForRole >= eggQueue.maxPerType) return false;
 
-    let cost = BREED_COST_WORKER;
-    switch (role) {
-      case AntRole.Soldier: cost = BREED_COST_SOLDIER; break;
-      case AntRole.Scout: cost = BREED_COST_SCOUT; break;
-      case AntRole.Nurse: cost = BREED_COST_NURSE; break;
-      case AntRole.Defender: cost = BREED_COST_DEFENDER; break;
-    }
-
     // Spend from the pantry tile piles (leaf → mushroom → meat priority)
-    if (!this.deductFromStorage(cost)) return false;
+    if (!this.deductFromStorage(this.getBreedCost(role))) return false;
 
     // Add to queue
     eggQueue.queue.push({
@@ -773,28 +767,51 @@ export class GameManager {
     return true;
   }
 
-  applyMutation(id: MutationId): void {
-    this.runModifiers.apply(id);
-    if (id === 'cargo_sacs' || id === 'acid_mandibles') this.retrofitAntStats();
+  /** Food cost to breed one ant of this role, including run mutation surcharges. */
+  getBreedCost(role: AntRole): number {
+    switch (role) {
+      case AntRole.Soldier: return BREED_COST_SOLDIER + this.runModifiers.soldierCostBonus;
+      case AntRole.Scout: return BREED_COST_SCOUT;
+      case AntRole.Nurse: return BREED_COST_NURSE;
+      case AntRole.Defender: return BREED_COST_DEFENDER;
+      default: return BREED_COST_WORKER;
+    }
+  }
+
+  /** Apply one mutation stack; false (nothing changes) once it reached maxStacks. */
+  applyMutation(id: MutationId): boolean {
+    if (!this.runModifiers.apply(id)) return false;
+    this.retrofitAntStats();
+    return true;
   }
 
   getAppliedMutations(): MutationId[] {
     return this.runModifiers.getAppliedMutations();
   }
 
-  /** Recompute from base stats so purchase/pick order never compounds rounding. */
+  /** Recompute spawn-time stats from base stats so purchase/pick order never compounds rounding. */
   private retrofitAntStats(): void {
     for (const antId of this.world.query(COMPONENT.ANT)) {
       const ant = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT)!;
+      const stats = antSpawnStats(this.world, ant.role);
+      const hunger = this.world.getComponent<HungerComponent>(antId, COMPONENT.HUNGER);
+      if (hunger) {
+        hunger.max = stats.maxHunger;
+        hunger.current = Math.min(hunger.current, stats.maxHunger);
+      }
       if (ant.role === AntRole.Worker) {
         const carrying = this.world.getComponent<CarryingComponent>(antId, COMPONENT.CARRYING);
-        if (carrying) carrying.maxCapacity = Math.round(ROLE_STATS.worker.carryCapacity * this.world.upgrades.workerCarryMult) + this.runModifiers.workerCarryBonus;
+        if (carrying) carrying.maxCapacity = stats.carryCapacity;
       } else if (ant.role === AntRole.Soldier) {
-        const damage = Math.round(ROLE_STATS.soldier.damage * this.world.upgrades.soldierDamageMult) * this.runModifiers.soldierDamageMult;
         const health = this.world.getComponent<HealthComponent>(antId, COMPONENT.HEALTH);
-        if (health) health.damage = damage;
+        if (health) {
+          // Extra max HP arrives as health, like a newborn's full bar
+          health.current = Math.min(stats.maxHealth, health.current + Math.max(0, stats.maxHealth - health.max));
+          health.max = stats.maxHealth;
+          health.damage = stats.damage;
+        }
         const combat = this.world.getComponent<CombatComponent>(antId, COMPONENT.COMBAT);
-        if (combat) combat.attackDamage = damage;
+        if (combat) combat.attackDamage = stats.damage;
       }
     }
   }

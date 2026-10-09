@@ -105,8 +105,10 @@ export class CombatSystem implements System {
       // Flanking bonus: ants hit harder when swarming the same target
       let damage = combat.attackDamage;
       if (this.world.getComponent<AntComponent>(id, COMPONENT.ANT)) {
+        const run = this.world.runModifiers;
         const allies = (antAttackersPerTarget.get(targetId) ?? 1) - 1;
-        damage *= 1 + FLANKING_BONUS_PER_ALLY * Math.min(allies, FLANKING_MAX_ALLIES);
+        damage *= 1 + FLANKING_BONUS_PER_ALLY * run.flankingBonusMult * Math.min(allies, FLANKING_MAX_ALLIES);
+        if (attackerLayer?.layer === Layer.Underground) damage *= run.undergroundDamageMult;
       }
 
       // Attack beetle den directly
@@ -202,6 +204,11 @@ export class CombatSystem implements System {
     }
   }
 
+  /** Meat left by a kill, scaled by run mutations (carrion_gut) */
+  private meatDrop(amount: number): number {
+    return Math.round(amount * this.world.runModifiers.meatDropMult);
+  }
+
   private handleBeetleDeath(entityId: EntityId, beetle: BeetleComponent): void {
     const pos = this.world.getComponent<PositionComponent>(entityId, COMPONENT.POSITION);
 
@@ -225,7 +232,7 @@ export class CombatSystem implements System {
     if (pos) {
       const layerComp = this.world.getComponent<LayerComponent>(entityId, COMPONENT.LAYER);
       const deathLayer = layerComp ? layerComp.layer : Layer.Surface;
-      createFood(this.world, pos.x, pos.y, BEETLE_MEAT_AMOUNT, FoodType.BeetleMeat, deathLayer);
+      createFood(this.world, pos.x, pos.y, this.meatDrop(BEETLE_MEAT_AMOUNT), FoodType.BeetleMeat, deathLayer);
 
       // Burst danger pheromone at death site — surface grid only; an
       // underground death must not stamp pheromone on surface tiles that
@@ -267,7 +274,7 @@ export class CombatSystem implements System {
     if (pos) {
       const layerComp = this.world.getComponent<LayerComponent>(entityId, COMPONENT.LAYER);
       const deathLayer = layerComp ? layerComp.layer : Layer.Surface;
-      createFood(this.world, pos.x, pos.y, CRICKET_MEAT_AMOUNT, FoodType.CricketMeat, deathLayer);
+      createFood(this.world, pos.x, pos.y, this.meatDrop(CRICKET_MEAT_AMOUNT), FoodType.CricketMeat, deathLayer);
 
       if (deathLayer === Layer.Surface) {
         const tileX = Math.round(pos.x);

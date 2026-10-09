@@ -14,9 +14,13 @@ describe('run outcome', () => {
     ['day', 'day', 8],
     ['day', 'night', 8],
     ['night', 'night', 8],
-    ['night', 'day', 9],
+    ['night', 'night', 9],
   ] as const)('does not win outside the final dawn (%s to %s, day %i)', (previousPhase, phase, dayNumber) => {
     expect(resolveRunOutcome(null, true, previousPhase, phase, dayNumber)).toBeNull();
+  });
+
+  it('still wins when a night-to-day transition lands past day 8', () => {
+    expect(resolveRunOutcome(null, true, 'night', 'day', 9)).toBe('victory');
   });
 
   it('prioritizes queen death over victory at the final dawn', () => {

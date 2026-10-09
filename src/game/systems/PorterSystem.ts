@@ -5,6 +5,7 @@ import type { TileGrid } from '../../simulation/world/TileGrid';
 import type { TransitSystem } from './TransitSystem';
 import { findPath } from '../../simulation/pathfinding/AStar';
 import { findAttacker, ensureCombatComponent } from './helpers/combatHelpers';
+import { antSpawnStats } from '../run/antStats';
 import {
   COMPONENT,
   AntRole,
@@ -21,7 +22,6 @@ import {
 } from '../components/components';
 import {
   ANT_DEPOSIT_RANGE,
-  ROLE_STATS,
   PORTER_MAX_COUNT,
   PORTER_ASSIGN_COOLDOWN,
   SCAVENGER_MAX_COUNT,
@@ -168,7 +168,7 @@ export class PorterSystem implements System {
 
     // Demand-driven cap: no point sending 4 porters for half a load.
     // The queen's 'porters' upgrade raises the simultaneous-porter ceiling.
-    const porterCapacity = Math.max(1, Math.round(ROLE_STATS.worker.carryCapacity * this.world.upgrades.workerCarryMult) + this.world.runModifiers.workerCarryBonus + this.world.runModifiers.porterCapacityBonus);
+    const porterCapacity = Math.max(1, antSpawnStats(this.world, AntRole.Worker).carryCapacity);
     const desired = Math.min(PORTER_MAX_COUNT + this.world.upgrades.porterBonus, Math.ceil(nest.foodStored / porterCapacity));
     if (activePorters >= desired) return;
 
@@ -240,7 +240,7 @@ export class PorterSystem implements System {
 
     if (Math.sqrt(dx * dx + dy * dy) < ANT_DEPOSIT_RANGE) {
       const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
-      const load = this.takeFromStockpile(nest, carrying.maxCapacity + this.world.runModifiers.porterCapacityBonus);
+      const load = this.takeFromStockpile(nest, carrying.maxCapacity);
       if (load.amount <= 0) {
         ant.state = AntState.Idle;
         ant.stateTimer = 0;
@@ -392,7 +392,7 @@ export class PorterSystem implements System {
 
     if (Math.sqrt(tdx * tdx + tdy * tdy) < 1.2) {
       const food = this.world.getComponent<FoodSourceComponent>(target.id, COMPONENT.FOOD_SOURCE)!;
-      const raw = Math.min(carrying.maxCapacity + this.world.runModifiers.porterCapacityBonus, food.amount);
+      const raw = Math.min(carrying.maxCapacity, food.amount);
       food.amount -= raw;
       if (food.amount <= 0) this.world.destroyEntity(target.id);
 

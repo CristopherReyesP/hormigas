@@ -239,7 +239,9 @@ export class UndergroundInvasionSystem implements System {
     this.waveEntrance =
       entrances.length > 0 ? entrances[Math.floor(Math.random() * entrances.length)] : null;
 
-    const count = Math.min(1 + Math.floor((this.waveNumber - 1) / 2), INVASION_MAX_INVADERS);
+    // Mutation costs (spore_bloom) add invaders on top of the base cap
+    const count = Math.min(1 + Math.floor((this.waveNumber - 1) / 2), INVASION_MAX_INVADERS)
+      + this.world.runModifiers.extraInvadersPerWave;
     // First invader enters immediately, the rest break in one by one
     this.spawnInvader();
     this.pendingSpawns = count - 1;

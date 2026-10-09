@@ -45,6 +45,7 @@ import {
   MAX_EGGS_PER_TYPE,
   EGG_FOOD_REQUIRED,
 } from '../../shared/constants';
+import { antSpawnStats } from '../run/antStats';
 
 export function createAnt(
   world: World,
@@ -66,26 +67,25 @@ export function createAnt(
     commandTargetId: null,
   });
 
+  // Queen upgrades and run mutations apply at birth (and retroactively, see GameManager)
+  const spawn = antSpawnStats(world, role);
+
   world.addComponent<HungerComponent>(entity, COMPONENT.HUNGER, {
-    current: stats.hungerMax,
-    max: stats.hungerMax,
+    current: spawn.maxHunger,
+    max: spawn.maxHunger,
     decayRate: stats.hungerDecay,
   });
-
-  // Queen upgrades apply at birth (and retroactively on purchase, see GameManager)
-  const carryMult = role === AntRole.Worker ? world.upgrades.workerCarryMult : 1;
-  const damageMult = role === AntRole.Soldier ? world.upgrades.soldierDamageMult : 1;
 
   world.addComponent<CarryingComponent>(entity, COMPONENT.CARRYING, {
     resourceType: null,
     amount: 0,
-    maxCapacity: Math.round(stats.carryCapacity * carryMult) + (role === AntRole.Worker ? world.runModifiers.workerCarryBonus : 0),
+    maxCapacity: spawn.carryCapacity,
   });
 
   world.addComponent<HealthComponent>(entity, COMPONENT.HEALTH, {
-    current: stats.health,
-    max: stats.health,
-    damage: Math.round(stats.damage * damageMult) * (role === AntRole.Soldier ? world.runModifiers.soldierDamageMult : 1),
+    current: spawn.maxHealth,
+    max: spawn.maxHealth,
+    damage: spawn.damage,
   });
 
   world.addComponent<PathComponent>(entity, COMPONENT.PATH, {

@@ -13,7 +13,7 @@ export function resolveRunOutcome(
 ): RunOutcome | null {
   if (currentOutcome) return currentOutcome;
   if (!queenAlive) return 'defeat';
-  if (previousPhase === 'night' && phase === 'day' && dayNumber === RUN_NIGHTS_TO_WIN + 1) {
+  if (previousPhase === 'night' && phase === 'day' && dayNumber >= RUN_NIGHTS_TO_WIN + 1) {
     return 'victory';
   }
   return null;

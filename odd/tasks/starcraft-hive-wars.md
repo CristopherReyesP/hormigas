@@ -19,9 +19,43 @@ The user wants the StarCraft fantasy, "even if we have to change sprites", as lo
 ## Decisions
 - The 7-night survival victory stays (user, 2026-10-09).
 - Destroying the Crystal Hive also wins the run (user, 2026-10-09): two paths, defensive survival or a StarCraft-style offensive.
+- Free pass for everything in this repo; it is a fun project, not work (user, 2026-10-09). Design and implementation decisions and work-unit commits proceed without step-by-step approval.
+- Receipt-driven review is off for this clone (`gentle-ai review mode disable --scope clone`, user, 2026-10-09); delivery follows ordinary checks (`npm test`, `npm run lint`, `npm run build`).
 - Creative license and "excite me when I see the game" (user, 2026-10-09): visual impact comes first. P2 (StarCraft look) runs right after P1, before the RTS mechanics.
 - Moments to stage in P1–P2: a meteorite impact (flash and screen shake) that opens each run; a dramatic evolution-chamber dialog at dawn with pulsing organic cards; mutations that leave visible marks on the ants (acid-green mandibles, glowing veins, wing stubs); a red-tinted night with an alarm pulse and cyan-glowing alien waves; a full-screen victory banner.
 - The rival AI runs a scripted build order (as StarCraft's AI does), not a learned or fully simulated economy, unless playtesting shows it is too predictable.
+
+## Art direction (from the design audit, 2026-10-09)
+Current incoherences to fix in P2: four art-pixel scales on screen (ants 3, beetles 4, crickets 6, tiles 2; `SpriteAtlas.ts:28-34`, `RenderSystem.ts:348`), non-integer nest scale, free rotation and continuous zoom; brown ants on brown soil with a tiny role band (`SpriteAtlas.ts:262-263`); beetles share ant body colors (`:436`); crickets are grass green (`:577`); the red mushroom out-shouts units and collides with UI danger red; baked top-left highlight rotates with the sprite; navy night (`PostProcessor.ts:43-44`); raw rgba in `RenderSystem.ts:711-741`; enemies drawn on explored instead of visible tiles (`RenderSystem.ts:1346,1358`); glass panel next to pixel panels (`index.css:218-241`), Courier body font, OS emoji icons, mixed English/Spanish UI, raw CSS colors (`index.css:87-126`).
+
+Rules:
+- One art pixel = 2 screen px at zoom 1. Bigger units get bigger grids, never bigger scale (ant 24×24, beetle 28×28, cricket 48×48). Rotation snaps to 16 directions; zoom steps of 0.5.
+- Every unit keeps the ant body plan (gaster, waist, thorax, head, 6 legs, 2 antennae). Factions differ by color, silhouette and glow at once. Swarm: curved, bulbous gaster, scythe mandibles, 1 px spine bumps, glowing vein. Crystal Hive: faceted, diamond/hex gaster, straight gold pincers, crystal-tipped antennae, cyan glow, hex ring while shielded. Wildlife: beetle dome, cricket Z-legs, no glow. Roles inside a faction differ by shape. Selection ellipses: green own, red enemy, yellow neutral.
+
+Palette tokens (dark → light):
+
+| Token | Hex |
+|---|---|
+| swarm.flesh | `#2a0f1f #4a1736 #7a2453 #b03a72 #e06a9a` |
+| swarm.vein (glow) | `#5a8a1c #c6ff3d` |
+| swarm.outline | `#1a0a12` |
+| crystal.shell | `#0e2a3a #1b5a73 #2fa3b8 #7fe8f0 #e8ffff` |
+| crystal.gold | `#8a6a1c #d9a935 #ffe27a` |
+| crystal.shield / outline | `#5ff3ff` / `#0a1620` |
+| neutral.beetle | `#2b2a1e #4a4630 #6e6844`, eyes `#ffb02e` |
+| neutral.cricket | `#5c5a2e #8a8444 #b8b062` |
+| crater | `#2a2320 #3b3346`, cracks in crystal cyan |
+| mycelium | `#3a2a3e #5e3f63 #8a5c8f` |
+| UI chrome | bg `#0e080b`, panel `#160c12`, panel-light `#241420`, border `#5a3048`, border-light `#8a4a6a`, text `#e8d8dc`, dim `#9a8088`, accent `#c6ff3d`, warn `#f0b541`, danger `#ff3b3b` |
+| night | edge `#2a0d1e` @0.28, deep `#1a0612` @0.5, alarm `#ff2d2d` |
+
+Surface soil and grass keep their ramps, about 15% less saturated.
+
+VFX: acid (chartreuse arc droplets, 4 px cross on hit, 3-step dithered puddle); crystal shield (1 px cyan hex arc flash, 1×2 shards on break, 8-step refill); spores (1 px magenta motes rising on mycelium, swirling into the queen at the dawn pick); meteorite (trail `#fff4d0→#ff7a2e→#b0301e`, 2-frame white flash, 6-frame shake, crater decal with pulsing cyan cracks); deaths (Swarm green goo, Crystal shards, wildlife carcass → meat).
+
+Bottom console (~180 px, full width): left square minimap with surface/underground tab; center 64×64 animated head portrait (atlas head at 4×) plus a health-colored selection grid; right 3×5 command card with QWERT/ASDFG/ZXCVB hotkeys; top strip with leaves, fungus, brood x/y and the day/night clock. Sharp carapace-plate panels with stepped shadows, no blur; 16 px pixel icons from the atlas instead of emoji; one pixel body font; Spanish-only in-game copy.
+
+Mechanics notes for later phases: arm waves by night number with a 1-unit scout wave on night 1 and a rising curve (2, 3, 4, 5, 6, 8 plus the boss); make the HUD count down to the real attack; reward destroying the Hive early (its build order scales each night, crystal shards unlock capstone mutations, a "won on night N" rank); both paths meet the night-7 Crystal Queen; under RTS control, workers stay autonomous (priorities become job distribution), military units obey `PlayerOrder` and the AI acts only when idle, drafting skips ordered units, "Defender" becomes the idle stance and "Retirada" a command-card ability; night invaders become Crystal drones in P5.
 
 ## Tasks (phases; each phase is broken into tasks when it starts)
 - [ ] P1 — Evolution chamber: finish the roguelite (T2, T3 in `odd/tasks/roguelite-run-loop.md`) with mutant-themed mutations. Cost: medium.
@@ -42,7 +76,8 @@ The user wants the StarCraft fantasy, "even if we have to change sprites", as lo
 ## Progress
 - Feasibility mapped by Codex (read-only, 2026-10-09): rendering, input, unit control, structures and HUD are medium cost; factions and the rival map setup are expensive.
 
-- Engram mirror (`odd/starcraft-hive-wars/tasks`): pending — the Engram write hook refuses saves in this session (host session registration not confirmed).
+- Design audit (Claude subagent, read-only, 2026-10-09): art direction and mechanics notes recorded above; its P1 items became T2b, T3 details and T4 in `odd/tasks/roguelite-run-loop.md`.
+- Engram mirror (`odd/starcraft-hive-wars/tasks`): synced 2026-10-09.
 
 ## Next step
-P1 — continue `odd/tasks/roguelite-run-loop.md` T2.
+P1 — `odd/tasks/roguelite-run-loop.md` T2b, T3, T4; then P2.

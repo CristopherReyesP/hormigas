@@ -1,7 +1,7 @@
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
-import { COMPONENT, Layer, type PositionComponent, type RoleStatsComponent, type LayerComponent } from '../components/components';
+import { AntRole, COMPONENT, Layer, type AntComponent, type PositionComponent, type RoleStatsComponent, type LayerComponent } from '../components/components';
 import { FOG_REVEAL_MULTIPLIER } from '../../shared/constants';
 
 const DEFAULT_VISION_RANGE = 10;
@@ -36,7 +36,9 @@ export class FogOfWarSystem implements System {
 
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const roleStats = this.world.getComponent<RoleStatsComponent>(id, COMPONENT.ROLE_STATS);
-      const visionRange = roleStats ? roleStats.visionRange : DEFAULT_VISION_RANGE;
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      const scoutMult = ant.role === AntRole.Scout ? this.world.runModifiers.scoutVisionMult : 1;
+      const visionRange = (roleStats ? roleStats.visionRange : DEFAULT_VISION_RANGE) * scoutMult;
 
       // Fog reveal uses a fraction of combat vision — ants detect enemies far but map terrain slower
       const revealRange = Math.ceil(visionRange * FOG_REVEAL_MULTIPLIER);

@@ -129,7 +129,7 @@ export class UndergroundHealingSystem implements System {
       food.amount -= want;
       if (hunger) hunger.current = Math.min(hunger.max, hunger.current + want * HUNGER_PER_FOOD);
       if (health && health.current < health.max) {
-        health.current = Math.min(health.max, health.current + HEAL_RATE * this.world.upgrades.healRateMult * this.world.runModifiers.healRateMult * dt);
+        health.current = Math.min(health.max, health.current + HEAL_RATE * this.world.upgrades.healRateMult * dt);
       }
       if (food.amount <= 0) this.world.destroyEntity(best.id);
       ant.stateTimer = 0; // eating is progress
@@ -152,7 +152,7 @@ export class UndergroundHealingSystem implements System {
     // Stored units are already nutrition-normalized (multipliers applied at deposit)
     const hungerFood = hunger ? (hunger.max - hunger.current) / HUNGER_PER_FOOD : 0;
     const healHp = health
-      ? Math.min(HEAL_RATE * this.world.upgrades.healRateMult * this.world.runModifiers.healRateMult * dt, health.max - health.current)
+      ? Math.min(HEAL_RATE * this.world.upgrades.healRateMult * dt, health.max - health.current)
       : 0;
     const healFood = healHp / HEAL_HP_PER_FOOD;
 
