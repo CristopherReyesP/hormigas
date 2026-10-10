@@ -2,9 +2,34 @@ import type { World } from '../../../engine/ecs/World';
 import type { EntityId } from '../../../shared/types';
 import { COMPONENT, type CombatComponent } from '../../components/components';
 import { SOLDIER_ATTACK_RANGE, SOLDIER_ATTACK_COOLDOWN } from '../../../shared/constants';
+import { HUMAN_COMPONENT } from '../../rival/humanComponents';
+import { armoredDamage } from '../../rival/humanBase';
 
-/** Everything that hunts the colony: wildlife predators and rival Crystal units, in that order */
-const PREDATOR_STORES = [COMPONENT.BEETLE, COMPONENT.CRICKET, COMPONENT.CRYSTAL_UNIT] as const;
+/** Everything that hunts the colony: wildlife predators, then rival units and turrets */
+const PREDATOR_STORES = [
+  COMPONENT.BEETLE,
+  COMPONENT.CRICKET,
+  COMPONENT.CRYSTAL_UNIT,
+  HUMAN_COMPONENT.UNIT,
+  HUMAN_COMPONENT.BUILDING,
+] as const;
+
+/** Flat damage reduction per hit (Human units and buildings); read through armorOf */
+export const ARMOR_COMPONENT = 'armor';
+
+export interface ArmorComponent {
+  armor: number;
+}
+
+/** An entity's armor, 0 when it has none */
+export function armorOf(world: World, id: EntityId): number {
+  return world.getComponent<ArmorComponent>(id, ARMOR_COMPONENT)?.armor ?? 0;
+}
+
+/** A hit of `damage` on `targetId` after its armor (floor of 1 damage on an armored target) */
+export function damageAfterArmor(world: World, targetId: EntityId, damage: number): number {
+  return armoredDamage(damage, armorOf(world, targetId));
+}
 
 /**
  * Build the victim → attacker map for this tick in ONE pass over the predators.

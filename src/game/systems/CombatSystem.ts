@@ -30,6 +30,9 @@ import {
 } from '../../shared/constants';
 import { LEAPER_NOTICE } from '../../shared/wildlifeNames';
 import { combatVfxFor, type BodyKind, type CombatVfx, type VictimKind } from '../vfx/CombatVfx';
+import { damageAfterArmor } from './helpers/combatHelpers';
+import { humanShotsFor } from '../rival/humanShots';
+import { applyHumanSplash, fireHumanShot, handleHumanDeath, isHumanEntity } from './HumanCombat';
 
 export class CombatSystem implements System {
   readonly name = 'CombatSystem';
@@ -49,6 +52,7 @@ export class CombatSystem implements System {
   update(dt: number): void {
     // VFX age in game time: frozen while paused, faster at 2×/3×
     this.vfx.advance(dt);
+    humanShotsFor(this.world).advance(dt);
 
     const combatants = this.world.query(COMPONENT.COMBAT, COMPONENT.POSITION);
 
@@ -159,9 +163,15 @@ export class CombatSystem implements System {
         continue;
       }
 
-      targetHealth.current -= damage;
+      targetHealth.current -= damageAfterArmor(this.world, targetId, damage);
       combat.attackTimer = combat.attackCooldown;
       this.emitHit(id, pos, targetPos, targetLayer?.layer ?? Layer.Surface, this.victimKind(targetId));
+      // A tank shell also hits the enemies around its target
+      for (const victim of applyHumanSplash(this.world, id, targetId, damage)) {
+        if (toDestroy.includes(victim)) continue;
+        this.handleDeath(victim, toDestroy);
+        toDestroy.push(victim);
+      }
 
       if (targetHealth.current <= 0) {
         this.handleDeath(targetId, toDestroy);
@@ -195,6 +205,7 @@ export class CombatSystem implements System {
     victim: VictimKind,
   ): void {
     const attacker = this.world.getComponent<AntComponent>(attackerId, COMPONENT.ANT) ? 'swarm' : 'wildlife';
+    fireHumanShot(this.world, attackerId, from, to); // Human gunfire draws a tracer too
     this.vfx.hit(from.x, from.y, to.x, to.y, layer, attacker, victim);
   }
 
@@ -212,6 +223,7 @@ export class CombatSystem implements System {
   /** Crystal units and the hive shed shards; everything else sheds its body's material */
   private victimKind(id: EntityId): VictimKind {
     if (this.isCrystal(id)) return 'crystal';
+    if (isHumanEntity(this.world, id)) return 'beetle'; // dark plating chips
     return this.bodyKind(id);
   }
 
@@ -227,6 +239,7 @@ export class CombatSystem implements System {
   }
 
   private handleDeath(entityId: EntityId, _toDestroy: EntityId[]): void {
+    if (handleHumanDeath(this.world, this.vfx, entityId)) return;
     if (this.isCrystal(entityId)) {
       this.handleCrystalDeath(entityId);
       return;
