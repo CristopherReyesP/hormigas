@@ -7,6 +7,7 @@ import { GameOverScreen } from './ui/GameOverScreen';
 import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
 import { HudLayer } from './ui/HudLayer';
+import { WaveAlert } from './ui/WaveAlert';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
 import { ColonyPriority } from './game/components/components';
@@ -45,7 +46,7 @@ const DEFAULT_STATS: GameStats = {
   selectedEntity: null,
   notifications: [],
   objective: null,
-  invasion: { waveNumber: 0, nextWaveIn: 180, active: false, invadersAlive: 0, armed: false },
+  invasion: { waveNumber: 0, nextWaveIn: 180, active: false, invadersAlive: 0, armed: false, waveSize: 0, remaining: 0, banner: null, threats: [] },
   gameOver: null,
   activeEvents: [],
   dayPhase: 'day',
@@ -122,6 +123,10 @@ export default function App() {
         {stats.tickCount > 0 && <ObjectivePanel objective={stats.objective} />}
         <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} />
       </HudLayer>
+      {/* Night-wave alerts: outside the scaled HUD, over the whole screen; none during the intro */}
+      {!stats.introPlaying && (
+        <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
+      )}
       {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
 
       {/* Dawn mutation pick: full-screen, above the HUD */}

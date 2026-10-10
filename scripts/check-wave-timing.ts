@@ -1,11 +1,12 @@
 // Headless check: invasion waves must ALWAYS launch on the day->night flip,
-// never mid-night and never during daylight; each night sends its curve size;
+// never mid-night and never during daylight; each wave sends its waveComposition() size;
 // and the HUD countdown (nextWaveIn) must point at the real first spawn.
 import { World } from '../src/engine/ecs/World';
 import { UndergroundGrid } from '../src/simulation/world/UndergroundGrid';
 import { TransitSystem } from '../src/game/systems/TransitSystem';
 import { DayNightSystem } from '../src/game/systems/DayNightSystem';
-import { UndergroundInvasionSystem, waveForNight } from '../src/game/systems/UndergroundInvasionSystem';
+import { UndergroundInvasionSystem } from '../src/game/systems/UndergroundInvasionSystem';
+import { waveComposition } from '../src/game/run/waveComposition';
 import { createDefaultModifiers } from '../src/game/events/GlobalModifiers';
 import { DAY_DURATION, NIGHT_DURATION, RUN_NIGHTS_TO_WIN } from '../src/shared/constants';
 
@@ -56,14 +57,14 @@ for (let i = 0; i < cycles / dt; i++) {
 console.log(`ciclo dia/noche = ${DAY_DURATION}+${NIGHT_DURATION} = ${DAY_DURATION + NIGHT_DURATION}s`);
 console.log('oleada | noche | t(s)  | fase al lanzar | seg desde el cambio | invasores (curva) | cuenta regresiva (s)');
 for (const l of launches) {
-  const expected = waveForNight(l.night).invaders;
+  const expected = waveComposition(l.wave).total;
   console.log(
     `  ${String(l.wave).padStart(2)}   |  ${String(l.night).padStart(2)}   | ${l.t.toFixed(0).padStart(5)} | ${l.phase.padEnd(14)} | ${l.sinceFlip.toFixed(2).padStart(19)} | ${String(l.size).padStart(9)} (${expected})     | ${l.predictedAt.toFixed(2)}`
   );
 }
 
 const offFlip = launches.filter((l) => l.phase !== 'night' || l.sinceFlip > 0.5);
-const offCurve = launches.filter((l) => l.size !== waveForNight(l.night).invaders);
+const offCurve = launches.filter((l) => l.size !== waveComposition(l.wave).total);
 const offClock = launches.filter((l) => Math.abs(l.predictedAt - l.t) > dt * 1.5);
 const missing = RUN_NIGHTS_TO_WIN - launches.length;
 const ok = offFlip.length === 0 && offCurve.length === 0 && offClock.length === 0 && missing === 0;

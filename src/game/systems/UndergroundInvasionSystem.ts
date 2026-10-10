@@ -4,7 +4,7 @@ import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { TransitSystem } from './TransitSystem';
 import { hasPlayerOrder } from './helpers/playerOrders';
 import type { DayNightSystem, DayPhase } from './DayNightSystem';
-import type { EntityId } from '../../shared/types';
+import type { EntityId, Vector2 } from '../../shared/types';
 import {
   COMPONENT,
   AntRole,
@@ -16,52 +16,89 @@ import {
   type CombatComponent,
   type LayerComponent,
   type CarryingComponent,
+  type HealthComponent,
 } from '../components/components';
 import { createBeetle } from '../entities/factories';
 import { emitAudio } from '../../audio/events';
+import { waveComposition, YOUNG_BEETLE_SCALE, type WaveComposition } from '../run/waveComposition';
 import {
   UNDERGROUND_WIDTH,
-  INVASION_WAVE_SIZE_BY_NIGHT,
   INVASION_BOSS_NIGHT,
   INVASION_ARM_LEAD,
+  WAVE_WARNING_LEAD,
+  WAVE_BANNER_SECONDS,
   INVASION_SOLDIER_RESPONDERS,
   INVASION_CIVILIAN_ATTACK_DAMAGE,
   NURSE_DEFENSE_RADIUS,
 } from '../../shared/constants';
+
+/** The big wave messages the HUD shows: the 30 s warning, the arrival, the clear */
+export type WaveBannerKind = 'warning' | 'arrival' | 'cleared';
+
+export interface WaveBanner {
+  /** Changes every time a new banner goes up, so the HUD can replay its entrance */
+  id: number;
+  kind: WaveBannerKind;
+  wave: number;
+  /** Enemies the wave sends */
+  count: number;
+}
+
+/** Where a wave's enemies come from (before it strikes) or are (while it is on), in tiles of that layer */
+export interface WaveThreat {
+  x: number;
+  y: number;
+  layer: 'surface' | 'underground';
+}
 
 export interface InvasionInfo {
   waveNumber: number;
   /** Seconds until the next wave strikes (its first invader spawns). 0 while a wave is active. */
   nextWaveIn: number;
   active: boolean;
+  /** Wave enemies alive right now (beetles in the nest and hive drones on the surface) */
   invadersAlive: number;
   /** Telegraphed: the wave strikes at the coming nightfall */
   armed: boolean;
+  /** Enemies of the wave on now, or of the next wave while none is on */
+  waveSize: number;
+  /** Enemies left before the wave is cleared: alive plus those still to break in */
+  remaining: number;
+  banner: WaveBanner | null;
+  /** Arrow and minimap ping targets: the breach and the hive before the wave, the live enemies during it */
+  threats: WaveThreat[];
 }
 
-export interface NightWave {
-  invaders: number;
-  /** The run's last night also brings the boss. Its slot is reserved; nothing spawns for it yet. */
-  boss: boolean;
+/** The Crystal Hive's side of a wave: drones sent at the player's nest on the surface */
+export interface RaidSource {
+  /** Send up to `count` drones; returns the ones actually sent (none when the hive is gone) */
+  launch(count: number): EntityId[];
+  /** Where the drones leave from, in surface tiles (null when there is no hive) */
+  origin(): Vector2 | null;
 }
 
-/** The wave a given night sends (night 1 is the first). Past the curve the last size holds. */
-export function waveForNight(night: number): NightWave {
-  const index = Math.min(Math.max(1, night), INVASION_WAVE_SIZE_BY_NIGHT.length) - 1;
-  return { invaders: INVASION_WAVE_SIZE_BY_NIGHT[index], boss: night === INVASION_BOSS_NIGHT };
+/** The run's last night also brings the boss. Its slot is reserved; nothing spawns for it yet. */
+export function isBossNight(night: number): boolean {
+  return night === INVASION_BOSS_NIGHT;
 }
+
+type InvaderKind = 'young' | 'adult';
 
 /**
  * Survival waves: predators periodically break into the nest through the
  * entrance tunnel and march on the queen. Soldiers are auto-deployed to defend.
  *
- * Waves follow the night number: every nightfall launches that night's wave,
- * sized by INVASION_WAVE_SIZE_BY_NIGHT (a lone scout on night 1, then a rising
- * curve up to the boss night). The wave is ARMED (telegraphed) INVASION_ARM_LEAD
- * seconds before dusk, and the countdown always points at the real attack.
+ * Every nightfall launches the next wave, sized and mixed by waveComposition()
+ * (3 young beetles on wave 1, then a fast rising curve). Beetles break into the
+ * nest through one entrance; from wave 3 the Crystal Hive (RaidSource) sends
+ * drones at the nest on the surface, and they count as part of the wave.
+ * The wave is ARMED (telegraphed) INVASION_ARM_LEAD seconds before dusk, the
+ * HUD banner warns WAVE_WARNING_LEAD seconds ahead, and the countdown always
+ * points at the real attack.
  *
- * Waves never stack: if the previous wave is still inside at nightfall, that
- * night's wave is skipped and the next night keeps its own size.
+ * Waves never stack: if the previous wave is still inside the nest at
+ * nightfall, that night's wave is skipped and the next one keeps its own size.
+ * Drones still roaming the surface do not block it: the new wave supersedes them.
  */
 export class UndergroundInvasionSystem implements System {
   readonly name = 'UndergroundInvasionSystem';
@@ -81,15 +118,32 @@ export class UndergroundInvasionSystem implements System {
   /** The single entrance this wave breaches through. Picked once per wave so
    *  the attack reads as one breach the player can answer, not a scatter. */
   private waveEntrance: { x: number; y: number } | null = null;
+  /** Every live unit of the wave on now: beetles in the nest and hive drones on the surface */
   private invaders = new Set<EntityId>();
   private repathTimer = 0;
   /** Invaders enter one by one (staged break-in, not a teleported blob) */
-  private pendingSpawns = 0;
+  private pendingSpawns: InvaderKind[] = [];
   private spawnTimer = 0;
+  private spawnInterval = 1.2;
+  /** Health and damage multiplier of the wave on now */
+  private statScale = 1;
+  /** Enemies the wave on now sent */
+  private waveSize = 0;
+  /** The 30 s warning went up for the coming wave */
+  private warned = false;
+  private banner: WaveBanner | null = null;
+  private bannerTimer = 0;
+  private nextBannerId = 1;
+  private raidSource: RaidSource | null = null;
   /** Soldiers the player wants permanently stationed underground */
   private garrisonTarget = 0;
   /** Non-soldier ants drafted into total defense while a wave is inside the nest */
   private drafted = new Set<EntityId>();
+
+  /** Wire the Crystal Hive's drones into the waves */
+  setRaidSource(source: RaidSource | null): void {
+    this.raidSource = source;
+  }
 
   setGarrison(count: number): void {
     this.garrisonTarget = Math.max(0, Math.min(8, Math.floor(count)));
@@ -118,7 +172,52 @@ export class UndergroundInvasionSystem implements System {
       active: this.waveActive,
       invadersAlive: this.invaders.size,
       armed: this.waveArmed,
+      waveSize: this.waveActive ? this.waveSize : this.nextComposition().total,
+      remaining: this.waveActive ? this.invaders.size + this.pendingSpawns.length : 0,
+      banner: this.banner ? { ...this.banner } : null,
+      threats: this.threats(),
     };
+  }
+
+  /** What the next wave sends, with the mutation surcharge (spore_bloom) as extra full beetles */
+  private nextComposition(): WaveComposition {
+    const base = waveComposition(this.waveNumber + 1);
+    const extra = Math.max(0, this.world.runModifiers.extraInvadersPerWave);
+    return { ...base, beetles: base.beetles + extra, total: base.total + extra };
+  }
+
+  private showBanner(kind: WaveBannerKind, wave: number, count: number): void {
+    this.banner = { id: this.nextBannerId++, kind, wave, count };
+    this.bannerTimer = WAVE_BANNER_SECONDS;
+  }
+
+  private threats(): WaveThreat[] {
+    const out: WaveThreat[] = [];
+    if (this.waveActive) {
+      // One marker per layer: the centre of the wave's live units there
+      const sums = { surface: { x: 0, y: 0, n: 0 }, underground: { x: 0, y: 0, n: 0 } };
+      for (const id of this.invaders) {
+        const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+        if (!pos) continue;
+        const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground ? 'underground' : 'surface';
+        sums[layer].x += pos.x;
+        sums[layer].y += pos.y;
+        sums[layer].n++;
+      }
+      for (const layer of ['surface', 'underground'] as const) {
+        const sum = sums[layer];
+        if (sum.n > 0) out.push({ x: sum.x / sum.n, y: sum.y / sum.n, layer });
+      }
+      if (sums.underground.n === 0 && this.pendingSpawns.length > 0 && this.waveEntrance) {
+        out.push({ x: this.waveEntrance.x + 0.5, y: this.waveEntrance.y + 0.5, layer: 'underground' });
+      }
+      return out;
+    }
+    if (!this.warned) return out;
+    if (this.waveEntrance) out.push({ x: this.waveEntrance.x + 0.5, y: this.waveEntrance.y + 0.5, layer: 'underground' });
+    const origin = this.nextComposition().drones > 0 ? this.raidSource?.origin() ?? null : null;
+    if (origin) out.push({ x: origin.x, y: origin.y, layer: 'surface' });
+    return out;
   }
 
   update(dt: number): void {
@@ -130,14 +229,19 @@ export class UndergroundInvasionSystem implements System {
       if (!this.world.hasEntity(id)) this.drafted.delete(id);
     }
 
-    // Staged entry: one invader breaks in every 1.2s
-    if (this.pendingSpawns > 0) {
+    // Staged entry: one invader breaks in at a time (faster for big waves)
+    if (this.pendingSpawns.length > 0) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
-        this.spawnTimer = 1.2;
-        this.spawnInvader();
-        this.pendingSpawns--;
+        this.spawnTimer = this.spawnInterval;
+        this.spawnInvader(this.pendingSpawns.shift()!);
       }
+    }
+
+    // Arrival and "cleared" banners fade after a few seconds; the warning lasts until the wave strikes
+    if (this.banner && this.banner.kind !== 'warning') {
+      this.bannerTimer -= dt;
+      if (this.bannerTimer <= 0) this.banner = null;
     }
 
     // Track the day->night edge every tick, before any branch can skip it.
@@ -148,18 +252,31 @@ export class UndergroundInvasionSystem implements System {
     this.prevPhase = phase;
 
     // Wave repelled?
-    if (this.waveActive && this.pendingSpawns === 0 && this.invaders.size === 0) {
+    if (this.waveActive && this.pendingSpawns.length === 0 && this.invaders.size === 0) {
       this.waveActive = false;
       this.waveArmed = false;
       this.restoreDrafted();
       this.world.metrics.wavesRepelled++;
-      this.world.pushNotification('success', `🛡️ ¡Oleada ${this.waveNumber} repelida!`);
+      this.showBanner('cleared', this.waveNumber, this.waveSize);
+      this.world.pushNotification('success', `🛡️ ¡Oleada ${this.waveNumber} superada!`);
     }
 
     // Late in the day, ARM tonight's wave (never while one is still inside)
     if (phase === 'day' && !this.waveActive && !this.waveArmed
         && this.dayNight.getPhaseRemaining() <= INVASION_ARM_LEAD) {
       this.armWave();
+    }
+
+    // Half a minute out, the big warning banner
+    if (phase === 'day' && !this.waveActive && !this.warned
+        && this.dayNight.getPhaseRemaining() <= WAVE_WARNING_LEAD) {
+      this.warnWave();
+    }
+
+    // Drones still roaming the surface do not hold the next wave back
+    if (nightfall && this.waveActive && this.pendingSpawns.length === 0 && this.undergroundInvaders() === 0) {
+      this.invaders.clear();
+      this.waveActive = false;
     }
 
     // Nightfall LAUNCHES it; the !waveActive guard means waves never stack.
@@ -184,14 +301,58 @@ export class UndergroundInvasionSystem implements System {
     return 'centro';
   }
 
-  private spawnInvader(): void {
+  private undergroundInvaders(): number {
+    let n = 0;
+    for (const id of this.invaders) {
+      if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground) n++;
+    }
+    return n;
+  }
+
+  private spawnInvader(kind: InvaderKind): void {
     const e = this.waveEntrance;
     const ex = e ? e.x + 0.5 : Math.floor(UNDERGROUND_WIDTH / 2) + 0.5;
     const ey = e ? e.y + 0.5 : 1.5;
     const id = createBeetle(this.world, ex, ey, null);
     const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
     if (layer) layer.layer = Layer.Underground;
+    const young = kind === 'young';
+    this.scaleUnit(
+      id,
+      (young ? YOUNG_BEETLE_SCALE.health : 1) * this.statScale,
+      (young ? YOUNG_BEETLE_SCALE.damage : 1) * this.statScale,
+    );
     this.invaders.add(id);
+  }
+
+  /** Multiply a unit's health and damage (young beetles, and every unit past the size cap) */
+  private scaleUnit(id: EntityId, health: number, damage: number): void {
+    if (health === 1 && damage === 1) return;
+    const hp = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+    if (hp) {
+      hp.max = Math.max(1, Math.round(hp.max * health));
+      hp.current = hp.max;
+      hp.damage = Math.max(1, Math.round(hp.damage * damage));
+    }
+    const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
+    if (combat) combat.attackDamage = Math.max(1, Math.round(combat.attackDamage * damage));
+  }
+
+  /** The entrance this wave breaches through, kept from the warning to the attack while it still exists */
+  private pickEntrance(): void {
+    const entrances = this.grid.getEntrances();
+    const current = this.waveEntrance;
+    if (current && entrances.some((e) => e.x === current.x && e.y === current.y)) return;
+    // Every entrance the player dug is another way in. One is picked per wave,
+    // so extra shafts buy throughput at the price of an unpredictable breach.
+    this.waveEntrance =
+      entrances.length > 0 ? entrances[Math.floor(Math.random() * entrances.length)] : null;
+  }
+
+  private whereLabel(): string {
+    return this.waveEntrance !== null && this.grid.getEntrances().length > 1
+      ? ` por la entrada ${this.entranceLabel(this.waveEntrance.x)}`
+      : '';
   }
 
   /** Keep the requested number of soldiers stationed underground */
@@ -226,51 +387,65 @@ export class UndergroundInvasionSystem implements System {
     }
   }
 
-  /** Invaders tonight's wave sends. Night N follows day N, so the day number is the night number. */
-  private tonightCount(): number {
-    // Mutation costs (spore_bloom) add invaders on top of the night's size
-    return waveForNight(this.dayNight.getDayNumber()).invaders + this.world.runModifiers.extraInvadersPerWave;
-  }
-
   /** Dusk is near — telegraph the wave so the player can prepare */
   private armWave(): void {
     this.waveArmed = true;
-    const count = this.tonightCount();
+    const count = this.nextComposition().total;
     this.world.pushNotification(
       'warning',
-      `🪲 Movimiento en el túnel: la oleada ${this.waveNumber + 1} (${count === 1 ? 'un acorazado explorador' : `${count} acorazados`}) atacará al anochecer`
+      `🪲 Movimiento en el túnel: la oleada ${this.waveNumber + 1} (${count} enemigos) atacará al anochecer`
+    );
+  }
+
+  /** Half a minute out: the big banner goes up, and the breach point and the hive get marked */
+  private warnWave(): void {
+    this.warned = true;
+    this.pickEntrance();
+    const count = this.nextComposition().total;
+    this.showBanner('warning', this.waveNumber + 1, count);
+    this.world.pushNotification(
+      'danger',
+      `⚠️ ¡Oleada ${this.waveNumber + 1} en ${WAVE_WARNING_LEAD} s! ${count} enemigos${this.whereLabel()}`
     );
   }
 
   private launchWave(): void {
     emitAudio({ type: 'wave' });
+    const wave = this.nextComposition();
     this.waveNumber++;
     this.waveActive = true;
     this.waveArmed = false;
+    this.warned = false;
+    this.statScale = wave.statScale;
+    this.pickEntrance();
 
-    // Every entrance the player dug is another way in. One is picked per wave,
-    // so extra shafts buy throughput at the price of an unpredictable breach.
-    const entrances = this.grid.getEntrances();
-    this.waveEntrance =
-      entrances.length > 0 ? entrances[Math.floor(Math.random() * entrances.length)] : null;
+    // The hive's drones march on the nest; any it cannot send break in as beetles instead
+    const drones = wave.drones > 0 && this.raidSource ? this.raidSource.launch(wave.drones) : [];
+    for (const id of drones) {
+      this.scaleUnit(id, wave.statScale, wave.statScale);
+      this.invaders.add(id);
+    }
+    const beetles = wave.beetles + (wave.drones - drones.length);
+    this.waveSize = wave.youngBeetles + beetles + drones.length;
 
-    // waveForNight(...).boss marks the boss night; its unit joins here once it exists
-    const count = this.tonightCount();
-    // First invader enters immediately, the rest break in one by one
-    this.spawnInvader();
-    this.pendingSpawns = count - 1;
-    this.spawnTimer = 1.2;
+    // isBossNight() marks the boss night; its unit joins here once it exists.
+    // Young beetles lead, the full-strength ones follow; the first breaks in now.
+    this.pendingSpawns = [
+      ...Array<InvaderKind>(wave.youngBeetles).fill('young'),
+      ...Array<InvaderKind>(beetles).fill('adult'),
+    ];
+    const underground = this.pendingSpawns.length;
+    this.spawnInterval = Math.min(1.2, 15 / Math.max(1, underground));
+    if (underground > 0) this.spawnInvader(this.pendingSpawns.shift()!);
+    this.spawnTimer = this.spawnInterval;
 
-    const where =
-      this.waveEntrance !== null && entrances.length > 1
-        ? ` por la entrada ${this.entranceLabel(this.waveEntrance.x)}`
-        : '';
-    this.world.pushNotification(
-      'danger',
-      `🪲 ¡OLEADA ${this.waveNumber}! ${count > 1 ? `${count} acorazados están entrando` : 'Un acorazado entró'}${where}`
-    );
+    this.showBanner('arrival', this.waveNumber, this.waveSize);
+    const parts = drones.length > 0
+      ? ` ${underground} acorazados al nido y ${drones.length} drones de cristal por la superficie`
+      : ` Los acorazados están entrando${this.whereLabel()}`;
+    this.world.pushNotification('danger', `🪲 ¡OLEADA ${this.waveNumber} · ${this.waveSize} enemigos!${parts}`);
 
-    this.deploySoldiers(Math.max(count + 1, 3));
+    if (underground > 0) this.deploySoldiers(Math.max(underground + 1, 3));
   }
 
   /** Auto-deploy available surface soldiers to defend the queen */
@@ -320,6 +495,9 @@ export class UndergroundInvasionSystem implements System {
     for (const id of ants) {
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
       if (layer.layer !== Layer.Underground) continue;
+      // Ants riding the shaft cannot fight back: camping the entrance on them
+      // froze the wave there for good, so invaders push past toward the queen
+      if (this.transitSystem.isInTransit(id)) continue;
       ugAnts.push({ id, pos: this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)! });
     }
 
