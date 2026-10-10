@@ -62,6 +62,12 @@ export const PAL = {
   meteor: ['#fff4d0', '#ff7a2e', '#b0301e'],
   crater: ['#2a2320', '#3b3346'],
 
+  // ── Combat VFX (src/game/vfx) ─────────────────────────────
+  // Swarm acid and goo, dark rim → vein → glow → hot core: the vein ramp
+  // stretched one step darker (puddle rims) and one lighter (droplet heads).
+  acid: ['#2e4a10', '#5a8a1c', '#c6ff3d', '#f2ffc4'],
+  vfxFlash: '#ffffff', // the 1-frame death flash: pure white, brighter than PAL.white
+
   // ── Neutral wildlife: muted, no glow, never the faction hues ──
   beetle: ['#2b2a1e', '#4a4630', '#6e6844'], // olive shell
   beetleEye: '#ffb02e', // amber

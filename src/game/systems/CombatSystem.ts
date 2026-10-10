@@ -15,6 +15,8 @@ import {
   type BeetleDenComponent,
   type CricketComponent,
   type CricketDenComponent,
+  type FacingComponent,
+  type LayerValue,
 } from '../components/components';
 import { createFood } from '../entities/factories';
 import {
@@ -24,6 +26,7 @@ import {
   FLANKING_BONUS_PER_ALLY,
   FLANKING_MAX_ALLIES,
 } from '../../shared/constants';
+import { combatVfxFor, type BodyKind, type CombatVfx, type VictimKind } from '../vfx/CombatVfx';
 
 export class CombatSystem implements System {
   readonly name = 'CombatSystem';
@@ -31,13 +34,19 @@ export class CombatSystem implements System {
 
   private world: World;
   private grid: TileGrid;
+  /** Hits and deaths emit pixel-art VFX here; RenderSystem draws the same pool */
+  private vfx: CombatVfx;
 
   constructor(world: World, grid: TileGrid) {
     this.world = world;
     this.grid = grid;
+    this.vfx = combatVfxFor(world);
   }
 
   update(dt: number): void {
+    // VFX age in game time: frozen while paused, faster at 2×/3×
+    this.vfx.advance(dt);
+
     const combatants = this.world.query(COMPONENT.COMBAT, COMPONENT.POSITION);
 
     // Tick attack timers
@@ -99,9 +108,6 @@ export class CombatSystem implements System {
 
       if (dist > combat.attackRange) continue;
 
-      // Attack direction (attacker → victim) for hit effect orientation
-      const attackAngle = Math.atan2(targetPos.y - pos.y, targetPos.x - pos.x);
-
       // Flanking bonus: ants hit harder when swarming the same target
       let damage = combat.attackDamage;
       if (this.world.getComponent<AntComponent>(id, COMPONENT.ANT)) {
@@ -117,7 +123,7 @@ export class CombatSystem implements System {
         beetleDen.health -= damage;
         this.syncDenHealthBar(targetId, beetleDen.health);
         combat.attackTimer = combat.attackCooldown;
-        this.pushHitEffect(targetPos.x, targetPos.y, attackAngle);
+        this.emitHit(id, pos, targetPos, targetLayer?.layer ?? Layer.Surface, 'beetleDen');
         if (beetleDen.health <= 0) {
           this.destroyDen(targetId);
           toDestroy.push(targetId);
@@ -132,7 +138,7 @@ export class CombatSystem implements System {
         cricketDen.health -= damage;
         this.syncDenHealthBar(targetId, cricketDen.health);
         combat.attackTimer = combat.attackCooldown;
-        this.pushHitEffect(targetPos.x, targetPos.y, attackAngle);
+        this.emitHit(id, pos, targetPos, targetLayer?.layer ?? Layer.Surface, 'cricketDen');
         if (cricketDen.health <= 0) {
           this.destroyCricketDen(targetId);
           toDestroy.push(targetId);
@@ -150,7 +156,7 @@ export class CombatSystem implements System {
 
       targetHealth.current -= damage;
       combat.attackTimer = combat.attackCooldown;
-      this.pushHitEffect(targetPos.x, targetPos.y, attackAngle);
+      this.emitHit(id, pos, targetPos, targetLayer?.layer ?? Layer.Surface, this.bodyKind(targetId));
 
       if (targetHealth.current <= 0) {
         this.handleDeath(targetId, toDestroy);
@@ -175,11 +181,33 @@ export class CombatSystem implements System {
     }
   }
 
-  /** Push a short hit-feedback effect (rendered by RenderSystem). Capped to avoid unbounded growth. */
-  private pushHitEffect(x: number, y: number, angle: number): void {
-    const effects = this.world.hitEffects;
-    if (effects.length >= 80) return; // safety cap — feedback is already saturated
-    effects.push({ x, y, timer: 0.3, maxTime: 0.3, angle });
+  /** Swarm attackers spit acid; every victim sheds chips of its own material */
+  private emitHit(
+    attackerId: EntityId,
+    from: PositionComponent,
+    to: PositionComponent,
+    layer: LayerValue,
+    victim: VictimKind,
+  ): void {
+    const attacker = this.world.getComponent<AntComponent>(attackerId, COMPONENT.ANT) ? 'swarm' : 'wildlife';
+    this.vfx.hit(from.x, from.y, to.x, to.y, layer, attacker, victim);
+  }
+
+  private layerOf(id: EntityId): LayerValue {
+    return this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer ?? Layer.Surface;
+  }
+
+  /** Anything that is not wildlife is Swarm flesh (ants, the queen) */
+  private bodyKind(id: EntityId): BodyKind {
+    if (this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE)) return 'beetle';
+    if (this.world.getComponent<CricketComponent>(id, COMPONENT.CRICKET)) return 'cricket';
+    return 'ant';
+  }
+
+  /** The death pop plus what the body leaves: goo for the Swarm, a carcass for wildlife */
+  private emitDeath(entityId: EntityId, pos: PositionComponent, body: BodyKind): void {
+    const facing = this.world.getComponent<FacingComponent>(entityId, COMPONENT.FACING);
+    this.vfx.death(pos.x, pos.y, this.layerOf(entityId), body, facing?.angle ?? 0);
   }
 
   private handleDeath(entityId: EntityId, _toDestroy: EntityId[]): void {
@@ -193,15 +221,9 @@ export class CombatSystem implements System {
       this.handleCricketDeath(entityId, cricket);
       return;
     }
-    // Ant death — push death effect
+    // Ant death — Swarm goo
     const pos = this.world.getComponent<PositionComponent>(entityId, COMPONENT.POSITION);
-    if (pos) {
-      this.world.deathEffects.push({
-        x: pos.x, y: pos.y,
-        timer: 0.8, maxTime: 0.8,
-        color: '#e8c170', radius: 0.35,
-      });
-    }
+    if (pos) this.emitDeath(entityId, pos, 'ant');
   }
 
   /** Meat left by a kill, scaled by run mutations (carrion_gut) */
@@ -212,14 +234,8 @@ export class CombatSystem implements System {
   private handleBeetleDeath(entityId: EntityId, beetle: BeetleComponent): void {
     const pos = this.world.getComponent<PositionComponent>(entityId, COMPONENT.POSITION);
 
-    // Death effect for beetle
-    if (pos) {
-      this.world.deathEffects.push({
-        x: pos.x, y: pos.y,
-        timer: 1.0, maxTime: 1.0,
-        color: '#2a1a0a', radius: 0.55,
-      });
-    }
+    // Death pop and carcass (the meat below is the carcass's food)
+    if (pos) this.emitDeath(entityId, pos, 'beetle');
 
     // Decrement den's active beetle count
     if (beetle.denEntityId !== null && this.world.hasEntity(beetle.denEntityId)) {
@@ -255,14 +271,8 @@ export class CombatSystem implements System {
   private handleCricketDeath(entityId: EntityId, cricket: CricketComponent): void {
     const pos = this.world.getComponent<PositionComponent>(entityId, COMPONENT.POSITION);
 
-    // Death effect for cricket (larger, greenish)
-    if (pos) {
-      this.world.deathEffects.push({
-        x: pos.x, y: pos.y,
-        timer: 1.0, maxTime: 1.0,
-        color: '#2a4a10', radius: 0.6,
-      });
-    }
+    // Death pop and carcass (see handleBeetleDeath)
+    if (pos) this.emitDeath(entityId, pos, 'cricket');
 
     // Decrement den's active cricket count
     if (cricket.denEntityId !== null && this.world.hasEntity(cricket.denEntityId)) {
@@ -294,15 +304,9 @@ export class CombatSystem implements System {
   private destroyDen(denId: EntityId): void {
     this.world.pushNotification('success', '💥 ¡Nido de escarabajos destruido!');
     this.world.metrics.densDestroyed++;
-    // Death effect for beetle den
+    // The den caves in: dust ring, soil and crystal shards
     const pos = this.world.getComponent<PositionComponent>(denId, COMPONENT.POSITION);
-    if (pos) {
-      this.world.deathEffects.push({
-        x: pos.x, y: pos.y,
-        timer: 1.5, maxTime: 1.5,
-        color: '#1a0a00', radius: 0.8,
-      });
-    }
+    if (pos) this.vfx.denCollapse(pos.x, pos.y, this.layerOf(denId), 'beetleDen');
 
     // Orphan all beetles from this den
     const beetles = this.world.query(COMPONENT.BEETLE);
@@ -318,13 +322,7 @@ export class CombatSystem implements System {
     this.world.pushNotification('success', '💥 ¡Nido de grillos destruido!');
     this.world.metrics.densDestroyed++;
     const pos = this.world.getComponent<PositionComponent>(denId, COMPONENT.POSITION);
-    if (pos) {
-      this.world.deathEffects.push({
-        x: pos.x, y: pos.y,
-        timer: 1.5, maxTime: 1.5,
-        color: '#2a4a10', radius: 0.9,
-      });
-    }
+    if (pos) this.vfx.denCollapse(pos.x, pos.y, this.layerOf(denId), 'cricketDen');
 
     // Orphan all crickets from this den
     const crickets = this.world.query(COMPONENT.CRICKET);
