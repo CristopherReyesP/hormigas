@@ -12,7 +12,9 @@ export const SPRITE_GRID = {
   queen: 52,
   beetle: 28,
   cricket: 48,
-  food: 16,
+  food: 24,
+  /** A mineral node's crystal cluster (drawn with PixelPainter, never turned) */
+  mineral: 24,
   den: 40,
   giantMushroom: 32,
   nest: 40,

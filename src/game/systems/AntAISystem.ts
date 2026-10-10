@@ -33,7 +33,7 @@ import { findPath } from '../../simulation/pathfinding/AStar';
 import { buildAttackerMap, ensureCombatComponent } from './helpers/combatHelpers';
 import { canFight, completePlayerOrder, endPlayerOrder, findEnemyStructureNear, isSurfaceEnemy } from './helpers/playerOrders';
 import { FactionId, isHostileTo } from '../factions/factions';
-import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
+import type { PantryFoodType, UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { TransitSystem } from './TransitSystem';
 import {
   ANT_HARVEST_RANGE,
@@ -78,8 +78,11 @@ import {
   GUARD_HOME_RADIUS,
   MINERAL_TRIP_AMOUNT,
   MINERAL_MINE_SECONDS,
-  MINER_MAX_SHARE,
+  MINER_ALLOCATE_SECONDS,
+  MINER_FIELD_REACH,
 } from '../../shared/constants';
+import { autoMinerTarget, clampMinerTarget, type MinerStatus } from '../economy/minerAllocation';
+import { clearResourceOrder } from './helpers/resourceOrders';
 
 /** A miner that has not reached its node in this long gives up and looks for other work */
 const MINING_GIVE_UP_SECONDS = 40;
@@ -117,9 +120,20 @@ export class AntAISystem implements System {
   private foodSnapshot: Array<{ id: EntityId; x: number; y: number; type?: FoodType }> = [];
   /** Surface mineral nodes that still hold ore */
   private mineralSnapshot: Array<{ id: EntityId; x: number; y: number }> = [];
-  /** Surface workers bound to a mineral node, and all surface workers (the miner cap) */
-  private minerCount = 0;
-  private surfaceWorkerCount = 0;
+  /**
+   * Miners, rebuilt every tick: surface workers the colony sent to a node on
+   * its own (they count toward the miner target), workers on a Minar order,
+   * and how many of either work each node (allocation spreads them out).
+   */
+  private autonomousMiners = 0;
+  private orderedMiners = 0;
+  private workerCount = 0;
+  private minersByNode: Map<EntityId, number> = new Map();
+  /** Where each mineral node stood: an ordered miner whose node ran out looks for the next one around there */
+  private nodePositions: Map<EntityId, Vector2> = new Map();
+  /** Autonomous miners the player asked for (Mineras: N); null follows the workforce */
+  private minerTarget: number | null = null;
+  private allocateTimer = 0;
   /** enemy id -> how many ants are already biting it (focus fire + flanking synergy) */
   private antsEngaging: Map<EntityId, number> = new Map();
   /** Recomputed once per tick — the hunger checks consult it per ant */
@@ -153,11 +167,22 @@ export class AntAISystem implements System {
 
     this.buildTickSnapshots();
     this.orderRoutesLeft = ORDER_PATHS_PER_TICK;
+    this.allocateTimer -= dt;
+    if (this.allocateTimer <= 0) {
+      this.allocateTimer = MINER_ALLOCATE_SECONDS;
+      this.allocateMiners();
+    }
 
     const ants = this.world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.PATH, COMPONENT.CARRYING);
 
     for (const id of ants) {
       const order = this.world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER);
+
+      // A Recolectar order ends the moment its source is gone, wherever the ant is
+      const gatherer = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      if (gatherer.resourceOrder === 'gather' && (gatherer.foodTargetId == null || !this.world.hasEntity(gatherer.foodTargetId))) {
+        clearResourceOrder(this.world, id);
+      }
 
       // Skip underground entities — handled by NurseAISystem / ExcavationSystem
       const layerComp = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
@@ -251,6 +276,18 @@ export class AntAISystem implements System {
       ) {
         ant.state = AntState.ReturningHome;
         ant.stateTimer = 0;
+      }
+
+      // Minar / Recolectar: a free worker on a resource order goes back to its source
+      if (
+        ant.resourceOrder !== undefined &&
+        carrying.amount === 0 &&
+        (ant.state === AntState.Idle || ant.state === AntState.Searching) &&
+        !this.attackerByTarget.has(id) &&
+        !(this.undergroundFoodAvailable && this.isHungry(id)) &&
+        this.resumeResourceOrder(id, ant, pos, path)
+      ) {
+        continue;
       }
 
       switch (ant.state) {
@@ -681,19 +718,173 @@ export class AntAISystem implements System {
       if (node.amount <= 0) continue;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       this.mineralSnapshot.push({ id, x: pos.x, y: pos.y });
+      if (!this.nodePositions.has(id)) this.nodePositions.set(id, { x: pos.x, y: pos.y });
     }
 
-    this.minerCount = 0;
-    this.surfaceWorkerCount = 0;
+    this.autonomousMiners = 0;
+    this.orderedMiners = 0;
+    this.workerCount = 0;
+    this.minersByNode.clear();
     for (const id of this.world.query(COMPONENT.ANT)) {
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
       if (ant.role !== AntRole.Worker) continue;
+      this.workerCount++;
+      if (ant.resourceOrder === 'mine') this.orderedMiners++;
+      if (ant.mineralTargetId == null) continue;
+      this.minersByNode.set(ant.mineralTargetId, (this.minersByNode.get(ant.mineralTargetId) ?? 0) + 1);
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
       if (layer && layer.layer !== Layer.Surface) continue;
-      this.surfaceWorkerCount++;
-      if (ant.mineralTargetId != null) this.minerCount++;
+      if (ant.resourceOrder !== 'mine') this.autonomousMiners++;
     }
   }
+
+  // ─── Miners: the colony's allocation and the player's target ───
+
+  /** Mineras: N. null goes back to the automatic target (2, growing with the workforce). */
+  setMinerTarget(target: number | null): void {
+    this.minerTarget = clampMinerTarget(target);
+    this.allocateTimer = 0; // act on it next tick
+  }
+
+  /** Autonomous miners the colony wants now. */
+  private effectiveMinerTarget(): number {
+    return this.minerTarget ?? autoMinerTarget(this.workerCount);
+  }
+
+  getMinerStatus(): MinerStatus {
+    return {
+      miners: this.autonomousMiners + this.orderedMiners,
+      autonomous: this.autonomousMiners,
+      ordered: this.orderedMiners,
+      target: this.effectiveMinerTarget(),
+      auto: this.minerTarget === null,
+    };
+  }
+
+  /** A node the colony knows about (explored ground, not only what is in sight) and can mine safely. */
+  private isDiscoveredNode(x: number, y: number): boolean {
+    if (!this.visibilityGrid.isExplored(Math.round(x), Math.round(y))) return false;
+    return this.enemySnapshot.length === 0 || !this.isGuardedByPredator(x, y);
+  }
+
+  /** A surface worker with nothing to do that the colony may send to a field. */
+  private isFreeForMining(id: EntityId, ant: AntComponent): boolean {
+    if (ant.role !== AntRole.Worker || ant.resourceOrder !== undefined || ant.mineralTargetId != null) return false;
+    if (ant.state !== AntState.Idle && ant.state !== AntState.Searching) return false;
+    if (this.world.getComponent(id, COMPONENT.PLAYER_ORDER)) return false;
+    const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+    if (layer && layer.layer !== Layer.Surface) return false;
+    if (this.transitSystem?.isInTransit(id)) return false;
+    const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING);
+    if (carrying && carrying.amount > 0) return false;
+    if (this.attackerByTarget.has(id)) return false;
+    return !(this.undergroundFoodAvailable && this.isHungry(id));
+  }
+
+  /**
+   * Keep the miner target on the discovered fields: recruit free workers
+   * (closest to the least-worked, nearest node first) or release the extra
+   * ones. A miner holding ore keeps it until it is banked.
+   */
+  private allocateMiners(): void {
+    const target = this.effectiveMinerTarget();
+    if (this.autonomousMiners > target) {
+      let extra = this.autonomousMiners - target;
+      for (const id of this.world.query(COMPONENT.ANT, COMPONENT.PATH, COMPONENT.CARRYING)) {
+        if (extra <= 0) break;
+        const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+        if (ant.mineralTargetId == null || ant.resourceOrder === 'mine') continue;
+        const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+        if (layer && layer.layer !== Layer.Surface) continue;
+        if (this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!.amount > 0) continue;
+        const node = ant.mineralTargetId;
+        this.minersByNode.set(node, Math.max(0, (this.minersByNode.get(node) ?? 1) - 1));
+        this.stopMining(ant);
+        if (ant.state === AntState.Mining) {
+          ant.state = AntState.Searching;
+          ant.stateTimer = 0;
+          const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH)!;
+          path.waypoints = [];
+          path.currentIndex = 0;
+        }
+        this.autonomousMiners--;
+        extra--;
+      }
+      return;
+    }
+    if (this.autonomousMiners >= target) return;
+
+    const nodes = this.mineralSnapshot.filter((m) => this.isDiscoveredNode(m.x, m.y));
+    if (nodes.length === 0) return;
+    const free: Array<{ id: EntityId; ant: AntComponent; pos: PositionComponent }> = [];
+    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.PATH, COMPONENT.CARRYING)) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      if (!this.isFreeForMining(id, ant)) continue;
+      free.push({ id, ant, pos: this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)! });
+    }
+    while (this.autonomousMiners < target && free.length > 0) {
+      // The node nearest home, spread so no single node gets everyone
+      let node = nodes[0];
+      let nodeScore = Infinity;
+      for (const m of nodes) {
+        const score = this.distToNestXY(m.x, m.y) + 6 * (this.minersByNode.get(m.id) ?? 0);
+        if (score < nodeScore) {
+          nodeScore = score;
+          node = m;
+        }
+      }
+      let pick = 0;
+      for (let i = 1; i < free.length; i++) {
+        const d = Math.hypot(free[i].pos.x - node.x, free[i].pos.y - node.y);
+        if (d < Math.hypot(free[pick].pos.x - node.x, free[pick].pos.y - node.y)) pick = i;
+      }
+      const { id, ant, pos } = free.splice(pick, 1)[0];
+      this.startMining(ant, pos, this.world.getComponent<PathComponent>(id, COMPONENT.PATH)!, node.id);
+      this.minersByNode.set(node.id, (this.minersByNode.get(node.id) ?? 0) + 1);
+      this.autonomousMiners++;
+    }
+  }
+
+  /** The discovered node with ore closest to `from` within `reach` tiles, or null. */
+  private nearestDiscoveredNode(from: Vector2, reach: number): EntityId | null {
+    let best: EntityId | null = null;
+    let bestDist = reach;
+    for (const m of this.mineralSnapshot) {
+      const dist = Math.hypot(m.x - from.x, m.y - from.y);
+      if (dist > bestDist || !this.isDiscoveredNode(m.x, m.y)) continue;
+      best = m.id;
+      bestDist = dist;
+    }
+    return best;
+  }
+
+  /**
+   * Send a free worker on a Minar or Recolectar order back to its source.
+   * A miner goes back to Mining (handleMining routes it, and moves it to the
+   * next node of the field when its node ran out). A gatherer whose source
+   * is gone is done: the order ends and it goes back to its own work. True
+   * when it took the ant for this tick.
+   */
+  private resumeResourceOrder(id: EntityId, ant: AntComponent, pos: PositionComponent, path: PathComponent): boolean {
+    if (ant.resourceOrder === 'mine') {
+      ant.state = AntState.Mining;
+      ant.stateTimer = 0;
+      path.waypoints = [];
+      path.currentIndex = 0;
+      return true;
+    }
+    const foodId = ant.foodTargetId ?? null;
+    const food = foodId !== null ? this.world.getComponent<FoodSourceComponent>(foodId, COMPONENT.FOOD_SOURCE) : undefined;
+    if (foodId === null || !food || food.amount <= 0) {
+      clearResourceOrder(this.world, id);
+      return false;
+    }
+    ant.state = AntState.GoingToFood;
+    ant.stateTimer = 0;
+    this.pathToEntity(pos, foodId, path);
+    return true;
+  }
+
 
   private handleSearching(
     id: EntityId,
@@ -948,8 +1139,11 @@ export class AntAISystem implements System {
       return;
     }
 
-    // Check if we're near any food source (snapshot is surface-only already)
-    for (const f of this.foodSnapshot) {
+    // Check if we're near any food source (snapshot is surface-only already).
+    // A worker on a Recolectar order takes from its own source first.
+    const ordered = ant.resourceOrder === 'gather' ? ant.foodTargetId ?? null : null;
+    const sources = ordered === null ? this.foodSnapshot : [...this.foodSnapshot].sort((a, b) => Number(b.id === ordered) - Number(a.id === ordered));
+    for (const f of sources) {
       const dx = f.x - pos.x;
       const dy = f.y - pos.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1015,10 +1209,17 @@ export class AntAISystem implements System {
       if (carrying.amount > 0 && isOreLoad(carrying.resourceType)) {
         // ORE IS NOT FOOD: it goes straight to the minerals bank at the
         // entrance, never down the shaft and never into the pantry
-        this.world.minerals.deposit(carrying.amount);
+        this.world.minerals.deposit(carrying.amount, { x: pos.x, y: pos.y });
         carrying.amount = 0;
         carrying.resourceType = null;
         this.afterOreDelivery(_id, ant, pos, path);
+      } else if (carrying.amount > 0 && ant.role === AntRole.Worker && !this.pantryHasRoomFor(carrying.resourceType)) {
+        // The pantry is full: riding down only to come back up still holding
+        // the load kept every worker shuttling in the shaft, with nobody left
+        // to forage or mine. The load goes on the entrance pile (porters carry
+        // it down once there is room) and the worker gets back to work.
+        this.dropAtStockpile(carrying);
+        ant.state = AntState.Searching;
       } else if (carrying.amount > 0 && ant.role === AntRole.Worker) {
         // FOOD IS ONLY STORED UNDERGROUND: the load is already in stored units
         // (converted at harvest) — carry it down to the pantry. PorterSystem's
@@ -1120,11 +1321,15 @@ export class AntAISystem implements System {
     const node = nodeId !== null ? this.world.getComponent<MineralComponent>(nodeId, COMPONENT.MINERAL) : undefined;
     const nodePos = nodeId !== null ? this.world.getComponent<PositionComponent>(nodeId, COMPONENT.POSITION) : undefined;
     if (nodeId === null || !node || !nodePos || node.amount <= 0) {
-      // Node mined out: move on to the nearest node in sight, if any
-      const next = this.findNearestMineral(id, pos);
-      if (next) {
-        this.startMining(ant, pos, path, next.id);
+      // Node mined out: move on to the next node of the same field (one the
+      // colony knows about), else one in sight
+      const around = nodeId !== null ? this.nodePositions.get(nodeId) ?? pos : pos;
+      const next = this.nearestDiscoveredNode(around, MINER_FIELD_REACH) ?? this.findNearestMineral(id, pos)?.id ?? null;
+      if (next !== null) {
+        this.startMining(ant, pos, path, next);
       } else {
+        // The field is spent: a Minar order is done too
+        clearResourceOrder(this.world, id);
         this.stopMining(ant);
         ant.state = AntState.Searching;
         ant.stateTimer = 0;
@@ -1153,7 +1358,8 @@ export class AntAISystem implements System {
     }
 
     if (ant.stateTimer > MINING_GIVE_UP_SECONDS) {
-      // Could not reach the node: forget it and look for other work
+      // Could not reach the node: forget it (and the order) and look for other work
+      clearResourceOrder(this.world, id);
       this.stopMining(ant);
       ant.state = AntState.Searching;
       ant.stateTimer = 0;
@@ -1170,7 +1376,8 @@ export class AntAISystem implements System {
   /** Ore banked: a hungry miner goes down to eat, otherwise it walks back to its node */
   private afterOreDelivery(id: EntityId, ant: AntComponent, pos: PositionComponent, path: PathComponent): void {
     if (this.isHungry(id) && this.undergroundFoodAvailable && this.transitSystem) {
-      this.stopMining(ant);
+      // A Minar order keeps its node: the miner goes back to it after eating
+      if (ant.resourceOrder !== 'mine') this.stopMining(ant);
       ant.state = AntState.Healing;
       this.transitSystem.requestTransit(id, 'enter');
       return;
@@ -1179,6 +1386,12 @@ export class AntAISystem implements System {
     const node = nodeId !== null ? this.world.getComponent<MineralComponent>(nodeId, COMPONENT.MINERAL) : undefined;
     if (ant.role === AntRole.Worker && nodeId !== null && node && node.amount > 0) {
       this.startMining(ant, pos, path, nodeId);
+      return;
+    }
+    if (ant.resourceOrder === 'mine') {
+      // Its node ran out while it was away: handleMining finds the next one
+      ant.state = AntState.Mining;
+      ant.stateTimer = 0;
       return;
     }
     this.stopMining(ant);
@@ -1413,6 +1626,13 @@ export class AntAISystem implements System {
   }
 
   /** Hand a load to the nest's surface stockpile — worker porters haul it below */
+  /** Whether the pantry can take a load of this type (no underground wired: assume it can). */
+  private pantryHasRoomFor(resourceType: string | null): boolean {
+    if (!this.undergroundGrid) return true;
+    const type: PantryFoodType = resourceType === 'mushroom' || resourceType === 'meat' ? resourceType : 'leaf';
+    return this.undergroundGrid.hasDepositSpace([type]);
+  }
+
   private dropAtStockpile(carrying: CarryingComponent): void {
     const nest = this.world.getComponent<NestComponent>(this.nestEntityId!, COMPONENT.NEST);
     if (!nest) return;
@@ -1945,11 +2165,10 @@ export class AntAISystem implements System {
       }
     }
 
-    // MINE action (workers only): a mineral node in sight, while the miner
-    // share leaves enough workers foraging food
+    // MINE action (workers only): a mineral node in sight, while the colony
+    // still wants miners (the target leaves the rest foraging food)
     if (ant.role === AntRole.Worker) {
-      const minerCap = Math.max(1, Math.ceil(this.surfaceWorkerCount * MINER_MAX_SHARE));
-      const node = this.minerCount < minerCap ? this.findNearestMineral(id, pos) : null;
+      const node = this.autonomousMiners < this.effectiveMinerTarget() ? this.findNearestMineral(id, pos) : null;
       if (node) {
         const score = ACTION_SCORE.MINERAL_VISION_BONUS * roleWeights.food * priorityMult.food;
         candidates.push({ action: 'mine', score, targetId: node.id });

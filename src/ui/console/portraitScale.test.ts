@@ -31,7 +31,8 @@ describe('portrait scale', () => {
     cricket: { pixelSize: 1, box: 48 },
     den: { pixelSize: 1, box: 40 },
     nest: { pixelSize: 1, box: 40 },
-    food: { pixelSize: 4, box: 64 },
+    food: { pixelSize: 2, box: 48 },
+    mineral: { pixelSize: 2, box: 48 },
     giantMushroom: { pixelSize: 2, box: 64 },
   };
 
@@ -56,7 +57,7 @@ describe('portrait scale', () => {
   });
 
   it('anchors static props on their center so the sprite box starts at the frame offset', () => {
-    for (const sprite of ['den', 'giantMushroom'] as const) {
+    for (const sprite of ['den', 'giantMushroom', 'mineral'] as const) {
       const p = portraitPlacement(sprite);
       const boxLeft = Math.round(p.at - (SPRITE_GRID[sprite] * ART_PX) / 2);
       expect(boxLeft).toBe(0);
