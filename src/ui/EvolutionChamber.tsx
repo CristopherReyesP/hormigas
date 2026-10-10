@@ -3,7 +3,7 @@ import { getSpriteAtlas } from './sharedAtlas';
 import { crispPlacement } from './console/portraitScale';
 import { AntRole } from '../game/components/components';
 import { SPRITE_GRID } from '../engine/renderer/sprites/spriteScale';
-import { ANT_MARK_IDS, NO_MARKS, marksForRole, type AntMarkId, type AntMarks } from '../engine/renderer/sprites/antMarks';
+import { ANT_MARK_IDS, MAX_MARK_STACKS, NO_MARKS, marksForRole, type AntMarkId, type AntMarks } from '../engine/renderer/sprites/antMarks';
 import type { MutationOffer, MutationOfferOption } from '../game/run/DawnPick';
 import type { MutationId, MutationTag } from '../game/run/MutationDefinitions';
 
@@ -102,7 +102,7 @@ function MutationCard({ option, slot, state, onChoose }: MutationCardProps) {
               <StackPips stacks={option.stacks} maxStacks={option.maxStacks} />
             </span>
             <span className="evo-specimen">
-              <AntPreview tags={option.tags} mark={option.mark} />
+              <AntPreview tags={option.tags} mark={option.mark} stacks={option.stacks + 1} />
             </span>
             <span className="evo-card-name">{option.name}</span>
             <span className="evo-card-desc">{option.description}</span>
@@ -151,13 +151,14 @@ function markId(mark: string): AntMarkId | undefined {
 }
 
 /**
- * The specimen of a card: one stack of its mark on a soldier for
- * Assault/Defense cards and a worker otherwise, or on the first caste that
- * wears the mark when that one does not (wing stubs are a scout mark).
+ * The specimen of a card: its mark at `stacks` (the stack the pick would
+ * give, clamped to what a mark can show) on a soldier for Assault/Defense
+ * cards and a worker otherwise, or on the first caste that wears the mark
+ * when that one does not (wing stubs are a scout mark).
  */
-function specimenOf(tags: readonly MutationTag[], mark: string): { role: AntRole; marks: AntMarks; id?: AntMarkId } {
+function specimenOf(tags: readonly MutationTag[], mark: string, stacks: number): { role: AntRole; marks: AntMarks; id?: AntMarkId } {
   const id = markId(mark);
-  const marks: AntMarks = id ? new Map([[id, 1]]) : NO_MARKS;
+  const marks: AntMarks = id ? new Map([[id, Math.max(1, Math.min(MAX_MARK_STACKS, stacks))]]) : NO_MARKS;
   const preferred = tags.includes('Assault') || tags.includes('Defense') ? AntRole.Soldier : AntRole.Worker;
   if (!id) return { role: preferred, marks };
   const role = [preferred, ...SPECIMEN_CASTES].find(caste => marksForRole(marks, caste).size > 0) ?? preferred;
@@ -165,10 +166,10 @@ function specimenOf(tags: readonly MutationTag[], mark: string): { role: AntRole
 }
 
 /** Atlas ant walking in place with its baked mutation mark; static under reduced motion. */
-function AntPreview({ tags, mark }: { tags: readonly MutationTag[]; mark: string }) {
+function AntPreview({ tags, mark, stacks }: { tags: readonly MutationTag[]; mark: string; stacks: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // One mark set per card: the atlas indexes its baked sheet by this object
-  const specimen = useMemo(() => specimenOf(tags, mark), [tags, mark]);
+  const specimen = useMemo(() => specimenOf(tags, mark, stacks), [tags, mark, stacks]);
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d');
@@ -202,6 +203,7 @@ function AntPreview({ tags, mark }: { tags: readonly MutationTag[]; mark: string
       width={PREVIEW_SIZE}
       height={PREVIEW_SIZE}
       data-mark={specimen.id}
+      data-stacks={specimen.id ? specimen.marks.get(specimen.id) : undefined}
       data-caste={specimen.role}
       aria-hidden="true"
     />

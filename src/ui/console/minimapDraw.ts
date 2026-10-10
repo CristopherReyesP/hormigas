@@ -15,6 +15,8 @@ const CHROME_BG = '#0e080b';
 const CHROME_TEXT = '#e8d8dc';
 const ACCENT = '#c6ff3d';
 const DANGER = '#ff3b3b';
+/** The farm's pale bioluminescent mint: apart from the defender violet and the leaf pantry. */
+export const FUNGUS_FARM_MINIMAP_COLOR = PAL.fungus.glow[2];
 
 export interface MinimapCache {
   terrain: HTMLCanvasElement | null;
@@ -173,7 +175,7 @@ export function drawUndergroundMinimap(
         } else if (tile.chamberType === ChamberType.Incubation || tile.chamberType === ChamberType.Egg) {
           color = PAL.nurse;
         } else if (tile.chamberType === ChamberType.FungusFarm) {
-          color = PAL.shroomCap;
+          color = FUNGUS_FARM_MINIMAP_COLOR;
         } else if (tile.chamberType === ChamberType.Defense) {
           color = PAL.defender;
         } else {

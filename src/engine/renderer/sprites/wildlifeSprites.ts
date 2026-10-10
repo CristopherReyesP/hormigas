@@ -1,4 +1,4 @@
-// Neutral wildlife sprite recipes: the olive beetle (28×28) and the straw
+// Neutral wildlife sprite recipes: the olive alien burrower (28×28, the beetle) and the straw
 // cricket (48×48). Authored facing right with symmetric interior shading;
 // ArtPen adds the top-left light and the ground shadow after each turn.
 import { ArtGrid } from '../pixelart/ArtGrid';
@@ -17,65 +17,63 @@ export interface WildlifeSpriteSpec {
 }
 
 /**
- * 28×28 art-pixel beetle, facing right: a domed olive shell (elytra) split by
- * its seam and pitted with rows of punctures, a darker pronotum plate, a
- * small head with amber eyes, curved mandibles, clubbed antennae and six
- * elbowed legs. Never the Swarm's flesh or the UI danger red.
+ * 28×28 art-pixel beetle (the in-game "acorazado"), facing right. Not an
+ * insect: an armored alien burrower with a low olive hide, four stubby
+ * clawed legs, overlapping bony ash plates down its back, a toothy maw and a
+ * small cluster of amber eyes. Muted, no glow, never the faction hues.
  */
 export function paintBeetle({ frame, direction, shadow = true }: WildlifeSpriteSpec): ArtGrid {
   const grid = new ArtGrid(SPRITE_GRID.beetle);
   const p = new ArtPen(grid, directionAngle(direction));
   const B = PAL.beetle;
+  const H = PAL.beetleAsh;
   const O = PAL.outline;
   const A = Math.floor(SPRITE_GRID.beetle / 2);
   const swing = GAIT[frame % GAIT.length];
   const mirror = (y: number): number => 2 * A - y;
+  const gape = frame % 4 < 2 ? 1 : 0;
 
-  // Six elbowed legs, tripod gait
-  const hips = [9, 12, 15];
-  for (let side = -1; side <= 1; side += 2) {
-    for (let i = 0; i < 3; i++) {
-      const groupA = (i + (side === 1 ? 1 : 0)) % 2 === 0;
-      const s = groupA ? swing : -swing;
-      const hipX = hips[i];
-      const footX = hipX + (i - 1) * 2 + s;
-      const kneeX = hipX + (i - 1) * 2 + Math.round(s / 2);
-      p.polyline([[hipX, A + side * 4], [kneeX, A + side * 7], [footX, A + side * 9]], O);
-      p.px(footX, A + side * 9, B[0]);
+  // One silhouette: four stubby clawed legs (diagonal pairs step together),
+  // the low hide and the blunt head
+  p.outlined(pen => {
+    for (let side = -1; side <= 1; side += 2) {
+      for (const [hipX, pair] of [[9, 0], [17, 1]] as const) {
+        const s = (pair + (side === 1 ? 1 : 0)) % 2 === 0 ? swing : -swing;
+        const footX = hipX + s;
+        pen.capsule(hipX, A + side * 5, footX, A + side * 7, 1.3, B[0]);
+        pen.px(footX - 1, A + side * 9, B[0]); // claws
+        pen.px(footX + 1, A + side * 9, B[0]);
+      }
     }
+    pen.ellipse(13, A, 9, 6.4, B[1]);
+    pen.ellipse(21.5, A, 3.6, 4.2, B[1]);
+  }, O);
+
+  // Overlapping bony plates, tail first so each front plate laps the one behind
+  for (const [x, ry] of [[6, 4], [10, 5.4], [14, 5.6], [18, 4.6]] as const) {
+    p.ellipse(x, A, 2.6, ry, H[1]);
+    p.line(x - 2, A - ry + 1, x - 2, A + ry - 1, H[0]); // the lapped rear edge in shadow
+    p.line(x + 2, A - ry + 2, x + 2, A + ry - 2, H[2]); // a pale ridge on the leading edge
   }
+  p.hline(5, A, 15, H[0]); // spine groove between the plate halves
 
-  // Elytra dome, then the pronotum and the head as their own plates (the
-  // outline between them reads as the joints)
-  p.outlined(pen => pen.ellipse(11, A, 7.6, 6.4, B[1]), O);
-  p.outlined(pen => pen.ellipse(19, A, 2.2, 4.4, B[1]), O);
-  p.outlined(pen => pen.disc(22, A, 2.4, B[0]), O);
-
-  // Elytra: seam along the body axis, punctures in rows on both wing cases
-  p.hline(4, A, 15, B[0]);
-  for (const x of [6, 9, 12, 15]) {
-    p.px(x, A - 3, B[0]);
-    p.px(x, mirror(A - 3), B[0]);
+  // Toothy maw: a black gash ringed by pale teeth, gaping on the step
+  p.rect(24, A - 1 - gape, 2, 3 + gape * 2, PAL.black);
+  for (const x of [23, 25]) {
+    p.px(x, A - 2 - gape, H[2]);
+    p.px(x, mirror(A - 2 - gape), H[2]);
   }
-  for (const x of [8, 11, 14]) {
-    p.px(x, A - 5, B[0]);
-    p.px(x, mirror(A - 5), B[0]);
-  }
-  // Pronotum: a raised central keel
-  p.vline(19, A - 2, 5, B[2]);
+  p.px(24, A - 2 - gape, H[2]);
+  p.px(24, mirror(A - 2 - gape), H[2]);
 
-  // Amber eyes, curved mandibles, clubbed antennae
-  p.px(23, A - 2, PAL.beetleEye);
-  p.px(23, mirror(A - 2), PAL.beetleEye);
-  p.polyline([[25, A - 2], [26, A - 1]], B[0]);
-  p.polyline([[25, mirror(A - 2)], [26, mirror(A - 1)]], B[0]);
-  const flick = frame % 2;
-  p.polyline([[23, A - 3], [24, A - 5], [25, A - 5 - flick]], O);
-  p.polyline([[23, mirror(A - 3)], [24, mirror(A - 5)], [25, mirror(A - 5 - flick)]], O);
+  // A small cluster of amber eyes above the maw
+  p.px(21, A - 2, PAL.beetleEye);
+  p.px(22, A - 1, PAL.beetleEye);
+  p.px(22, A + 1, PAL.beetleEye);
+  p.px(21, A + 2, PAL.beetleEye);
 
-  p.shade([B]);
-  p.sheen(11, A, 3, B[2]);
-  p.sheen(11, A, 4, B[2]);
+  p.shade([B, H]);
+  p.sheen(13, A, 4, B[2]);
   if (shadow) p.castShadow(O, 1, 2);
   return grid;
 }

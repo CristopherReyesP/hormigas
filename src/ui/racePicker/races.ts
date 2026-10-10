@@ -122,7 +122,7 @@ export const RIVAL_OPTIONS: readonly RivalInfo[] = [
   {
     id: 'wildlife',
     name: 'Fauna salvaje',
-    note: 'Escarabajos y grillos',
+    note: 'Acorazados y grillos',
     available: isAvailableRival('wildlife'),
     portrait: 'beetle',
   },
