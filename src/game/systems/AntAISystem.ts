@@ -584,7 +584,12 @@ export class AntAISystem implements System {
     );
     if (route && route.length > 0) {
       path.waypoints = route;
-      path.currentIndex = 0;
+      // A* starts on the ant's own tile. Walking back to its center first
+      // undid the progress of every re-plan (a chase re-plans each
+      // ORDER_CHASE_REPATH_SECONDS), so a soldier sent far away shuffled in
+      // place by the nest until the order timed out: head for the next tile.
+      const start = route[0];
+      path.currentIndex = route.length > 1 && start.x === Math.round(pos.x) && start.y === Math.round(pos.y) ? 1 : 0;
       return true;
     }
     const step = this.fallbackMoveToward(pos, goal);
