@@ -16,6 +16,7 @@ import { CRYSTAL_UNIT_BLURB, SPIRE_BLURB } from '../../game/rival/crystalNames';
 import { CRYSTAL_MAX_FLOORS } from '../../game/rival/crystalRival';
 import { useTouchUi } from '../layout/touch';
 import { CrystalInfo } from '../races/crystal/CrystalInfo';
+import { HumanBaseSummary, HumanGroupPanel, HumanProduction } from '../races/human/HumanInfo';
 import {
   ANT_STATE_LABEL, BEETLE_STATE_LABEL, ROLE_BLURB, CARRY_LABEL, CRICKET_STATE_LABEL, ROLE_ICON, ROLE_LABEL, ROLE_PLURAL, formatClock,
 } from './format';
@@ -264,8 +265,8 @@ export function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
 export function SelectionInfo({ stats, gameManager, attackCount, onAttackCountChange }: Omit<InfoPanelProps, 'details'>) {
   const sel = stats.selectedEntity!;
   const { name, faction } = selectionTitle(sel);
-  const enemy = sel.type === 'beetle' || sel.type === 'cricket' || sel.type === 'crystal_unit' || sel.type === 'crystal_spire'
-    || sel.type === 'human_unit' || DEN_KIND.has(sel.type);
+  const enemy = !sel.human?.own && (sel.type === 'beetle' || sel.type === 'cricket' || sel.type === 'crystal_unit' || sel.type === 'crystal_spire'
+    || sel.type === 'human_unit' || DEN_KIND.has(sel.type));
   const maxAttack = Math.min(30, stats.availableSoldiers);
   const sending = Math.min(attackCount, maxAttack);
   return (
@@ -285,7 +286,9 @@ export function SelectionInfo({ stats, gameManager, attackCount, onAttackCountCh
         {sel.type === 'nest' && (
           <div className="info-note">Haz clic otra vez en el nido, o usa Bajar al nido, para entrar al hormiguero.</div>
         )}
-        {DEN_KIND.has(sel.type) && (
+        {stats.human?.selected && <HumanProduction selected={stats.human.selected} />}
+        {/* The attack wave sends free soldier ants: a Human player orders troops instead */}
+        {DEN_KIND.has(sel.type) && !stats.human && (
           <>
             <h3 className="hud-label">OLEADA DE ATAQUE</h3>
             <div className="info-note">{stats.availableSoldiers} soldados libres</div>
@@ -414,12 +417,16 @@ export function InfoPanel(props: InfoPanelProps) {
       <div className="chrome-plate-inner console-info-inner">
         {stats.crystal ? (
           <CrystalInfo {...props} crystal={stats.crystal} />
+        ) : stats.human?.group ? (
+          <HumanGroupPanel group={stats.human.group} gameManager={props.gameManager} />
         ) : stats.selectedGroup ? (
           <GroupInfo group={stats.selectedGroup} gameManager={props.gameManager} underground={stats.activeLayer === 'underground'} />
         ) : stats.selectedEntity ? (
           <SelectionInfo {...props} />
         ) : stats.activeLayer === 'underground' ? (
           <NestSummary details={details} />
+        ) : stats.human ? (
+          <HumanBaseSummary human={stats.human} stats={stats} />
         ) : (
           <ColonySummary stats={stats} details={details} />
         )}

@@ -42,7 +42,7 @@ export interface PointerHandlers {
   onPaint?: (screenX: number, screenY: number, phase: PaintPhase) => void;
   /** Asked when a finger drag starts; 'pan' when absent */
   touchDragMode?: () => TouchDragMode;
-  /** The mouse moved with no button held (canvas px): build ghosts follow it */
+  /** The mouse moved over the canvas with no button held (canvas px): hover feedback */
   onHover?: (screenX: number, screenY: number) => void;
 }
 
@@ -263,7 +263,7 @@ export class InputManager {
   private mouseMove(e: PointerEvent): void {
     const gesture = this.gesture;
     if (!gesture) {
-      if (this.handlers.onHover && e.target === this.canvas) {
+      if (this.handlers.onHover && e.target === this.canvas && !this.isDirected()) {
         const at = this.cssToCanvas(e);
         this.handlers.onHover(at.x, at.y);
       }

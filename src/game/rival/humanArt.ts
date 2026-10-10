@@ -30,6 +30,7 @@ const ROOF_ART: Record<HumanBuildingKind, number> = {
   barracks: 10,
   bunker: 4,
   supply_depot: 4,
+  factory: 8,
 };
 
 export interface HumanBuildingLook {
@@ -97,6 +98,14 @@ export function drawHumanBuilding(
         r(x, floorTop + 3, 3, 3, lit ? VISOR : ST[0]);
         r(x, floorTop + 3, 3, 1, lit ? ST[3] : OUTLINE);
       }
+    }
+    if (kind === 'factory') {
+      // A tall vehicle bay with a striped hazard lintel
+      const bay = Math.max(8, Math.round(W / 3));
+      const bx = Math.round((W - bay) / 2);
+      r(bx, -9, bay, 9, OUTLINE);
+      for (let x = 0; x < bay; x += 2) r(bx + x, -10, 1, 1, VISOR);
+      r(bx + 1, -8, bay - 2, 1, ST[2]);
     }
     if (kind === 'barracks') {
       // A wide door on the ground floor
@@ -182,6 +191,17 @@ function drawRoof(r: Rect, kind: HumanBuildingKind, W: number, top: number, time
     case 'bunker':
       r(2, top - 2, W - 4, 2, OL[1]);
       break;
+    case 'factory': {
+      // A sawtooth workshop roof and a smoking stack
+      r(-2, top - 2, W + 4, 2, OUTLINE);
+      for (let x = 0; x < W; x += 6) {
+        r(x, top - 5, 3, 3, ST[2]);
+        r(x + 3, top - 4, 3, 2, ST[3]);
+      }
+      r(W - 6, top - 12, 3, 10, ST[0]);
+      r(W - 7, top - 13, 5, 1, blink ? PAL.healthYellow : OL[3]);
+      break;
+    }
     case 'supply_depot': {
       // Crops on the roof: the rations grow up there
       r(-1, top - 2, W + 2, 2, OUTLINE);

@@ -286,7 +286,10 @@ export interface MoveOrderResult {
   target: Vector2;
 }
 
-/** Own surface units (ants, or a playable race's units) among `ids` that can take an order, with their distance to `target`. */
+/** A unit the player commands: an own ant, or a Human or Crystal player's unit (factions/playerUnits) */
+export { isPlayerUnit };
+
+/** Own surface units among `ids` that can take an order, with their distance to `target`. */
 function orderableUnits(world: World, ids: readonly EntityId[], target: Vector2): Array<{ id: EntityId; dist: number }> {
   const units: Array<{ id: EntityId; dist: number }> = [];
   for (const id of ids) {

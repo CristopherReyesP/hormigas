@@ -27,7 +27,7 @@ export interface WaveBossHooks {
 }
 
 /** What the Acorazado Colosal rams: the colony's units and its defenses */
-const RAM_STORES = [COMPONENT.ANT, COMPONENT.QUEEN_ENTITY, STRUCTURE_COMPONENT] as const;
+const RAM_STORES = [COMPONENT.ANT, COMPONENT.QUEEN_ENTITY, STRUCTURE_COMPONENT, HUMAN_COMPONENT.UNIT, HUMAN_COMPONENT.BUILDING] as const;
 
 /**
  * The mini-bosses' unique abilities:

@@ -16,7 +16,7 @@ import {
   type PathComponent,
   type PositionComponent,
 } from '../components/components';
-import { FactionId, ownerOf, relation } from '../factions/factions';
+import { FactionId, nearestEnemyBase, ownerOf, relation } from '../factions/factions';
 import { addSpireFloor, createCrystalSpire, createCrystalUnit } from '../rival/crystalFactories';
 import {
   CRYSTAL_ECONOMY,
@@ -37,7 +37,6 @@ import { combatVfxFor } from '../vfx/CombatVfx';
 import { ORDER_PATH_MAX_STEPS } from '../../shared/constants';
 import type { NightClock } from './CrystalHiveSystem';
 import { SPIRE_NAME } from '../rival/crystalNames';
-import { nearestEnemyCore } from '../factions/baseCore';
 
 /** What the rival reads from the day/night cycle (DayNightSystem, or a test clock). */
 export interface RivalClock extends NightClock {
@@ -433,7 +432,7 @@ export class CrystalRivalSystem implements System {
 
   /** The closest enemy base core: a nest, or a Crystal player's Hive */
   private enemyNest(hive: EntityId): Vector2 | null {
-    return nearestEnemyCore(this.world, ownerOf(this.world, hive) ?? FactionId.RIVAL, this.posOf(hive)!);
+    return nearestEnemyBase(this.world, ownerOf(this.world, hive) ?? FactionId.RIVAL, this.posOf(hive)!);
   }
 
   private posOf(id: EntityId): PositionComponent | undefined {

@@ -1,4 +1,4 @@
-import type { System } from '../../../engine/ecs/types';
+import type { WaveDirector } from '../human/HumanWaveSystem';
 import type { World } from '../../../engine/ecs/World';
 import type { EntityId, Vector2 } from '../../../shared/types';
 import { findPath, type PathGrid } from '../../../simulation/pathfinding/AStar';
@@ -98,7 +98,7 @@ const GROUP_LABELS: Record<WaveUnitKind, (rival: WaveRival) => string> = {
  * Clearing a wave and killing a boss pay minerals. Raiders fight the Crystal
  * units and structures they meet. Reports the same InvasionInfo the HUD reads.
  */
-export class CrystalSurfaceWaveSystem implements System {
+export class CrystalSurfaceWaveSystem implements WaveDirector {
   readonly name = 'CrystalSurfaceWaveSystem';
   readonly priority = 8;
 
@@ -135,6 +135,13 @@ export class CrystalSurfaceWaveSystem implements System {
 
   setRaidSource(source: RaidSource | null): void {
     this.raidSource = source;
+  }
+
+  /** No cave, no garrison below: the Swarm's garrison setting does nothing here */
+  setGarrison(_count: number): void {}
+
+  getGarrison(): number {
+    return 0;
   }
 
   /** A unit that joined the wave on now (a Prisma Guardián's shard): it counts until it dies */

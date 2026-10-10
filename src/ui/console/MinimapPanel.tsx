@@ -133,7 +133,9 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, hideNest
             <span className="minimap-tab-icon"><PixelIcon name="sun" /></span>
             <span className="minimap-tab-label">SUPERFICIE</span>
           </button>
-          {!hideNest && <button
+          {/* The Humans build up and the Crystal Hive grows spires: no nest view */}
+          {!hideNest && gameManager?.getRunSetup?.().playerRace !== 'human' && (
+          <button
             type="button"
             role="tab"
             aria-selected={activeLayer === 'underground'}
@@ -144,7 +146,8 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, hideNest
           >
             <span className="minimap-tab-icon"><PixelIcon name="den" /></span>
             <span className="minimap-tab-label">NIDO</span>
-          </button>}
+          </button>
+          )}
           {/* Compact HUD only: fold the map away to these tabs (M does the same) */}
           <button
             type="button"

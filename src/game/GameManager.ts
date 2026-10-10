@@ -37,6 +37,7 @@ import {
   findStructureAt,
   hasActiveOrder,
   isFreeSoldier,
+  isPlayerUnit,
   issueAttackOrders,
   issueHoldOrders,
   issueMoveOrders,
@@ -51,7 +52,7 @@ import { TransitSystem } from './systems/TransitSystem';
 import { ExcavationSystem } from './systems/ExcavationSystem';
 import { PorterSystem } from './systems/PorterSystem';
 import { ObjectiveSystem, type ObjectiveState } from './systems/ObjectiveSystem';
-import { UndergroundInvasionSystem, type InvasionInfo, type RaidSource, type WaveThreat } from './systems/UndergroundInvasionSystem';
+import { UndergroundInvasionSystem, type InvasionInfo, type WaveThreat } from './systems/UndergroundInvasionSystem';
 import { SpoilageSystem } from './systems/SpoilageSystem';
 import { FungusFarmSystem } from './systems/FungusFarmSystem';
 import { UndergroundHealingSystem } from './systems/UndergroundHealingSystem';
@@ -76,7 +77,6 @@ import { DEFENSE_STATS, type DefenseKind, type DefenseLayer } from './run/defens
 import type { WaveOverlay } from './render/waveFunArt';
 import { DEFAULT_RUN_SETUP, type RaceId, type RivalId, type RunSetup } from './run/RunSetup';
 import { CrystalPlayerController, type CrystalPlayerSnapshot } from './races/crystal/CrystalPlayerController';
-import { isPlayerUnit } from './factions/playerUnits';
 import { HumanBaseSystem } from './systems/HumanBaseSystem';
 import { HumanUnitAISystem } from './systems/HumanUnitAISystem';
 import { HUMAN_COMPONENT, type HumanBuildingComponent, type HumanUnitComponent } from './rival/humanComponents';
@@ -84,6 +84,9 @@ import { createHumanBase } from './rival/humanFactories';
 import { humanSelection, type HumanSelection } from './rival/humanInfo';
 import { pickHumanBaseSite } from './rival/humanSite';
 import { FactionId, FactionRegistry, defaultFactions, ownerOf } from './factions/factions';
+import { HUMAN_GROUP_ROLE, HumanPlayerRun, type HumanPlayerStats } from './races/human/HumanPlayerRun';
+import { drawHumanPlayerOverlay } from './races/human/humanOverlay';
+import type { WaveDirector } from './races/human/HumanWaveSystem';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
 import {
@@ -305,7 +308,7 @@ export interface GameOverStats {
   hiveDestroyed?: true;
   /** Set when the run was won by destroying the rival's core: whose it was */
   rivalCoreDestroyed?: 'crystal' | 'human';
-  /** The race the player played: the game-over copy fits it */
+  /** The race the player played, when it is not the Swarm (the end screen speaks for it) */
   playerRace?: RaceId;
   /** A Crystal player's run: units crystallized and structures raised */
   crystal?: { unitsMade: number; structuresBuilt: number };
@@ -398,6 +401,8 @@ export interface GameStats {
   introPlaying: boolean;
   /** The Crystal Hive's side of the HUD when the player plays it; absent for the Swarm */
   crystal?: CrystalPlayerSnapshot | null;
+  /** A Human player's base: resources, supply, placement, the selected building's queue (null for the Swarm) */
+  human?: HumanPlayerStats | null;
 }
 
 /**
@@ -475,6 +480,8 @@ export class GameManager {
   private excavationSystem: ExcavationSystem;
   private objectiveSystem!: ObjectiveSystem;
   private invasionSystem!: UndergroundInvasionSystem;
+  /** A Humans run (setup.playerRace 'human'): the player's base, its systems and its clicks; null for the Swarm */
+  private humanPlayer: HumanPlayerRun | null = null;
   private gameOver: GameOverStats | null = null;
   private upgradeLevels: Record<UpgradeId, number> = { carry: 0, damage: 0, storage: 0, dig: 0, porters: 0, heal: 0 };
   private fungusFarmSystem!: FungusFarmSystem;
@@ -526,7 +533,10 @@ export class GameManager {
       onLongPress: (screenX, screenY) => this.handleLongPress(screenX, screenY),
       onPaint: (screenX, screenY, phase) => this.paintAt(screenX, screenY, phase),
       touchDragMode: () => this.touchDragMode(),
-      onHover: (screenX, screenY) => this.crystal?.setHover(this.screenToTile(screenX, screenY)),
+      onHover: (screenX, screenY) => {
+        this.crystal?.setHover(this.screenToTile(screenX, screenY));
+        this.humanPlayer?.hover(this.screenToEntity(screenX, screenY));
+      },
     });
     this.input.setCamera(this.camera);
 
@@ -563,6 +573,11 @@ export class GameManager {
     const regenerationSystem = new RegenerationSystem(this.world);
     const breedingSystem = new BreedingSystem(this.world);
     this.selectionSystem = new SelectionSystem(this.world);
+    if (setup.playerRace === 'human') {
+      this.humanPlayer = new HumanPlayerRun(this.world, this.grid, this.dayNightSystem, this.selectionSystem);
+      const human = this.humanPlayer;
+      this.renderSystem.setWorldOverlay?.((ctx, interpolation, time) => drawHumanPlayerOverlay(ctx, this.world, human, interpolation, time));
+    }
     const foodRespawnSystem = new FoodRespawnSystem(this.world, this.grid, modifiers);
 
     // Register systems (render system is called manually during render, not during update)
@@ -613,24 +628,23 @@ export class GameManager {
       this.dayNightSystem
     );
     if (setup.playerRace === 'crystal') {
-      // The Crystal Hive has no cave: its night waves cross the surface to the Hive
+      // The Crystal Hive has no cave: its night waves cross the surface to the Hive (the controller adds them)
       this.crystal = new CrystalPlayerController(this.world, this.grid, this.dayNightSystem, (x, y) => this.visibilityGrid.isExplored(x, y));
       if (this.rivalRace !== 'crystal') this.world.addSystem(new CrystalShieldSystem(this.world));
     } else {
-      this.world.addSystem(this.invasionSystem);
+      // A Human player has no nest to break into: their waves come over the surface
+      this.world.addSystem(this.waves());
     }
     // Night-wave extras: elite affixes, the mini-bosses' abilities, the nest defenses
     this.world.addSystem(new EliteSystem(this.world));
-    this.world.addSystem(new WaveBossSystem(this.world, {
-      onSpawn: (id) => (this.crystal ? this.crystal.waves.addInvader(id) : this.invasionSystem.addInvader(id)),
-    }));
+    this.world.addSystem(new WaveBossSystem(this.world, { onSpawn: (id) => this.waves().addInvader(id) }));
     this.defenseSystem = new DefenseSystem(this.world, this.grid, this.undergroundGrid);
     this.world.addSystem(this.defenseSystem);
     // The rival base's night raids are part of each invasion wave, not waves of their own
     if (this.rivalRace === 'human') {
-      const humanBaseSystem = new HumanBaseSystem(this.world, this.grid, this.dayNightSystem, { autoRaids: false });
+      const humanBaseSystem = new HumanBaseSystem(this.world, this.grid, this.dayNightSystem, { autoRaids: false, faction: FactionId.RIVAL });
       this.world.addSystem(humanBaseSystem);
-      this.setRaidSource({
+      this.waves().setRaidSource({
         rival: 'human',
         unitLabel: (count) => (count === 1 ? 'tropa humana' : 'tropas humanas'),
         launch: (count) => humanBaseSystem.launchRaid(count),
@@ -641,12 +655,14 @@ export class GameManager {
       this.addCrystalRival();
     }
     // Waves land at nightfall, so the dusk warning doubles as the last call
-    this.dayNightSystem.setWaveArmedProvider(() => this.waveInfo().armed);
+    this.dayNightSystem.setWaveArmedProvider(() => this.waves().getInfo().armed);
     this.world.addSystem(new SpoilageSystem(this.world));
     this.fungusFarmSystem = new FungusFarmSystem(this.world, this.undergroundGrid);
     this.world.addSystem(this.fungusFarmSystem);
     // Farm tiles pulse while producing — render needs to know the farm state
     this.renderSystem.setFarmStatusProvider(() => this.fungusFarmSystem.getStatus().status);
+    // A Humans run swaps the colony systems for the Human base's
+    this.humanPlayer?.install();
     // The defense build ghost and the scouted breach, drawn in the world
     this.renderSystem.setWaveOverlayProvider(() => this.waveOverlay());
 
@@ -738,8 +754,7 @@ export class GameManager {
     const rival = this.world.factions.get(FactionId.RIVAL);
     if (rival && this.rivalCoreId !== null) rival.coreId = this.rivalCoreId;
     // The meteor intro (and the rival's arrival) is the Swarm's; the Crystal Hive opens on its Hive (a title card in the HUD)
-    if (this.crystal) this.introClock.advance(Number.POSITIVE_INFINITY);
-    else this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock, arrival);
+    if (!this.crystal) this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock, arrival);
     this.spawnMineralFields({ x: nestX, y: nestY });
     const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
     // The fireball (or the dropship) lights the ground it flies over and its
@@ -755,6 +770,9 @@ export class GameManager {
     );
     window.addEventListener('keydown', this.skipIntro);
     canvas.addEventListener('pointerdown', this.skipIntro);
+    // The meteor cinematic is the Swarm's awakening: a Human expedition lands
+    // straight into the run, under its own banner (HumanPlayerStats.intro); the Crystal Hive wakes under its title
+    if (this.humanPlayer || this.crystal) this.endIntroNow();
     audioRunStarted(() => ({ layer: this.activeLayerValue(), view: this.activeCamera().getViewRectTiles() }), introVariant);
   }
 
@@ -781,7 +799,7 @@ export class GameManager {
     this.crystalRival = new CrystalRivalSystem(this.world, this.grid, this.dayNightSystem);
     this.world.addSystem(this.crystalRival);
     const rival = this.crystalRival;
-    this.setRaidSource({
+    this.waves().setRaidSource({
       rival: 'crystal',
       launch: (count) => crystalHiveSystem.launchRaid(count),
       origin: () => crystalHiveSystem.raidOrigin(),
@@ -789,6 +807,11 @@ export class GameManager {
     });
     this.world.addSystem(new CrystalUnitAISystem(this.world, this.grid));
     this.world.addSystem(new CrystalShieldSystem(this.world));
+  }
+
+  /** The night waves of this run: under the nest for the Swarm, over the surface for the Humans and the Crystal Hive */
+  private waves(): WaveDirector {
+    return this.crystal?.waves ?? this.humanPlayer?.waves ?? this.invasionSystem;
   }
 
   /** The skirmish this run was started with */
@@ -799,17 +822,6 @@ export class GameManager {
   /** The player's Crystal Hive, when the player plays it (null for the Swarm) */
   getCrystal(): CrystalPlayerController | null {
     return this.crystal;
-  }
-
-  /** The night waves on now: the Swarm's nest invasions, or the Crystal Hive's surface waves */
-  private waveInfo(): InvasionInfo {
-    return this.crystal ? this.crystal.waves.getInfo() : this.invasionSystem.getInfo();
-  }
-
-  /** The rival base's raiders join the night waves of whichever race the player plays */
-  private setRaidSource(source: RaidSource): void {
-    if (this.crystal) this.crystal.waves.setRaidSource(source);
-    else this.invasionSystem.setRaidSource(source);
   }
 
   /** Canvas px to a surface tile */
@@ -876,6 +888,11 @@ export class GameManager {
       this.placeCrystalAt(this.screenToTile(screenX, screenY));
       return;
     }
+    // A Human player placing a building: this click puts it down
+    if (this.humanPlayer?.clickAt(this.screenToEntity(screenX, screenY), false)) {
+      this.publishStats();
+      return;
+    }
     if (this.armedCommand) {
       // Mover or Atacar was pressed: this click is the order's target
       if (this.armedCommand === 'attack') this.attackAt(screenX, screenY);
@@ -924,6 +941,15 @@ export class GameManager {
       if (ghost && ghost.layer === tile.layer && ghost.x === tile.x && ghost.y === tile.y) this.placeDefenseAtScreen(screenX, screenY);
       else this.ghostTile = tile;
       return;
+    }
+    if (this.humanPlayer && !this.gameOver && !this.armedCommand) {
+      // Placing a building (first tap shows it, a second one places it), or a rally point
+      const at = this.screenToEntity(screenX, screenY);
+      const hits = this.selectionSystem.antAt(at.x, at.y, Layer.Surface) !== null || this.enemyAt(at) !== null;
+      if (this.humanPlayer.tapAt(at, hits)) {
+        this.publishStats();
+        return;
+      }
     }
     if (this.activeLayer === 'surface' && !this.armedCommand && !this.gameOver && this.selectionSystem.getSelectedAnts().length > 0) {
       const at = this.screenToEntity(screenX, screenY);
@@ -1171,6 +1197,14 @@ export class GameManager {
     this.publishStats(); // the HUD fades in now, not at the next stats tick
   };
 
+  /** Jump the opening cinematic to its end state (a race without the meteor intro) */
+  private endIntroNow(): void {
+    this.introClock.advance(Number.POSITIVE_INFINITY);
+    this.renderSystem.skipIntro();
+    this.introDirector.finish();
+    this.detachIntroSkip();
+  }
+
   private detachIntroSkip(): void {
     window.removeEventListener('keydown', this.skipIntro);
     this.canvas.removeEventListener('pointerdown', this.skipIntro);
@@ -1249,41 +1283,14 @@ export class GameManager {
     if (this.crystal) {
       // The Crystal Hive: its core, two drones and minerals; no nest, queen or cave
       this.crystal.spawnBase(nestX, nestY);
+    } else if (this.humanPlayer) {
+      // The Human expedition: a command center, builders and soldiers; no nest, no queen
+      this.humanPlayer.spawnStart({ x: nestX, y: nestY });
     } else {
-      this.spawnSwarmColony(nestX, nestY);
+      this.spawnColony(nestX, nestY);
     }
 
     this.spawnWildlifeAndFood(nestX, nestY);
-  }
-
-  /** The Swarm's start: the nest, the queen and her nurses below, and the first workers */
-  private spawnSwarmColony(nestX: number, nestY: number): void {
-    const nestId = createNest(this.world, nestX, nestY);
-    this.stockStartingPantry(nestId);
-
-    // Spawn queen in underground (center of underground grid)
-    // Underground tiles are corner-anchored: centers sit at +0.5
-    const ugCenterX = Math.floor(UNDERGROUND_WIDTH / 2) + 0.5;
-    const ugCenterY = Math.floor(UNDERGROUND_HEIGHT / 2) + 0.5;
-    createQueen(this.world, ugCenterX, ugCenterY);
-
-    // Spawn 3 initial nurses underground near the queen
-    for (let i = 0; i < 3; i++) {
-      const nurseX = ugCenterX + (i - 1) * 1.5; // spread around queen
-      const nurseY = ugCenterY + 1;
-      const nurseId = createAnt(this.world, nurseX, nurseY, AntRole.Nurse);
-      const nurseLayer = this.world.getComponent<LayerComponent>(nurseId, COMPONENT.LAYER);
-      if (nurseLayer) nurseLayer.layer = Layer.Underground;
-    }
-
-    // Spawn initial ants near nest
-    for (let i = 0; i < INITIAL_ANTS; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 1 + Math.random() * 2;
-      const x = nestX + Math.cos(angle) * dist;
-      const y = nestY + Math.sin(angle) * dist;
-      createAnt(this.world, x, y, AntRole.Worker);
-    }
   }
 
   /** Food, the giant mushroom and the beetle dens, away from the player's base at the center */
@@ -1312,7 +1319,7 @@ export class GameManager {
 
         if (!this.grid.isWalkable(x, y)) continue;
 
-        // Must be far from the player's base (the nest, or the Crystal Hive)
+        // Must be far from the player's base at the center
         const dx = x - nestX;
         const dy = y - nestY;
         const distToNest = Math.sqrt(dx * dx + dy * dy);
@@ -1321,6 +1328,36 @@ export class GameManager {
         createBeetleDen(this.world, x, y);
         break;
       }
+    }
+  }
+
+  /** The Swarm's start: the nest, the queen and her nurses below, the first workers above */
+  private spawnColony(nestX: number, nestY: number): void {
+    const nestId = createNest(this.world, nestX, nestY);
+    this.stockStartingPantry(nestId);
+
+    // Spawn queen in underground (center of underground grid)
+    // Underground tiles are corner-anchored: centers sit at +0.5
+    const ugCenterX = Math.floor(UNDERGROUND_WIDTH / 2) + 0.5;
+    const ugCenterY = Math.floor(UNDERGROUND_HEIGHT / 2) + 0.5;
+    createQueen(this.world, ugCenterX, ugCenterY);
+
+    // Spawn 3 initial nurses underground near the queen
+    for (let i = 0; i < 3; i++) {
+      const nurseX = ugCenterX + (i - 1) * 1.5; // spread around queen
+      const nurseY = ugCenterY + 1;
+      const nurseId = createAnt(this.world, nurseX, nurseY, AntRole.Nurse);
+      const nurseLayer = this.world.getComponent<LayerComponent>(nurseId, COMPONENT.LAYER);
+      if (nurseLayer) nurseLayer.layer = Layer.Underground;
+    }
+
+    // Spawn initial ants near nest
+    for (let i = 0; i < INITIAL_ANTS; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 1 + Math.random() * 2;
+      const x = nestX + Math.cos(angle) * dist;
+      const y = nestY + Math.sin(angle) * dist;
+      createAnt(this.world, x, y, AntRole.Worker);
     }
   }
 
@@ -1398,8 +1435,8 @@ export class GameManager {
 
     this.checkGameOver(previousPhase);
     const dayPhase = this.dayNightSystem.getPhase();
-    // The dawn mutation pick is the Swarm's evolution chamber; crystals do not mutate
-    if (!this.crystal && shouldOfferMutation(previousPhase, dayPhase, this.dayNightSystem.getDayNumber(), this.gameOver !== null)) {
+    // The dawn mutation pick is the Swarm's: a Human expedition and the Crystal Hive do not mutate
+    if (!this.humanPlayer && !this.crystal && shouldOfferMutation(previousPhase, dayPhase, this.dayNightSystem.getDayNumber(), this.gameOver !== null)) {
       this.openMutationOffer();
     }
 
@@ -1426,14 +1463,15 @@ export class GameManager {
       if (health && health.current <= 0) queenDead = true;
     }
     const coreDestroyed = this.rivalCoreId != null && !this.world.hasEntity(this.rivalCoreId);
-    // The Crystal Hive has no queen: it falls with its Hive. Its run is endless:
-    // night 7 is a milestone (no phase change reaches the outcome), not a win
-    const coreAlive = this.crystal ? this.crystal.hiveAlive() : !queenDead;
+    // A Human player's life is the command center, a Crystal player's the Hive, not a queen
+    const alive = this.humanPlayer ? this.humanPlayer.isCoreAlive() : this.crystal ? this.crystal.hiveAlive() : !queenDead;
+    // The Crystal Hive's endless run: night 7 is a milestone, not a win
     this.crystal?.checkNightMilestone(previousPhase, this.dayNightSystem.getPhase(), this.dayNightSystem.getDayNumber());
     const outcome = resolveRunOutcome(
       null,
-      coreAlive,
-      this.crystal ? this.dayNightSystem.getPhase() : previousPhase,
+      alive,
+      // Human and Crystal runs are endless: surviving the nights never ends them (no dawn edge for the 7-night win)
+      this.humanPlayer || this.crystal ? this.dayNightSystem.getPhase() : previousPhase,
       this.dayNightSystem.getPhase(),
       this.dayNightSystem.getDayNumber(),
       coreDestroyed,
@@ -1448,7 +1486,7 @@ export class GameManager {
       tilesExcavated: this.world.metrics.tilesExcavated,
       wavesRepelled: this.world.metrics.wavesRepelled,
       build: summarizeMutationBuild(this.runModifiers.getAppliedMutations()),
-      // The Swarm's game-over stays as it was; the Crystal Hive's says whose run it was
+      ...(this.humanPlayer ? { playerRace: 'human' as const } : {}),
       ...(this.crystal ? { playerRace: 'crystal' as const, crystal: this.crystal.system.stats() } : {}),
       ...(outcome === 'victory' && coreDestroyed
         ? { rivalCoreDestroyed: this.rivalRace === 'human' ? 'human' as const : 'crystal' as const, ...(this.rivalRace === 'crystal' ? { hiveDestroyed: true as const } : {}) }
@@ -1531,8 +1569,9 @@ export class GameManager {
       if (ids.length === 0) continue;
       const byRole = new Map<AntRole, number>();
       for (const id of ids) {
-        // A Crystal unit's chip shows the fighter icon
-        const role = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)?.role ?? AntRole.Soldier;
+        // A Human unit's chip borrows the icon of the matching caste; a Crystal unit's shows the fighter
+        const human = this.world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT);
+        const role = human ? HUMAN_GROUP_ROLE[human.type] : this.world.getComponent<AntComponent>(id, COMPONENT.ANT)?.role ?? AntRole.Soldier;
         byRole.set(role, (byRole.get(role) ?? 0) + 1);
       }
       const role = GROUP_ROLE_ORDER.reduce((best, r) => ((byRole.get(r) ?? 0) > (byRole.get(best) ?? 0) ? r : best));
@@ -1792,6 +1831,11 @@ export class GameManager {
     // A spire selected (no units): the right-click is its rally point
     if (this.crystal && this.selectionSystem.getSelectedAnts().length === 0 && this.setRallyAt(this.screenToTile(screenX, screenY))) return;
     const at = this.screenToEntity(screenX, screenY);
+    // A Human player's own orders: mine, help raise a frame, set a rally point, cancel a placement
+    if (!this.armedCommand && this.humanPlayer?.commandAt(at)) {
+      this.publishStats();
+      return;
+    }
     const enemy = this.armedCommand === 'move' ? null : this.enemyAt(at);
     if (enemy !== null) this.orderSelectedAttack(enemy);
     else this.orderSelectedMove(Math.round(at.x), Math.round(at.y));
@@ -2369,7 +2413,7 @@ export class GameManager {
   }
 
   enterUnderground(): void {
-    if (this.crystal) return; // the Crystal Hive has no cave
+    if (this.humanPlayer || this.crystal) return; // the Humans build up and the Crystal Hive grows spires: there is no nest view
     this.dropAntSelection();
     this.activeLayer = 'underground';
     const cx = Math.floor(UNDERGROUND_WIDTH / 2) * TILE_SIZE;
@@ -2418,7 +2462,7 @@ export class GameManager {
 
   /** Where the coming or ongoing wave is on one layer — minimap pings */
   getWaveThreats(layer: 'surface' | 'underground'): WaveThreat[] {
-    return this.waveInfo().threats.filter((t) => t.layer === layer);
+    return this.waves().getInfo().threats.filter((t) => t.layer === layer);
   }
 
   /** Entrances the colony currently has — every one is also a breach point */
@@ -2505,12 +2549,13 @@ export class GameManager {
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'food' });
     }
-    const own = (id: EntityId) => ownerOf(this.world, id) === FactionId.PLAYER;
+    // The player's own base and units (Human or Crystal) read as home and friends, never as enemies
+    const mine = (id: EntityId) => ownerOf(this.world, id) === FactionId.PLAYER;
     for (const component of [COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN, COMPONENT.CRYSTAL_HIVE, COMPONENT.CRYSTAL_SPIRE, HUMAN_COMPONENT.BUILDING]) {
       for (const id of this.world.query(component, COMPONENT.POSITION)) {
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-        // A Crystal player's Hive and spires are its own base, not an enemy's
-        if (this.crystal && own(id)) out.push({ x: pos.x, y: pos.y, kind: component === COMPONENT.CRYSTAL_HIVE ? 'nest' : 'ant' });
+        // The player's own base: its core reads as home, a Crystal player's spires as friends
+        if (mine(id)) out.push({ x: pos.x, y: pos.y, kind: component === COMPONENT.CRYSTAL_SPIRE ? 'ant' : 'nest' });
         else if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'den' });
       }
     }
@@ -2523,7 +2568,7 @@ export class GameManager {
       for (const id of this.world.query(component, COMPONENT.POSITION)) {
         if (!onSurface(id)) continue;
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-        if (own(id)) out.push({ x: pos.x, y: pos.y, kind: 'ant' });
+        if (mine(id)) out.push({ x: pos.x, y: pos.y, kind: 'ant' });
         else if (isTileVisible(fog, Math.floor(pos.x), Math.floor(pos.y))) out.push({ x: pos.x, y: pos.y, kind: 'enemy' });
       }
     }
@@ -2637,7 +2682,8 @@ export class GameManager {
 
   /** Two or more selected ants: counts per caste and the wireframe cells. */
   getSelectedGroup(): SelectedGroupInfo | null {
-    const ids = this.selectionSystem.getSelectedAnts();
+    // Ants and Crystal units: a Human player's group is summed up in HumanPlayerStats.group
+    const ids = this.selectionSystem.getSelectedAnts().filter((id) => this.world.getComponent(id, HUMAN_COMPONENT.UNIT) === undefined);
     if (ids.length < 2) return null;
     const byRole: Partial<Record<AntRole, number>> = {};
     const units: SelectedGroupInfo['units'] = [];
@@ -2905,8 +2951,8 @@ export class GameManager {
       defenseBuild: this.defenseBuild,
       controlGroups: this.getControlGroups(),
       notifications: this.getActiveNotifications(),
-      objective: this.crystal ? this.crystal.objective() : this.objectiveSystem.getState(),
-      invasion: this.waveInfo(),
+      objective: this.humanPlayer ? null : this.crystal ? this.crystal.objective() : this.objectiveSystem.getState(),
+      invasion: this.waves().getInfo(),
       gameOver: this.gameOver,
       activeEvents: this.eventSystem.active.map((e) => ({
         icon: e.definition.icon,
@@ -2920,7 +2966,13 @@ export class GameManager {
       lastMutationPick: this.lastMutationPick,
       introPlaying: this.introClock.isPlaying(),
       crystal: this.crystal?.snapshot(this.selectionSystem.getSelectedEntityId(), this.selectionSystem.getSelectedAnts()) ?? null,
+      human: this.humanPlayer?.stats() ?? null,
     };
+  }
+
+  /** A Humans run's base (build, train, rally), for the HUD; null when the player is the Swarm */
+  getHumanPlayer(): HumanPlayerRun | null {
+    return this.humanPlayer;
   }
 
   /** Prune expired notifications and return the live ones (newest last) */

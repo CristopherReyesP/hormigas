@@ -3,6 +3,7 @@ import type { GameOverStats } from '../game/GameManager';
 import { PixelIcon } from './console/PixelIcon';
 import type { IconName } from './console/pixelIcons';
 import { crystalGameOverCopy } from './races/crystal/crystalGameOver';
+import { humanGameOverCopy } from './races/human/gameOverCopy';
 
 interface GameOverScreenProps {
   stats: GameOverStats;
@@ -14,6 +15,8 @@ export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
   const victory = stats.outcome === 'victory';
   // A Crystal Hive run has its own words and figures
   const crystal = stats.playerRace === 'crystal' ? crystalGameOverCopy(stats) : null;
+  // A Human player's run ends with the expedition's words, not the queen's
+  const human = stats.playerRace === 'human' ? humanGameOverCopy(stats) : null;
   const accent = victory ? 'var(--chrome-accent)' : 'var(--chrome-danger)';
   const minutes = Math.floor(stats.survivedTicks / 60 / 60);
   const seconds = Math.floor(stats.survivedTicks / 60) % 60;
@@ -47,7 +50,7 @@ export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
         zIndex: 40,
       }}
     >
-      {victory && <div className="run-banner">{crystal?.banner ?? 'LA COLMENA PREVALECE'}</div>}
+      {victory && <div className="run-banner">{crystal?.banner ?? human?.banner ?? 'LA COLMENA PREVALECE'}</div>}
       <div
         className="pixel-panel"
         style={{
@@ -75,12 +78,12 @@ export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
                 marginBottom: 8,
               }}
             >
-              {crystal?.title ?? 'LA REINA HA MUERTO'}
+              {crystal?.title ?? human?.defeatTitle ?? 'LA REINA HA MUERTO'}
             </div>
           </>
         )}
         <div style={{ color: 'var(--chrome-dim)', marginBottom: 18 }}>
-          {crystal ? crystal.subtitle : victory
+          {crystal ? crystal.subtitle : human ? human.line : victory
             ? stats.rivalCoreDestroyed === 'human'
               ? 'La colonia destruyó el Centro de Mando humano.'
               : stats.hiveDestroyed || stats.rivalCoreDestroyed === 'crystal'
@@ -102,10 +105,12 @@ export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
               <strong className="pixel-number">{row.value}</strong>
             </div>
           )) : <>
-          <div style={rowStyle}>
-            {label('ant', 'Hormigas nacidas')}
-            <strong className="pixel-number">{stats.antsHatched}</strong>
-          </div>
+          {!human && (
+            <div style={rowStyle}>
+              {label('ant', 'Hormigas nacidas')}
+              <strong className="pixel-number">{stats.antsHatched}</strong>
+            </div>
+          )}
           <div style={rowStyle}>
             {label('shield', 'Oleadas repelidas')}
             <strong className="pixel-number">{stats.wavesRepelled}</strong>
@@ -114,14 +119,16 @@ export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
             {label('den', 'Guaridas destruidas')}
             <strong className="pixel-number">{stats.densDestroyed}</strong>
           </div>
-          <div style={{ ...rowStyle, borderBottom: 'none' }}>
-            {label('pick', 'Casillas excavadas')}
-            <strong className="pixel-number">{stats.tilesExcavated}</strong>
-          </div>
+          {!human && (
+            <div style={{ ...rowStyle, borderBottom: 'none' }}>
+              {label('pick', 'Casillas excavadas')}
+              <strong className="pixel-number">{stats.tilesExcavated}</strong>
+            </div>
+          )}
           </>}
         </div>
 
-        {!crystal && <div style={{ textAlign: 'left', marginBottom: 22 }}>
+        {!human && !crystal && <div style={{ textAlign: 'left', marginBottom: 22 }}>
           <div className="pixel-heading" style={{ color: 'var(--chrome-dim)', marginBottom: 6 }}>
             Mutaciones
           </div>

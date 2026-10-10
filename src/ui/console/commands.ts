@@ -6,6 +6,7 @@ import type { IconName } from './pixelIcons';
 import type { ColonyDetails } from './useColonyDetails';
 import { ROLE_BLURB, ROLE_LABEL, stripEmoji } from './format';
 import { buildCrystalCommands } from '../races/crystal/crystalCommands';
+import { humanCommands } from '../races/human/humanCommands';
 import { DEFENSE_STATS, type DefenseKind } from '../../game/run/defenses';
 
 /**
@@ -16,8 +17,8 @@ import { DEFENSE_STATS, type DefenseKind } from '../../game/run/defenses';
 
 /** Nest tools (underground only) and the defense build tools (both layers: Espina, Trampa, Muro) */
 export type BuildMode = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense' | DefenseKind;
-/** 'groups' is the touch stand-in for Ctrl/Shift+digit: bind the selection to a control group */
-export type CardPage = 'root' | 'colony' | 'groups' | 'defenses';
+/** 'groups' is the touch stand-in for Ctrl/Shift+digit: bind the selection to a control group; 'build' is a Human builder's Construir menu */
+export type CardPage = 'root' | 'colony' | 'groups' | 'defenses' | 'build';
 
 const DEFENSE_KINDS: readonly DefenseKind[] = ['spine', 'trap', 'wall'];
 
@@ -35,7 +36,7 @@ export interface CommandDef {
   glyph?: string;
   description: string;
   /** Price printed on the button face; `short` paints it red when the stock cannot pay it */
-  cost?: { amount: number; resource: 'comida' | 'hongos' | 'minerales'; short?: boolean };
+  cost?: { amount: number; resource: 'comida' | 'hongos' | 'raciones' | 'minerales'; short?: boolean };
   /** Small corner text: queue size, tile count, upgrade level */
   badge?: string;
   badgeTone?: 'warn';
@@ -674,8 +675,9 @@ function colonyPage(ctx: CommandContext): Slot[] {
 
 /** The 15 slots of the card for the current layer and page (null = empty slot). */
 export function buildCommands(ctx: CommandContext): Slot[] {
-  // The Crystal Hive has its own card: build, produce, and the same unit orders
+  // A Human or Crystal player has a card of their own; the Swarm's Defensas page is on neither
   const slots = ctx.stats.crystal ? buildCrystalCommands(ctx)
+    : ctx.stats.human ? humanCommands(ctx, ctx.stats.human)
     : ctx.stats.activeLayer === 'underground'
       ? ctx.page === 'colony' ? colonyPage(ctx) : ctx.page === 'defenses' ? defensesPage(ctx) : nestRoot(ctx)
       : hasUnitSelection(ctx.stats) ? ctx.page === 'groups' ? groupsPage(ctx) : unitPage(ctx)

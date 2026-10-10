@@ -13,9 +13,11 @@ import { isHostileTo, ownerOf } from '../factions/factions';
 import { ELITE_COMPONENT, ELITE_TUNING, enrage, type EliteComponent } from '../run/eliteAffixes';
 import { dealDamage, pushWaveFx, waveRuntimeFor } from '../run/waveRuntime';
 import { emitAudio } from '../../audio/events';
+import { HUMAN_COMPONENT } from '../rival/humanComponents';
 
 /** What an Explosivo's blast can hurt: the colony (ants and the queen) */
-const BLAST_STORES = [COMPONENT.ANT, COMPONENT.QUEEN_ENTITY] as const;
+// A Human player's units and buildings too (only enemies of the blast's side are hit)
+const BLAST_STORES = [COMPONENT.ANT, COMPONENT.QUEEN_ENTITY, HUMAN_COMPONENT.UNIT, HUMAN_COMPONENT.BUILDING] as const;
 
 /**
  * Runs the elite affixes that act over time: Sanador's healing pulse,

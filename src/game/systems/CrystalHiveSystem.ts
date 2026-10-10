@@ -11,8 +11,7 @@ import {
   type PositionComponent,
 } from '../components/components';
 import { createCrystalDrone } from '../entities/factories';
-import { FactionId, ownerOf } from '../factions/factions';
-import { nearestEnemyCore } from '../factions/baseCore';
+import { FactionId, nearestEnemyBase, ownerOf } from '../factions/factions';
 import { CRYSTAL_HIVE_STATS, crystalWaveSize, planCrystalWave, stepHiveProduction } from '../rival/crystalHive';
 import { ORDER_PATH_MAX_STEPS } from '../../shared/constants';
 import type { DayPhase } from './DayNightSystem';
@@ -167,7 +166,6 @@ export class CrystalHiveSystem implements System {
   /** The closest base core (a nest, or a Crystal player's Hive) of a faction this hive is at war with, as a tile */
   private enemyNestOf(hiveId: EntityId): Vector2 | null {
     const owner = ownerOf(this.world, hiveId) ?? FactionId.RIVAL;
-    const at = this.world.getComponent<PositionComponent>(hiveId, COMPONENT.POSITION)!;
-    return nearestEnemyCore(this.world, owner, at);
+    return nearestEnemyBase(this.world, owner, this.world.getComponent<PositionComponent>(hiveId, COMPONENT.POSITION)!);
   }
 }
