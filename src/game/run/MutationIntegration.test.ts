@@ -17,21 +17,19 @@ import { RegenerationSystem } from '../systems/RegenerationSystem';
 import { TileGrid } from '../../simulation/world/TileGrid';
 import { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
+import { fakeCanvas } from '../../test/gameManagerMocks';
 import { ANT_SPEED, BEETLE_MEAT_AMOUNT, BREED_COST_SOLDIER, BREED_COST_WORKER, EXCAVATION_TIME, FLANKING_BONUS_PER_ALLY, FOG_REVEAL_MULTIPLIER, FOOD_RESPAWN_INTERVAL, ROLE_STATS, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
 
 // Keep the actual manager constructor and simulation, replace browser-only adapters.
-vi.mock('../../engine/input/InputManager', () => ({ InputManager: class {
-  setCamera() {} onKeyAction() {} onCanvasClick() {}
-} }));
-vi.mock('../systems/RenderSystem', () => ({ RenderSystem: class {
-  setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {}
-  setFarmStatusProvider() {} invalidateTerrain() {} startMeteorIntro() {} skipIntro() {}
-} }));
+vi.mock('../../engine/input/InputManager', async () =>
+  (await import('../../test/gameManagerMocks')).mockInputManager());
+vi.mock('../systems/RenderSystem', async () =>
+  (await import('../../test/gameManagerMocks')).mockRenderSystem());
 // The intro-skip listeners hang off window and the canvas; node has neither.
 vi.stubGlobal('window', new EventTarget());
 
 function manager() {
-  return new GameManager(Object.assign(new EventTarget(), { getContext: () => ({}) }) as unknown as HTMLCanvasElement);
+  return new GameManager(fakeCanvas());
 }
 
 function get<T>(world: World, id: number, component: string): T {

@@ -2,21 +2,19 @@ import { describe, expect, it, vi } from 'vitest';
 import { GameManager } from '../GameManager';
 import { CRATER_CLEAR_RADIUS, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
 import type { TileGrid } from '../../simulation/world/TileGrid';
+import { fakeCanvas } from '../../test/gameManagerMocks';
 
 // Real manager and map; browser-only adapters are replaced.
-vi.mock('../../engine/input/InputManager', () => ({ InputManager: class {
-  setCamera() {} onKeyAction() {} onCanvasClick() {} destroy() {}
-} }));
+vi.mock('../../engine/input/InputManager', async () =>
+  (await import('../../test/gameManagerMocks')).mockInputManager());
 const intros: Array<{ impact: { x: number; y: number }; nest: { x: number; y: number } }> = [];
-vi.mock('../systems/RenderSystem', () => ({ RenderSystem: class {
-  setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {}
-  setFarmStatusProvider() {} invalidateTerrain() {} skipIntro() {}
-  startMeteorIntro(impact: { x: number; y: number }, nest: { x: number; y: number }) { intros.push({ impact, nest }); }
-} }));
+vi.mock('../systems/RenderSystem', async () => (await import('../../test/gameManagerMocks')).mockRenderSystem({
+  startMeteorIntro(impact: { x: number; y: number }, nest: { x: number; y: number }) { intros.push({ impact, nest }); },
+}));
 vi.stubGlobal('window', new EventTarget());
 
 function manager() {
-  return new GameManager(Object.assign(new EventTarget(), { getContext: () => ({}) }) as unknown as HTMLCanvasElement);
+  return new GameManager(fakeCanvas());
 }
 
 describe('the meteorite crater on a real map', () => {

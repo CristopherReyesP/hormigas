@@ -31,7 +31,9 @@ import {
   type CricketDenComponent,
   type LayerComponent,
   type LayerValue,
+  type OwnerComponent,
 } from '../components/components';
+import { FactionId } from '../factions/factions';
 import {
   ROLE_STATS,
   BEETLE_STATS,
@@ -47,11 +49,16 @@ import {
 } from '../../shared/constants';
 import { antSpawnStats } from '../run/antStats';
 
+function stampOwner(world: World, entity: EntityId, faction: FactionId): void {
+  world.addComponent<OwnerComponent>(entity, COMPONENT.OWNER, { faction });
+}
+
 export function createAnt(
   world: World,
   x: number,
   y: number,
-  role: AntRole = AntRole.Worker
+  role: AntRole = AntRole.Worker,
+  faction: FactionId = FactionId.PLAYER
 ): EntityId {
   const entity = world.createEntity();
   const stats = ROLE_STATS[role];
@@ -132,6 +139,7 @@ export function createAnt(
   });
 
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
+  stampOwner(world, entity, faction);
 
   return entity;
 }
@@ -180,7 +188,8 @@ export function createFood(
 export function createNest(
   world: World,
   x: number,
-  y: number
+  y: number,
+  faction: FactionId = FactionId.PLAYER
 ): EntityId {
   const entity = world.createEntity();
 
@@ -213,6 +222,7 @@ export function createNest(
   });
 
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
+  stampOwner(world, entity, faction);
 
   return entity;
 }
@@ -280,6 +290,7 @@ export function createBeetle(
   });
 
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
+  stampOwner(world, entity, FactionId.WILDLIFE);
 
   return entity;
 }
@@ -346,6 +357,7 @@ export function createCricket(
   });
 
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
+  stampOwner(world, entity, FactionId.WILDLIFE);
 
   return entity;
 }
@@ -387,11 +399,12 @@ export function createCricketDen(
   });
 
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
+  stampOwner(world, entity, FactionId.WILDLIFE);
 
   return entity;
 }
 
-export function createQueen(world: World, x: number, y: number): EntityId {
+export function createQueen(world: World, x: number, y: number, faction: FactionId = FactionId.PLAYER): EntityId {
   const entity = world.createEntity();
   world.addComponent<PositionComponent>(entity, COMPONENT.POSITION, { x, y, prevX: x, prevY: y });
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Underground });
@@ -417,10 +430,18 @@ export function createQueen(world: World, x: number, y: number): EntityId {
     speedMultiplier: 0.35,
     carrySpeedPenalty: 1,
   });
+  stampOwner(world, entity, faction);
   return entity;
 }
 
-export function createEgg(world: World, x: number, y: number, role: AntRole, hatchTime: number): EntityId {
+export function createEgg(
+  world: World,
+  x: number,
+  y: number,
+  role: AntRole,
+  hatchTime: number,
+  faction: FactionId = FactionId.PLAYER
+): EntityId {
   const entity = world.createEntity();
   world.addComponent<PositionComponent>(entity, COMPONENT.POSITION, { x, y, prevX: x, prevY: y });
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Underground });
@@ -432,6 +453,7 @@ export function createEgg(world: World, x: number, y: number, role: AntRole, hat
     requiredFood: EGG_FOOD_REQUIRED,
   });
   world.addComponent<RenderComponent>(entity, COMPONENT.RENDER, { color: '#fffff0', radius: 0.25, shape: 'circle' });
+  stampOwner(world, entity, faction);
   return entity;
 }
 
@@ -475,6 +497,7 @@ export function createBeetleDen(
   });
 
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
+  stampOwner(world, entity, FactionId.WILDLIFE);
 
   return entity;
 }

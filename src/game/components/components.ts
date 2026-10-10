@@ -1,4 +1,5 @@
 import type { Vector2, EntityId } from '../../shared/types';
+import type { FactionId } from '../factions/factions';
 
 // Position in tile coordinates (can be fractional for smooth movement)
 export interface PositionComponent {
@@ -285,6 +286,11 @@ export interface PlayerOrderComponent {
   routes: number;
 }
 
+/** Which faction an entity belongs to. Read it through `ownerOf`, which falls back when it is missing. */
+export interface OwnerComponent {
+  faction: FactionId;
+}
+
 // Component name constants to avoid magic strings
 export const COMPONENT = {
   POSITION: 'position',
@@ -311,4 +317,5 @@ export const COMPONENT = {
   EGG_QUEUE: 'egg_queue',
   EGG: 'egg',
   PLAYER_ORDER: 'player_order',
+  OWNER: 'owner',
 } as const;

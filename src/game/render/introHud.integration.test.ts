@@ -1,19 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GameManager, type GameStats } from '../GameManager';
 import { INTRO_TIMELINE as T, type IntroClock } from './introTimeline';
+import { fakeCanvas } from '../../test/gameManagerMocks';
 
 // Real manager, camera and intro director; browser-only adapters are replaced.
-vi.mock('../../engine/input/InputManager', () => ({ InputManager: class {
-  setCamera() {} onKeyAction() {} onCanvasClick() {} destroy() {}
-} }));
+vi.mock('../../engine/input/InputManager', async () =>
+  (await import('../../test/gameManagerMocks')).mockInputManager());
 /** What the GameManager handed the (fake) render system's MeteorIntro */
 const art: { clock: IntroClock | null; skips: number } = { clock: null, skips: 0 };
-vi.mock('../systems/RenderSystem', () => ({ RenderSystem: class {
-  setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {}
-  setFarmStatusProvider() {} invalidateTerrain() {} renderInterpolated() {}
-  startMeteorIntro(_impact: unknown, _nest: unknown, clock: IntroClock) { art.clock = clock; }
-  skipIntro() { art.skips++; return true; }
-} }));
+vi.mock('../systems/RenderSystem', async () => (await import('../../test/gameManagerMocks')).mockRenderSystem({
+  startMeteorIntro(_impact: unknown, _nest: unknown, clock: IntroClock) { art.clock = clock; },
+  skipIntro() { art.skips++; return true; },
+}));
 // The intro-skip listeners hang off window and the canvas; node has neither.
 vi.stubGlobal('window', new EventTarget());
 
@@ -24,7 +22,7 @@ const games: GameManager[] = [];
 
 function setup() {
   art.skips = 0;
-  const game = new GameManager(Object.assign(new EventTarget(), { getContext: () => ({}) }) as unknown as HTMLCanvasElement);
+  const game = new GameManager(fakeCanvas());
   games.push(game);
   const published: GameStats[] = [];
   game.onStats((stats) => published.push(stats));
