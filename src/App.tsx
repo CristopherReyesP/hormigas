@@ -8,6 +8,7 @@ import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
+import { NestAlert } from './ui/NestAlert';
 import { NextWaveCard } from './ui/NextWaveCard';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
@@ -104,6 +105,11 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [gameManager]);
 
+  const handleGoToNest = useCallback(() => {
+    gameManagerRef.current?.goToNestFight();
+    refreshStats();
+  }, [refreshStats]);
+
   const handleChooseMutation = useCallback((id: MutationId) => {
     gameManagerRef.current?.chooseMutation(id);
   }, []);
@@ -129,6 +135,10 @@ export default function App() {
       {/* Night-wave alerts: outside the scaled HUD, over the whole screen; none during the intro */}
       {!stats.introPlaying && (
         <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
+      )}
+      {/* Invaders inside the nest: the banner with "Ir al nido", and the all-clear */}
+      {!stats.introPlaying && stats.nestAlert && (
+        <NestAlert state={stats.nestAlert} activeLayer={stats.activeLayer} onGoToNest={handleGoToNest} />
       )}
       {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
 

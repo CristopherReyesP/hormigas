@@ -57,6 +57,7 @@ export function soundForEvent(event: AudioEvent): SoundRequest | null {
     case 'death':
       return { sound: DEATH_SOUNDS[event.kind], params: {}, at: event.at };
     case 'wave':
+    case 'nestAlarm':
       return { sound: 'waveAlarm', params: {} };
     case 'waveFx':
       return { sound: WAVE_FX_SOUNDS[event.kind], params: {}, at: event.at };
