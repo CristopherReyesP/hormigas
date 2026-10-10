@@ -1,7 +1,8 @@
 import type { World } from '../engine/ecs/World';
 import type { EntityId } from '../shared/types';
 import { AntRole, COMPONENT, type AntComponent } from './components/components';
-import { HUMAN_COMPONENT } from './rival/humanComponents';
+import { HUMAN_COMPONENT, type HumanUnitComponent } from './rival/humanComponents';
+import type { HumanUnitType } from './rival/humanBase';
 
 /**
  * Feedback the GameManager reports for a player command, so the HUD can
@@ -19,6 +20,8 @@ export interface OrderFeedback {
   /** Ants that took the order */
   count: number;
   byRole: Partial<Record<AntRole, number>>;
+  /** A Human player's units that took it, per type (empty for the Swarm) */
+  byHuman?: Partial<Record<HumanUnitType, number>>;
   /** The enemy an attack names; null for a move, an attack-move or a rally */
   target: FeedbackTarget | null;
   /** Given with a finger tap (the phone HUD confirms it louder) */
@@ -33,6 +36,8 @@ export interface CasteSelectFeedback {
   pixelRatio: number;
   count: number;
   role: AntRole;
+  /** A Human player's unit type, when the long press took Human units */
+  humanType?: HumanUnitType;
 }
 
 export type CommandFeedback = OrderFeedback | CasteSelectFeedback;
@@ -45,6 +50,16 @@ export function countRoles(world: World, ids: readonly EntityId[]): Partial<Reco
     if (role !== undefined) byRole[role] = (byRole[role] ?? 0) + 1;
   }
   return byRole;
+}
+
+/** A Human player's units per type among `ids` */
+export function countHumanTypes(world: World, ids: readonly EntityId[]): Partial<Record<HumanUnitType, number>> {
+  const byType: Partial<Record<HumanUnitType, number>> = {};
+  for (const id of ids) {
+    const type = world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT)?.type;
+    if (type !== undefined) byType[type] = (byType[type] ?? 0) + 1;
+  }
+  return byType;
 }
 
 /** What kind of enemy `id` is, for the toast. */

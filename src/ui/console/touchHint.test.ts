@@ -121,3 +121,35 @@ describe('selection count label', () => {
     expect(selectionCountLabel({ [AntRole.Soldier]: 3, [AntRole.Worker]: 5 })).toBe('8 hormigas elegidas');
   });
 });
+
+describe('the hint line in a Humans run', () => {
+  const humanGroup = (byType: Record<string, number>) => ({
+    group: { count: Object.values(byType).reduce((a, b) => a + b, 0), byType, ordered: 0, units: [] },
+  });
+
+  it('counts Human units and orders them like troops', () => {
+    const hint = touchHint({ ...NONE, human: humanGroup({ soldier: 3 }) });
+    expect(hint).toMatchObject({ mode: 'order', text: 'Toca el suelo para mover · toca un enemigo para atacar', selection: '3 soldados elegidos' });
+    expect(touchHint({ ...NONE, human: humanGroup({ tank: 1, marksman: 2 }) }).selection).toBe('3 unidades elegidas');
+  });
+
+  it('nothing selected: pick a unit', () => {
+    expect(touchHint({ ...NONE, human: { group: null } }).text).toBe('Toca una unidad o usa la barra de abajo para elegir tropas');
+  });
+
+  it('builders mine', () => {
+    expect(touchHint({ ...NONE, human: humanGroup({ builder: 2 }) }).text).toBe('Toca el suelo para mover · toca un mineral para extraerlo');
+  });
+
+  it('one own Human unit counts as a selection', () => {
+    const sel = { ...entity('human_unit'), human: { kind: 'marksman', own: true } } as unknown as SelectedEntityInfo;
+    expect(touchHint({ ...NONE, selectedEntity: sel }).selection).toBe('1 tirador elegido');
+  });
+
+  it('a building being placed: its own hint wins', () => {
+    expect(touchHint({ ...NONE, human: humanGroup({ builder: 1 }), toolHint: 'CUARTEL: toca dónde va' })).toMatchObject({
+      mode: 'build',
+      text: 'CUARTEL: toca dónde va',
+    });
+  });
+});

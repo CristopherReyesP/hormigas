@@ -10,7 +10,11 @@ import {
   type SelectableComponent,
   type PositionComponent,
 } from '../components/components';
-import { findStructureAt } from './helpers/playerOrders';
+import { findStructureAt, isPlayerUnit } from './helpers/playerOrders';
+import { HUMAN_COMPONENT, type HumanUnitComponent } from '../rival/humanComponents';
+
+/** Unit stores a box or a ctrl-click can catch (only the player's own count) */
+const UNIT_STORES = [COMPONENT.ANT, HUMAN_COMPONENT.UNIT] as const;
 
 /** A rectangle in entity-position space (tile units, fractional). */
 export interface SelectionBox {
@@ -108,10 +112,8 @@ export class SelectionSystem implements System {
       this.selectAt(tileX, tileY, { layer });
       return;
     }
-    const role = this.world.getComponent<AntComponent>(clicked, COMPONENT.ANT)!.role;
-    const group = this.antsInBox(view, layer).filter(
-      (id) => this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!.role === role,
-    );
+    const kind = this.kindOf(clicked);
+    const group = this.antsInBox(view, layer).filter((id) => this.kindOf(id) === kind);
     if (!group.includes(clicked)) group.unshift(clicked);
     this.setSelection(group, layer);
   }
@@ -120,7 +122,7 @@ export class SelectionSystem implements System {
   antAt(tileX: number, tileY: number, layer: LayerValue): EntityId | null {
     let best: EntityId | null = null;
     let bestDist = DIRECT_HIT_RANGE;
-    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.SELECTABLE, COMPONENT.POSITION)) {
+    for (const id of this.ownUnits()) {
       if (this.layerOf(id) !== layer) continue;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const dist = Math.hypot(pos.x - tileX, pos.y - tileY);
@@ -133,14 +135,14 @@ export class SelectionSystem implements System {
   }
 
   /**
-   * The own ant on `layer` nearest to (tileX, tileY) within `radius` tiles, or
+   * The own unit (an ant, or a Human player's trooper or builder) on `layer` nearest to (tileX, tileY) within `radius` tiles, or
    * null: a finger tap's pick (touchPickRadiusTiles). Food, wildlife and
    * bases never win over an ant here. Ants in `skip` are passed over.
    */
   nearestOwnAnt(tileX: number, tileY: number, layer: LayerValue, radius: number, skip?: ReadonlySet<EntityId>): EntityId | null {
     let best: EntityId | null = null;
     let bestDist = radius;
-    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.SELECTABLE, COMPONENT.POSITION)) {
+    for (const id of this.ownUnits()) {
       if (skip?.has(id) || this.layerOf(id) !== layer) continue;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const dist = Math.hypot(pos.x - tileX, pos.y - tileY);
@@ -191,7 +193,7 @@ export class SelectionSystem implements System {
 
   private antsInBox(box: SelectionBox, layer: LayerValue): EntityId[] {
     const caught: EntityId[] = [];
-    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.SELECTABLE, COMPONENT.POSITION)) {
+    for (const id of this.ownUnits()) {
       if (this.layerOf(id) !== layer) continue;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       if (
@@ -244,8 +246,22 @@ export class SelectionSystem implements System {
     if (selectable) selectable.selected = on;
   }
 
+  /** An own unit (an ant, or a Human player's trooper or builder): what groups are made of */
   private isAnt(id: EntityId): boolean {
-    return this.world.getComponent<AntComponent>(id, COMPONENT.ANT) !== undefined;
+    return isPlayerUnit(this.world, id);
+  }
+
+  /** Own selectable units of every store */
+  private ownUnits(): EntityId[] {
+    return UNIT_STORES.flatMap((store) => this.world.query(store, COMPONENT.SELECTABLE, COMPONENT.POSITION))
+      .filter((id) => this.isAnt(id));
+  }
+
+  /** What ctrl-click groups by: an ant's caste, a Human unit's type */
+  private kindOf(id: EntityId): string {
+    const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT);
+    if (ant) return `ant:${ant.role}`;
+    return `human:${this.world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT)?.type ?? ''}`;
   }
 
   private layerOf(id: EntityId): LayerValue | null {

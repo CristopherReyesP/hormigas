@@ -8,7 +8,8 @@ import type { EntityId } from '../../shared/types';
 import type { TilePos } from '../run/craterSite';
 
 export type HumanUnitType = 'soldier' | 'marksman' | 'tank' | 'builder';
-export type HumanBuildingKind = 'command_center' | 'barracks' | 'bunker' | 'supply_depot';
+/** The factory only stands in a player's base: the AI's build order never raises one. */
+export type HumanBuildingKind = 'command_center' | 'barracks' | 'bunker' | 'supply_depot' | 'factory';
 
 /** Fighting units the barracks train and the waves send (the builder never fights). */
 export type HumanTroop = Exclude<HumanUnitType, 'builder'>;
@@ -102,6 +103,10 @@ export const HUMAN_BUILDING_STATS: Readonly<Record<HumanBuildingKind, HumanBuild
   supply_depot: {
     cost: 100, buildTime: 18, health: 350, armor: 1, floors: 1, supply: 8,
     damage: 0, attackCooldown: 1, attackRange: 0, halfWidth: 0.9, height: 1.2,
+  },
+  factory: {
+    cost: 200, buildTime: 40, health: 900, armor: 1, floors: 2, supply: 0,
+    damage: 0, attackCooldown: 1, attackRange: 0, halfWidth: 1.4, height: 2.6,
   },
 };
 

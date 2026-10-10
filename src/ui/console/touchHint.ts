@@ -1,4 +1,6 @@
 import type { CommandTarget, SelectedEntityInfo, SelectedGroupInfo } from '../../game/GameManager';
+import type { HumanPlayerStats } from '../../game/races/human/HumanPlayerRun';
+import type { HumanUnitType } from '../../game/rival/humanBase';
 import { AntRole } from '../../game/components/components';
 import { buildModeHint, type BuildMode } from './commands';
 import { ROLE_LABEL, ROLE_PLURAL } from './format';
@@ -19,6 +21,10 @@ export interface TouchHintInput {
   buildMode: BuildMode | null;
   /** A finger (tap wording) rather than a mouse in the compact layout */
   touch: boolean;
+  /** A Human player's base (null for the Swarm): its selected group */
+  human?: Pick<HumanPlayerStats, 'group'> | null;
+  /** A race's own placement hint (a Human building being placed): it wins over everything */
+  toolHint?: string | null;
 }
 
 /**
@@ -53,6 +59,27 @@ const ENEMY_TYPES: ReadonlySet<SelectedEntityInfo['type']> = new Set([
   'beetle', 'beetle_den', 'cricket', 'cricket_den', 'crystal_hive', 'crystal_unit', 'crystal_spire', 'human_unit', 'human_building',
 ]);
 
+/** Human unit names: all masculine (soldados, tiradores, tanques, constructores) */
+const HUMAN_ONE: Record<HumanUnitType, string> = { soldier: 'soldado', marksman: 'tirador', tank: 'tanque', builder: 'constructor' };
+const HUMAN_MANY: Record<HumanUnitType, string> = { soldier: 'soldados', marksman: 'tiradores', tank: 'tanques', builder: 'constructores' };
+
+/** "3 soldados elegidos", "1 tanque elegido", "5 unidades elegidas" (mixed types). */
+export function humanCountLabel(byType: Partial<Record<HumanUnitType, number>>): string {
+  const types = (Object.keys(byType) as HumanUnitType[]).filter((type) => (byType[type] ?? 0) > 0);
+  const count = types.reduce((sum, type) => sum + (byType[type] ?? 0), 0);
+  if (types.length !== 1) return `${count} ${count === 1 ? 'unidad elegida' : 'unidades elegidas'}`;
+  return `${count} ${(count === 1 ? HUMAN_ONE : HUMAN_MANY)[types[0]]} ${count === 1 ? 'elegido' : 'elegidos'}`;
+}
+
+/** A Human player's selected own units per type: a group, or one unit; null when none */
+function selectedHumanTypes(input: TouchHintInput): Partial<Record<HumanUnitType, number>> | null {
+  const group = input.human?.group;
+  if (group && group.count > 0) return group.byType;
+  const sel = input.selectedEntity;
+  if (sel?.type === 'human_unit' && sel.human?.own) return { [sel.human.kind as HumanUnitType]: 1 };
+  return null;
+}
+
 /** Castes of the selected ants, whether one ant or a group */
 function selectedRoles(input: TouchHintInput): Partial<Record<AntRole, number>> | null {
   if (input.selectedGroup) return input.selectedGroup.byRole;
@@ -66,6 +93,7 @@ const TEXT = {
     pick: 'Toca una hormiga o usa la barra de abajo para elegir tropas',
     order: 'Toca el suelo para mover · toca un enemigo para atacar',
     orderScouts: 'Toca el suelo para mover · las exploradoras no pelean',
+    orderBuilders: 'Toca el suelo para mover · toca un mineral para extraerlo',
     move: 'Toca el destino para mover',
     attack: 'Toca un enemigo para atacarlo, o el suelo para avanzar peleando',
     enemy: 'Elige tropas en la barra y luego toca al enemigo para atacarlo',
@@ -77,6 +105,7 @@ const TEXT = {
     pick: 'Haz clic en una hormiga o usa la barra de abajo para elegir tropas',
     order: 'Clic derecho en el suelo para mover · en un enemigo para atacar',
     orderScouts: 'Clic derecho en el suelo para mover · las exploradoras no pelean',
+    orderBuilders: 'Clic derecho en el suelo para mover · en un mineral para extraerlo',
     move: 'Haz clic en el destino para mover',
     attack: 'Haz clic en un enemigo para atacarlo, o en el suelo para avanzar peleando',
     enemy: 'Elige tropas en la barra y luego haz clic derecho en el enemigo',
@@ -86,14 +115,19 @@ const TEXT = {
   },
 } as const;
 
+/** A Human player's own building selected: its card trains and builds */
+const OWN_BUILDING = 'Entrena o construye con los botones de abajo · elige tropas en la barra';
 const AREA = 'Arrastra un rectángulo para elegir hormigas';
 const BELOW_ANTS = 'Bajo tierra las hormigas trabajan solas · sube para darles órdenes';
 
 export function touchHint(input: TouchHintInput): TouchHint {
   const text = input.touch ? TEXT.touch : TEXT.mouse;
-  const roles = selectedRoles(input);
+  const humans = selectedHumanTypes(input);
+  const roles = selectedRoles(input) ?? humans;
   const sel = input.selectedEntity;
-  const selection = roles ? selectionCountLabel(roles) : sel ? selectionTitle(sel).name : null;
+  const selection = humans ? humanCountLabel(humans) : roles ? selectionCountLabel(roles as Partial<Record<AntRole, number>>) : sel ? selectionTitle(sel).name : null;
+
+  if (input.toolHint) return { mode: 'build', text: input.toolHint, selection };
 
   // A build tool is on (a nest tool below, or a defense on either layer): the tool says what to tap
   if (input.buildMode) return { mode: 'build', text: buildModeHint(input.buildMode, input.touch), selection };
@@ -102,15 +136,24 @@ export function touchHint(input: TouchHintInput): TouchHint {
   }
   if (input.areaSelect) return { mode: 'area', text: AREA, selection };
   if (roles) {
+    if (humans) {
+      if (input.commandTarget === 'move') return { mode: 'target', text: text.move, selection };
+      if (input.commandTarget === 'attack') return { mode: 'target', text: text.attack, selection };
+      const onlyBuilders = Object.entries(humans).every(([type, n]) => type === 'builder' || !n);
+      return { mode: 'order', text: onlyBuilders ? text.orderBuilders : text.order, selection };
+    }
     if (input.commandTarget === 'move') return { mode: 'target', text: text.move, selection };
     if (input.commandTarget === 'attack') return { mode: 'target', text: text.attack, selection };
     const onlyScouts = Object.entries(roles).every(([role, n]) => role === AntRole.Scout || !n);
     return { mode: 'order', text: onlyScouts ? text.orderScouts : text.order, selection };
   }
   if (sel) {
+    if (sel.human?.own) return { mode: 'info', text: OWN_BUILDING, selection };
     if (ENEMY_TYPES.has(sel.type)) return { mode: 'info', text: text.enemy, selection };
     if (sel.type === 'nest') return { mode: 'info', text: text.nest, selection };
     return { mode: 'info', text: text.food, selection };
   }
-  return { mode: 'pick', text: text.pick, selection: null };
+  // A Human player picks units, not ants
+  const pick = input.human ? text.pick.replace('una hormiga', 'una unidad') : text.pick;
+  return { mode: 'pick', text: pick, selection: null };
 }

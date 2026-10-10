@@ -56,3 +56,17 @@ describe('haptics', () => {
     expect(vibrate({ vibrate: () => { throw new Error('blocked'); } }, 20)).toBe(false);
   });
 });
+
+describe("a Human player's order toast", () => {
+  it('names Human units, and the base for Volver', () => {
+    const human = (over: Partial<Extract<CommandFeedback, { type: 'order' }>>): CommandFeedback =>
+      order({ byRole: {}, byHuman: { soldier: 3 }, count: 3, ...over });
+    expect(feedbackText(human({ order: 'attack', target: null }))).toBe('3 soldados → atacar');
+    expect(feedbackText(human({ order: 'attack', target: 'den' }))).toBe('3 soldados → atacar guarida');
+    expect(feedbackText(human({ order: 'rally' }))).toBe('3 soldados → volver a la base');
+    expect(feedbackText(human({ byHuman: { tank: 1 }, count: 1 }))).toBe('1 tanque → mover');
+    expect(feedbackText(human({ byHuman: { tank: 1, builder: 2 } }))).toBe('3 unidades → mover');
+    expect(feedbackText({ type: 'caste-select', x: 0, y: 0, pixelRatio: 1, count: 2, role: AntRole.Scout, humanType: 'marksman' }))
+      .toBe('2 tiradores en pantalla');
+  });
+});

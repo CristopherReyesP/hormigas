@@ -20,6 +20,11 @@ const CHIP: Record<QuickSelectKind, { label: string; icon: IconName }> = {
   soldier: { label: 'Soldados', icon: 'sword' },
   worker: { label: 'Obreras', icon: 'worker' },
   scout: { label: 'Exploradoras', icon: 'eye' },
+  // A Human player's units (the card's training icons)
+  'human-soldier': { label: 'Soldados', icon: 'sword' },
+  'human-marksman': { label: 'Tiradores', icon: 'target' },
+  'human-tank': { label: 'Tanques', icon: 'shield' },
+  'human-builder': { label: 'Constructores', icon: 'pick' },
   all: { label: 'Todas', icon: 'group' },
 };
 

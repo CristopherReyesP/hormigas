@@ -20,6 +20,8 @@ import type { SelectionSystem } from '../systems/SelectionSystem';
 import type { CommandFeedback } from '../commandFeedback';
 import type { OrderPing } from '../systems/RenderSystem';
 import { TILE_SIZE, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
+import { FactionId, ownerOf } from '../factions/factions';
+import { HUMAN_COMPONENT, type HumanUnitComponent } from '../rival/humanComponents';
 import { fakeCanvas, finishIntro, CRYSTAL_RIVAL_SETUP } from '../../test/gameManagerMocks';
 
 // Real manager and map; browser-only adapters are replaced. These drive the
@@ -193,6 +195,77 @@ describe('order feedback', () => {
       expect(Math.hypot(order.target.x - pos.x, order.target.y - pos.y)).toBeLessThan(6);
     }
     expect(feedback.at(-1)).toMatchObject({ type: 'order', order: 'rally', count: soldiers.length });
+    game.stop();
+  });
+});
+
+describe('phone controls in a Humans run', () => {
+  const HUMANS = { playerRace: 'human', rivalRace: 'wildlife' } as const;
+
+  function humanSetup() {
+    const game = new GameManager(fakeCanvas(), HUMANS);
+    finishIntro(game);
+    const world = game['world'] as World;
+    const camera = game['camera'] as Camera;
+    const grid = game['grid'] as PathGrid;
+    const selection = game['selectionSystem'] as SelectionSystem;
+    (game['visibilityGrid'] as VisibilityGrid).revealArea(NX, NY, WORLD_WIDTH);
+    const screenOf = (x: number, y: number) => camera.worldToScreen((x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE);
+    const mine = (type: string) => world.query(HUMAN_COMPONENT.UNIT).filter(
+      (id) => ownerOf(world, id) === FactionId.PLAYER && world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT)!.type === type,
+    );
+    const feedback: CommandFeedback[] = [];
+    game.onCommandFeedback((event) => feedback.push(event));
+    return { game, world, grid, selection, screenOf, mine, feedback };
+  }
+
+  it('the bar offers the Human unit kinds and selects them across the map', () => {
+    const { game, selection, mine } = humanSetup();
+    const chips = game.getStats().quickSelect!;
+    expect(chips.map((c) => c.kind)).toEqual(['human-soldier', 'human-marksman', 'human-tank', 'human-builder', 'all']);
+    expect(chips.find((c) => c.kind === 'human-soldier')!.count).toBe(mine('soldier').length);
+    expect(chips.find((c) => c.kind === 'human-builder')!.count).toBe(mine('builder').length);
+    expect(mine('soldier').length).toBeGreaterThan(0);
+    expect(game.quickSelect('human-soldier').selected).toBe(mine('soldier').length);
+    expect([...selection.getSelectedIds()].sort()).toEqual([...mine('soldier')].sort());
+    expect(game.quickSelect('human-soldier').centered).toBe(true);
+    game.stop();
+  });
+
+  it('tap Soldados, then tap a den: the soldiers attack it and the feedback counts Human soldiers', () => {
+    const { game, world, grid, screenOf, mine, feedback } = humanSetup();
+    const at = snapToWalkable(grid, { x: NX + 14, y: NY + 10 }, 6)!;
+    const den = createBeetleDen(world, at.x, at.y);
+    game.quickSelect('human-soldier');
+    const tap = screenOf(at.x, at.y);
+    game['handleTap'](tap.x, tap.y);
+    for (const id of mine('soldier')) {
+      expect(world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER)).toMatchObject({ kind: OrderKind.Attack, targetId: den });
+    }
+    expect(feedback.at(-1)).toMatchObject({
+      type: 'order', order: 'attack', target: 'den', touch: true, byHuman: { soldier: mine('soldier').length },
+    });
+    game.stop();
+  });
+
+  it('Volver a la base sends the selection to the command center', () => {
+    const { game, world, mine, feedback } = humanSetup();
+    game.quickSelect('human-soldier');
+    expect(game.returnSelectedToNest()).toBe(mine('soldier').length);
+    for (const id of mine('soldier')) {
+      const order = world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER)!;
+      expect(Math.hypot(order.target.x - NX, order.target.y - NY)).toBeLessThan(6);
+    }
+    expect(feedback.at(-1)).toMatchObject({ order: 'rally' });
+    game.stop();
+  });
+
+  it('a long press on a Human soldier reports Human soldiers', () => {
+    const { game, world, screenOf, mine, feedback } = humanSetup();
+    const pos = world.getComponent<PositionComponent>(mine('soldier')[0], COMPONENT.POSITION)!;
+    const at = screenOf(pos.x, pos.y);
+    game['handleLongPress'](at.x, at.y);
+    expect(feedback.at(-1)).toMatchObject({ type: 'caste-select', humanType: 'soldier' });
     game.stop();
   });
 });

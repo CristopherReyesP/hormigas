@@ -14,6 +14,7 @@ import { touchHint } from './touchHint';
 import { TouchFeedback, type CasteBurst, type OrderToast } from './TouchFeedback';
 import { CoachMarks } from './CoachMarks';
 import { HAPTIC_PATTERN, feedbackText, hapticFor, vibrate } from './feedbackText';
+import { humanHint } from '../races/human/humanCommands';
 
 interface ConsoleProps {
   stats: GameStats;
@@ -131,12 +132,16 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   // The groups page belongs to a selection of own ants: it closes when they are gone
   const hasAnts = stats.activeLayer === 'surface' && Boolean(stats.selectedGroup || stats.selectedEntity?.type === 'ant');
   if (page === 'groups' && !hasAnts) setPage('root');
+  // A Human builder's Construir menu closes when no builder is selected any more
+  if (page === 'build' && !stats.human?.selectedBuilders) setPage('root');
+  const placing = Boolean(stats.human?.placing);
   const onEscape = useCallback(() => {
-    if (stats.commandTarget) gameManager?.cancelCommandTarget();
+    if (placing) gameManager?.getHumanPlayer()?.cancelPlacement();
+    else if (stats.commandTarget) gameManager?.cancelCommandTarget();
     else if (buildMode) setBuildMode(null);
     else if (page !== 'root') setPage('root');
     else if (hasSelection) gameManager?.clearSelection();
-  }, [stats.commandTarget, buildMode, page, hasSelection, gameManager]);
+  }, [placing, stats.commandTarget, buildMode, page, hasSelection, gameManager]);
 
   const commands = useMemo(
     () =>
@@ -176,10 +181,12 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   );
 
   const areaHint = touch && stats.areaSelect ? 'SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus hormigas' : null;
+  // A Human player placing a building: its hint first
+  const placingHint = humanHint(stats, touch);
   // The compact HUD's hint line already says what the mode does: the feed only carries notices there
-  const modeHint = compact ? null : commandTargetHint(stats.commandTarget, touch) ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint);
+  const modeHint = compact ? null : placingHint ?? commandTargetHint(stats.commandTarget, touch) ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint);
   const hint = notice?.text ?? modeHint;
-  const lineHint = touchHint({ ...stats, buildMode, touch });
+  const lineHint = touchHint({ ...stats, buildMode, touch, toolHint: placingHint });
   const overlayOpen = Boolean(stats.mutationOffer || stats.gameOver);
 
   return (
@@ -223,7 +230,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
         />
       </footer>
       {touch && <TouchFeedback toast={toast} burst={burst} />}
-      {touch && compact && <CoachMarks active={!stats.introPlaying && !overlayOpen} />}
+      {touch && compact && <CoachMarks active={!stats.introPlaying && !overlayOpen} race={stats.human ? 'human' : 'swarm'} />}
     </>
   );
 }

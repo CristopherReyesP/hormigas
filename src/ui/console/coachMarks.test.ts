@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COACH_KEY, COACH_STEPS, hasSeenCoach, markCoachSeen } from './coachMarks';
+import { COACH_KEY, COACH_STEPS, coachSteps, hasSeenCoach, markCoachSeen } from './coachMarks';
 
 function memory(): Storage {
   const data = new Map<string, string>();
@@ -42,5 +42,15 @@ describe('first-game coach marks', () => {
     expect(() => markCoachSeen(broken)).not.toThrow();
     expect(hasSeenCoach(broken)).toBe(true);
     expect(hasSeenCoach(null)).toBe(true);
+  });
+});
+
+describe('coach marks per race', () => {
+  it('speak of Human units in a Humans run, with the same pointers', () => {
+    const steps = coachSteps('human');
+    expect(steps.map((s) => s.anchor)).toEqual(['quick-bar', 'hint-line', 'attack']);
+    expect(steps[0].text).toContain('Constructores');
+    expect(steps[0].text).not.toContain('Obreras');
+    expect(coachSteps('swarm')).toBe(COACH_STEPS);
   });
 });

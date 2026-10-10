@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { COACH_STEPS, coachSelector, coachStorage, hasSeenCoach, markCoachSeen } from './coachMarks';
+import { coachSelector, coachSteps, coachStorage, hasSeenCoach, markCoachSeen } from './coachMarks';
 
 interface CoachMarksProps {
   /** A touch screen in a running game with nothing else over the HUD */
   active: boolean;
+  /** Whose units the pointers speak of */
+  race?: 'swarm' | 'human';
 }
 
 interface Spot {
@@ -35,7 +37,8 @@ function measure(selector: string): Spot | null {
  * quick-select bar, the hint line and Atacar (which waits until troops are
  * picked and the button shows). "Saltar" ends them; they never come back.
  */
-export function CoachMarks({ active }: CoachMarksProps) {
+export function CoachMarks({ active, race = 'swarm' }: CoachMarksProps) {
+  const COACH_STEPS = coachSteps(race);
   const [step, setStep] = useState<number | null>(() => (hasSeenCoach(coachStorage()) ? null : 0));
   const [spot, setSpot] = useState<{ step: number; at: Spot } | null>(null);
   const current = step !== null ? COACH_STEPS[step] : null;
@@ -54,7 +57,7 @@ export function CoachMarks({ active }: CoachMarksProps) {
     update();
     const timer = window.setInterval(update, MEASURE_MS);
     return () => window.clearInterval(timer);
-  }, [active, step]);
+  }, [active, step, COACH_STEPS]);
 
   if (!active || step === null || !current || !spot || spot.step !== step) return null;
 

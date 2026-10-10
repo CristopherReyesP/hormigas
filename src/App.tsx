@@ -8,6 +8,7 @@ import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
+import { HumanIntroBanner } from './ui/races/human/HumanIntroBanner';
 import { NextWaveCard } from './ui/NextWaveCard';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
@@ -121,7 +122,7 @@ export default function App() {
       <HudLayer introPlaying={stats.introPlaying}>
         <TopStrip stats={stats} gameManager={gameManager} />
         {/* Defaults carry no objective: wait for the first real snapshot */}
-        {stats.tickCount > 0 && <ObjectivePanel objective={stats.objective} />}
+        {stats.tickCount > 0 && !stats.human && <ObjectivePanel objective={stats.objective} />}
         {/* Scouting: the coming wave's mix, elites, boss and breach, all day */}
         {stats.tickCount > 0 && <NextWaveCard invasion={stats.invasion} />}
         <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} />
@@ -130,6 +131,8 @@ export default function App() {
       {!stats.introPlaying && (
         <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
       )}
+      {/* A Human expedition's landing line (the Swarm opens with the meteor cinematic instead) */}
+      {stats.human?.intro && !stats.gameOver && <HumanIntroBanner title={stats.human.intro} />}
       {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
 
       {/* Dawn mutation pick: full-screen, above the HUD */}

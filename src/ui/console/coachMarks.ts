@@ -33,6 +33,22 @@ export const COACH_STEPS: readonly CoachStep[] = [
   },
 ];
 
+/** A Human player's first steps: the same pointers, in the words of their units */
+export const HUMAN_COACH_STEPS: readonly CoachStep[] = [
+  {
+    anchor: 'quick-bar',
+    title: 'Elige tus tropas',
+    text: 'Toca «Soldados», «Constructores» o «Todas» para elegir a todas esas unidades del mapa. Toca otra vez para ir hacia ellas.',
+  },
+  COACH_STEPS[1],
+  COACH_STEPS[2],
+];
+
+/** The steps for the player's race */
+export function coachSteps(race: 'swarm' | 'human'): readonly CoachStep[] {
+  return race === 'human' ? HUMAN_COACH_STEPS : COACH_STEPS;
+}
+
 /** The CSS selector of a step's target */
 export function coachSelector(anchor: CoachAnchor): string {
   return anchor === 'attack' ? '[data-cmd="attack"]' : `[data-coach="${anchor}"]`;

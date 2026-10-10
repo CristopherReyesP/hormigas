@@ -2153,9 +2153,9 @@ button:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-width: 52px;
+  min-width: 48px;
   height: 36px;
-  padding: 0 6px;
+  padding: 0 4px;
   font: inherit;
   line-height: 1;
   color: var(--chrome-text);
@@ -2177,6 +2177,8 @@ button:focus-visible {
 
 .quick-chip-label {
   white-space: nowrap;
+  /* The pixel font's glyphs carry a blank column: -1px keeps five labeled chips (a Human bar) on a phone's width */
+  letter-spacing: -1px;
 }
 
 .quick-chip--selected {

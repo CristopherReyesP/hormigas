@@ -3,7 +3,8 @@ import { World } from '../../../engine/ecs/World';
 import { createAnt, createBeetle, createNest } from '../../entities/factories';
 import { AntRole, COMPONENT, Layer, type LayerComponent } from '../../components/components';
 import { FactionId } from '../../factions/factions';
-import { QUICK_SELECT_KINDS, quickSelectIds, quickSelectInfo, sameMembers } from './quickSelect';
+import { HUMAN_QUICK_SELECT_KINDS, QUICK_SELECT_KINDS, quickSelectIds, quickSelectInfo, sameMembers } from './quickSelect';
+import { createPlayerHumanUnit } from '../../races/human/humanPlayerFactories';
 
 function setup() {
   const world = new World();
@@ -70,5 +71,23 @@ describe('quick-select bar', () => {
     expect(sameMembers([1, 2, 3], [3, 1, 2])).toBe(true);
     expect(sameMembers([1, 2], [1, 2, 3])).toBe(false);
     expect(sameMembers([], [])).toBe(false);
+  });
+});
+
+describe("quick-select keyed on the player's own unit kinds", () => {
+  it("a Human player's bar counts and picks Human units by type", () => {
+    const world = new World();
+    const soldier = createPlayerHumanUnit(world, 'soldier', 10, 10);
+    const tank = createPlayerHumanUnit(world, 'tank', 40, 40);
+    createPlayerHumanUnit(world, 'builder', 20, 20);
+    const counts = quickSelectInfo(world, Layer.Surface, [soldier], HUMAN_QUICK_SELECT_KINDS).map((c) => [c.kind, c.count, c.selected]);
+    expect(counts).toEqual([
+      ['human-soldier', 1, true],
+      ['human-marksman', 0, false],
+      ['human-tank', 1, false],
+      ['human-builder', 1, false],
+      ['all', 3, false],
+    ]);
+    expect(quickSelectIds(world, 'human-tank', Layer.Surface)).toEqual([tank]);
   });
 });

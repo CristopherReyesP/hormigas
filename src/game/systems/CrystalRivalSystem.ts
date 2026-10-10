@@ -16,7 +16,7 @@ import {
   type PathComponent,
   type PositionComponent,
 } from '../components/components';
-import { FactionId, ownerOf, relation } from '../factions/factions';
+import { FactionId, nearestEnemyBase, ownerOf, relation } from '../factions/factions';
 import { addSpireFloor, createCrystalSpire, createCrystalUnit } from '../rival/crystalFactories';
 import {
   CRYSTAL_ECONOMY,
@@ -431,21 +431,7 @@ export class CrystalRivalSystem implements System {
   }
 
   private enemyNest(hive: EntityId): Vector2 | null {
-    const owner = ownerOf(this.world, hive) ?? FactionId.RIVAL;
-    const at = this.posOf(hive)!;
-    let best: Vector2 | null = null;
-    let bestDist = Infinity;
-    for (const id of this.world.query(COMPONENT.NEST, COMPONENT.POSITION)) {
-      const nestOwner = ownerOf(this.world, id);
-      if (nestOwner === null || relation(owner, nestOwner) !== 'enemy') continue;
-      const pos = this.posOf(id)!;
-      const dist = Math.hypot(pos.x - at.x, pos.y - at.y);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = { x: Math.round(pos.x), y: Math.round(pos.y) };
-      }
-    }
-    return best;
+    return nearestEnemyBase(this.world, ownerOf(this.world, hive) ?? FactionId.RIVAL, this.posOf(hive)!);
   }
 
   private posOf(id: EntityId): PositionComponent | undefined {
