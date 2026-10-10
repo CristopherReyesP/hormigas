@@ -139,7 +139,8 @@ describe('saving a Humans player run against the Crystal Hive', () => {
     expect(human.train('builder')).toBeNull();
     run(a, 4);
     const buildings = () => world.query(HUMAN_COMPONENT.BUILDING).filter((id) => ownerOf(world, id) === FactionId.PLAYER);
-    const barracks = buildings().find((id) => world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!.kind === 'barracks')!;
+    // Humans start with a finished Cuartel: the frame placed above is the newest one
+    const barracks = Math.max(...buildings().filter((id) => world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!.kind === 'barracks'));
     expect(world.getComponent<HumanBuildingComponent>(barracks, HUMAN_COMPONENT.BUILDING)!.constructing).toBeGreaterThan(0);
 
     const save = captureSave(a);
