@@ -126,9 +126,11 @@ export class TutorialScenario {
     // The soldiers go to the night lesson even when the attack lesson was skipped
     this.giftSoldiers();
     const { world, nest } = this.stage;
+    const nestId = world.query(COMPONENT.NEST)[0] ?? null;
     for (let i = 0; i < PRACTICE_BEETLES; i++) {
       const at = this.walkable(nest.x + PRACTICE_OFFSET.x + (i === 0 ? -1 : 1), nest.y + PRACTICE_OFFSET.y);
-      const id = createBeetle(world, at.x, at.y, null);
+      // Their "den" is the nest: a wounded one runs at the colony instead of off into the wild
+      const id = createBeetle(world, at.x, at.y, nestId);
       const health = world.getComponent<HealthComponent>(id, COMPONENT.HEALTH)!;
       health.current = health.max = PRACTICE_HEALTH;
       health.damage = PRACTICE_DAMAGE;

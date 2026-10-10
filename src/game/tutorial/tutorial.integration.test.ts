@@ -7,7 +7,7 @@ import { AntRole, COMPONENT, Layer, type AntComponent, type LayerComponent, type
 import { TILE_SIZE, UNDERGROUND_HEIGHT, UNDERGROUND_WIDTH } from '../../shared/constants';
 import { fakeCanvas, finishIntro } from '../../test/gameManagerMocks';
 import { TutorialController } from './TutorialController';
-import { TUTORIAL_SETUP, createTutorialGame } from './createTutorialGame';
+import { TUTORIAL_SETUP, createTutorialGame, seededRandom } from './createTutorialGame';
 import type { TutorialEvent } from './TutorialMachine';
 
 vi.mock('../../engine/input/InputManager', async () => (await import('../../test/gameManagerMocks')).mockInputManager());
@@ -20,7 +20,10 @@ afterEach(() => {
 
 const DT = 1 / 20;
 
-function setup() {
+function setup(seed = 99) {
+  // The map is seeded by the tutorial itself; seeding the rest of the run keeps the test repeatable
+  const rng = seededRandom(seed);
+  vi.spyOn(Math, 'random').mockImplementation(rng);
   const game = createTutorialGame((setup) => new GameManager(fakeCanvas(), setup));
   finishIntro(game);
   const camera = game['camera'] as Camera;
@@ -58,8 +61,9 @@ const stepDone = (events: TutorialEvent[]) => events.some((e) => e.type === 'ste
 describe('tutorial with the real GameManager', { timeout: 60_000 }, () => {
   it('runs a calm Swarm skirmish against wildlife on a seeded map', () => {
     expect(TUTORIAL_SETUP).toEqual({ playerRace: 'swarm', rivalRace: 'wildlife' });
-    const a = setup();
-    const b = setup();
+    // Different luck for the rest of the run: only the tutorial's own seed makes the maps equal
+    const a = setup(1);
+    const b = setup(2);
     // Seeded: the same crater and the same food in both runs
     expect(a.game.getCraterSite()).toEqual(b.game.getCraterSite());
     const foodAt = (w: World) => w.query(COMPONENT.FOOD_SOURCE, COMPONENT.POSITION).map((id) => w.getComponent<PositionComponent>(id, COMPONENT.POSITION)!).map((p) => `${p.x},${p.y}`).sort();
@@ -206,9 +210,15 @@ describe('tutorial with the real GameManager', { timeout: 60_000 }, () => {
     controller.poll();
     const practice = controller.focus('practice');
     expect(practice).not.toBeNull();
-    selection.selectAnts(surfaceAnts(AntRole.Soldier), Layer.Surface);
-    game.orderSelectedMove(Math.round(practice!.x), Math.round(practice!.y), true);
-    expect(stepDone(playUntilStepDone(120))).toBe(true);
+    // As a player would: pick the soldiers and tap each beetle until the wave is gone
+    let cleared = false;
+    for (let round = 0; round < 12 && !cleared; round++) {
+      selection.selectAnts(surfaceAnts(AntRole.Soldier), Layer.Surface);
+      const beetle = world.query(COMPONENT.BEETLE)[0];
+      if (beetle !== undefined) game.orderSelectedAttack(beetle);
+      cleared = stepDone(playUntilStepDone(10));
+    }
+    expect(cleared).toBe(true);
     next();
 
     // 10. Wrap-up waits for the player to say they are ready
