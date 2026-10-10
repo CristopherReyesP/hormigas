@@ -5,6 +5,7 @@ import { CARD_SLOTS, cardHotkeys } from './commandCardLayout';
 import type { IconName } from './pixelIcons';
 import type { ColonyDetails } from './useColonyDetails';
 import { ROLE_BLURB, ROLE_LABEL, stripEmoji } from './format';
+import { DEFENSE_STATS, type DefenseKind } from '../../game/run/defenses';
 
 /**
  * Command card contents per context. Every button maps an action the game
@@ -12,9 +13,17 @@ import { ROLE_BLURB, ROLE_LABEL, stripEmoji } from './format';
  * build tools, garrison, queen upgrades, diet); nothing here invents gameplay.
  */
 
-export type BuildMode = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense';
+/** Nest tools (underground only) and the defense build tools (both layers: Espina, Trampa, Muro) */
+export type BuildMode = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense' | DefenseKind;
 /** 'groups' is the touch stand-in for Ctrl/Shift+digit: bind the selection to a control group */
-export type CardPage = 'root' | 'colony' | 'groups';
+export type CardPage = 'root' | 'colony' | 'groups' | 'defenses';
+
+const DEFENSE_KINDS: readonly DefenseKind[] = ['spine', 'trap', 'wall'];
+
+/** The build modes that place a nest defense (they work on both layers) */
+export function isDefenseMode(mode: BuildMode | null): mode is DefenseKind {
+  return mode !== null && (DEFENSE_KINDS as readonly string[]).includes(mode);
+}
 
 export interface CommandDef {
   id: string;
@@ -25,7 +34,7 @@ export interface CommandDef {
   glyph?: string;
   description: string;
   /** Price printed on the button face; `short` paints it red when the stock cannot pay it */
-  cost?: { amount: number; resource: 'comida' | 'hongos'; short?: boolean };
+  cost?: { amount: number; resource: 'comida' | 'hongos' | 'minerales'; short?: boolean };
   /** Small corner text: queue size, tile count, upgrade level */
   badge?: string;
   badgeTone?: 'warn';
@@ -146,6 +155,9 @@ export const BUILD_MODE_HINT: Record<BuildMode, string> = {
   storage: 'ALMACÉN: haz clic en casillas excavadas para ampliar la despensa · Esc cancela',
   throne: 'TRONO: marca casillas de trono; luego, sin herramienta, haz clic en un trono para mudar a la reina · Esc cancela',
   defense: 'DEFENSA: haz clic en casillas excavadas; las defensoras montan guardia allí · Esc cancela',
+  spine: 'ESPINA: haz clic junto al nido o cerca de una entrada para construirla · Esc cancela',
+  trap: 'TRAMPA DE RESINA: haz clic en un paso de los enemigos junto al nido o una entrada · Esc cancela',
+  wall: 'MURO DE QUITINA: haz clic para cerrar un paso; nunca puede sellar el nido · Esc cancela',
 };
 
 /** BUILD_MODE_HINT for touch screens: tap or paint with a finger (two fingers still move the camera); the tool's button turns it off. */
@@ -156,6 +168,9 @@ export const BUILD_MODE_TOUCH_HINT: Record<BuildMode, string> = {
   storage: 'ALMACÉN: toca o pinta casillas excavadas',
   throne: 'TRONO: pinta casillas de trono; luego, sin herramienta, toca un trono',
   defense: 'DEFENSA: toca o pinta casillas excavadas',
+  spine: 'ESPINA: toca una casilla para verla y tócala otra vez para construir',
+  trap: 'TRAMPA: toca una casilla para verla y tócala otra vez para construir',
+  wall: 'MURO: toca una casilla para verlo y tócala otra vez para construir',
 };
 
 /** Hint above the console while a build tool is armed. */
@@ -457,6 +472,66 @@ function groupsPage(ctx: CommandContext): Slot[] {
   ];
 }
 
+const DEFENSE_ICON: Record<DefenseKind, IconName> = { spine: 'spine', trap: 'trap', wall: 'wall' };
+
+/** Opens the Defensas page: Espina, Trampa de resina, Muro de quitina */
+function defensesButton(ctx: CommandContext): CommandDef {
+  return {
+    id: 'defenses-page',
+    label: 'Defensas',
+    icon: 'spine',
+    description: 'Construye defensas con minerales: espinas, trampas de resina y muros de quitina, junto al nido y en las entradas del hormiguero.',
+    run: () => ctx.setPage('defenses'),
+  };
+}
+
+function defenseTool(ctx: CommandContext, kind: DefenseKind): CommandDef {
+  const stats = DEFENSE_STATS[kind];
+  const minerals = ctx.stats.mineralsStored ?? 0;
+  const where = ctx.stats.activeLayer === 'underground' ? 'cerca de una entrada (la brecha)' : 'alrededor del nido';
+  const numbers = kind === 'spine'
+    ? `Alcance ${stats.range} casillas, ${stats.damage} de daño por disparo, ${stats.health} de vida.`
+    : kind === 'trap'
+      ? `Frena al ${Math.round((1 - stats.slow) * 100)}% y quita ${stats.damage} por segundo; ${stats.charges} cargas, se recarga en ${stats.recharge} s.`
+      : `${stats.health} de vida y ${stats.armor} de armadura.`;
+  const how = ctx.touch ? 'Toca una casilla para ver la vista previa y tócala otra vez para construir.' : 'Haz clic en una casilla para construir.';
+  return {
+    id: `build-${kind}`,
+    label: stats.name,
+    icon: DEFENSE_ICON[kind],
+    description: `${stats.description} ${numbers} Se construye ${where}. ${how}`,
+    cost: { amount: stats.cost, resource: 'minerales', short: minerals < stats.cost },
+    active: ctx.buildMode === kind,
+    run: act(ctx, () => ctx.toggleBuildMode(kind)),
+  };
+}
+
+/** Defensas: the three defenses and Volver */
+function defensesPage(ctx: CommandContext): Slot[] {
+  return [
+    defenseTool(ctx, 'spine'),
+    defenseTool(ctx, 'trap'),
+    defenseTool(ctx, 'wall'),
+    null,
+    null,
+    null, null, null, null, null,
+    ...timeCommands(ctx),
+    null,
+    null,
+    {
+      id: 'back',
+      label: 'Volver',
+      icon: 'back',
+      description: 'Regresa a los comandos principales.',
+      altKeys: 'Esc',
+      run: () => {
+        if (isDefenseMode(ctx.buildMode)) ctx.toggleBuildMode(ctx.buildMode);
+        ctx.setPage('root');
+      },
+    },
+  ];
+}
+
 function deselect(ctx: CommandContext): CommandDef {
   return {
     id: 'deselect',
@@ -507,6 +582,7 @@ function surfaceRoot(ctx: CommandContext): Slot[] {
     ...breedCommands(ctx),
     ...timeCommands(ctx),
     ctx.touch ? areaSelect(ctx) : null,
+    defensesButton(ctx),
   ];
 }
 
@@ -610,7 +686,7 @@ function colonyPage(ctx: CommandContext): Slot[] {
     diet('mushroom', 'hongos', 'fungus'),
     diet('meat', 'carne', 'meat'),
     ...[0, 1, 2, 3, 4, 5].map((i) => upgradeCommand(ctx, upgrades[i])),
-    null,
+    defensesButton(ctx),
     null,
     null,
     {
@@ -628,9 +704,10 @@ function colonyPage(ctx: CommandContext): Slot[] {
 export function buildCommands(ctx: CommandContext): Slot[] {
   const slots =
     ctx.stats.activeLayer === 'underground'
-      ? ctx.page === 'colony' ? colonyPage(ctx) : nestRoot(ctx)
+      ? ctx.page === 'colony' ? colonyPage(ctx) : ctx.page === 'defenses' ? defensesPage(ctx) : nestRoot(ctx)
       : hasUnitSelection(ctx.stats) ? ctx.page === 'groups' ? groupsPage(ctx) : unitPage(ctx)
       : isDenSelected(ctx.stats) ? denPage(ctx)
+      : ctx.page === 'defenses' ? defensesPage(ctx)
       : surfaceRoot(ctx);
   return Array.from({ length: CARD_SLOTS }, (_, i) => slots[i] ?? null);
 }

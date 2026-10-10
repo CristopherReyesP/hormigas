@@ -95,8 +95,9 @@ export function touchHint(input: TouchHintInput): TouchHint {
   const sel = input.selectedEntity;
   const selection = roles ? selectionCountLabel(roles) : sel ? selectionTitle(sel).name : null;
 
+  // A build tool is on (a nest tool below, or a defense on either layer): the tool says what to tap
+  if (input.buildMode) return { mode: 'build', text: buildModeHint(input.buildMode, input.touch), selection };
   if (input.activeLayer === 'underground') {
-    if (input.buildMode) return { mode: 'build', text: buildModeHint(input.buildMode, input.touch), selection };
     return { mode: roles ? 'info' : 'pick', text: roles ? BELOW_ANTS : text.below, selection };
   }
   if (input.areaSelect) return { mode: 'area', text: AREA, selection };

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GameManager, GameStats } from '../../game/GameManager';
 import type { QuickSelectKind } from '../../game/systems/helpers/quickSelect';
 import { NotificationStack } from '../NotificationStack';
-import { buildCommands, buildModeHint, commandTargetHint, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
+import { buildCommands, buildModeHint, commandTargetHint, isDefenseMode, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
 import { CommandCard } from './CommandCard';
 import { InfoPanel } from './InfoPanel';
 import { MinimapPanel } from './MinimapPanel';
@@ -27,8 +27,11 @@ const NOTICE_MS = 3000;
 const TOAST_MS = 1600;
 const BURST_MS = 1100;
 
-function applyBuildMode(gm: GameManager | null, mode: BuildMode | null): void {
+/** Nest tools only work underground; the defense tools on both layers */
+function applyBuildMode(gm: GameManager | null, mode: BuildMode | null, layer: 'surface' | 'underground'): void {
   if (!gm) return;
+  gm.setDefenseBuild(isDefenseMode(mode) ? mode : null);
+  if (layer !== 'underground' || isDefenseMode(mode)) mode = null;
   gm.setDigMode(mode === 'dig');
   gm.setIncubationMode(mode === 'incubation');
   gm.setFarmMode(mode === 'farm');
@@ -90,7 +93,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
 
   // Build modes live in the GameManager; keep them in step with the card
   useEffect(() => {
-    applyBuildMode(gameManager, stats.activeLayer === 'underground' ? buildMode : null);
+    applyBuildMode(gameManager, buildMode, stats.activeLayer);
   }, [gameManager, buildMode, stats.activeLayer]);
 
   useEffect(() => {
@@ -164,7 +167,9 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
       if (gameManager.quickSelect(kind).selected > 0 && touch) {
         vibrate(typeof navigator !== 'undefined' ? navigator : undefined, HAPTIC_PATTERN.select);
       }
+      // Picking troops leaves the Defensas page and drops its build tool: the next tap is an order
       setPage('root');
+      setBuildMode((mode) => (isDefenseMode(mode) ? null : mode));
       refresh();
     },
     [gameManager, touch, refresh],

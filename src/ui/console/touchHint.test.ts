@@ -88,6 +88,12 @@ describe('the hint line says what a tap does now', () => {
     expect(hint.text).toMatch(/^EXCAVAR: toca o arrastra el dedo/);
   });
 
+  it('a defense tool on the surface: first tap previews, second builds', () => {
+    const hint = touchHint({ ...NONE, buildMode: 'spine', selectedGroup: group({ [AntRole.Soldier]: 2 }) });
+    expect(hint.mode).toBe('build');
+    expect(hint.text).toBe('ESPINA: toca una casilla para verla y tócala otra vez para construir');
+  });
+
   it('below with no tool: choose one', () => {
     expect(touchHint({ ...NONE, activeLayer: 'underground' }).text).toBe('Elige una herramienta abajo y toca la tierra · arrastra para mover la vista');
     expect(touchHint({ ...NONE, activeLayer: 'underground', selectedGroup: group({ [AntRole.Nurse]: 2 }) }).text).toBe(

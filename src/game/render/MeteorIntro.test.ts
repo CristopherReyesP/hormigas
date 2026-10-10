@@ -82,3 +82,64 @@ describe('introTitleScale', () => {
     }
   });
 });
+
+describe('the opening per rival', () => {
+  const CRATER = { x: 20, y: 20 };
+  const NEST = { x: 60, y: 45 };
+  const SITE = { x: 95, y: 70 };
+  const humanArrival = () => ({
+    variant: 'human' as const,
+    target: SITE,
+    rivalLine: 'RIVAL: HUMANOS',
+    base: {
+      buildings: [{ kind: 'command_center' as const, x: SITE.x, y: SITE.y }, { kind: 'barracks' as const, x: SITE.x + 4, y: SITE.y }],
+      troops: [{ x: SITE.x - 2, y: SITE.y - 1, builder: false }],
+    },
+  });
+
+  it('lands the dropship on the base site, leaving the old crater where it was', () => {
+    const clock = new IntroClock();
+    const intro = new MeteorIntro(CRATER, NEST, clock, [], humanArrival());
+    expect(intro.getTarget()).toEqual({ x: SITE.x * 32 + 16, y: SITE.y * 32 + 16 });
+    expect(intro.getCraterCenter()).toEqual({ x: CRATER.x * 32 + 16, y: CRATER.y * 32 + 16 });
+    // The crater is an old scar against the Humans: it is there from the first frame
+    expect(intro.hasCrater()).toBe(true);
+    expect(intro.hasLanded()).toBe(false);
+    clock.advance(Number.POSITIVE_INFINITY);
+    expect(intro.hasLanded()).toBe(true);
+  });
+
+  it('holds back the real Human base while its arrival plays, and hands it back at the end', () => {
+    const clock = new IntroClock();
+    const intro = new MeteorIntro(CRATER, NEST, clock, [], humanArrival());
+    expect(intro.hidesRivalBase()).toBe(true);
+    while (clock.elapsed < T.impact + 0.1) clock.advance(1 / 60);
+    expect(intro.skip()).toBe(true);
+    expect(intro.hidesRivalBase()).toBe(false);
+  });
+
+  it('keeps the meteor on the crater for the Hive and the wildlife, and hides no base', () => {
+    for (const variant of ['crystal', 'wildlife'] as const) {
+      const clock = new IntroClock();
+      const intro = new MeteorIntro(CRATER, NEST, clock, [], { variant, target: CRATER, rivalLine: '' });
+      expect(intro.getTarget()).toEqual(intro.getCraterCenter());
+      expect(intro.hasCrater()).toBe(false);
+      expect(intro.hidesRivalBase()).toBe(false);
+      expect(intro.getVariant()).toBe(variant);
+    }
+    // Without an arrival it is today's Crystal opening
+    expect(new MeteorIntro(CRATER, NEST, new IntroClock()).getVariant()).toBe('crystal');
+  });
+
+  it('writes the rival line under the title card', () => {
+    const clock = new IntroClock();
+    while (clock.elapsed < T.titleStart + 1) clock.advance(1 / 60);
+    const plain = recordingCtx(800, 600);
+    new MeteorIntro(CRATER, NEST, clock).drawScreenFx(plain.ctx, null);
+    const named = recordingCtx(800, 600);
+    new MeteorIntro(CRATER, NEST, clock, [], humanArrival()).drawScreenFx(named.ctx, null);
+    const line = named.fills.length - plain.fills.length;
+    expect(line).toBeGreaterThan(0);
+    expect(named.fills.some((f) => f.style === PAL.human.visor)).toBe(true);
+  });
+});
