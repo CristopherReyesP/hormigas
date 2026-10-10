@@ -36,6 +36,23 @@ The user wants the StarCraft fantasy, "even if we have to change sprites", as lo
   | Humans | rations from their crops, plus scrap/metal | rations to train, metal to build | units are trained on building floors (barracks floor → soldiers, workshop floor → machines) | parallel production: more buildings mean more output |
 
   Implication for P4: each faction has its own resource table instead of today's single pantry, its own production model, and its own food rules in HungerSystem.
+- Power levels and costs also differ by faction (user, 2026-10-09: "los niveles de fuerza, costos, etc."). The parent proposed this framework; the numbers are starting points, to be tuned in playtests:
+
+  | | Swarm | Crystal Hive | Humans |
+  |---|---|---|---|
+  | Unit cost | cheap (1×) | expensive (3×) | medium (2×) |
+  | Strength per unit | low | high | medium |
+  | Army size | many | few | moderate |
+  | Speed | fast | slow | medium |
+  | Durability | heals by eating, regenerates on mycelium | a regenerating crystal shield on top of HP | armor; builders repair machines |
+  | Attack | melee swarms, acid at range | heavy energy hits, splash | ranged firearms, bunkers |
+  | Production | fast eggs through one queen | slow | medium, in parallel |
+  | Weakness | splash and turrets | losing the mineral fields | needs buildings and supply lines |
+  | Tier 1 / 2 / 3 | Rasgadora / Escupidora / Coloso | Crystal drone / Sentinel / Crystal Queen (boss) | Soldier / Marksman or Engineer / Tank or Mech |
+
+  | Tactics (player and AI) | rush and flank, overwhelm with numbers, ambush from tunnels, retreat underground | turtle behind shields, then a slow, unstoppable push with few strong units, plus recall/teleport | positional play: bunkers and walls, ranged kiting, siege pushes |
+
+  Balance rule: equal power per cost across factions. A Swarm group that costs X should roughly match a Crystal unit that costs X. When the second faction lands, check this with a headless duel script, the same way scripts/check-ai-tactics.ts runs.
 - The rival AI runs a scripted build order (as StarCraft's AI does), not a learned or fully simulated economy, unless playtesting shows it is too predictable.
 
 ## Art direction (from the design audit, 2026-10-09)
@@ -150,6 +167,14 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
 - [ ] P4 — Factions: ownership component in targeting, damage, vision and economy; faction-filtered fog; remove first-nest assumptions (`src/game/systems/AntAISystem.ts:123-125`). Cost: expensive; foundation for P5.
 - [ ] P5 — Crystal Hive: rival base on the far side of the map, scripted build order, night waves sourced from it, Crystal Queen boss on night 7, victory on hive destruction. Its base grows upward as crystal spires with interior floors (see Decisions). Cost: expensive.
 - [ ] P9 — Humans (user, 2026-10-09; Terran-like, a third faction added later). Their base is buildings with floors (barracks, bunkers, turrets), raised by a builder anywhere, with no creep. It reuses the P4 interior floors and P5's floor view. Cost: expensive; not planned in detail yet.
+- [ ] P10 — Choose a race at the start (user, 2026-10-09: "elegir al inicio una raza… y contra qué raza"). The pre-run picker works like a StarCraft skirmish: the player picks their own race and the rival race (1v1). Mirror matches are allowed. A free-for-all with all three races can come later. The AI rival runs its race's scripted build order and tactics.
+  - Implication: every race must be fully playable (controls, economy, production UI, base and floor views), and every race needs an AI.
+  - Delivery order (parent):
+    1. The Swarm is playable now.
+    2. The Crystal Hive arrives as the AI rival (P5).
+    3. The Crystal Hive becomes playable.
+    4. The Humans arrive as AI (P9), then become playable.
+  - The picker shows races that are not playable yet as "Próximamente". Each race gets its own intro; today's meteor intro ("EL ENJAMBRE DESPIERTA") is the Swarm's. Cost: expensive.
 - [ ] P6 — Supply cap. The mycelium creep moved to P7.2. Cost: medium.
 - [ ] P7 — Surface base building (user, 2026-10-09: "en StarCraft se agregan como sitios en la superficie porque no hay cueva… expansión de territorio… encontrar minerales para construir armas, defensas"). Food pays for ants; minerals pay for structures. Cost: medium-expensive. Same Explore map:
   - Terrain tiles are `{terrain, walkable, pheromones}` (`simulation/world/types.ts:3-19`). The TileGrid seed comes from Math.random (`TileGrid.ts:12`), so new placement must use a seeded rng like `pickCraterSite` (`run/craterSite.ts:50-82`). The visual crystal shards around the crater (`alienDecor.ts:115-145`) mark the natural first mineral field.
