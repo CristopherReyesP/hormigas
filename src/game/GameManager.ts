@@ -106,6 +106,8 @@ import {
   UNDERGROUND_WIDTH,
   UNDERGROUND_HEIGHT,
   QUEEN_EGG_LAY_TIME,
+  QUEEN_MIN_HUNGER_TO_LAY,
+  MAX_EGGS_PER_INCUBATION_TILE,
   PANTRY_STORAGE_UPGRADE_PER_TILE,
   CRATER_CLEAR_RADIUS,
   CRATER_EDGE_MARGIN,
@@ -235,6 +237,30 @@ export interface GameStats {
   /** Pending dawn pick; the simulation stays paused while it is set. */
   mutationOffer: MutationOffer | null;
   lastMutationPick: MutationId | null;
+}
+
+/**
+ * Everything the brood readout needs to explain the breeding pipeline:
+ * pantry (pays the egg) → the queen lays → nurses carry it to incubation → it hatches.
+ */
+export interface BroodSnapshot {
+  /** Underground food on pantry and farm piles: the only stock that pays for eggs. `tiles` counts pantry tiles. */
+  pantry: { stored: number; capacity: number; tiles: number };
+  /** Food piled at the surface entrance, waiting for porters to carry it down (it spoils up there) */
+  surfaceStock: number;
+  hasQueen: boolean;
+  /** False while the queen is too hungry to lay */
+  queenCanLay: boolean;
+  /** Ordered eggs the queen has not laid yet, in laying order; `progress` is the laying progress */
+  queue: Array<{ role: AntRole; progress: number }>;
+  maxQueuedPerRole: number;
+  /** Laid eggs. `remaining` is incubation time left (it only runs on an incubation tile). */
+  eggs: Array<{ role: AntRole; progress: number; fedProgress: number; remaining: number; incubating: boolean }>;
+  /** Walkable incubation tiles and how many more eggs they can take */
+  incubation: { tiles: number; freeSlots: number };
+  /** Nurses below ground: only they carry eggs to incubation and feed larvae and the queen */
+  nurses: number;
+  costs: Record<AntRole, number>;
 }
 
 export class GameManager {
@@ -1544,30 +1570,77 @@ export class GameManager {
     };
   }
 
-  getEggQueue(): Array<{ role: string; progress: number }> {
-    const queens = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.EGG_QUEUE);
-    if (queens.length === 0) return [];
+  getBroodSnapshot(): BroodSnapshot {
+    const stored = this.undergroundGrid.getPantryStored();
+    const nestId = this.world.query(COMPONENT.NEST)[0];
+    const nest = nestId !== undefined ? this.world.getComponent<NestComponent>(nestId, COMPONENT.NEST) : undefined;
 
-    const queenId = queens[0];
-    const eggQueue = this.world.getComponent<EggQueueComponent>(queenId, COMPONENT.EGG_QUEUE)!;
+    const queenId = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.EGG_QUEUE)[0];
+    const queen = queenId !== undefined ? this.world.getComponent<QueenEntityComponent>(queenId, COMPONENT.QUEEN_ENTITY) : undefined;
+    const eggQueue = queenId !== undefined ? this.world.getComponent<EggQueueComponent>(queenId, COMPONENT.EGG_QUEUE) : undefined;
 
-    return eggQueue.queue.map(e => ({
-      role: e.role,
-      progress: e.layTimerTotal > 0 ? 1 - (e.layTimer / e.layTimerTotal) : 0,
-    }));
-  }
-
-  getActiveEggs(): Array<{ role: string; progress: number; fedProgress: number }> {
-    const eggs = this.world.query(COMPONENT.EGG, COMPONENT.POSITION);
-    const result: Array<{ role: string; progress: number; fedProgress: number }> = [];
-
-    for (const id of eggs) {
+    // Same placement rule as EggIncubationSystem and the nurses' free-slot search
+    const eggsPerTile = new Map<number, number>();
+    const eggs: BroodSnapshot['eggs'] = [];
+    for (const id of this.world.query(COMPONENT.EGG, COMPONENT.POSITION)) {
       const egg = this.world.getComponent<EggComponent>(id, COMPONENT.EGG)!;
-      const progress = egg.hatchTime > 0 ? 1 - (egg.hatchTimer / egg.hatchTime) : 1;
-      const fedProgress = egg.requiredFood > 0 ? egg.fedAmount / egg.requiredFood : 1;
-      result.push({ role: egg.role, progress, fedProgress });
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const tx = Math.floor(pos.x);
+      const ty = Math.floor(pos.y);
+      const key = ty * this.undergroundGrid.width + tx;
+      eggsPerTile.set(key, (eggsPerTile.get(key) ?? 0) + 1);
+      eggs.push({
+        role: egg.role,
+        progress: egg.hatchTime > 0 ? 1 - egg.hatchTimer / egg.hatchTime : 1,
+        fedProgress: egg.requiredFood > 0 ? egg.fedAmount / egg.requiredFood : 1,
+        remaining: Math.max(0, egg.hatchTimer),
+        incubating: this.undergroundGrid.getTile(tx, ty)?.chamberType === ChamberType.Incubation,
+      });
     }
-    return result;
+
+    let incubationTiles = 0;
+    let freeSlots = 0;
+    for (let y = 0; y < this.undergroundGrid.height; y++) {
+      for (let x = 0; x < this.undergroundGrid.width; x++) {
+        const tile = this.undergroundGrid.getTile(x, y);
+        if (!tile || !tile.walkable || tile.chamberType !== ChamberType.Incubation) continue;
+        incubationTiles++;
+        freeSlots += Math.max(0, MAX_EGGS_PER_INCUBATION_TILE - (eggsPerTile.get(y * this.undergroundGrid.width + x) ?? 0));
+      }
+    }
+
+    let nurses = 0;
+    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.LAYER)) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
+      if (ant.role === AntRole.Nurse && layer.layer === Layer.Underground) nurses++;
+    }
+
+    return {
+      pantry: {
+        stored: stored.total,
+        capacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
+        tiles: this.undergroundGrid.getPantryTiles().length,
+      },
+      surfaceStock: nest ? Math.floor(nest.foodStored) : 0,
+      hasQueen: queen !== undefined,
+      queenCanLay: queen !== undefined && queen.hunger >= QUEEN_MIN_HUNGER_TO_LAY,
+      queue: (eggQueue?.queue ?? []).map((e) => ({
+        role: e.role,
+        progress: e.layTimerTotal > 0 ? 1 - e.layTimer / e.layTimerTotal : 0,
+      })),
+      maxQueuedPerRole: eggQueue?.maxPerType ?? 0,
+      eggs,
+      incubation: { tiles: incubationTiles, freeSlots },
+      nurses,
+      costs: {
+        [AntRole.Worker]: this.getBreedCost(AntRole.Worker),
+        [AntRole.Soldier]: this.getBreedCost(AntRole.Soldier),
+        [AntRole.Scout]: this.getBreedCost(AntRole.Scout),
+        [AntRole.Nurse]: this.getBreedCost(AntRole.Nurse),
+        [AntRole.Defender]: this.getBreedCost(AntRole.Defender),
+      },
+    };
   }
 
   getColonyFood(): { total: number; leaves: number; mushrooms: number; meat: number } {

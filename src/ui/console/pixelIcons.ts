@@ -216,6 +216,17 @@ const ICON_ART = {
     '...h....',
     '........',
   ],
+  /** Underground chamber holding a mixed food pile: the stock that pays for eggs */
+  pantry: [
+    '.nnnnnn.',
+    'nkkkkkkn',
+    'nkkkRkkn',
+    'nklgRRkn',
+    'nlggrEEn',
+    'nGgrrEen',
+    'nnnnnnnn',
+    '........',
+  ],
   crate: [
     'hhhhhhhh',
     'hHHHHHHh',

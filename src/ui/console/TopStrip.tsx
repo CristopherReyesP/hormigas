@@ -30,9 +30,10 @@ function FoodResource({ icon, value, label, active, onSelect }: {
   onSelect?: () => void;
 }) {
   const flash = useFlashOnChange(value);
+  const where = `${label}: total de la colonia, en la entrada y en la despensa.`;
   const title = active
-    ? `${label}: la colonia come esto primero`
-    : `${label}: clic para que la colonia coma esto primero`;
+    ? `${where} La colonia come esto primero.`
+    : `${where} Clic para que la colonia coma esto primero.`;
   return (
     <button
       type="button"
@@ -46,6 +47,23 @@ function FoodResource({ icon, value, label, active, onSelect }: {
       <span className={`strip-value ${flash}`}>{value}</span>
       {active && <span className="strip-food-badge">1º</span>}
     </button>
+  );
+}
+
+/** The underground stock that pays for eggs, labeled so it never reads as the food totals beside it. */
+function PantryStock({ stored, capacity }: { stored: number; capacity: number }) {
+  const flash = useFlashOnChange(stored);
+  return (
+    <span
+      className="strip-item strip-pantry"
+      title="Despensa: comida guardada bajo tierra que paga los huevos y alimenta a la reina, las nodrizas y las larvas."
+    >
+      <PixelIcon name="pantry" />
+      <span className="strip-pantry-label">DESPENSA</span>
+      <span className={`strip-value ${flash}`} style={stored < 1 ? { color: 'var(--chrome-warn)' } : undefined}>
+        {stored}/{capacity}
+      </span>
+    </span>
   );
 }
 
@@ -89,6 +107,7 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
         <FoodResource icon="leaf" value={leaves} label="Hojas" active={eatFirst === 'leaf'} onSelect={select('leaf')} />
         <FoodResource icon="fungus" value={stats.mushroomStored} label="Hongos" active={eatFirst === 'mushroom'} onSelect={select('mushroom')} />
         <FoodResource icon="meat" value={stats.meatStored} label="Carne" active={eatFirst === 'meat'} onSelect={select('meat')} />
+        <PantryStock stored={stats.pantryStored} capacity={stats.pantryCapacity} />
         <span className="strip-sep" aria-hidden="true" />
         <Resource icon="ant" value={stats.antCount} label="Población total" tone="var(--chrome-text)" />
         <Resource icon="worker" value={stats.workerCount} label="Obreras" />

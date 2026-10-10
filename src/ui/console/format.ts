@@ -1,4 +1,5 @@
 import { AntRole } from '../../game/components/components';
+import type { IconName } from './pixelIcons';
 
 /** Pictographs plus the variation selector, zero-width joiner and keycap that glue emoji together. */
 const EMOJI = /\p{Extended_Pictographic}|\u{FE0F}|\u{200D}|\u{20E3}/gu;
@@ -20,6 +21,15 @@ export const ROLE_LABEL: Record<AntRole, string> = {
   [AntRole.Scout]: 'Exploradora',
   [AntRole.Nurse]: 'Nodriza',
   [AntRole.Defender]: 'Defensora',
+};
+
+/** Pixel icon of each caste: breed buttons, rosters and egg chips. */
+export const ROLE_ICON: Record<AntRole, IconName> = {
+  [AntRole.Worker]: 'worker',
+  [AntRole.Soldier]: 'sword',
+  [AntRole.Scout]: 'eye',
+  [AntRole.Nurse]: 'nurse',
+  [AntRole.Defender]: 'shield',
 };
 
 /** What each caste does — selection panel and breeding tooltips. */

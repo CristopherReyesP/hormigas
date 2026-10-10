@@ -4,9 +4,12 @@ import { AntRole } from '../../game/components/components';
 import { PixelIcon } from './PixelIcon';
 import type { IconName } from './pixelIcons';
 import { Portrait } from './Portrait';
-import type { ColonyDetails, EggInfo } from './useColonyDetails';
+import type { ColonyDetails } from './useColonyDetails';
+import { deriveBroodPipeline } from './brood';
+import { BroodReadout } from './BroodReadout';
+import { broodKeys } from './commands';
 import {
-  ANT_STATE_LABEL, BEETLE_STATE_LABEL, ROLE_BLURB, CARRY_LABEL, CRICKET_STATE_LABEL, FOOD_LABEL, ROLE_LABEL, ROLE_PLURAL, formatClock,
+  ANT_STATE_LABEL, BEETLE_STATE_LABEL, ROLE_BLURB, CARRY_LABEL, CRICKET_STATE_LABEL, FOOD_LABEL, ROLE_ICON, ROLE_LABEL, ROLE_PLURAL, formatClock,
 } from './format';
 
 interface InfoPanelProps {
@@ -52,27 +55,22 @@ function Row({ icon, label, value, tone }: { icon: IconName; label: string; valu
   );
 }
 
-function Column({ title, children }: { title: string; children: ReactNode }) {
+/** `optional` columns repeat the top strip and give way to the brood readout on narrow screens */
+function Column({ title, children, optional = false }: { title: string; children: ReactNode; optional?: boolean }) {
   return (
-    <section className="info-col">
+    <section className={optional ? 'info-col info-col--optional' : 'info-col'}>
       <h3 className="hud-label">{title}</h3>
       {children}
     </section>
   );
 }
 
-const ROLE_ICON: Record<AntRole, IconName> = {
-  [AntRole.Worker]: 'worker',
-  [AntRole.Soldier]: 'sword',
-  [AntRole.Scout]: 'eye',
-  [AntRole.Nurse]: 'nurse',
-  [AntRole.Defender]: 'shield',
-};
+function Brood({ details }: { details: ColonyDetails }) {
+  return <BroodReadout pipeline={deriveBroodPipeline(details.brood, broodKeys())} />;
+}
 
-/** Surface, nothing selected: castes, reserves, threats. */
-function ColonySummary({ stats }: { stats: GameStats }) {
-  const leaves = Math.max(0, stats.foodStored - stats.mushroomStored - stats.meatStored);
-  const capacity = Math.max(stats.pantryCapacity, 1);
+/** Surface, nothing selected: castes, reserves, threats, brood. */
+function ColonySummary({ stats, details }: { stats: GameStats; details: ColonyDetails }) {
   const counts: Record<AntRole, number> = {
     [AntRole.Worker]: stats.workerCount,
     [AntRole.Soldier]: stats.soldierCount,
@@ -82,16 +80,16 @@ function ColonySummary({ stats }: { stats: GameStats }) {
   };
   const threats = stats.beetleCount + stats.cricketCount;
   return (
-    <div className="info-grid">
-      <Column title={`ENJAMBRE · ${stats.antCount}`}>
+    <div className="info-grid info-grid--brood">
+      <Column title={`ENJAMBRE · ${stats.antCount}`} optional>
         {(Object.keys(counts) as AntRole[]).map((role) => (
           <Row key={role} icon={ROLE_ICON[role]} label={ROLE_PLURAL[role]} value={counts[role]} />
         ))}
       </Column>
-      <Column title={`RESERVAS · ${stats.pantryStored}/${stats.pantryCapacity}`}>
-        <Bar label="Hojas" icon="leaf" value={leaves} max={capacity} color="var(--chrome-accent)" numbers="value" />
-        <Bar label="Hongos" icon="fungus" value={stats.mushroomStored} max={capacity} color="var(--chrome-warn)" numbers="value" />
-        <Bar label="Carne" icon="meat" value={stats.meatStored} max={capacity} color="var(--chrome-danger)" numbers="value" />
+      <Column title="RESERVAS">
+        <Row icon="leaf" label="En la entrada" value={details.brood.surfaceStock} />
+        <Bar label="Despensa" icon="pantry" value={stats.pantryStored} max={stats.pantryCapacity} color="var(--chrome-accent)" />
+        <div className="info-note">Las obreras bajan la comida a la despensa. Arriba se pudre.</div>
       </Column>
       <Column title="AMENAZAS">
         <Row icon="beetle" label="Escarabajos" value={stats.beetleCount} tone={stats.beetleCount ? 'var(--chrome-danger)' : undefined} />
@@ -105,6 +103,7 @@ function ColonySummary({ stats }: { stats: GameStats }) {
               : `Oleada ${stats.invasion.waveNumber + 1} en ${formatClock(stats.invasion.nextWaveIn)}`}
         </div>
       </Column>
+      <Brood details={details} />
     </div>
   );
 }
@@ -116,35 +115,13 @@ const FARM_STATUS: Record<string, string> = {
   'sin-tiles': 'Sin casillas de granja',
 };
 
-function EggList({ eggs, empty }: { eggs: EggInfo[]; empty: string }) {
-  if (eggs.length === 0) return <div className="info-note">{empty}</div>;
-  return (
-    <>
-      {eggs.slice(0, 3).map((egg, i) => {
-        const hungry = egg.fedProgress !== undefined && egg.fedProgress < 1 && egg.progress >= 1;
-        return (
-          <Bar
-            key={i}
-            label={`${ROLE_LABEL[egg.role as AntRole] ?? egg.role}${hungry ? ' · con hambre' : ''}`}
-            value={egg.progress * 100}
-            max={100}
-            color={hungry ? 'var(--chrome-warn)' : 'var(--chrome-border-light)'}
-            numbers="none"
-          />
-        );
-      })}
-      {eggs.length > 3 && <div className="info-note">y {eggs.length - 3} más</div>}
-    </>
-  );
-}
-
 /** Underground, nothing selected: queen, pantry, farm, brood. */
 function NestSummary({ details }: { details: ColonyDetails }) {
   const { queen, food, farm, garrison } = details;
   const pantryMax = Math.max(food.total, 1);
   const diet = { leaf: 'hojas', mushroom: 'hongos', meat: 'carne' }[details.eatFirst];
   return (
-    <div className="info-grid info-grid--4">
+    <div className="info-grid info-grid--brood">
       <Column title="REINA">
         {queen ? (
           <>
@@ -156,7 +133,7 @@ function NestSummary({ details }: { details: ColonyDetails }) {
           <div className="info-note info-note--danger">Sin reina</div>
         )}
       </Column>
-      <Column title={`DESPENSA · ${food.total}`}>
+      <Column title={`DESPENSA · ${food.total}`} optional>
         <Bar label="Hojas" icon="leaf" value={food.leaves} max={pantryMax} color="var(--chrome-accent)" numbers="value" />
         <Bar label="Hongos" icon="fungus" value={food.mushrooms} max={pantryMax} color="var(--chrome-warn)" numbers="value" />
         <Bar label="Carne" icon="meat" value={food.meat} max={pantryMax} color="var(--chrome-danger)" numbers="value" />
@@ -175,10 +152,7 @@ function NestSummary({ details }: { details: ColonyDetails }) {
           </>
         )}
       </Column>
-      <Column title={`CRÍA · ${details.eggQueue.length + details.activeEggs.length}`}>
-        {details.eggQueue.length > 0 && <div className="info-note">En cola: {details.eggQueue.length}</div>}
-        <EggList eggs={details.activeEggs} empty="Sin huevos incubando" />
-      </Column>
+      <Brood details={details} />
     </div>
   );
 }
@@ -297,7 +271,7 @@ export function InfoPanel(props: InfoPanelProps) {
         ) : stats.activeLayer === 'underground' ? (
           <NestSummary details={details} />
         ) : (
-          <ColonySummary stats={stats} />
+          <ColonySummary stats={stats} details={details} />
         )}
       </div>
       </div>

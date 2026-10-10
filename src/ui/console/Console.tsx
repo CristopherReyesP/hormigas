@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GameManager, GameStats } from '../../game/GameManager';
 import { NotificationStack } from '../NotificationStack';
-import { buildCommands, BUILD_MODE_HINT, type BuildMode, type CardPage } from './commands';
+import { buildCommands, BUILD_MODE_HINT, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
 import { CommandCard } from './CommandCard';
 import { InfoPanel } from './InfoPanel';
 import { MinimapPanel } from './MinimapPanel';
@@ -32,7 +32,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   const [page, setPage] = useState<CardPage>('root');
   const [buildMode, setBuildMode] = useState<BuildMode | null>(null);
   const [attackCount, setAttackCount] = useState(10);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; tone: NoticeTone } | null>(null);
 
   // Leaving the nest (any route) drops nest-only tools and pages
   const [seenLayer, setSeenLayer] = useState(stats.activeLayer);
@@ -68,6 +68,12 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
     [gameManager, refresh],
   );
 
+  const notify = useCallback((text: string, tone: NoticeTone = 'hint') => setNotice({ text, tone }), []);
+
+  const explainBlocked = useCallback((command: CommandDef) => {
+    if (command.disabledReason) setNotice({ text: command.disabledReason, tone: 'danger' });
+  }, []);
+
   const toggleBuildMode = useCallback((mode: BuildMode) => {
     setBuildMode((current) => (current === mode ? null : mode));
   }, []);
@@ -92,18 +98,18 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
             toggleBuildMode,
             switchLayer,
             refresh,
-            notify: setNotice,
+            notify,
           })
         : [],
-    [gameManager, stats, details, page, buildMode, attackCount, toggleBuildMode, switchLayer, refresh],
+    [gameManager, stats, details, page, buildMode, attackCount, toggleBuildMode, switchLayer, refresh, notify],
   );
 
-  const hint = notice ?? (buildMode ? BUILD_MODE_HINT[buildMode] : null);
+  const hint = notice?.text ?? (buildMode ? BUILD_MODE_HINT[buildMode] : null);
   const overlayOpen = Boolean(stats.mutationOffer || stats.gameOver);
 
   return (
     <>
-      <NotificationStack notifications={stats.notifications} hint={hint} />
+      <NotificationStack notifications={stats.notifications} hint={hint} hintTone={notice?.tone} />
       <footer className="hive-console">
         <div className="console-deck" aria-hidden="true">
           <div className="console-vein" />
@@ -116,7 +122,12 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
           attackCount={attackCount}
           onAttackCountChange={setAttackCount}
         />
-        <CommandCard commands={commands} hotkeysEnabled={!overlayOpen && commands.length > 0} onEscape={onEscape} />
+        <CommandCard
+          commands={commands}
+          hotkeysEnabled={!overlayOpen && commands.length > 0}
+          onEscape={onEscape}
+          onBlocked={explainBlocked}
+        />
       </footer>
     </>
   );

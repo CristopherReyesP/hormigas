@@ -1,6 +1,7 @@
 import type { GameManager, GameStats, UpgradeId, UpgradeInfo } from '../../game/GameManager';
 import { AntRole, ColonyPriority } from '../../game/components/components';
-import { CARD_SLOTS } from './commandCardLayout';
+import { breedButtonState, type BroodKeys } from './brood';
+import { CARD_SLOTS, cardHotkeys } from './commandCardLayout';
 import type { IconName } from './pixelIcons';
 import type { ColonyDetails } from './useColonyDetails';
 import { ROLE_BLURB, ROLE_LABEL, stripEmoji } from './format';
@@ -22,9 +23,11 @@ export interface CommandDef {
   /** Short text drawn instead of an icon (speed buttons) */
   glyph?: string;
   description: string;
-  cost?: { amount: number; resource: 'comida' | 'hongos' };
+  /** Price printed on the button face; `short` paints it red when the stock cannot pay it */
+  cost?: { amount: number; resource: 'comida' | 'hongos'; short?: boolean };
   /** Small corner text: queue size, tile count, upgrade level */
   badge?: string;
+  badgeTone?: 'warn';
   /** Extra keys that also trigger this action, for the tooltip */
   altKeys?: string;
   active?: boolean;
@@ -47,9 +50,11 @@ export interface CommandContext {
   switchLayer: (layer: 'surface' | 'underground') => void;
   /** Re-read stats and details right after an action */
   refresh: () => void;
-  /** Short-lived message in the feed */
-  notify: (message: string) => void;
+  /** Short-lived message in the feed; 'danger' for refusals */
+  notify: (message: string, tone?: NoticeTone) => void;
 }
+
+export type NoticeTone = 'hint' | 'danger';
 
 type Slot = CommandDef | null;
 
@@ -109,19 +114,23 @@ function priority(ctx: CommandContext, value: ColonyPriority, id: string, label:
 
 function breedCommands(ctx: CommandContext): CommandDef[] {
   return BREED_ORDER.map(({ role, icon }) => {
-    const cost = ctx.gm.getBreedCost(role);
-    const queued = ctx.details.eggQueue.filter((egg) => egg.role === role).length;
-    const affordable = ctx.details.food.total >= cost;
+    const state = breedButtonState(role, ctx.details.brood);
+    const name = ROLE_LABEL[role].toLowerCase();
+    const max = ctx.details.brood.maxQueuedPerRole;
     return {
       id: `breed-${role}`,
-      label: `Criar ${ROLE_LABEL[role].toLowerCase()}`,
+      label: `Criar ${name}`,
       icon,
-      description: `La reina pone un huevo. ${ROLE_BLURB[role]} Se paga con comida de la despensa.`,
-      cost: { amount: cost, resource: 'comida' as const },
-      badge: queued > 0 ? String(queued) : undefined,
-      disabled: !affordable,
-      disabledReason: affordable ? undefined : 'No hay suficiente comida en la despensa.',
-      run: act(ctx, () => ctx.gm.queueBreed(role)),
+      description: `La reina pone un huevo de ${name}. ${ROLE_BLURB[role]} Se paga al encargarlo con comida de la despensa, bajo tierra.`,
+      cost: { amount: state.cost, resource: 'comida' as const, short: !state.affordable },
+      badge: state.full ? `${state.queued}/${max}` : state.queued > 0 ? String(state.queued) : undefined,
+      badgeTone: state.full ? ('warn' as const) : undefined,
+      disabled: state.disabled,
+      disabledReason: state.reason,
+      run: act(ctx, () => {
+        if (ctx.gm.queueBreed(role)) ctx.notify(`Huevo de ${name} encargado (-${state.cost} comida)`);
+        else ctx.notify(state.reason ?? 'La reina no puede poner ese huevo ahora.', 'danger');
+      }),
     };
   });
 }
@@ -211,12 +220,19 @@ function surfaceRoot(ctx: CommandContext): Slot[] {
   ];
 }
 
+/** Reading order of the nest root card; nestRoot() fills it and the brood hints quote its keys. */
+const NEST_ROOT_ORDER: readonly string[] = [
+  'dig', 'incubation', 'farm', 'storage', 'ascend',
+  ...BREED_ORDER.map(({ role }) => `breed-${role}`),
+  'pause', 'speed-1', 'speed-2', 'speed-3', 'colony-page',
+];
+
 function nestRoot(ctx: CommandContext): Slot[] {
   const counts: Partial<Record<BuildMode, number>> = {
     farm: ctx.details.farm.tiles,
     storage: ctx.details.storageTiles,
   };
-  return [
+  const defs: CommandDef[] = [
     ...BUILD_TOOLS.map((tool) => buildTool(ctx, tool.mode, tool.label, tool.icon, tool.description, counts[tool.mode])),
     {
       id: 'ascend',
@@ -235,6 +251,22 @@ function nestRoot(ctx: CommandContext): Slot[] {
       run: () => ctx.setPage('colony'),
     },
   ];
+  const byId = new Map(defs.map((def) => [def.id, def]));
+  return NEST_ROOT_ORDER.map((id) => byId.get(id) ?? null);
+}
+
+/** Hotkey of a nest root command, from its declared slot. */
+function nestKey(id: string): string {
+  return cardHotkeys()[NEST_ROOT_ORDER.indexOf(id)] ?? '';
+}
+
+/** Keys the brood readout quotes: the breed row and the nest tools that unblock breeding. */
+export function broodKeys(): BroodKeys {
+  return {
+    breed: BREED_ORDER.map(({ role }) => nestKey(`breed-${role}`)),
+    incubation: nestKey('incubation'),
+    storage: nestKey('storage'),
+  };
 }
 
 function upgradeCommand(ctx: CommandContext, upgrade: UpgradeInfo | undefined): Slot {
@@ -246,7 +278,7 @@ function upgradeCommand(ctx: CommandContext, upgrade: UpgradeInfo | undefined): 
     label: stripEmoji(upgrade.name),
     icon: UPGRADE_ICON[upgrade.id],
     description: `Mejora de la reina: ${upgrade.description}.`,
-    cost: maxed ? undefined : { amount: upgrade.nextCost ?? 0, resource: 'hongos' },
+    cost: maxed ? undefined : { amount: upgrade.nextCost ?? 0, resource: 'hongos', short: !affordable },
     badge: `${upgrade.level}/${upgrade.maxLevel}`,
     disabled: maxed || !affordable,
     disabledReason: maxed ? 'Nivel máximo.' : 'Faltan hongos de la granja.',

@@ -1,19 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { GameManager, UpgradeInfo } from '../../game/GameManager';
-
-export interface EggInfo {
-  role: string;
-  progress: number;
-  /** Only incubating eggs report feeding (queued eggs do not) */
-  fedProgress?: number;
-}
+import type { BroodSnapshot, GameManager, UpgradeInfo } from '../../game/GameManager';
+import { AntRole } from '../../game/components/components';
 
 /** Colony state the console needs beyond the pushed GameStats; polled twice a second. */
 export interface ColonyDetails {
   food: { total: number; leaves: number; mushrooms: number; meat: number };
   queen: { health: number; maxHealth: number; hunger: number; maxHunger: number; isLaying: boolean } | null;
-  eggQueue: EggInfo[];
-  activeEggs: EggInfo[];
+  brood: BroodSnapshot;
   farm: { tiles: number; rate: number; status: string; stored: number; capacity: number };
   eatFirst: 'leaf' | 'mushroom' | 'meat';
   garrison: { target: number; current: number };
@@ -24,8 +17,24 @@ export interface ColonyDetails {
 const EMPTY: ColonyDetails = {
   food: { total: 0, leaves: 0, mushrooms: 0, meat: 0 },
   queen: null,
-  eggQueue: [],
-  activeEggs: [],
+  brood: {
+    pantry: { stored: 0, capacity: 0, tiles: 0 },
+    surfaceStock: 0,
+    hasQueen: false,
+    queenCanLay: false,
+    queue: [],
+    maxQueuedPerRole: 0,
+    eggs: [],
+    incubation: { tiles: 0, freeSlots: 0 },
+    nurses: 0,
+    costs: {
+      [AntRole.Worker]: 0,
+      [AntRole.Soldier]: 0,
+      [AntRole.Scout]: 0,
+      [AntRole.Nurse]: 0,
+      [AntRole.Defender]: 0,
+    },
+  },
   farm: { tiles: 0, rate: 0, status: 'sin-tiles', stored: 0, capacity: 0 },
   eatFirst: 'leaf',
   garrison: { target: 0, current: 0 },
@@ -39,8 +48,7 @@ function read(gm: GameManager): ColonyDetails {
   return {
     food: gm.getColonyFood(),
     queen: gm.getQueenStats(),
-    eggQueue: gm.getEggQueue(),
-    activeEggs: gm.getActiveEggs(),
+    brood: gm.getBroodSnapshot(),
     farm: gm.getFarmStatus(),
     eatFirst: gm.getConsumptionPriority(),
     garrison: gm.getGarrisonInfo(),

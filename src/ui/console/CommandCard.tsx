@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { cardHotkeys, GRID_LETTERS, slotForKey } from './commandCardLayout';
 import type { CommandDef } from './commands';
 import { PixelIcon } from './PixelIcon';
+import type { IconName } from './pixelIcons';
 
 interface CommandCardProps {
   commands: Array<CommandDef | null>;
   /** Hotkeys listen only while no overlay (evolution chamber, game over) is up */
   hotkeysEnabled: boolean;
   onEscape: () => void;
+  /** A disabled command was pressed: say why (StarCraft's "not enough minerals") */
+  onBlocked?: (command: CommandDef) => void;
 }
 
 /** Why a grid letter was swapped for a stand-in — told in the tooltip. */
@@ -19,8 +22,19 @@ const RESERVED_REASON: Record<string, string> = {
 
 const PRESS_FLASH_MS = 140;
 
+/** Eggs are paid from the pantry, upgrades from farm fungus */
+const COST_ICON: Record<NonNullable<CommandDef['cost']>['resource'], IconName> = {
+  comida: 'pantry',
+  hongos: 'fungus',
+};
+
+const COST_LABEL: Record<NonNullable<CommandDef['cost']>['resource'], string> = {
+  comida: 'de comida de la despensa',
+  hongos: 'hongos',
+};
+
 /** 3×5 command card with positional hotkeys and a tooltip plate above it. */
-export function CommandCard({ commands, hotkeysEnabled, onEscape }: CommandCardProps) {
+export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked }: CommandCardProps) {
   const hotkeys = useMemo(() => cardHotkeys(), []);
   const [hovered, setHovered] = useState<number | null>(null);
   const [pressed, setPressed] = useState<number | null>(null);
@@ -37,15 +51,19 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape }: CommandCardP
       }
       const slot = slotForKey(e.code, hotkeys);
       const command = slot >= 0 ? commands[slot] : null;
-      if (!command || command.disabled) return;
+      if (!command) return;
       e.preventDefault();
+      if (command.disabled) {
+        onBlocked?.(command);
+        return;
+      }
       command.run();
       setPressed(slot);
       window.setTimeout(() => setPressed((current) => (current === slot ? null : current)), PRESS_FLASH_MS);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [hotkeysEnabled, commands, hotkeys, onEscape]);
+  }, [hotkeysEnabled, commands, hotkeys, onEscape, onBlocked]);
 
   const tip = hovered !== null ? commands[hovered] : null;
 
@@ -61,6 +79,7 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape }: CommandCardP
               'cmd-btn',
               command.active ? 'cmd-btn--active' : '',
               command.tone === 'danger' ? 'cmd-btn--danger' : '',
+              command.disabled ? 'cmd-btn--disabled' : '',
               pressed === i ? 'cmd-btn--pressed' : '',
             ].filter(Boolean).join(' ');
             return (
@@ -73,23 +92,31 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape }: CommandCardP
                 <button
                   type="button"
                   className={classes}
-                  disabled={command.disabled}
+                  aria-disabled={command.disabled || undefined}
                   aria-label={`${command.label} (${key})`}
                   aria-keyshortcuts={key}
                   aria-pressed={command.active ?? undefined}
                   onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
                   onFocus={() => setHovered(i)}
                   onBlur={() => setHovered((h) => (h === i ? null : h))}
-                  onClick={command.run}
+                  onClick={() => (command.disabled ? onBlocked?.(command) : command.run())}
                 >
-                  <span className="cmd-face">
+                  <span className={command.cost ? 'cmd-face cmd-face--cost' : 'cmd-face'}>
                     {command.icon ? (
-                      <PixelIcon name={command.icon} size={32} />
+                      <PixelIcon name={command.icon} size={command.cost ? 24 : 32} />
                     ) : (
                       <span className="cmd-glyph">{command.glyph}</span>
                     )}
                     <span className="cmd-key">{key}</span>
-                    {command.badge && <span className="cmd-badge">{command.badge}</span>}
+                    {command.badge && (
+                      <span className={command.badgeTone ? `cmd-badge cmd-badge--${command.badgeTone}` : 'cmd-badge'}>{command.badge}</span>
+                    )}
+                    {command.cost && (
+                      <span className={command.cost.short ? 'cmd-cost cmd-cost--short' : 'cmd-cost'}>
+                        <PixelIcon name={COST_ICON[command.cost.resource]} size={8} />
+                        {command.cost.amount}
+                      </span>
+                    )}
                   </span>
                 </button>
               </div>
@@ -108,9 +135,9 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape }: CommandCardP
               <span className="cmd-tip-key">[{hotkeys[hovered]}]</span>
             </div>
             {tip.cost && (
-              <div className="cmd-tip-cost">
-                <PixelIcon name={tip.cost.resource === 'hongos' ? 'fungus' : 'leaf'} />
-                {tip.cost.amount} {tip.cost.resource}
+              <div className={tip.cost.short ? 'cmd-tip-cost cmd-tip-cost--short' : 'cmd-tip-cost'}>
+                <PixelIcon name={COST_ICON[tip.cost.resource]} />
+                {tip.cost.amount} {COST_LABEL[tip.cost.resource]}
               </div>
             )}
             <div className="cmd-tip-desc">{tip.description}</div>
