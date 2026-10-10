@@ -5,6 +5,7 @@ import { createAnt } from '../entities/factories';
 import type { DayNightSystem } from '../systems/DayNightSystem';
 import type { KeyPress } from '../../engine/input/InputManager';
 import { TILE_SIZE, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
+import { finishIntro } from '../../test/gameManagerMocks';
 
 // Real manager and simulation; browser-only adapters are replaced. The input mock
 // records key handlers so the tests can press the game's hotkeys with modifiers.
@@ -25,6 +26,7 @@ const NY = Math.floor(WORLD_HEIGHT / 2);
 function manager() {
   keyHandlers.clear();
   const game = new GameManager(Object.assign(new EventTarget(), { getContext: () => ({}) }) as unknown as HTMLCanvasElement);
+  finishIntro(game);
   return game;
 }
 

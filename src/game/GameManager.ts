@@ -4,6 +4,8 @@ import { antSpawnStats } from './run/antStats';
 import { buildMutationOffer, shouldOfferMutation, summarizeMutationBuild, type MutationBuildEntry, type MutationOffer } from './run/DawnPick';
 import { createSeededRng, offerMutations } from './run/MutationOffers';
 import { pickCraterSite, type TilePos } from './run/craterSite';
+import { pickMineralFields } from './run/mineralFields';
+import { CRYSTAL_BOWL_RADIUS, CRYSTAL_SHARD_RADIUS } from '../engine/renderer/alienDecor';
 import type { EntityId } from '../shared/types';
 import { World } from '../engine/ecs/World';
 import { GameLoop } from '../engine/loop/GameLoop';
@@ -59,7 +61,10 @@ import { IntroDirector } from './render/IntroDirector';
 import { IntroClock } from './render/introTimeline';
 import { audioIntroFrame, audioRunEnded, audioRunStarted, emitAudio } from '../audio';
 import { selectionAudio } from '../audio/gameHooks';
-import { createAnt, createFood, createNest, createBeetleDen, createQueen } from './entities/factories';
+import { createAnt, createFood, createMineral, createNest, createBeetleDen, createQueen, createCrystalHive } from './entities/factories';
+import { CrystalHiveSystem } from './systems/CrystalHiveSystem';
+import { CrystalUnitAISystem } from './systems/CrystalUnitAISystem';
+import { FactionId, FactionRegistry, defaultFactions } from './factions/factions';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
 import {
@@ -129,12 +134,21 @@ import {
   CRATER_CLEAR_RADIUS,
   CRATER_EDGE_MARGIN,
   CRATER_FAR_FRACTION,
+  MINERAL_EXTRA_FIELDS,
+  MINERAL_NODES_PER_FIELD,
+  MINERAL_FIELD_RADIUS,
+  MINERAL_MIN_NEST_DISTANCE,
+  MINERAL_HOME_FIELD_MAX_DISTANCE,
+  MINERAL_FIELD_SPACING,
+  MINERAL_EDGE_MARGIN,
   CONTROL_GROUP_SLOTS,
   GAME_SPEED_MAX,
 } from '../shared/constants';
 
 /** Mixed into the run seed so the crater does not share the dawn offers' draws. */
 const CRATER_SEED_SALT = 0x9e3779b9;
+/** Mixed into the run seed so the mineral fields draw from their own stream. */
+const MINERAL_SEED_SALT = 0x85ebca6b;
 
 /** A command card order that waits for a click: Mover (Q) or Atacar (A). */
 export type CommandTarget = 'move' | 'attack';
@@ -229,6 +243,8 @@ export interface GameOverStats {
   tilesExcavated: number;
   wavesRepelled: number;
   build: MutationBuildEntry[];
+  /** Set when the run was won by destroying the Crystal Hive */
+  hiveDestroyed?: true;
 }
 
 /** One dot on the underground minimap */
@@ -258,6 +274,8 @@ export interface GameStats {
   meatStored: number;
   pantryStored: number;
   pantryCapacity: number;
+  /** The minerals bank: what miners delivered, the currency for structures */
+  mineralsStored: number;
   beetleCount: number;
   beetleDenCount: number;
   cricketCount: number;
@@ -333,6 +351,8 @@ export class GameManager {
    * minimap marks it, and the Crystal Hive rises from it (P5).
    */
   private readonly craterSite: TilePos;
+  /** The rival Crystal Hive at the crater; destroying it wins the run */
+  private rivalHiveId: EntityId | null = null;
   /** Canvas the intro-skip pointer listener is attached to */
   private readonly canvas: HTMLCanvasElement;
   /**
@@ -382,7 +402,10 @@ export class GameManager {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.world = new World(this.runModifiers);
+    this.world = new World(this.runModifiers, new FactionRegistry([
+      ...defaultFactions(),
+      { id: FactionId.RIVAL, race: 'crystal', controller: 'ai' },
+    ]));
     this.grid = new TileGrid();
     this.visibilityGrid = new VisibilityGrid(WORLD_WIDTH, WORLD_HEIGHT);
     this.renderer = new CanvasRenderer(canvas);
@@ -475,6 +498,8 @@ export class GameManager {
       this.dayNightSystem
     );
     this.world.addSystem(this.invasionSystem);
+    this.world.addSystem(new CrystalHiveSystem(this.world, this.grid, this.dayNightSystem));
+    this.world.addSystem(new CrystalUnitAISystem(this.world, this.grid));
     // Waves land at nightfall, so the dusk warning doubles as the last call
     this.dayNightSystem.setWaveArmedProvider(() => this.invasionSystem.getInfo().armed);
     this.world.addSystem(new SpoilageSystem(this.world));
@@ -590,7 +615,12 @@ export class GameManager {
       edgeMargin: CRATER_EDGE_MARGIN,
       farFraction: CRATER_FAR_FRACTION,
     });
+    // The Crystal Hive rises from the crater: the rival's base, and its core
+    this.rivalHiveId = createCrystalHive(this.world, this.craterSite.x, this.craterSite.y);
+    const rival = this.world.factions.get(FactionId.RIVAL);
+    if (rival) rival.coreId = this.rivalHiveId;
     this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock);
+    this.spawnMineralFields({ x: nestX, y: nestY });
     const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
     // The fireball lights the ground it flies over and the crater, so the chase
     // crosses lit terrain; what it lit stays explored, a scorched trail to the crater
@@ -618,6 +648,32 @@ export class GameManager {
   private detachIntroSkip(): void {
     window.removeEventListener('keydown', this.skipIntro);
     this.canvas.removeEventListener('pointerdown', this.skipIntro);
+  }
+
+  /**
+   * Mineral nodes for the run: the crater's crystal shards are the natural
+   * field, plus a few seeded fields (one near home). Same seed, same fields.
+   */
+  private spawnMineralFields(nest: TilePos): void {
+    const fields = pickMineralFields({
+      width: WORLD_WIDTH,
+      height: WORLD_HEIGHT,
+      nest,
+      isWalkable: (x, y) => this.grid.isWalkable(x, y),
+      rng: createSeededRng(this.runSeed ^ MINERAL_SEED_SALT),
+      crater: this.craterSite,
+      craterRing: { inner: CRYSTAL_BOWL_RADIUS, outer: CRYSTAL_SHARD_RADIUS },
+      extraFields: MINERAL_EXTRA_FIELDS,
+      nodesPerField: MINERAL_NODES_PER_FIELD,
+      fieldRadius: MINERAL_FIELD_RADIUS,
+      minNestDistance: MINERAL_MIN_NEST_DISTANCE,
+      homeFieldMaxDistance: MINERAL_HOME_FIELD_MAX_DISTANCE,
+      minFieldSpacing: MINERAL_FIELD_SPACING,
+      edgeMargin: MINERAL_EDGE_MARGIN,
+    });
+    for (const field of fields) {
+      for (const node of field.nodes) createMineral(this.world, node.x, node.y);
+    }
   }
 
   /** Tile where the meteorite struck (crater center); fixed for the whole run. */
@@ -779,6 +835,10 @@ export class GameManager {
   private update(dt: number): void {
     // A frame can contain more fixed updates after the loop has been paused.
     if (this.gameOver || this.mutationOffer) return;
+    // The world waits for the opening cinematic: ticking under it let every
+    // starting worker forage and ride the shaft down before the player saw
+    // them, so the surface came back empty
+    if (this.introClock.isPlaying()) return;
     const previousPhase = this.dayNightSystem.getPhase();
     try {
       this.world.update(dt);
@@ -814,12 +874,14 @@ export class GameManager {
       const health = this.world.getComponent<HealthComponent>(queens[0], COMPONENT.HEALTH);
       if (health && health.current <= 0) queenDead = true;
     }
+    const hiveDestroyed = this.rivalHiveId != null && !this.world.hasEntity(this.rivalHiveId);
     const outcome = resolveRunOutcome(
       null,
       !queenDead,
       previousPhase,
       this.dayNightSystem.getPhase(),
       this.dayNightSystem.getDayNumber(),
+      hiveDestroyed,
     );
     if (!outcome) return;
 
@@ -831,6 +893,7 @@ export class GameManager {
       tilesExcavated: this.world.metrics.tilesExcavated,
       wavesRepelled: this.world.metrics.wavesRepelled,
       build: summarizeMutationBuild(this.runModifiers.getAppliedMutations()),
+      ...(outcome === 'victory' && hiveDestroyed ? { hiveDestroyed: true as const } : {}),
     };
     this.gameLoop.setPaused(true);
 
@@ -1849,7 +1912,7 @@ export class GameManager {
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'food' });
     }
-    for (const component of [COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN]) {
+    for (const component of [COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN, COMPONENT.CRYSTAL_HIVE]) {
       for (const id of this.world.query(component, COMPONENT.POSITION)) {
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
         if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'den' });
@@ -1860,7 +1923,7 @@ export class GameManager {
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       out.push({ x: pos.x, y: pos.y, kind: 'ant' });
     }
-    for (const component of [COMPONENT.BEETLE, COMPONENT.CRICKET]) {
+    for (const component of [COMPONENT.BEETLE, COMPONENT.CRICKET, COMPONENT.CRYSTAL_UNIT]) {
       for (const id of this.world.query(component, COMPONENT.POSITION)) {
         if (!onSurface(id)) continue;
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
@@ -2176,6 +2239,7 @@ export class GameManager {
       meatStored: Math.floor(meatStored),
       pantryStored: Math.floor(pantryStored.total),
       pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
+      mineralsStored: Math.floor(this.world.minerals.stored),
       beetleCount: this.world.query(COMPONENT.BEETLE).length,
       beetleDenCount: this.world.query(COMPONENT.BEETLE_DEN).length,
       cricketCount: this.world.query(COMPONENT.CRICKET).length,

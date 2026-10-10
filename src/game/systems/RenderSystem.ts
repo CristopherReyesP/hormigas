@@ -32,6 +32,7 @@ import {
   type CombatComponent,
   type SelectableComponent,
   type FoodSourceComponent,
+  type MineralComponent,
   type HealthComponent,
   type BeetleComponent,
   type CricketComponent,
@@ -46,9 +47,11 @@ import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 import { MeteorIntro } from '../render/MeteorIntro';
+import { CRYSTAL_FRAME_MS, UNIT_ART_PX, bakeCrystalUnit, drawUnitFrame } from '../../engine/renderer/crystalUnits';
 import { combatVfxFor } from '../vfx/CombatVfx';
 import { drawCombatVfx } from '../vfx/drawCombatVfx';
 import type { IntroClock, Vec2 } from '../render/introTimeline';
+import { LeapTracker, type LeapDraw } from '../render/leapMotion';
 import type { TilePos } from '../run/craterSite';
 import type { EntityId } from '../../shared/types';
 
@@ -162,6 +165,10 @@ export class RenderSystem {
   private fogRenderer: FogRenderer;
   private visibilityGrid: VisibilityGrid;
   private animationTime: number = 0;
+  /** Real time of the frame being drawn (0 while paused) */
+  private frameDt = 0;
+  /** Visual hops of the alien leapers (crickets) over their real positions */
+  private leapTracker = new LeapTracker();
   private camera: Camera | null = null;
   private ambientParticles: AmbientParticleSystem;
   private ugGrid: UndergroundGrid | null = null;
@@ -186,6 +193,7 @@ export class RenderSystem {
   private fxHealthFrame!: OffscreenCanvas;
   private fxPheroStamps!: Record<'home' | 'food' | 'danger', OffscreenCanvas[]>;
   private fxGlows = new Map<string, OffscreenCanvas>();
+  private crystalDroneFrames: OffscreenCanvas[] | null = null;
   /** Green selection ellipses under own ants: small castes and big ones */
   private fxSelectEllipse!: { small: OffscreenCanvas; large: OffscreenCanvas };
   /** Red-orange ellipses that flash under an enemy an attack order just named */
@@ -352,6 +360,7 @@ export class RenderSystem {
     this.fxGlows.set('green', makeGlow(PAL.glowGreen));
     this.fxGlows.set('swarmVein', makeGlow(PAL.swarm.vein[1]));
     this.fxGlows.set('swarmFlesh', makeGlow(PAL.swarm.flesh[3]));
+    this.fxGlows.set('crystal', makeGlow(PAL.crystal.shield));
 
     // --- Underground darkness dither tiles, one per light level 1-3 ---
     // Three Bayer-style densities (3/4, 2/4, 1/4 of the pixels darkened) give the
@@ -817,6 +826,7 @@ export class RenderSystem {
   /** The single render path. `dt` is real frame time (0 while paused). */
   renderInterpolated(interpolation: number, dt: number): void {
     this.animationTime += dt;
+    this.frameDt = dt;
     // Mutation marks are baked into the ant sheets; same object = no work
     this.spriteAtlas.setColonyMarks(this.world.runModifiers.getColonyMarks());
     this.terrainRenderer.update(dt);
@@ -854,6 +864,8 @@ export class RenderSystem {
     this.renderTerrain();
     this.foliageOverlay.draw(ctx, this.camera);
     // The crater is ground: under trails and units, hidden by unexplored fog
+    // The spires are the Crystal Hive's: once it falls, only the bare crater stays
+    this.intro?.setSpiresStanding(this.world.query(COMPONENT.CRYSTAL_HIVE).length > 0);
     this.intro?.drawCrater(ctx, this.animationTime);
     this.renderPheromones();
     this.renderParticles();
@@ -1632,12 +1644,15 @@ export class RenderSystem {
 
     // Separate entities by type for proper render order
     const foodEntities: Array<{ id: number; pos: PositionComponent; radius: number }> = [];
+    const mineralEntities: Array<{ id: number; pos: PositionComponent }> = [];
     const nestEntities: Array<{ id: number; pos: PositionComponent; radius: number }> = [];
     const denEntities: Array<{ id: number; pos: PositionComponent }> = [];
     const cricketDenEntities: Array<{ id: number; pos: PositionComponent }> = [];
     const beetleEntities: Array<{ id: number; pos: PositionComponent }> = [];
     const cricketEntities: Array<{ id: number; pos: PositionComponent }> = [];
     const antEntities: Array<{ id: number; pos: PositionComponent }> = [];
+    const hiveEntities: Array<{ id: number; pos: PositionComponent }> = [];
+    const crystalEntities: Array<{ id: number; pos: PositionComponent }> = [];
 
     const entities = this.world.query(COMPONENT.POSITION, COMPONENT.RENDER);
     for (const id of entities) {
@@ -1651,7 +1666,7 @@ export class RenderSystem {
       // Cull only the high-count, dependency-free shapes (ants + food piles);
       // crickets stay — the nest "being robbed" check reads them even offscreen
       if (
-        (render.shape === 'ant' || render.shape === 'food') &&
+        (render.shape === 'ant' || render.shape === 'food' || render.shape === 'mineral') &&
         (pos.x < cull.minX || pos.x > cull.maxX || pos.y < cull.minY || pos.y > cull.maxY)
       ) continue;
 
@@ -1659,6 +1674,8 @@ export class RenderSystem {
         foodEntities.push({ id, pos, radius: render.radius });
       } else if (render.shape === 'food') {
         foodEntities.push({ id, pos, radius: render.radius });
+      } else if (render.shape === 'mineral') {
+        mineralEntities.push({ id, pos });
       } else if (render.shape === 'nest') {
         nestEntities.push({ id, pos, radius: render.radius });
       } else if (render.shape === 'beetle_den') {
@@ -1671,10 +1688,18 @@ export class RenderSystem {
         cricketEntities.push({ id, pos });
       } else if (render.shape === 'ant') {
         antEntities.push({ id, pos });
+      } else if (render.shape === 'crystal_hive') {
+        hiveEntities.push({ id, pos });
+      } else if (render.shape === 'crystal_drone') {
+        crystalEntities.push({ id, pos });
       }
     }
 
-    // Render order: food → nest → beetle_dens → cricket_dens → beetles → crickets → ants
+    // Render order: minerals → food → nest → beetle_dens → cricket_dens → beetles → crickets → ants
+    for (const { id, pos } of mineralEntities) {
+      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
+      this.drawMineral(ctx, pos.x, pos.y, id);
+    }
     for (const { id, pos } of foodEntities) {
       if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
@@ -1714,6 +1739,13 @@ export class RenderSystem {
       this.drawCricketDen(ctx, x, y, id);
     }
 
+    // The Crystal Hive: its spires are the crater's (MeteorIntro); here its core and health
+    for (const { id, pos } of hiveEntities) {
+      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
+      this.drawTargetFlash(ctx, id, pos.x, pos.y, 'cricket');
+      this.drawCrystalHive(ctx, pos.x, pos.y, id);
+    }
+
     // Moving wildlife hides under fog: drawn only where the colony sees RIGHT
     // NOW (dens above stay remembered on explored ground)
     for (const { id, pos } of beetleEntities) {
@@ -1729,18 +1761,33 @@ export class RenderSystem {
       }
     }
 
+    // Alien leapers travel in visible hops: the drawing stays planted, then
+    // arcs to the real (unchanged) gameplay position
+    const drawnLeapers = new Set<number>();
     for (const { id, pos } of cricketEntities) {
       if (!isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
-      const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
-      const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
+      const liveX = pos.prevX + (pos.x - pos.prevX) * interpolation;
+      const liveY = pos.prevY + (pos.y - pos.prevY) * interpolation;
+      const hop = this.leapTracker.step(id, liveX, liveY, this.frameDt);
+      drawnLeapers.add(id);
       const cricket = this.world.getComponent<CricketComponent>(id, COMPONENT.CRICKET);
       const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
-      this.drawTargetFlash(ctx, id, x, y, 'cricket');
+      this.drawTargetFlash(ctx, id, hop.x, hop.y, 'cricket');
       if (facing) {
         const isAttacking = cricket && cricket.state === CricketState.Attacking;
         const isStealing = cricket && cricket.state === CricketState.StealingFood;
-        this.drawCricket(ctx, x, y, facing.angle, facing.legPhase, id, isAttacking, isStealing);
+        this.drawCricket(ctx, hop.x, hop.y, facing.angle, facing.legPhase, id, isAttacking, isStealing, hop);
       }
+    }
+    this.leapTracker.retain(drawnLeapers);
+
+    // Crystal drones, like wildlife, show only where the colony sees now
+    for (const { id, pos } of crystalEntities) {
+      if (!isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
+      const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
+      const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
+      this.drawTargetFlash(ctx, id, x, y, 'beetle');
+      this.drawCrystalDrone(ctx, x, y, id);
     }
 
     for (const { id, pos } of antEntities) {
@@ -1955,6 +2002,33 @@ export class RenderSystem {
     this.spriteAtlas.drawAnt(ctx, px, py, facing, legPhase, role, isCarrying);
   }
 
+  /** A mineral node: a cluster of cyan crystal shards that shrinks as it is mined out. */
+  private drawMineral(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number): void {
+    const node = this.world.getComponent<MineralComponent>(entityId, COMPONENT.MINERAL);
+    const left = node && node.maxAmount > 0 ? node.amount / node.maxAmount : 1;
+    const px = tileX * TILE_SIZE + TILE_SIZE / 2;
+    const py = tileY * TILE_SIZE + TILE_SIZE / 2;
+    this.drawShadow(ctx, px + 1.5, py + 5.5, TILE_SIZE * 0.3, TILE_SIZE * 0.1);
+
+    // Art grid: 2 screen px per art px, base line 4 art px under the tile center
+    const p = new PixelPainter(ctx, 2, Math.round(px), Math.round(py + 8));
+    const shell = PAL.crystal.shell;
+    // Three shards (left, tall middle, right); heights scale with the ore left
+    const shards: Array<[number, number]> = [[-5, 5], [-1, 9], [3, 6]];
+    shards.forEach(([x, h], i) => {
+      const height = Math.max(2, Math.round(h * (0.4 + 0.6 * left)));
+      const lean = (entityId + i) % 3 === 0 ? 1 : 0;
+      p.rect(x, -height, 3, height, shell[1]);
+      p.vline(x + 1, -height, height - 1, shell[3]);
+      p.vline(x + 2, -height + 1, height - 1, shell[2]);
+      p.px(x + 1 + lean, -height - 1, shell[4]);
+    });
+    p.hline(-6, 0, 13, PAL.crystal.outline);
+
+    const selectable = this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE);
+    if (selectable && selectable.selected) this.drawSelectionBrackets(ctx, px, py, TILE_SIZE * 0.45, 'amber');
+  }
+
   private drawFood(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number): void {
     const px = tileX * TILE_SIZE + TILE_SIZE / 2;
     const py = tileY * TILE_SIZE + TILE_SIZE / 2;
@@ -2130,7 +2204,8 @@ export class RenderSystem {
     legPhase: number,
     entityId: number,
     isAttacking: boolean = false,
-    isStealing: boolean = false
+    isStealing: boolean = false,
+    hop: Pick<LeapDraw, 'lift' | 'pose'> = { lift: 0, pose: 'walk' }
   ): void {
     const px = tileX * TILE_SIZE + TILE_SIZE / 2;
     const py = tileY * TILE_SIZE + TILE_SIZE / 2;
@@ -2160,16 +2235,58 @@ export class RenderSystem {
       ctx.globalAlpha = 1;
     }
 
-    // Drop shadow under the 48-art-px body (pre-rendered dither stamp)
-    this.drawShadow(ctx, px + 4, py + 5, TILE_SIZE * 0.8, TILE_SIZE * 0.4);
+    // Drop shadow under the 48-art-px body (pre-rendered dither stamp); it
+    // stays on the ground and tightens while the leaper is in the air
+    const shrink = hop.lift > 0 ? 0.8 : 1;
+    this.drawShadow(ctx, px + 4, py + 5, TILE_SIZE * 0.8 * shrink, TILE_SIZE * 0.4 * shrink);
 
-    this.spriteAtlas.drawCricket(ctx, px, py, facing, legPhase);
+    this.spriteAtlas.drawCricket(ctx, px, py - hop.lift, facing, legPhase, hop.pose);
 
     // Health bar — segmented pixel bar at 2× scale, positioned higher for the big sprite
     const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
     if (health && health.current < health.max) {
       this.drawHealthBar(ctx, px, py, health.current, health.max, false, 2, -TILE_SIZE * 1.6);
     }
+  }
+
+  /** Baked hover cycle of the Crystal drone, one canvas per frame (built on first use) */
+  private droneFrames(): OffscreenCanvas[] {
+    if (!this.crystalDroneFrames) {
+      const sheet = bakeCrystalUnit('drone');
+      this.crystalDroneFrames = sheet.frames.map((frame) => {
+        const canvas = new OffscreenCanvas(frame.width * UNIT_ART_PX, frame.height * UNIT_ART_PX);
+        drawUnitFrame(canvas.getContext('2d')!, frame, 0, 0);
+        return canvas;
+      });
+    }
+    return this.crystalDroneFrames;
+  }
+
+  private drawCrystalDrone(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number): void {
+    const px = tileX * TILE_SIZE + TILE_SIZE / 2;
+    const py = tileY * TILE_SIZE + TILE_SIZE / 2;
+    const combat = this.world.getComponent<CombatComponent>(entityId, COMPONENT.COMBAT);
+    if (combat?.targetEntityId != null && Math.floor(this.animationTime * 8) % 2 === 0) {
+      this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.6, 'crystal');
+    }
+    const frames = this.droneFrames();
+    // Per-entity phase so a wave does not bob in lockstep
+    const index = (Math.floor((this.animationTime * 1000) / CRYSTAL_FRAME_MS) + entityId) % frames.length;
+    const frame = frames[index];
+    // The sprite's shadow sits at its bottom: anchor that on the tile center
+    ctx.drawImage(frame, Math.round(px - frame.width / 2), Math.round(py - frame.height + TILE_SIZE * 0.35));
+    const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
+    if (health) this.drawHealthBar(ctx, px, py, health.current, health.max, false, 1, -TILE_SIZE * 1.3);
+  }
+
+  /** The hive's energy core pulsing among its spires, and its health bar, always shown */
+  private drawCrystalHive(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number): void {
+    const px = tileX * TILE_SIZE + TILE_SIZE / 2;
+    const py = tileY * TILE_SIZE + TILE_SIZE / 2;
+    this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.4, 'crystal');
+    if (Math.floor(this.animationTime * 2) % 2 === 0) this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.8, 'crystal');
+    const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
+    if (health) this.drawHealthBar(ctx, px, py, health.current, health.max, true, 2, -TILE_SIZE * 2.4);
   }
 
   private drawCricketDen(

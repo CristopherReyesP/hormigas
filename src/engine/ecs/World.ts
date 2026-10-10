@@ -1,5 +1,6 @@
 import { FactionRegistry } from '../../game/factions/factions';
 import { RunModifiers } from '../../game/run/RunModifiers';
+import { MineralBank } from '../../game/economy/MineralBank';
 import type { ComponentMap, System } from './types';
 import type { EntityId } from '../../shared/types';
 
@@ -55,6 +56,9 @@ export class World {
     porterBonus: 0,
     healRateMult: 1,
   };
+
+  /** The colony's minerals bank: miners deposit ore here, structures will spend it (P7) */
+  readonly minerals = new MineralBank();
 
   readonly runModifiers: RunModifiers;
   /** The match's factions; instance state, so every run and test world starts fresh */

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { GameManager, GameStats, SelectedEntityInfo, SelectedGroupInfo } from '../../game/GameManager';
 import { AntRole } from '../../game/components/components';
+import { LEAPER_NAME } from '../../shared/wildlifeNames';
 import { PixelIcon } from './PixelIcon';
 import type { IconName } from './pixelIcons';
 import { Portrait } from './Portrait';
@@ -95,7 +96,7 @@ function ColonySummary({ stats, details }: { stats: GameStats; details: ColonyDe
       <Column title="AMENAZAS">
         <Row icon="beetle" label="Acorazados" value={stats.beetleCount} tone={stats.beetleCount ? 'var(--chrome-danger)' : undefined} />
         <Row icon="den" label="Guaridas" value={stats.beetleDenCount + stats.cricketDenCount} />
-        <Row icon="alert" label="Grillos" value={stats.cricketCount} tone={stats.cricketCount ? 'var(--chrome-danger)' : undefined} />
+        <Row icon="alert" label={LEAPER_NAME.many} value={stats.cricketCount} tone={stats.cricketCount ? 'var(--chrome-danger)' : undefined} />
         <div className={`info-note${threats > 0 || stats.invasion.active ? ' info-note--danger' : ''}`}>
           {stats.invasion.active
             ? `¡Oleada ${stats.invasion.waveNumber} en el nido! ${stats.invasion.invadersAlive} invasores`
@@ -165,9 +166,9 @@ function selectionTitle(sel: SelectedEntityInfo): { name: string; faction: strin
     case 'ant': return { name: ROLE_LABEL[sel.role ?? AntRole.Worker], faction: 'Enjambre mutante' };
     case 'nest': return { name: 'Nido', faction: 'Enjambre mutante · colmena' };
     case 'beetle': return { name: 'Acorazado', faction: 'Fauna salvaje' };
-    case 'cricket': return { name: 'Grillo', faction: 'Fauna salvaje' };
+    case 'cricket': return { name: LEAPER_NAME.one, faction: 'Fauna salvaje' };
     case 'beetle_den': return { name: 'Guarida de acorazados', faction: 'Fauna salvaje · guarida' };
-    case 'cricket_den': return { name: 'Guarida de grillos', faction: 'Fauna salvaje · guarida' };
+    case 'cricket_den': return { name: LEAPER_NAME.den, faction: 'Fauna salvaje · guarida' };
     case 'food': return { name: FOOD_LABEL[sel.foodType ?? 'leaf'] ?? 'Comida', faction: 'Recurso' };
   }
 }
@@ -215,7 +216,7 @@ function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
         <div className="info-line">Acorazados activos: <strong>{sel.denActiveBeetles}/{sel.denMaxBeetles}</strong></div>
       )}
       {sel.type === 'cricket_den' && (
-        <div className="info-line">Grillos activos: <strong>{sel.cricketDenActiveCrickets}</strong></div>
+        <div className="info-line">{LEAPER_NAME.many} activos: <strong>{sel.cricketDenActiveCrickets}</strong></div>
       )}
     </>
   );

@@ -18,6 +18,7 @@ import {
   type RenderComponent,
 } from '../../components/components';
 import { ENEMY_PICK_RADIUS, ORDER_SNAP_RADIUS } from '../../../shared/constants';
+import { FactionId, isHostileTo } from '../../factions/factions';
 
 /**
  * Player orders, StarCraft style: move, attack a target, attack-move, hold
@@ -51,18 +52,33 @@ export function canFight(world: World, id: EntityId): boolean {
 }
 
 /** The enemy kinds an attack order can name. */
-const ENEMY_STORES = [COMPONENT.BEETLE, COMPONENT.CRICKET, COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN] as const;
+const ENEMY_STORES = [
+  COMPONENT.BEETLE,
+  COMPONENT.CRICKET,
+  COMPONENT.BEETLE_DEN,
+  COMPONENT.CRICKET_DEN,
+  COMPONENT.CRYSTAL_UNIT,
+  COMPONENT.CRYSTAL_HIVE,
+] as const;
 
-/** A beetle, cricket or den on the surface: something an attack order may name. */
+/** Structures: drawn and clickable on explored ground, the target of a den attack wave. */
+const STRUCTURE_STORES: ReadonlySet<string> = new Set([COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN, COMPONENT.CRYSTAL_HIVE]);
+
+/**
+ * A beetle, cricket, den, or a rival faction's unit or hive on the surface:
+ * something the player's attack order may name.
+ */
 export function isSurfaceEnemy(world: World, id: EntityId): boolean {
   if (!world.hasEntity(id)) return false;
   if (!ENEMY_STORES.some((store) => world.getComponent(id, store) !== undefined)) return false;
+  if (!isHostileTo(world, FactionId.PLAYER, id)) return false;
   const layer = world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
   return !layer || layer.layer === Layer.Surface;
 }
 
 function isDen(world: World, id: EntityId): boolean {
-  return world.getComponent(id, COMPONENT.BEETLE_DEN) !== undefined || world.getComponent(id, COMPONENT.CRICKET_DEN) !== undefined;
+  for (const store of STRUCTURE_STORES) if (world.getComponent(id, store) !== undefined) return true;
+  return false;
 }
 
 /**
@@ -83,7 +99,7 @@ export function findEnemyAt(
     for (const id of world.query(store, COMPONENT.POSITION)) {
       if (!isSurfaceEnemy(world, id)) continue;
       const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-      const den = store === COMPONENT.BEETLE_DEN || store === COMPONENT.CRICKET_DEN;
+      const den = STRUCTURE_STORES.has(store);
       // Big sprites (the cricket) are hit anywhere on their body
       const reach = Math.max(ENEMY_PICK_RADIUS, world.getComponent<RenderComponent>(id, COMPONENT.RENDER)?.radius ?? 0);
       const dist = Math.hypot(pos.x - at.x, pos.y - at.y);

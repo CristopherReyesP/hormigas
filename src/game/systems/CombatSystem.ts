@@ -28,6 +28,7 @@ import {
   FLANKING_BONUS_PER_ALLY,
   FLANKING_MAX_ALLIES,
 } from '../../shared/constants';
+import { LEAPER_NOTICE } from '../../shared/wildlifeNames';
 import { combatVfxFor, type BodyKind, type CombatVfx, type VictimKind } from '../vfx/CombatVfx';
 
 export class CombatSystem implements System {
@@ -160,7 +161,7 @@ export class CombatSystem implements System {
 
       targetHealth.current -= damage;
       combat.attackTimer = combat.attackCooldown;
-      this.emitHit(id, pos, targetPos, targetLayer?.layer ?? Layer.Surface, this.bodyKind(targetId));
+      this.emitHit(id, pos, targetPos, targetLayer?.layer ?? Layer.Surface, this.victimKind(targetId));
 
       if (targetHealth.current <= 0) {
         this.handleDeath(targetId, toDestroy);
@@ -208,6 +209,17 @@ export class CombatSystem implements System {
     return 'ant';
   }
 
+  /** Crystal units and the hive shed shards; everything else sheds its body's material */
+  private victimKind(id: EntityId): VictimKind {
+    if (this.isCrystal(id)) return 'crystal';
+    return this.bodyKind(id);
+  }
+
+  private isCrystal(id: EntityId): boolean {
+    return this.world.getComponent(id, COMPONENT.CRYSTAL_UNIT) !== undefined
+      || this.world.getComponent(id, COMPONENT.CRYSTAL_HIVE) !== undefined;
+  }
+
   /** The death pop plus what the body leaves: goo for the Swarm, a carcass for wildlife */
   private emitDeath(entityId: EntityId, pos: PositionComponent, body: BodyKind): void {
     const facing = this.world.getComponent<FacingComponent>(entityId, COMPONENT.FACING);
@@ -215,6 +227,10 @@ export class CombatSystem implements System {
   }
 
   private handleDeath(entityId: EntityId, _toDestroy: EntityId[]): void {
+    if (this.isCrystal(entityId)) {
+      this.handleCrystalDeath(entityId);
+      return;
+    }
     emitAudio(deathAudio(this.world, entityId));
     const beetle = this.world.getComponent<BeetleComponent>(entityId, COMPONENT.BEETLE);
     if (beetle) {
@@ -229,6 +245,14 @@ export class CombatSystem implements System {
     // Ant death — Swarm goo
     const pos = this.world.getComponent<PositionComponent>(entityId, COMPONENT.POSITION);
     if (pos) this.emitDeath(entityId, pos, 'ant');
+  }
+
+  /** A Crystal unit or the hive shatters: no carcass, only a burst of cyan shards */
+  private handleCrystalDeath(entityId: EntityId): void {
+    const pos = this.world.getComponent<PositionComponent>(entityId, COMPONENT.POSITION);
+    const hive = this.world.getComponent(entityId, COMPONENT.CRYSTAL_HIVE) !== undefined;
+    if (pos) this.vfx.crystalShards(pos.x, pos.y, this.layerOf(entityId), hive ? 32 : 10);
+    if (hive) this.world.pushNotification('success', '💎 ¡La Colmena de Cristal se hizo añicos!');
   }
 
   /** Meat left by a kill, scaled by run mutations (carrion_gut) */
@@ -324,7 +348,7 @@ export class CombatSystem implements System {
   }
 
   private destroyCricketDen(denId: EntityId): void {
-    this.world.pushNotification('success', '💥 ¡Nido de grillos destruido!');
+    this.world.pushNotification('success', LEAPER_NOTICE.denDestroyed);
     this.world.metrics.densDestroyed++;
     const pos = this.world.getComponent<PositionComponent>(denId, COMPONENT.POSITION);
     if (pos) this.vfx.denCollapse(pos.x, pos.y, this.layerOf(denId), 'cricketDen');

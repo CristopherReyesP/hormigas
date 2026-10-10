@@ -54,3 +54,14 @@ export function mockRenderSystem(methods: MockMethods = {}): { RenderSystem: Tol
 export function fakeCanvas(): HTMLCanvasElement {
   return Object.assign(new EventTarget(), { getContext: () => ({}) }) as unknown as HTMLCanvasElement;
 }
+
+/**
+ * Play the opening cinematic to its end, as a player who watched it would:
+ * the world does not tick while the intro plays, so a test that drives the
+ * simulation (`game['update']`) starts from here.
+ */
+export function finishIntro(game: object): void {
+  const g = game as { introClock: { advance(dt: number): void }; introDirector: { finish(): void } };
+  g.introClock.advance(Number.POSITIVE_INFINITY);
+  g.introDirector.finish();
+}

@@ -71,6 +71,15 @@ export function isHostile(rel: Relation): boolean {
   return rel !== 'ally';
 }
 
+/**
+ * Whether `faction` fights `target`: the target belongs to an enemy faction
+ * or to the wildlife. Unowned things (food, props, missing entities) are not.
+ */
+export function isHostileTo(world: World, faction: FactionId, target: EntityId): boolean {
+  const owner = ownerOf(world, target);
+  return owner !== null && isHostile(relation(faction, owner));
+}
+
 /** Today's roster: the human-controlled Swarm and the wildlife. Fresh records on every call. */
 export function defaultFactions(): FactionState[] {
   return [

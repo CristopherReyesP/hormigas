@@ -117,7 +117,7 @@ export const SOUND_LABELS: Record<SoundId, string> = {
   chitinCrunch: 'Combate: crujido de quitina',
   deathAnt: 'Combate: muere una hormiga',
   deathBeetle: 'Combate: muere un acorazado',
-  deathCricket: 'Combate: muere un grillo',
+  deathCricket: 'Combate: muere un saltador',
   waveAlarm: 'Alerta: oleada al anochecer',
   eggQueued: 'Alerta: huevo encargado',
   eggLaid: 'Alerta: la reina pone un huevo',

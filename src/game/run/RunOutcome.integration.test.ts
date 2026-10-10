@@ -30,6 +30,7 @@ function setup() {
     dayNightSystem,
     gameLoop,
     gameOver: null,
+    introClock: { isPlaying: () => false }, // the run is past its opening cinematic
     runModifiers: new RunModifiers(),
     offerRng: createSeededRng(1),
     mutationOffer: null,

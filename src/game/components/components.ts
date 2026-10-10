@@ -50,6 +50,8 @@ export const AntState = {
   Guarding: 'guarding',
   /** Standing still under Mantener posición (OrderKind.Hold) */
   Holding: 'holding',
+  /** A worker walking to a mineral node and chipping ore off it (P7.1) */
+  Mining: 'mining',
 } as const;
 
 export type AntState = typeof AntState[keyof typeof AntState];
@@ -72,6 +74,10 @@ export interface AntComponent {
   stuckTimer?: number;    // seconds elapsed with sub-threshold displacement (Bug 3)
   lastX?: number;         // last sampled world x for stall detection (Bug 3)
   lastY?: number;         // last sampled world y for stall detection (Bug 3)
+  /** Worker: the mineral node it mines; it walks back there after each delivery */
+  mineralTargetId?: EntityId | null;
+  /** Worker: seconds spent chipping at the node on this trip */
+  miningProgress?: number;
 }
 
 export interface HungerComponent {
@@ -90,6 +96,24 @@ export interface HealthComponent {
   current: number;
   max: number;
   damage: number;
+}
+
+/**
+ * The `resourceType` of a carried load of ore. Ore is not food: it is never
+ * eaten, never put in the pantry and never hauled by porters; it goes straight
+ * to the colony's minerals bank (World.minerals).
+ */
+export const ORE_LOAD = 'ore';
+
+/** True when a carried load is ore rather than food. */
+export function isOreLoad(resourceType: string | null | undefined): boolean {
+  return resourceType === ORE_LOAD;
+}
+
+/** A crystal mineral node on the surface (P7.1). Deliberately not a FOOD_SOURCE. */
+export interface MineralComponent {
+  amount: number;
+  maxAmount: number;
 }
 
 export interface FoodSourceComponent {
@@ -112,7 +136,7 @@ export interface PathComponent {
 export interface RenderComponent {
   color: string;
   radius: number;
-  shape: 'circle' | 'square' | 'ant' | 'food' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'giant_mushroom' | 'queen';
+  shape: 'circle' | 'square' | 'ant' | 'food' | 'mineral' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'giant_mushroom' | 'queen' | 'crystal_drone' | 'crystal_hive';
 }
 
 export interface FacingComponent {
@@ -291,6 +315,38 @@ export interface OwnerComponent {
   faction: FactionId;
 }
 
+// === Crystal Hive (rival faction) ===
+
+export const CrystalUnitState = {
+  /** At home: keeps near the hive and fights what comes close */
+  Guarding: 'guarding',
+  /** Sent with a night wave: attack-moves to `goal`, fighting every enemy it meets */
+  Assaulting: 'assaulting',
+} as const;
+export type CrystalUnitState = typeof CrystalUnitState[keyof typeof CrystalUnitState];
+
+export type CrystalUnitKind = 'drone';
+
+/** A Crystal Hive unit. Crystal units are not ants: CrystalUnitAISystem drives them. */
+export interface CrystalUnitComponent {
+  kind: CrystalUnitKind;
+  state: CrystalUnitState;
+  /** The hive that crystallized it (null once that hive is gone) */
+  hiveId: EntityId | null;
+  /** Assaulting: the tile it marches on (the enemy nest) */
+  goal: Vector2 | null;
+  /** Seconds until the route may be recomputed */
+  repathTimer: number;
+}
+
+/** The Crystal Hive's base structure: it crystallizes drones and sends the night waves. */
+export interface CrystalHiveComponent {
+  /** Seconds until the next drone crystallizes */
+  productionTimer: number;
+  /** The last night number a wave left on (0 = none yet) */
+  lastWaveNight: number;
+}
+
 // Component name constants to avoid magic strings
 export const COMPONENT = {
   POSITION: 'position',
@@ -300,6 +356,7 @@ export const COMPONENT = {
   CARRYING: 'carrying',
   HEALTH: 'health',
   FOOD_SOURCE: 'food_source',
+  MINERAL: 'mineral',
   NEST: 'nest',
   PATH: 'path',
   RENDER: 'render',
@@ -318,4 +375,6 @@ export const COMPONENT = {
   EGG: 'egg',
   PLAYER_ORDER: 'player_order',
   OWNER: 'owner',
+  CRYSTAL_UNIT: 'crystal_unit',
+  CRYSTAL_HIVE: 'crystal_hive',
 } as const;

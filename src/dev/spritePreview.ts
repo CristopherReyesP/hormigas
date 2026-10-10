@@ -5,6 +5,9 @@ import { SpriteAtlas } from '../engine/renderer/SpriteAtlas';
 import { AntRole } from '../game/components/components';
 import { PAL } from '../engine/renderer/pixelart/palette';
 import { ART_PX, SPRITE_GRID } from '../engine/renderer/sprites/spriteScale';
+import { DIRECTIONS } from '../engine/renderer/pixelart/directions';
+import { LEAPER_FRAMES } from '../engine/renderer/sprites/wildlifeSprites';
+import { LEAP, LEAP_CYCLE, leapFrame } from '../game/render/leapMotion';
 
 const ROLES: AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse];
 const FRAMES = 4;
@@ -15,10 +18,17 @@ const BLOCK_H = 240; // vertical space per role row
 const X1 = 16; // 1× strip left edge
 const X4 = 360; // 4× strip left edge
 const CRICKET = SPRITE_GRID.cricket * ART_PX; // cricket frame size in px (96)
-const CRICKET_BLOCK = CRICKET * 2 + 72; // cricket row: 2× strip + labels
-const CRICKET_X2 = X1 + FRAMES * (CRICKET + 12) + 32; // 2× strip left edge, right of the 1× strip
-const W = Math.max(X4 + COLS * (SPRITE * 4 + 8), CRICKET_X2 + FRAMES * (CRICKET * 2 + 16)) + 16;
-const H = ROLES.length * BLOCK_H + CRICKET_BLOCK + 56;
+const LEAPER_POSES = LEAPER_FRAMES.length; // 4 walk frames + crouch + leap
+const CRICKET_BLOCK = CRICKET * 2 + 72; // leaper pose row: 2× strip + labels
+const CRICKET_DIR_BLOCK = CRICKET + 56; // leaper 16-direction row at 1×
+const W = Math.max(
+  X4 + COLS * (SPRITE * 4 + 8),
+  X1 + LEAPER_POSES * (CRICKET * 2 + 16),
+  X1 + DIRECTIONS * (CRICKET + 4),
+  X1 + 12 * (CRICKET + 32) + 36,
+) + 16;
+const HOP_BLOCK = CRICKET + 72; // one hop cycle sampled left to right
+const H = ROLES.length * BLOCK_H + CRICKET_BLOCK + CRICKET_DIR_BLOCK + HOP_BLOCK + 56;
 
 const canvas = document.createElement('canvas');
 canvas.width = W;
@@ -68,26 +78,46 @@ for (let ri = 0; ri < ROLES.length; ri++) {
   ctx.restore();
 }
 
-// Cricket row — 4 walk frames at 1× and 2×
+// Alien leaper (the cricket): walk frames 0-3, crouch and leap at 2×, then
+// all 16 baked directions at 1× (real in-game size)
 {
   const top = 40 + ROLES.length * BLOCK_H;
-  const cricketPhase = (i: number) => ((i + 0.5) * Math.PI * 2) / 4;
+  const walkPhase = (i: number) => ((i + 0.5) * Math.PI * 2) / 4;
 
   ctx.fillStyle = PAL.white;
   ctx.font = 'bold 16px monospace';
-  ctx.fillText('CRICKET  (frames 0-3)  |  left: 1x  right: 2x', X1, top - 28);
-
-  for (let i = 0; i < 4; i++) {
-    const cx = X1 + i * (CRICKET + 12) + CRICKET / 2;
-    atlas.drawCricket(ctx, cx, top + CRICKET / 2, 0, cricketPhase(i));
-  }
+  ctx.fillText('SALTADOR  (walk 0-3, crouch, leap)  |  2x', X1, top - 28);
 
   ctx.save();
   ctx.scale(2, 2);
   ctx.imageSmoothingEnabled = false;
-  for (let i = 0; i < 4; i++) {
-    const cx = (CRICKET_X2 + i * (CRICKET * 2 + 16) + CRICKET) / 2;
-    atlas.drawCricket(ctx, cx, (top + CRICKET) / 2, 0, cricketPhase(i));
-  }
+  LEAPER_FRAMES.forEach(({ frame, pose }, i) => {
+    const cx = (X1 + i * (CRICKET * 2 + 16) + CRICKET) / 2;
+    atlas.drawCricket(ctx, cx, (top + CRICKET) / 2, 0, walkPhase(frame), pose);
+  });
   ctx.restore();
+
+  const dirTop = top + CRICKET_BLOCK;
+  ctx.fillStyle = PAL.white;
+  ctx.fillText('SALTADOR  16 directions  |  1x', X1, dirTop - 28);
+  for (let d = 0; d < DIRECTIONS; d++) {
+    const cx = X1 + d * (CRICKET + 4) + CRICKET / 2;
+    atlas.drawCricket(ctx, cx, dirTop + CRICKET / 2, (d * Math.PI * 2) / DIRECTIONS, walkPhase(0));
+  }
+
+  // One hop cycle: crouch (squash), the arc in the air (stretch), landing, rest.
+  // The dark line is the ground; the hop covers about one leap of travel.
+  const hopTop = dirTop + CRICKET_DIR_BLOCK;
+  const SAMPLES = 12;
+  const HOP_PX = 36;
+  ctx.fillStyle = PAL.white;
+  ctx.fillText(`SALTADOR  one hop, ${LEAP_CYCLE.toFixed(2)} s in ${SAMPLES} samples (peak ${LEAP.height} px)  |  1x`, X1, hopTop - 28);
+  for (let i = 0; i < SAMPLES; i++) {
+    const f = leapFrame((i / SAMPLES) * LEAP_CYCLE);
+    const cx = X1 + CRICKET / 2 + i * (CRICKET + 32) + f.travel * HOP_PX;
+    const ground = hopTop + CRICKET / 2 + 8;
+    ctx.fillStyle = PAL.outline;
+    ctx.fillRect(cx - 40, ground + 30, 80, 2);
+    atlas.drawCricket(ctx, cx, ground - f.lift, 0, 0, f.pose);
+  }
 }

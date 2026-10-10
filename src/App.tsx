@@ -24,6 +24,7 @@ const DEFAULT_STATS: GameStats = {
   meatStored: 0,
   pantryStored: 0,
   pantryCapacity: 0,
+  mineralsStored: 0,
   beetleCount: 0,
   beetleDenCount: 0,
   cricketCount: 0,

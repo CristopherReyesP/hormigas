@@ -6,6 +6,7 @@ import { GameManager } from '../GameManager';
 import { AntRole } from '../components/components';
 import { INTRO_TIMELINE as T } from '../render/introTimeline';
 import type { DayNightSystem } from '../systems/DayNightSystem';
+import { finishIntro } from '../../test/gameManagerMocks';
 
 // Real manager and simulation; browser-only adapters are replaced. The input
 // mock keeps the pointer handlers so the tests can drag a box and right-click.
@@ -90,6 +91,7 @@ describe('audio wiring', () => {
 
   it('sounds the wave alarm when the wave launches at nightfall, and turns the music to night', () => {
     const { game } = setup();
+    finishIntro(game);
     const dayNight = game['dayNightSystem'] as DayNightSystem;
     dayNight.update(dayNight.getPhaseRemaining());
     game['update'](FRAME);
@@ -99,6 +101,7 @@ describe('audio wiring', () => {
 
   it('swells when the evolution chamber opens at dawn, and chimes on the pick', () => {
     const { game } = setup();
+    finishIntro(game);
     const dayNight = game['dayNightSystem'] as DayNightSystem;
     dayNight.update(dayNight.getPhaseRemaining());
     dayNight.update(dayNight.getPhaseRemaining() - 0.001);

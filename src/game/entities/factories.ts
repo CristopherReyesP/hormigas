@@ -16,6 +16,7 @@ import {
   type PathComponent,
   type RenderComponent,
   type FoodSourceComponent,
+  type MineralComponent,
   type NestComponent,
   type SelectableComponent,
   type RoleStatsComponent,
@@ -32,9 +33,14 @@ import {
   type LayerComponent,
   type LayerValue,
   type OwnerComponent,
+  type CrystalHiveComponent,
+  type CrystalUnitComponent,
+  CrystalUnitState,
 } from '../components/components';
 import { FactionId } from '../factions/factions';
+import { CRYSTAL_DRONE_STATS, CRYSTAL_HIVE_STATS } from '../rival/crystalHive';
 import {
+  MINERAL_NODE_AMOUNT,
   ROLE_STATS,
   BEETLE_STATS,
   BEETLE_DEN_STATS,
@@ -182,6 +188,16 @@ export function createFood(
 
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer });
 
+  return entity;
+}
+
+/** A crystal mineral node on the surface: workers mine it, nothing eats it (P7.1). */
+export function createMineral(world: World, x: number, y: number, amount: number = MINERAL_NODE_AMOUNT): EntityId {
+  const entity = world.createEntity();
+  world.addComponent<PositionComponent>(entity, COMPONENT.POSITION, { x, y, prevX: x, prevY: y });
+  world.addComponent<MineralComponent>(entity, COMPONENT.MINERAL, { amount, maxAmount: amount });
+  world.addComponent<RenderComponent>(entity, COMPONENT.RENDER, { color: '#2fa3b8', radius: 0.4, shape: 'mineral' });
+  world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
   return entity;
 }
 
@@ -499,5 +515,84 @@ export function createBeetleDen(
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
   stampOwner(world, entity, FactionId.WILDLIFE);
 
+  return entity;
+}
+
+/**
+ * The Crystal Hive's base: a cluster of crystal spires at the crater. It has
+ * health, so the player can attack and destroy it (that wins the run).
+ */
+export function createCrystalHive(
+  world: World,
+  x: number,
+  y: number,
+  faction: FactionId = FactionId.RIVAL
+): EntityId {
+  const entity = world.createEntity();
+  world.addComponent<PositionComponent>(entity, COMPONENT.POSITION, { x, y, prevX: x, prevY: y });
+  world.addComponent<CrystalHiveComponent>(entity, COMPONENT.CRYSTAL_HIVE, {
+    productionTimer: CRYSTAL_HIVE_STATS.productionInterval,
+    lastWaveNight: 0,
+  });
+  world.addComponent<HealthComponent>(entity, COMPONENT.HEALTH, {
+    current: CRYSTAL_HIVE_STATS.health,
+    max: CRYSTAL_HIVE_STATS.health,
+    damage: 0,
+  });
+  world.addComponent<RenderComponent>(entity, COMPONENT.RENDER, {
+    color: '#5ff3ff',
+    radius: CRYSTAL_HIVE_STATS.size,
+    shape: 'crystal_hive',
+  });
+  world.addComponent<SelectableComponent>(entity, COMPONENT.SELECTABLE, { selected: false });
+  world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
+  stampOwner(world, entity, faction);
+  return entity;
+}
+
+/** A Crystal drone: the tier-1 Crystal unit, a slow, heavy melee hitter. */
+export function createCrystalDrone(
+  world: World,
+  x: number,
+  y: number,
+  hiveId: EntityId | null = null,
+  faction: FactionId = FactionId.RIVAL
+): EntityId {
+  const entity = world.createEntity();
+  world.addComponent<PositionComponent>(entity, COMPONENT.POSITION, { x, y, prevX: x, prevY: y });
+  world.addComponent<CrystalUnitComponent>(entity, COMPONENT.CRYSTAL_UNIT, {
+    kind: 'drone',
+    state: CrystalUnitState.Guarding,
+    hiveId,
+    goal: null,
+    repathTimer: 0,
+  });
+  world.addComponent<HealthComponent>(entity, COMPONENT.HEALTH, {
+    current: CRYSTAL_DRONE_STATS.health,
+    max: CRYSTAL_DRONE_STATS.health,
+    damage: CRYSTAL_DRONE_STATS.damage,
+  });
+  world.addComponent<CombatComponent>(entity, COMPONENT.COMBAT, {
+    attackDamage: CRYSTAL_DRONE_STATS.damage,
+    attackRange: CRYSTAL_DRONE_STATS.attackRange,
+    attackCooldown: CRYSTAL_DRONE_STATS.attackCooldown,
+    attackTimer: 0,
+    targetEntityId: null,
+  });
+  world.addComponent<PathComponent>(entity, COMPONENT.PATH, { waypoints: [], currentIndex: 0 });
+  world.addComponent<RenderComponent>(entity, COMPONENT.RENDER, {
+    color: '#5ff3ff',
+    radius: CRYSTAL_DRONE_STATS.size,
+    shape: 'crystal_drone',
+  });
+  world.addComponent<FacingComponent>(entity, COMPONENT.FACING, { angle: 0, legPhase: 0 });
+  world.addComponent<RoleStatsComponent>(entity, COMPONENT.ROLE_STATS, {
+    visionRange: CRYSTAL_DRONE_STATS.visionRange,
+    speedMultiplier: CRYSTAL_DRONE_STATS.speed / ANT_SPEED,
+    carrySpeedPenalty: 1.0,
+  });
+  world.addComponent<SelectableComponent>(entity, COMPONENT.SELECTABLE, { selected: false });
+  world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
+  stampOwner(world, entity, faction);
   return entity;
 }

@@ -17,7 +17,7 @@ describe('beetles are named Acorazados in the game', () => {
 
   it('names the carcass and the wildlife rival after the acorazado', () => {
     expect(FOOD_LABEL.beetle_meat).toBe('Carne de acorazado');
-    expect(RIVAL_OPTIONS.find(r => r.id === 'wildlife')?.note).toBe('Acorazados y grillos');
+    expect(RIVAL_OPTIONS.find(r => r.id === 'wildlife')?.note).toBe('Acorazados y saltadores');
     expect(Object.keys(BEETLE_STATE_LABEL).length).toBeGreaterThan(0);
   });
 });
