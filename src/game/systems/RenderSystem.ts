@@ -63,6 +63,7 @@ import { combatVfxFor } from '../vfx/CombatVfx';
 import { drawCombatVfx } from '../vfx/drawCombatVfx';
 import { HumanRenderer } from './HumanRenderer';
 import { drawDefenses, drawGhost, drawScoutMarks, drawWaveFx, drawWaveUnits, type WaveOverlay } from '../render/waveFunArt';
+import { WAVE_MARCH_COMPONENT, type WaveMarchComponent } from '../run/waveMarch';
 import { drawDigOverlay, type DigOverlay } from '../render/digOverlayArt';
 import type { IntroClock, Vec2 } from '../render/introTimeline';
 import type { IntroArrival } from '../render/introArrival';
@@ -1046,6 +1047,7 @@ export class RenderSystem {
     drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Surface, this.visibilityGrid);
     this.fogRenderer.update();
     this.fogRenderer.draw(ctx);
+    this.renderWaveMarchOverFog(ctx, interpolation);
     // The player's own command feedback reads over the fog
     this.renderOrderPings(ctx);
     const overlay = this.getWaveOverlay?.() ?? null;
@@ -1971,7 +1973,13 @@ export class RenderSystem {
     // Moving wildlife hides under fog: drawn only where the colony sees RIGHT
     // NOW (dens above stay remembered on explored ground)
     for (const { id, pos } of beetleEntities) {
+      // A night wave marching on the nest is drawn over the fog where the colony cannot see (renderWaveMarchOverFog)
+      const march = this.world.getComponent<WaveMarchComponent>(id, WAVE_MARCH_COMPONENT);
       if (!isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
+      if (march) {
+        this.drawWaveMarcher(ctx, id, pos, march, interpolation);
+        continue;
+      }
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
       const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE);
@@ -2393,6 +2401,44 @@ export class RenderSystem {
     }
     ctx.globalAlpha = 1;
     ctx.restore();
+  }
+
+  /**
+   * A night-wave unit on its way into the nest: marching (lunging while it
+   * fights), or digging in, shrinking and fading into the hole as it sinks.
+   */
+  private drawWaveMarcher(ctx: CanvasRenderingContext2D, id: EntityId, pos: PositionComponent, march: WaveMarchComponent, interpolation: number): void {
+    const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
+    if (!facing) return;
+    const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
+    const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
+    this.drawTargetFlash(ctx, id, x, y, 'beetle');
+    const dig = march.phase === 'digging' ? 1 - Math.max(0, march.timer) / Math.max(0.01, march.duration) : 0;
+    if (dig <= 0) {
+      const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
+      this.drawBeetle(ctx, x, y, facing.angle, facing.legPhase, id, !!combat && combat.targetEntityId !== null);
+      return;
+    }
+    const cx = x * TILE_SIZE + TILE_SIZE / 2;
+    const cy = y * TILE_SIZE + TILE_SIZE / 2;
+    const scale = 1 - 0.75 * dig;
+    ctx.save();
+    ctx.globalAlpha = 1 - 0.8 * dig;
+    ctx.translate(cx, cy + dig * TILE_SIZE * 0.25);
+    ctx.scale(scale, scale);
+    ctx.translate(-cx, -cy);
+    this.drawBeetle(ctx, x, y, facing.angle, facing.legPhase + dig * 6, id, false);
+    ctx.restore();
+  }
+
+  /** The announced night wave stays in sight on its march, even across ground the colony cannot see */
+  private renderWaveMarchOverFog(ctx: CanvasRenderingContext2D, interpolation: number): void {
+    for (const id of this.world.query(WAVE_MARCH_COMPONENT, COMPONENT.POSITION)) {
+      if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      if (isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
+      this.drawWaveMarcher(ctx, id, pos, this.world.getComponent<WaveMarchComponent>(id, WAVE_MARCH_COMPONENT)!, interpolation);
+    }
   }
 
   /**

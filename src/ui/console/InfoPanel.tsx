@@ -113,7 +113,9 @@ function ColonySummary({ stats, details }: { stats: GameStats; details: ColonyDe
         <Row icon="alert" label={LEAPER_NAME.many} value={stats.cricketCount} tone={stats.cricketCount ? 'var(--chrome-danger)' : undefined} />
         <div className={`info-note${threats > 0 || stats.invasion.active ? ' info-note--danger' : ''}`}>
           {stats.invasion.active
-            ? `¡Oleada ${stats.invasion.waveNumber} en el nido! ${stats.invasion.invadersAlive} invasores`
+            ? stats.invasion.threats?.some((t) => t.layer === 'underground')
+              ? `¡Oleada ${stats.invasion.waveNumber} en el nido! ${stats.invasion.invadersAlive} invasores`
+              : `¡Oleada ${stats.invasion.waveNumber} en camino! ${stats.invasion.invadersAlive} invasores en la superficie`
             : stats.invasion.armed
               ? `La oleada ${stats.invasion.waveNumber + 1} llega al anochecer, en ${formatClock(stats.invasion.nextWaveIn)}`
               : `Oleada ${stats.invasion.waveNumber + 1} en ${formatClock(stats.invasion.nextWaveIn)}`}

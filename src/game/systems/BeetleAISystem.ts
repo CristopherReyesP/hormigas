@@ -18,6 +18,7 @@ import {
   Layer,
 } from '../components/components';
 import { findPath } from '../../simulation/pathfinding/AStar';
+import { WAVE_MARCH_COMPONENT } from '../run/waveMarch';
 import { CRYSTAL_PLAYER_COMPONENT } from '../races/crystal/crystalPlayerComponents';
 import { FactionId, ownerOf } from '../factions/factions';
 import { HUMAN_COMPONENT } from '../rival/humanComponents';
@@ -71,9 +72,11 @@ export class BeetleAISystem implements System {
     const beetles = this.world.query(COMPONENT.BEETLE, COMPONENT.POSITION, COMPONENT.PATH);
 
     for (const id of beetles) {
-      // Underground invaders are driven by UndergroundInvasionSystem, not surface AI
+      // Night-wave invaders are driven by UndergroundInvasionSystem, not surface AI:
+      // inside the nest, and on their march to it across the surface
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
       if (layer && layer.layer === Layer.Underground) continue;
+      if (this.world.getComponent(id, WAVE_MARCH_COMPONENT)) continue;
       // Night-wave beetles marching on a Crystal player's Hive are driven by CrystalSurfaceWaveSystem
       if (this.world.getComponent(id, CRYSTAL_PLAYER_COMPONENT.SURFACE_RAIDER) !== undefined) continue;
       // Night-wave beetles at a Human player's base are steered by HumanWaveSystem

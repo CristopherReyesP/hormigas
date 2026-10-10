@@ -97,6 +97,13 @@ describe('threats column wave countdown', () => {
   it('shows the countdown before the wave is telegraphed', () => {
     expect(render()).toContain('Oleada 1 en 2:00');
   });
+
+  it('says where the wave is: on its way across the surface, then inside the nest', () => {
+    const on = (layer: 'surface' | 'underground') =>
+      ({ ...STATS, invasion: { waveNumber: 2, nextWaveIn: 0, active: true, invadersAlive: 5, armed: false, threats: [{ x: 10, y: 10, layer }] } }) as GameStats;
+    expect(render(on('surface'))).toContain('¡Oleada 2 en camino! 5 invasores en la superficie');
+    expect(render(on('underground'))).toContain('¡Oleada 2 en el nido! 5 invasores');
+  });
 });
 
 describe('alien leapers (the cricket) are called Saltador in the UI', () => {

@@ -237,6 +237,9 @@ export class HumanWaveSystem implements WaveDirector {
       boss,
       entrance: null,
       surface: from ? { x: from.x, y: from.y, direction: compassLabel(core.x, core.y, from.x, from.y) } : null,
+      // A Human base has no nest to march on: its waves keep their own surface approach
+      wildlife: null,
+      hole: null,
     };
   }
 

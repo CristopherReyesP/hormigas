@@ -232,6 +232,9 @@ export class CrystalSurfaceWaveSystem implements WaveDirector {
       boss,
       entrance: null,
       surface: { x: edge.x, y: edge.y, direction: compassLabel(hive.x, hive.y, edge.x, edge.y) },
+      // A Crystal Hive has no nest holes: its waves keep their own surface approach (reported in `surface`)
+      wildlife: null,
+      hole: null,
     };
   }
 

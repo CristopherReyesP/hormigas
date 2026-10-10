@@ -11,7 +11,7 @@ import { absorbDamage, type ShieldComponent } from '../rival/crystalShield';
 import { damageAfterArmor } from '../systems/helpers/combatHelpers';
 import type { FactionId } from '../factions/factions';
 
-export type WaveFxKind = 'heal' | 'blast' | 'telegraph' | 'charge' | 'spine' | 'trap' | 'shard' | 'enrage';
+export type WaveFxKind = 'heal' | 'blast' | 'telegraph' | 'charge' | 'spine' | 'trap' | 'shard' | 'enrage' | 'dig';
 
 /** One short-lived wave effect, in tiles on one layer */
 export interface WaveFx {
