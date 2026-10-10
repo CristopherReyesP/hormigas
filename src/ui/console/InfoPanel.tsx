@@ -249,7 +249,7 @@ function SelectionInfo({ stats, gameManager, attackCount, onAttackCountChange }:
               <span className="info-stepper-value">{sending}</span>
               <button type="button" className="hud-btn" disabled={sending >= maxAttack} onClick={() => onAttackCountChange(Math.min(30, sending + 5))}>+5</button>
             </div>
-            <div className="info-note">Envíalos con Atacar guarida (B)</div>
+            <div className="info-note">Envíalos con Atacar guarida (A)</div>
           </>
         )}
       </div>
