@@ -42,4 +42,10 @@ describe('top strip', () => {
     expect(html).toContain('OLEADA 1 EN 0:45');
     expect(html).toMatch(/strip-item--danger[^>]*title="La oleada llega al anochecer"/);
   });
+
+  it('ends with the speaker toggle', () => {
+    const html = renderToStaticMarkup(<TopStrip stats={STATS} />);
+    expect(html).toMatch(/strip-group--right[\s\S]*strip-sound-toggle/);
+    expect(html).toContain('Clic: ');
+  });
 });

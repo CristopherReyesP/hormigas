@@ -3,6 +3,7 @@ import { PixelIcon } from './PixelIcon';
 import type { IconName } from './pixelIcons';
 import { formatClock, stripEmoji } from './format';
 import { useFlashOnChange } from '../useFlashOnChange';
+import { SoundToggle } from '../../audio/ui/SoundToggle';
 
 type FoodType = 'leaf' | 'mushroom' | 'meat';
 
@@ -143,6 +144,7 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
             ×{stats.speed}
           </span>
         )}
+        <SoundToggle />
       </div>
     </header>
   );

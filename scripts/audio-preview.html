@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hormigas · sonidos</title>
+    <style>
+      :root {
+        --bg: #0e080b;
+        --panel: #160c12;
+        --panel-light: #241420;
+        --border: #5a3048;
+        --text: #e8d8dc;
+        --dim: #9a8088;
+        --accent: #c6ff3d;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.4 system-ui, sans-serif;
+      }
+      h1 {
+        margin: 0 0 4px;
+        color: var(--accent);
+        font-size: 20px;
+      }
+      h2 {
+        margin: 0 0 6px;
+        font-size: 15px;
+      }
+      section {
+        margin: 14px 0;
+        padding: 12px 14px;
+        background: var(--panel);
+        border: 2px solid var(--border);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .note,
+      .status {
+        margin: 0 0 8px;
+        color: var(--dim);
+      }
+      button {
+        padding: 6px 10px;
+        background: var(--panel-light);
+        color: var(--text);
+        border: 1px solid var(--border);
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      button:active {
+        background: var(--border);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Hormigas: sonidos procedurales</h1>
+    <main id="app"></main>
+    <script type="module" src="/src/audio/preview/audioPreview.ts"></script>
+  </body>
+</html>

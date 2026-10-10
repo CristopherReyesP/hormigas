@@ -3,6 +3,7 @@ import { cardHotkeys, GRID_LETTERS, slotForKey } from './commandCardLayout';
 import type { CommandDef } from './commands';
 import { PixelIcon } from './PixelIcon';
 import type { IconName } from './pixelIcons';
+import { uiSound } from '../../audio';
 
 interface CommandCardProps {
   commands: Array<CommandDef | null>;
@@ -53,6 +54,7 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked }: C
       const command = slot >= 0 ? commands[slot] : null;
       if (!command) return;
       e.preventDefault();
+      uiSound(command.disabled ? 'error' : 'command');
       if (command.disabled) {
         onBlocked?.(command);
         return;
@@ -95,6 +97,7 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked }: C
                   aria-disabled={command.disabled || undefined}
                   aria-label={`${command.label} (${key})`}
                   aria-keyshortcuts={key}
+                  data-sfx="command"
                   aria-pressed={command.active ?? undefined}
                   onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
                   onFocus={() => setHovered(i)}

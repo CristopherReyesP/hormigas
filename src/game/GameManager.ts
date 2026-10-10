@@ -57,6 +57,8 @@ import { DayNightSystem, type DayPhase } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
 import { IntroDirector } from './render/IntroDirector';
 import { IntroClock } from './render/introTimeline';
+import { audioIntroFrame, audioRunEnded, audioRunStarted, emitAudio } from '../audio';
+import { selectionAudio } from '../audio/gameHooks';
 import { createAnt, createFood, createNest, createBeetleDen, createQueen } from './entities/factories';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
@@ -601,6 +603,7 @@ export class GameManager {
     );
     window.addEventListener('keydown', this.skipIntro);
     canvas.addEventListener('pointerdown', this.skipIntro);
+    audioRunStarted(() => ({ layer: this.activeLayerValue(), view: this.activeCamera().getViewRectTiles() }));
   }
 
   /** First key or click after the impact skips to the intro's end state (one-shot). */
@@ -846,6 +849,7 @@ export class GameManager {
     if (ids.length === 0) return; // every mutation is at maxStacks
     const dayNumber = this.dayNightSystem.getDayNumber();
     this.mutationOffer = buildMutationOffer(dayNumber, ids, id => this.runModifiers.getStacks(id));
+    emitAudio({ type: 'dawnOffer' });
     this.gameLoop.setPaused(true);
     this.publishStats();
   }
@@ -939,6 +943,7 @@ export class GameManager {
     // One intro clock, advanced once per frame: the camera frames and the art draws the same intro time
     const introWasPlaying = this.introClock.isPlaying();
     this.introClock.advance(dt);
+    audioIntroFrame(this.introClock.elapsed, dt);
     this.introDirector.frame();
     this.renderSystem.renderInterpolated(interpolation, dt);
     // The HUD fades in on the frame the intro ends, not at the next stats tick
@@ -953,6 +958,7 @@ export class GameManager {
     this.gameLoop.stop();
     this.input.destroy();
     this.detachIntroSkip();
+    audioRunEnded();
   }
 
   togglePause(): void {
@@ -1071,6 +1077,7 @@ export class GameManager {
     const result = issueMoveOrders(this.world, this.grid, ants, { x: tileX, y: tileY }, this.transitSystem, kind);
     if (!result) return 0;
     this.orderPings.push({ ...result.target, kind: attack ? 'attack' : 'move' });
+    emitAudio({ type: 'order', kind: attack ? 'attack' : 'move' });
     this.publishStats();
     return result.ordered.length;
   }
@@ -1129,6 +1136,7 @@ export class GameManager {
       this.selectionSystem.selectAt(at.x, at.y, { layer, additive: mods.shift });
     }
     if (this.selectionSystem.getSelectedAnts().length === 0) this.armedCommand = null;
+    emitAudio(selectionAudio(this.world, this.selectionSystem.getSelectedAnts()));
     this.publishStats();
   }
 
@@ -1138,6 +1146,7 @@ export class GameManager {
     const b = this.screenToEntity(box.x1, box.y1);
     const area: SelectionBox = { minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y), maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y) };
     this.selectionSystem.selectInBox(area, this.activeLayerValue(), mods.shift);
+    emitAudio(selectionAudio(this.world, this.selectionSystem.getSelectedAnts()));
     this.armedCommand = null;
     this.publishStats();
   }
@@ -1253,6 +1262,7 @@ export class GameManager {
       layTimer: QUEEN_EGG_LAY_TIME,
       layTimerTotal: QUEEN_EGG_LAY_TIME,
     });
+    emitAudio({ type: 'eggQueued' });
 
     return true;
   }
@@ -1288,6 +1298,7 @@ export class GameManager {
     if (!option || this.gameOver || !this.applyMutation(option.id)) return false;
     this.mutationOffer = null;
     this.lastMutationPick = option.id;
+    emitAudio({ type: 'mutationChosen' });
     this.gameLoop.setPaused(false);
     this.publishStats();
     return true;
@@ -2218,6 +2229,7 @@ export class GameManager {
     if (sent.length > 0 && den) {
       this.orderPings.push({ x: Math.round(den.x), y: Math.round(den.y), kind: 'attack', targetId: targetEntityId });
     }
+    if (sent.length > 0) emitAudio({ type: 'order', kind: 'attack' });
     return sent.length;
   }
 }
