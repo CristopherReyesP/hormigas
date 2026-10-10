@@ -78,14 +78,14 @@ function context(overrides: Partial<CommandContext> = {}) {
 }
 
 describe('surface command card', () => {
-  it('fills the card with priorities, retreat, nest, breeding, pause, one speed button and the den attack', () => {
+  it('fills the card with priorities, retreat, nest, breeding, pause and one speed button', () => {
     const { ctx } = context();
     const ids = buildCommands(ctx).map((c) => c?.id ?? null);
     expect(ids).toHaveLength(CARD_SLOTS);
     expect(ids).toEqual([
       'gather', 'explore', 'defend', 'retreat', 'descend',
       'breed-worker', 'breed-soldier', 'breed-scout', 'breed-nurse', 'breed-defender',
-      'pause', 'speed', null, null, 'attack-den',
+      'pause', 'speed', null, null, null,
     ]);
   });
 
@@ -137,16 +137,48 @@ describe('surface command card', () => {
     const { ctx } = context({ details: { ...details, brood: { ...details.brood, queue } } });
     expect(buildCommands(ctx)[5]).toMatchObject({ badge: '5/5', badgeTone: 'warn', disabled: true });
   });
+});
 
-  it('only enables the den attack with a den selected and soldiers free', () => {
-    expect(buildCommands(context().ctx)[14]!.disabled).toBe(true);
-    const selectedEntity = { entityId: 7, type: 'beetle_den', position: { x: 1, y: 1 } };
+describe('den card', () => {
+  const selectedEntity = { entityId: 7, type: 'beetle_den', position: { x: 1, y: 1 } };
+  const denContext = (availableSoldiers: number) => {
     const { gm, ctx } = context();
-    ctx.stats = { ...ctx.stats, selectedEntity, availableSoldiers: 4 } as GameStats;
-    const attack = buildCommands(ctx)[14]!;
+    ctx.stats = { ...ctx.stats, selectedEntity, availableSoldiers } as GameStats;
+    return { gm, ctx };
+  };
+
+  it('puts Atacar guarida on A and Quitar selección on B, the same keys as the unit card', () => {
+    const { ctx } = denContext(4);
+    const ids = buildCommands(ctx).map((c) => c?.id ?? null);
+    expect(ids).toEqual([
+      null, null, null, null, null,
+      'attack-den', null, null, null, null,
+      'pause', 'speed', null, null, 'deselect',
+    ]);
+    const keys = cardHotkeys();
+    expect(keys[ids.indexOf('attack-den')]).toBe('A');
+    expect(keys[ids.indexOf('deselect')]).toBe('B');
+  });
+
+  it('sends the free soldiers at the den', () => {
+    const { gm, ctx } = denContext(4);
+    const attack = buildCommands(ctx)[5]!;
     expect(attack.disabled).toBe(false);
     attack.run();
     expect(gm.dispatchAttackWave).toHaveBeenCalledWith(7, 4);
+  });
+
+  it('explains how to attack without free soldiers', () => {
+    const attack = buildCommands(denContext(0).ctx)[5]!;
+    expect(attack.disabled).toBe(true);
+    expect(attack.disabledReason).toContain('clic derecho en la guarida');
+  });
+
+  it('works for the cricket den too, and never shows on the colony card', () => {
+    const { ctx } = context();
+    ctx.stats = { ...ctx.stats, selectedEntity: { ...selectedEntity, type: 'cricket_den' }, availableSoldiers: 2 } as GameStats;
+    expect(buildCommands(ctx)[5]?.id).toBe('attack-den');
+    expect(buildCommands(context().ctx).some((c) => c?.id === 'attack-den')).toBe(false);
   });
 });
 

@@ -167,11 +167,15 @@ function timeCommands(ctx: CommandContext): CommandDef[] {
   ];
 }
 
+function isDenSelected(stats: GameStats): boolean {
+  const type = stats.selectedEntity?.type;
+  return stats.activeLayer === 'surface' && (type === 'beetle_den' || type === 'cricket_den');
+}
+
 function attackDen(ctx: CommandContext): CommandDef {
   const selected = ctx.stats.selectedEntity;
-  const isDen = selected?.type === 'beetle_den' || selected?.type === 'cricket_den';
   const count = Math.min(ctx.attackCount, ctx.stats.availableSoldiers);
-  const ready = isDen && count > 0;
+  const ready = count > 0;
   return {
     id: 'attack-den',
     label: 'Atacar guarida',
@@ -180,7 +184,7 @@ function attackDen(ctx: CommandContext): CommandDef {
     badge: ready ? String(count) : undefined,
     tone: 'danger',
     disabled: !ready,
-    disabledReason: !isDen ? 'Selecciona una guarida enemiga.' : 'No hay soldados libres.',
+    disabledReason: 'No hay soldados libres. Cría soldados, o selecciona hormigas y haz clic derecho en la guarida.',
     run: act(ctx, () => {
       if (!selected || !ready) return;
       const sent = ctx.gm.dispatchAttackWave(selected.entityId, count);
@@ -272,14 +276,33 @@ function unitPage(ctx: CommandContext): Slot[] {
     ...timeCommands(ctx),
     null,
     null,
-    {
-      id: 'deselect',
-      label: 'Quitar selección',
-      icon: 'back',
-      description: 'Suelta la selección y vuelve a los comandos de la colonia.',
-      altKeys: 'Esc',
-      run: act(ctx, () => ctx.gm.clearSelection()),
-    },
+    deselect(ctx),
+  ];
+}
+
+function deselect(ctx: CommandContext): CommandDef {
+  return {
+    id: 'deselect',
+    label: 'Quitar selección',
+    icon: 'back',
+    description: 'Suelta la selección y vuelve a los comandos de la colonia.',
+    altKeys: 'Esc',
+    run: act(ctx, () => ctx.gm.clearSelection()),
+  };
+}
+
+/**
+ * Den card: Atacar guarida on A and Quitar selección on B, the same keys the
+ * unit card uses for Atacar and Quitar selección, plus the time controls.
+ */
+function denPage(ctx: CommandContext): Slot[] {
+  return [
+    null, null, null, null, null,
+    attackDen(ctx), null, null, null, null,
+    ...timeCommands(ctx),
+    null,
+    null,
+    deselect(ctx),
   ];
 }
 
@@ -306,9 +329,6 @@ function surfaceRoot(ctx: CommandContext): Slot[] {
     },
     ...breedCommands(ctx),
     ...timeCommands(ctx),
-    null,
-    null,
-    attackDen(ctx),
   ];
 }
 
@@ -431,6 +451,8 @@ export function buildCommands(ctx: CommandContext): Slot[] {
   const slots =
     ctx.stats.activeLayer === 'underground'
       ? ctx.page === 'colony' ? colonyPage(ctx) : nestRoot(ctx)
-      : hasUnitSelection(ctx.stats) ? unitPage(ctx) : surfaceRoot(ctx);
+      : hasUnitSelection(ctx.stats) ? unitPage(ctx)
+      : isDenSelected(ctx.stats) ? denPage(ctx)
+      : surfaceRoot(ctx);
   return Array.from({ length: CARD_SLOTS }, (_, i) => slots[i] ?? null);
 }
