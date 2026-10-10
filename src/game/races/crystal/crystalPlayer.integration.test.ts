@@ -13,7 +13,7 @@ import { FactionId, ownerOf } from '../../factions/factions';
 import { fakeCanvas, finishIntro } from '../../../test/gameManagerMocks';
 import { setAudioSink } from '../../../audio/events';
 import type { RunSetup } from '../../run/RunSetup';
-import { CRYSTAL_PLAYER_START, CRYSTAL_STRUCTURES, productionTime } from './crystalPlayerRules';
+import { CRYSTAL_NIGHT_MILESTONE, CRYSTAL_PLAYER_START, CRYSTAL_STRUCTURES, productionTime } from './crystalPlayerRules';
 import { WORLD_HEIGHT, WORLD_WIDTH } from '../../../shared/constants';
 import { createBeetle } from '../../entities/factories';
 
@@ -188,13 +188,37 @@ describe('playing the Crystal Hive against the wildlife', () => {
     game.stop();
   });
 
-  it('wins by surviving the last night', () => {
-    const { game, run, dayNight } = setup(VS_WILDLIFE);
+  it('is endless: surviving night 7 is a milestone with a reward, and play goes on', () => {
+    const { game, world, run, dayNight } = setup(VS_WILDLIFE);
     dayNight.dayNumber = 7;
     (game['dayNightSystem'] as unknown as { phase: string }).phase = 'night';
     dayNight.phaseTimer = 0.05;
+    const before = world.minerals.stored;
     run(0.2);
-    expect(game.getStats().gameOver).toMatchObject({ outcome: 'victory', playerRace: 'crystal' });
+    expect(game.getStats().gameOver).toBeNull();
+    expect(world.notifications.some((n) => n.message.includes('¡Sobreviviste 7 noches!'))).toBe(true);
+    expect(world.minerals.stored - before).toBeGreaterThanOrEqual(CRYSTAL_NIGHT_MILESTONE.reward);
+    // Only once
+    const count = () => world.notifications.filter((n) => n.message.includes('¡Sobreviviste 7 noches!')).length;
+    run(1);
+    expect(count()).toBe(1);
+    game.stop();
+  });
+
+  it('waves keep coming past night 7', () => {
+    const { game, run, dayNight } = setup(VS_HUMANS);
+    for (const night of [8, 9, 12]) {
+      game.getCrystal()!.waves['waveNumber'] = night - 1;
+      dayNight.dayNumber = night;
+      (game['dayNightSystem'] as unknown as { phase: string }).phase = 'day';
+      dayNight.phaseTimer = 0.05;
+      run(0.3);
+      const info = game.getStats().invasion;
+      expect(info.active).toBe(true);
+      expect(info.waveNumber).toBe(night);
+      expect(info.waveSize).toBeGreaterThan(0);
+      expect(game.getStats().gameOver).toBeNull();
+    }
     game.stop();
   });
 

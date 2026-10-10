@@ -9,7 +9,7 @@ export function CrystalIntroTitle() {
   return (
     <div className="crystal-intro" aria-live="polite">
       <div className="crystal-intro-line">LA COLMENA DESPIERTA</div>
-      <div className="crystal-intro-sub">Levanta extractores, haz crecer tus agujas y resiste siete noches</div>
+      <div className="crystal-intro-sub">Levanta extractores, haz crecer tus agujas y resiste las oleadas</div>
     </div>
   );
 }

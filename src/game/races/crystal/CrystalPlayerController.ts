@@ -21,6 +21,7 @@ import { spawnCrystalPlayerBase } from './crystalPlayerSetup';
 import { constructionProgress } from './crystalPlayerComponents';
 import {
   CRYSTAL_FLOOR,
+  CRYSTAL_NIGHT_MILESTONE,
   CRYSTAL_PLAYER_ECONOMY,
   CRYSTAL_STRUCTURES,
   productionTime,
@@ -100,6 +101,21 @@ export class CrystalPlayerController {
 
   hiveAlive(): boolean {
     return this.system.hive() !== null;
+  }
+
+  private milestoneReached = false;
+
+  /**
+   * The endless run's milestone hook: at the dawn after night 7 the Hive is
+   * rewarded once and play goes on. Returns true on the tick it fires.
+   */
+  checkNightMilestone(previousPhase: 'day' | 'night', phase: 'day' | 'night', dayNumber: number): boolean {
+    if (this.milestoneReached || this.system.hive() === null) return false;
+    if (!(previousPhase === 'night' && phase === 'day' && dayNumber >= CRYSTAL_NIGHT_MILESTONE.night + 1)) return false;
+    this.milestoneReached = true;
+    this.world.minerals.deposit(CRYSTAL_NIGHT_MILESTONE.reward);
+    this.world.pushNotification('success', `💎 ¡Sobreviviste ${CRYSTAL_NIGHT_MILESTONE.night} noches! La colmena recibe ${CRYSTAL_NIGHT_MILESTONE.reward} minerales. Las oleadas siguen.`);
+    return true;
   }
 
   // ── Build mode ───────────────────────────────────────────
@@ -255,7 +271,7 @@ export class CrystalPlayerController {
     if (!current) {
       return {
         title: '👑 La colmena prevalece',
-        description: 'Sobrevive 7 noches o destruye el núcleo rival',
+        description: 'Resiste las oleadas (la séptima noche trae una recompensa) o destruye el núcleo rival',
         progress: done,
         target: steps.length,
         completedCount: done,

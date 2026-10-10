@@ -1255,12 +1255,14 @@ export class GameManager {
       if (health && health.current <= 0) queenDead = true;
     }
     const coreDestroyed = this.rivalCoreId != null && !this.world.hasEntity(this.rivalCoreId);
-    // The Crystal Hive has no queen: it falls with its Hive
+    // The Crystal Hive has no queen: it falls with its Hive. Its run is endless:
+    // night 7 is a milestone (no phase change reaches the outcome), not a win
     const coreAlive = this.crystal ? this.crystal.hiveAlive() : !queenDead;
+    this.crystal?.checkNightMilestone(previousPhase, this.dayNightSystem.getPhase(), this.dayNightSystem.getDayNumber());
     const outcome = resolveRunOutcome(
       null,
       coreAlive,
-      previousPhase,
+      this.crystal ? this.dayNightSystem.getPhase() : previousPhase,
       this.dayNightSystem.getPhase(),
       this.dayNightSystem.getDayNumber(),
       coreDestroyed,
