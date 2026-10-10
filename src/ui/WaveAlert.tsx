@@ -55,7 +55,8 @@ function BossBar({ boss }: { boss: BossBarInfo }) {
  * banner half a minute ahead, the big arrival announcement (with a red edge
  * pulse), the remaining-enemies counter, the "cleared" message, and red
  * arrows on the screen edge pointing at where the enemies come from.
- * Self-contained (WaveAlert.css), fixed over the screen, never takes input.
+ * The edge pulse and the arrows cover the screen (WaveAlert.css); the
+ * banners flow in the column under the top strip (AlertStack). Never takes input.
  */
 export function WaveAlert({ invasion, activeLayer, view }: WaveAlertProps) {
   const { banner, active } = invasion;
@@ -68,69 +69,78 @@ export function WaveAlert({ invasion, activeLayer, view }: WaveAlertProps) {
     ? (activeLayer === 'surface' ? ' · en el NIDO' : ' · en la SUPERFICIE')
     : '';
 
+  const pulse = banner?.kind === 'arrival';
+  const markers = view !== null && threats.length > 0;
+
   return (
-    <div className="wave-alert" aria-live="assertive">
-      {banner?.kind === 'arrival' && (
-        <div key={`pulse-${banner.id}`} className={banner.boss ? 'wave-edge-pulse wave-edge-pulse--boss' : 'wave-edge-pulse'} aria-hidden="true" />
-      )}
-      {view && threats.length > 0 && <Markers threats={threats} view={view} />}
-
-      {boss && <BossBar boss={boss} />}
-
-      {warning && banner && (
-        <div className="wave-banner">
-          <span className="wave-banner-title">¡Oleada {banner.wave} en {Math.max(0, Math.ceil(invasion.nextWaveIn))} s!</span>
-          <span className="wave-banner-sub">
-            {plural(banner.count, 'enemigo', 'enemigos')}
-            {banner.elites ? ` · ${plural(banner.elites, 'élite', 'élites')}` : ''}
-            {banner.bossName ? ` · jefe: ${banner.bossName}` : ''} · prepara a tus soldados
-          </span>
+    <>
+      {(pulse || markers) && (
+        <div className="wave-alert" aria-hidden="true">
+          {pulse && (
+            <div key={`pulse-${banner.id}`} className={banner.boss ? 'wave-edge-pulse wave-edge-pulse--boss' : 'wave-edge-pulse'} />
+          )}
+          {markers && <Markers threats={threats} view={view} />}
         </div>
       )}
+      {/* The banners flow in the column under the top strip (AlertStack) */}
+      <div className="wave-alert-banners" aria-live="assertive">
+        {boss && <BossBar boss={boss} />}
 
-      {active && (
-        <div className="wave-counter">
-          Oleada {invasion.waveNumber} · <strong>{invasion.remaining}</strong>/{invasion.waveSize} restantes{elsewhere}
-        </div>
-      )}
+        {warning && banner && (
+          <div className="wave-banner">
+            <span className="wave-banner-title">¡Oleada {banner.wave} en {Math.max(0, Math.ceil(invasion.nextWaveIn))} s!</span>
+            <span className="wave-banner-sub">
+              {plural(banner.count, 'enemigo', 'enemigos')}
+              {banner.elites ? ` · ${plural(banner.elites, 'élite', 'élites')}` : ''}
+              {banner.bossName ? ` · jefe: ${banner.bossName}` : ''} · prepara a tus soldados
+            </span>
+          </div>
+        )}
 
-      {banner?.kind === 'arrival' && banner.boss && (
-        <div key={`announce-${banner.id}`} className="wave-announce wave-announce--boss">
-          <span className="wave-announce-title">LA REINA DE CRISTAL</span>
-          <span className="wave-announce-sub">Oleada {banner.wave} · {plural(banner.count, 'enemigo', 'enemigos')}</span>
-          <span className="wave-announce-sub">Su aura recarga los escudos de su escolta y su pulso daña a quien se acerca.</span>
-        </div>
-      )}
+        {active && (
+          <div className="wave-counter">
+            Oleada {invasion.waveNumber} · <strong>{invasion.remaining}</strong>/{invasion.waveSize} restantes{elsewhere}
+          </div>
+        )}
 
-      {banner?.kind === 'arrival' && !banner.boss && banner.bossName && (
-        <div key={`announce-${banner.id}`} className="wave-announce wave-announce--miniboss">
-          <span className="wave-announce-title">{banner.bossName}</span>
-          <span className="wave-announce-sub">Oleada {banner.wave} · {plural(banner.count, 'enemigo', 'enemigos')}</span>
-          {banner.bossAbility && <span className="wave-announce-sub">{banner.bossAbility}</span>}
-        </div>
-      )}
+        {banner?.kind === 'arrival' && banner.boss && (
+          <div key={`announce-${banner.id}`} className="wave-announce wave-announce--boss">
+            <span className="wave-announce-title">LA REINA DE CRISTAL</span>
+            <span className="wave-announce-sub">Oleada {banner.wave} · {plural(banner.count, 'enemigo', 'enemigos')}</span>
+            <span className="wave-announce-sub">Su aura recarga los escudos de su escolta y su pulso daña a quien se acerca.</span>
+          </div>
+        )}
 
-      {banner?.kind === 'arrival' && !banner.boss && !banner.bossName && (
-        <div key={`announce-${banner.id}`} className="wave-announce">
-          <span className="wave-announce-title">OLEADA {banner.wave}</span>
-          <span className="wave-announce-sub">{plural(banner.count, 'enemigo', 'enemigos')}</span>
-        </div>
-      )}
+        {banner?.kind === 'arrival' && !banner.boss && banner.bossName && (
+          <div key={`announce-${banner.id}`} className="wave-announce wave-announce--miniboss">
+            <span className="wave-announce-title">{banner.bossName}</span>
+            <span className="wave-announce-sub">Oleada {banner.wave} · {plural(banner.count, 'enemigo', 'enemigos')}</span>
+            {banner.bossAbility && <span className="wave-announce-sub">{banner.bossAbility}</span>}
+          </div>
+        )}
 
-      {banner?.kind === 'cleared' && (
-        <div key={`announce-${banner.id}`} className={banner.perfect ? 'wave-announce wave-announce--cleared wave-announce--perfect' : 'wave-announce wave-announce--cleared'}>
-          <span className="wave-announce-title">{banner.perfect ? '¡Defensa perfecta!' : `¡Oleada ${banner.wave} superada!`}</span>
-          {banner.perfect && <span className="wave-announce-sub">Oleada {banner.wave} superada sin perder ni una hormiga</span>}
-          {banner.reward && <span className="wave-announce-sub wave-announce-reward">{rewardLine(banner.reward)}</span>}
-        </div>
-      )}
+        {banner?.kind === 'arrival' && !banner.boss && !banner.bossName && (
+          <div key={`announce-${banner.id}`} className="wave-announce">
+            <span className="wave-announce-title">OLEADA {banner.wave}</span>
+            <span className="wave-announce-sub">{plural(banner.count, 'enemigo', 'enemigos')}</span>
+          </div>
+        )}
 
-      {banner?.kind === 'bossDown' && (
-        <div key={`announce-${banner.id}`} className="wave-announce wave-announce--cleared wave-announce--bossdown">
-          <span className="wave-announce-title">¡Derrotaste al {banner.bossName}!</span>
-          {banner.reward && <span className="wave-announce-sub wave-announce-reward">{rewardLine(banner.reward)}</span>}
-        </div>
-      )}
-    </div>
+        {banner?.kind === 'cleared' && (
+          <div key={`announce-${banner.id}`} className={banner.perfect ? 'wave-announce wave-announce--cleared wave-announce--perfect' : 'wave-announce wave-announce--cleared'}>
+            <span className="wave-announce-title">{banner.perfect ? '¡Defensa perfecta!' : `¡Oleada ${banner.wave} superada!`}</span>
+            {banner.perfect && <span className="wave-announce-sub">Oleada {banner.wave} superada sin perder ni una hormiga</span>}
+            {banner.reward && <span className="wave-announce-sub wave-announce-reward">{rewardLine(banner.reward)}</span>}
+          </div>
+        )}
+
+        {banner?.kind === 'bossDown' && (
+          <div key={`announce-${banner.id}`} className="wave-announce wave-announce--cleared wave-announce--bossdown">
+            <span className="wave-announce-title">¡Derrotaste al {banner.bossName}!</span>
+            {banner.reward && <span className="wave-announce-sub wave-announce-reward">{rewardLine(banner.reward)}</span>}
+          </div>
+        )}
+      </div>
+    </>
   );
 }

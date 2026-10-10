@@ -841,6 +841,11 @@ button:focus-visible {
   min-width: 0;
 }
 
+/* Readouts keep their width: when the row runs short, TopStrip folds the least important ones (stripFold.ts) */
+.strip-group > * {
+  flex-shrink: 0;
+}
+
 .strip-group--center {
   justify-content: center;
 }
@@ -899,27 +904,40 @@ button:focus-visible {
 }
 
 /*
- * A callout hanging under the pantry readout, so the strip keeps its width.
- * Fixed with no offsets: it keeps its place at the start of the readout and
- * escapes the strip's overflow clip; the shift drops it below the strip.
+ * Full: the strip says LLENA; the sentence with the tool that makes room
+ * shows in the open drawer, in the tooltip and, on desktop, as a note in the
+ * banner column under the strip (PantryFullNote).
  */
 .strip-pantry-full {
-  position: fixed;
-  transform: translateY(calc(var(--strip-h) - 4px));
-  z-index: 25;
+  display: none;
   padding: 2px 6px;
-  white-space: nowrap;
   color: var(--chrome-warn);
   background: var(--chrome-bg);
   border: 1px solid var(--chrome-warn);
-  pointer-events: none;
 }
 
-/* Phones swap the sentence for a short tag (the long one is in the drawer and the tooltip) */
 .strip-pantry-full-short {
-  display: none;
   color: var(--chrome-warn);
   font-size: 0.85em;
+}
+
+/* Open: the sentence follows the pantry readout, wrapped to the drawer's width */
+.top-strip--open .strip-pantry--full {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.top-strip--open .strip-pantry-full {
+  display: block;
+  order: 1;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: normal;
+}
+
+.top-strip--open .strip-pantry-full-short {
+  display: none;
 }
 
 .strip-item--warn { color: var(--chrome-warn); }
@@ -929,9 +947,99 @@ button:focus-visible {
 .strip-item--night { color: #e06a9a; }
 .strip-item--event { color: var(--chrome-info); }
 
-/* Population counts: one run in the strip (a box only so phones can drop them) */
+/* Population counts: one run in the strip, one box so it folds whole */
 .strip-pop {
-  display: contents;
+  display: inline-flex;
+  align-items: center;
+  gap: inherit;
+}
+
+/*
+ * Folded readouts (TopStrip, stripFold.ts): hidden while the drawer is
+ * closed, but kept in the layout's reach (absolute, invisible) so the strip
+ * can still measure them and bring them back when there is room.
+ */
+.top-strip--fold-pop:not(.top-strip--open) :is(.strip-pop, .strip-sep),
+.top-strip--fold-sound:not(.top-strip--open) .strip-sound,
+.top-strip--fold-eventNames:not(.top-strip--open) .strip-event-name,
+.top-strip--fold-events:not(.top-strip--open) .strip-item--event,
+.top-strip--fold-incoming:not(.top-strip--open) .strip-pantry-incoming,
+.top-strip--fold-labels:not(.top-strip--open) .strip-pantry-label,
+.top-strip--fold-phase:not(.top-strip--open) .strip-phase,
+.top-strip--fold-day:not(.top-strip--open) .strip-day,
+.top-strip--fold-miners:not(.top-strip--open) .strip-miners,
+.top-strip--fold-badge:not(.top-strip--open) .strip-food-badge,
+.top-strip--fold-help:not(.top-strip--open) .strip-help,
+.top-strip--fold-otherFood:not(.top-strip--open) :is(.strip-food--fungus, .strip-food--meat),
+.top-strip--fold-fullTag:not(.top-strip--open) .strip-pantry-full-short,
+.top-strip--fold-waveWords:not(.top-strip--open) .strip-wave-word,
+.top-strip--fold-leaf:not(.top-strip--open) .strip-food--leaf {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* The folding words keep their spaces when measured out of the flow (a trailing space would collapse) */
+.strip-wave-word,
+.strip-event-name {
+  white-space: pre;
+}
+
+/* Desktop: Más datos joins the end of the strip once anything is folded */
+.top-strip--folded .strip-more,
+.top-strip--open .strip-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: calc(var(--strip-h) - 6px);
+  padding: 0;
+  color: var(--chrome-text);
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-border);
+  cursor: pointer;
+}
+
+.strip-more[aria-expanded="true"] {
+  border-color: var(--chrome-accent-dim);
+}
+
+/* Open, the button stays in the top right corner where it was tapped, clear of the wrapped rows */
+.top-strip--open {
+  padding-right: 60px;
+}
+
+.top-strip--open .strip-more {
+  position: absolute;
+  top: 3px;
+  right: 14px;
+}
+
+/* Open: every readout, wrapped over a few rows that hang over the map */
+.top-strip--open {
+  z-index: 30; /* over the floating minimap */
+  height: auto;
+  min-height: var(--strip-h);
+  flex-wrap: wrap;
+  row-gap: 6px;
+  padding-bottom: 6px;
+  white-space: normal;
+}
+
+.top-strip--open .strip-group {
+  flex: 1 1 100%;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  min-height: calc(var(--strip-h) - 4px);
+}
+
+.top-strip--open .strip-group:first-child {
+  padding-top: 2px;
+}
+
+.top-strip--open .strip-pop {
+  flex-wrap: wrap;
 }
 
 /* Pause / speed readout: a button, so a finger can pause */
@@ -2068,7 +2176,9 @@ button:focus-visible {
   overflow: hidden;
 }
 
-.hud-layer--phone .strip-more {
+.hud-layer--phone .strip-more,
+.hud-layer--phone .top-strip--folded .strip-more,
+.hud-layer--phone .top-strip--open .strip-more {
   position: absolute;
   top: calc(var(--safe-t) + 2px);
   right: calc(6px + var(--safe-r));
@@ -2084,57 +2194,15 @@ button:focus-visible {
   cursor: pointer;
 }
 
-.hud-layer--phone .strip-more[aria-expanded="true"] {
-  border-color: var(--chrome-accent-dim);
-}
-
-/* Closed: the population, sound and events wait in the drawer */
-.hud-layer--phone .top-strip:not(.top-strip--open) :is(
-  .strip-pop, .strip-sep, .strip-pantry-label, .strip-pantry-incoming, .strip-pantry-full, .strip-item--event, .strip-sound
-) {
-  display: none;
-}
-
-.hud-layer--phone .top-strip:not(.top-strip--open) .strip-pantry-full-short {
-  display: inline;
-}
-
-/* In the open drawer the full-pantry message wraps in place */
-.hud-layer--phone .top-strip--open .strip-pantry-full {
-  position: static;
-  transform: none;
-  white-space: normal;
-}
-
-/* Portrait closed: leaves, the pantry and the wave countdown */
-.hud-layer--phone-portrait .top-strip:not(.top-strip--open) :is(
-  .strip-food--fungus, .strip-food--meat, .strip-food-badge, .strip-miners, .strip-day, .strip-phase, .strip-time
-) {
-  display: none;
-}
-
-/* Open: every readout, wrapped over a few rows that hang over the map */
 .hud-layer--phone .top-strip--open {
-  z-index: 30; /* over the floating minimap */
-  height: auto;
-  min-height: var(--strip-h);
-  flex-wrap: wrap;
-  row-gap: 6px;
   padding-bottom: 6px;
-  white-space: normal;
 }
 
 .hud-layer--phone .top-strip--open .strip-group {
-  flex: 1 1 100%;
-  justify-content: flex-start;
-  flex-wrap: wrap;
-  row-gap: 4px;
   min-height: calc(var(--strip-row) - 4px);
 }
 
-.hud-layer--phone .top-strip--open .strip-group:first-child {
-  padding-top: 2px;
-}
+/* What the closed strip keeps is measured, not listed: see stripFold.ts */
 
 /* Strip buttons: a finger-sized hit area without growing the strip */
 .hud-layer--touch .strip-food,
@@ -3436,9 +3504,10 @@ button:focus-visible {
 /* Phones: the minimap takes the top right, so the card sits under OBJETIVOS */
 .hud-layer--phone .next-wave {
   right: auto;
-  left: 10px;
+  left: calc(6px + var(--safe-l));
   top: calc(var(--strip-h) + 52px);
-  width: 210px;
+  /* As wide as OBJETIVOS above it, so it stays clear of the minimap (alertStack.ts mirrors it) */
+  width: min(200px, calc(100% - 170px));
   z-index: 16;
 }
 

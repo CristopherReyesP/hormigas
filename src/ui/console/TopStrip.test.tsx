@@ -25,6 +25,9 @@ const STATS = {
   invasion: { waveNumber: 0, nextWaveIn: 120, active: false, invadersAlive: 0, armed: false },
 } as unknown as GameStats;
 
+/** The words a player reads, without the markup */
+const text = (html: string) => html.replace(/<[^>]+>/g, '');
+
 describe('top strip', () => {
   it('shows the pantry as its own labeled stock, apart from the food totals', () => {
     const html = renderToStaticMarkup(<TopStrip stats={STATS} />);
@@ -70,7 +73,7 @@ describe('top strip', () => {
   it('keeps counting down to the attack once the wave is telegraphed', () => {
     const armed = { ...STATS, invasion: { waveNumber: 0, nextWaveIn: 45, active: false, invadersAlive: 0, armed: true } } as GameStats;
     const html = renderToStaticMarkup(<TopStrip stats={armed} />);
-    expect(html).toContain('OLEADA 1 EN 0:45');
+    expect(text(html)).toContain('OLEADA 1 EN 0:45');
     expect(html).toMatch(/strip-item--danger[^>]*title="La oleada llega al anochecer"/);
   });
 
@@ -94,5 +97,42 @@ describe('top strip', () => {
     expect(html).toContain('strip-food--fungus');
     expect(html).toContain('strip-food--meat');
     expect(html).toContain('strip-day');
+  });
+
+  it('keeps the words of the wave countdown apart, so a narrow strip can keep just the clock', () => {
+    const soon = { ...STATS, invasion: { ...STATS.invasion, waveNumber: 2, nextWaveIn: 45 } } as GameStats;
+    const html = renderToStaticMarkup(<TopStrip stats={soon} />);
+    expect(html).toMatch(/class="strip-item strip-wave[ "]/);
+    expect(html).toContain('<span class="strip-wave-word">OLEADA 3 EN </span>0:45');
+    const folded = html.replace(/<span class="strip-wave-word">[^<]*<\/span>/g, '');
+    expect(folded).toMatch(/strip-wave-text">0:45<\/span>/);
+  });
+
+  it('keeps the invaders count when a narrow strip folds the words of a wave on', () => {
+    const on = { ...STATS, invasion: { ...STATS.invasion, waveNumber: 4, active: true, invadersAlive: 9 } } as GameStats;
+    const html = renderToStaticMarkup(<TopStrip stats={on} />);
+    expect(text(html)).toContain('¡OLEADA 4! 9 INVASORES');
+    const folded = html.replace(/<span class="strip-wave-word">[^<]*<\/span>/g, '');
+    expect(text(folded)).not.toMatch(/OLEADA|INVASORES/);
+    expect(folded).toMatch(/strip-wave-text">9<\/span>/);
+  });
+
+  it('keeps an event name apart from its clock, and names it in the tooltip, so a narrow strip can show just the star and the time', () => {
+    const rain = { ...STATS, activeEvents: [{ icon: '🌧️', name: '🌧️ Lluvia torrencial', remaining: 95 }] } as GameStats;
+    const html = renderToStaticMarkup(<TopStrip stats={rain} />);
+    expect(html).toMatch(/strip-item--event" title="Evento activo: Lluvia torrencial"/);
+    expect(html).toContain('<span class="strip-event-name">LLUVIA TORRENCIAL </span>1:35');
+  });
+
+  it('tags a full pantry on the strip itself; the long message waits in the drawer and the banner column', () => {
+    const html = renderToStaticMarkup(<TopStrip stats={{ ...STATS, pantryFull: true, pantryStored: 450 } as GameStats} />);
+    expect(html).toMatch(/strip-pantry--full[\s\S]*strip-pantry-full-short[^>]*>LLENA</);
+    // Not a second live region: the banner column (PantryFullNote) announces it
+    expect(html).not.toMatch(/strip-pantry-full"[^>]*role="status"/);
+  });
+
+  it('puts the Más datos button at the end of the right group, so the readouts never run under it', () => {
+    const html = renderToStaticMarkup(<TopStrip stats={STATS} />);
+    expect(html).toMatch(/strip-group--right[\s\S]*class="strip-more"[\s\S]*<\/button><\/div><\/header>$/);
   });
 });

@@ -13,6 +13,8 @@ import { CrystalIntroTitle } from './ui/races/crystal/CrystalIntroTitle';
 import { NestAlert } from './ui/NestAlert';
 import { HumanIntroBanner } from './ui/races/human/HumanIntroBanner';
 import { NextWaveCard } from './ui/NextWaveCard';
+import { AlertStack } from './ui/AlertStack';
+import { PantryFullNote } from './ui/console/PantryFullNote';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
 import { ColonyPriority } from './game/components/components';
@@ -261,16 +263,26 @@ export default function App() {
         {stats.tickCount > 0 && <NextWaveCard invasion={stats.invasion} />}
         <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} tutorialRunning={tutorialOpen} />
       </HudLayer>
-      {/* Night-wave alerts: outside the scaled HUD, over the whole screen; none during the intro */}
-      {!stats.introPlaying && (
-        <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
-      )}
+      {/*
+        The banners under the top strip, in one column so none covers another
+        or the strip: the full pantry, the night wave (its edge arrows cover the
+        whole screen), invaders in the nest and the night milestone. Outside the
+        scaled HUD; none during the intro.
+      */}
+      <AlertStack>
+        {!stats.introPlaying && !stats.human && !stats.crystal && stats.pantryFull && (
+          <PantryFullNote inTransit={stats.foodInTransit ?? 0} />
+        )}
+        {!stats.introPlaying && (
+          <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
+        )}
+        {!stats.introPlaying && stats.nestAlert && (
+          <NestAlert state={stats.nestAlert} activeLayer={stats.activeLayer} onGoToNest={handleGoToNest} />
+        )}
+        {!stats.introPlaying && !stats.gameOver && <MilestoneBanner milestone={stats.milestone} />}
+      </AlertStack>
       {/* The Crystal Hive skips the Swarm's meteor intro: a short title instead */}
       {runSetup.playerRace === 'crystal' && !stats.gameOver && <CrystalIntroTitle />}
-      {/* Invaders inside the nest: the banner with "Ir al nido", and the all-clear */}
-      {!stats.introPlaying && stats.nestAlert && (
-        <NestAlert state={stats.nestAlert} activeLayer={stats.activeLayer} onGoToNest={handleGoToNest} />
-      )}
       {/* A Human expedition's landing line (the Swarm opens with the meteor cinematic instead) */}
       {stats.human?.intro && !stats.gameOver && <HumanIntroBanner title={stats.human.intro} />}
       {/* Pause menu: save, load, back to the start screen */}
@@ -279,7 +291,6 @@ export default function App() {
         <GameMenu game={gameManager} storage={saveStorage} onLoad={handleLoadSave} onExit={handleExitToMenu} />
       )}
       <SaveToasts />
-      {!stats.introPlaying && !stats.gameOver && <MilestoneBanner milestone={stats.milestone} />}
       {tutorialOpen && gameManager && !stats.introPlaying && !stats.gameOver && (
         <TutorialOverlay gameManager={gameManager} onExit={closeTutorial} onFinish={closeTutorial} />
       )}
