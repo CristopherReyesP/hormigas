@@ -13,6 +13,7 @@ import {
   OrderKind,
   type PlayerOrderComponent,
   type PositionComponent,
+  type LayerComponent,
 } from '../components/components';
 import { createAnt } from '../entities/factories';
 import { snapToWalkable } from '../systems/helpers/playerOrders';
@@ -44,6 +45,16 @@ function setup() {
   const screenOf = (x: number, y: number) => camera.worldToScreen((x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE);
   const orderOf = (id: number) => world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER);
   const spot = snapToWalkable(grid, { x: NX + 9, y: NY + 5 }, 6)!;
+  // The random map's own ants wander; keep the tap spot clear of them so a tap
+  // can only land on the soldiers placed here
+  for (const id of world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.LAYER)) {
+    if (world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!.layer !== Layer.Surface) continue;
+    const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+    if (Math.hypot(pos.x - spot.x, pos.y - spot.y) < 4) {
+      pos.x = pos.prevX = NX - 20;
+      pos.y = pos.prevY = NY - 20;
+    }
+  }
   const soldiers = [0, 1, 2].map((i) => createAnt(world, spot.x + i * 0.4, spot.y, AntRole.Soldier));
   return { game, world, grid, selection, screenOf, orderOf, soldiers, spot };
 }
