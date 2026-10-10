@@ -2,13 +2,19 @@ import { describe, expect, it } from 'vitest';
 import {
   INTRO_TIMELINE as T,
   DRONE_COUNT,
+  DRONE_FRAME_COUNT,
+  DRONE_HOVER,
   IntroClock,
+  SHARD_COUNT,
+  SHARD_ORBIT,
   SPIRE_COUNT,
   SPORE_COUNT,
   canSkipIntro,
   crackPulseStep,
   crystalPulseProgress,
+  droneBob,
   droneState,
+  droneTrail,
   ejectaChunk,
   INTRO_TITLE,
   INTRO_TITLE_LINES,
@@ -24,6 +30,7 @@ import {
   meteorGround,
   meteorProgress,
   shakeOffset,
+  shardOffset,
   shockwaveProgress,
   spireGrowth,
   sporeMote,
@@ -344,33 +351,138 @@ describe('enemy deployment at the crater', () => {
     expect(crystalPulseProgress(T.pulseStart + T.pulseDuration)).toBeNull();
   });
 
-  it('unfolds each drone (curled → half → open) before it crawls', () => {
+  /** Intro time drone `i` appears, has risen to hover height, and starts to glide. */
+  const droneStart = (i: number) => T.droneStart + i * T.droneStagger;
+  const droneUp = (i: number) => droneStart(i) + T.droneEmerge + T.droneRise;
+  const droneGlides = (i: number) => droneUp(i) + T.droneUnfold;
+
+  it('pushes each drone up out of the crater floor, then lifts it straight up to hover', () => {
     for (let i = 0; i < DRONE_COUNT; i++) {
-      expect(droneState(i, T.droneStart - 0.01, IMPACT, NEST)).toBeNull();
-      const frames = sample(T.droneStart, T.returnStart, 0.01, (t) => droneState(i, t, IMPACT, NEST)?.frame ?? -1)
-        .filter((f) => f >= 0);
-      const unfold = frames.filter((f, k) => f <= 2 && (k === 0 || f !== frames[k - 1])).slice(0, 3);
-      expect(unfold).toEqual([0, 1, 2]);
-      // It walks (frames 3 and 4) once open
-      expect(frames.includes(3) && frames.includes(4)).toBe(true);
+      expect(droneState(i, droneStart(i) - 0.01, IMPACT, NEST)).toBeNull();
+      const first = droneState(i, droneStart(i), IMPACT, NEST)!;
+      expect(first.lift).toBe(0);
+      expect(first.emerge).toBeLessThan(1);
+      const rising = sample(droneStart(i), droneUp(i), 0.01, (t) => droneState(i, t, IMPACT, NEST)!);
+      for (let k = 1; k < rising.length; k++) {
+        expect(rising[k].emerge).toBeGreaterThanOrEqual(rising[k - 1].emerge);
+        expect(rising[k].lift).toBeGreaterThanOrEqual(rising[k - 1].lift);
+        // Straight up: the ground point holds still and the shards stay docked
+        expect(dist(rising[k], first)).toBe(0);
+        expect(rising[k].spread).toBe(0);
+      }
+      const up = droneState(i, droneUp(i), IMPACT, NEST)!;
+      expect(up.emerge).toBe(1);
+      expect(up.lift).toBeGreaterThan(0);
+      // It rises inside the crater bowl
+      expect(dist(first, IMPACT)).toBeLessThan(50);
     }
   });
 
-  it('crawls the drones a short way out of the crater, toward the colony', () => {
+  it('wakes the energy core and unfolds the shards into orbit once it hovers', () => {
     for (let i = 0; i < DRONE_COUNT; i++) {
-      const d = sample(T.droneStart, T.returnEnd, 0.01, (t) => droneState(i, t, IMPACT, NEST))
-        .filter((s) => s !== null)
-        .map((s) => dist(s!, IMPACT));
+      const frames = sample(droneStart(i), T.returnEnd, 0.01, (t) => droneState(i, t, IMPACT, NEST)!.frame);
+      const wake = frames.filter((f, k) => k === 0 || f !== frames[k - 1]).slice(0, 3);
+      expect(wake).toEqual([0, 1, 2]);
+      // Only core states (dormant, waking, lit, bright): no walk cycle
+      for (const f of frames) expect(f >= 0 && f < DRONE_FRAME_COUNT).toBe(true);
+      expect(frames.includes(3)).toBe(true);
+
+      const spread = sample(droneUp(i), droneGlides(i) + 0.1, 0.01, (t) => droneState(i, t, IMPACT, NEST)!.spread);
+      expect(spread[0]).toBe(0);
+      for (let k = 1; k < spread.length; k++) expect(spread[k]).toBeGreaterThanOrEqual(spread[k - 1]);
+      expect(spread[spread.length - 1]).toBe(1);
+      // The shards keep turning once they are out
+      const a = droneState(i, droneGlides(i) + 0.1, IMPACT, NEST)!.orbit;
+      const b = droneState(i, droneGlides(i) + 0.4, IMPACT, NEST)!.orbit;
+      expect(b).not.toBeCloseTo(a);
+    }
+  });
+
+  it('glides the drones out of the crater toward the colony, hovering the whole way', () => {
+    for (let i = 0; i < DRONE_COUNT; i++) {
+      const states = sample(droneStart(i), T.returnEnd, 0.01, (t) => droneState(i, t, IMPACT, NEST)!);
+      const d = states.map((s) => dist(s, IMPACT));
       for (let k = 1; k < d.length; k++) expect(d[k]).toBeGreaterThanOrEqual(d[k - 1] - 1e-9);
+      // Whenever it moves it floats above the ground with its core lit: it never walks
+      for (let k = 1; k < states.length; k++) {
+        if (d[k] === d[k - 1]) continue;
+        expect(states[k].lift).toBeGreaterThan(0);
+        expect(states[k].frame).toBeGreaterThanOrEqual(2);
+        expect(states[k].spread).toBe(1);
+      }
+      expect(states.some((s) => s.gliding)).toBe(true);
       const last = droneState(i, T.returnStart - 0.01, IMPACT, NEST)!;
       expect(dist(last, IMPACT)).toBeGreaterThan(60); // past the crater rim
-      expect(dist(last, IMPACT)).toBeLessThan(200); // a short crawl, not a march
+      expect(dist(last, IMPACT)).toBeLessThan(220); // a short glide, not a march
       // Out toward the colony's side of the crater
       const toNest = { x: NEST.x - IMPACT.x, y: NEST.y - IMPACT.y };
       expect((last.x - IMPACT.x) * toNest.x + (last.y - IMPACT.y) * toNest.y).toBeGreaterThan(0);
-      // Facing snaps to 16 directions
-      expect(Math.abs((last.angle / (Math.PI / 8)) - Math.round(last.angle / (Math.PI / 8)))).toBeLessThan(1e-9);
       expect(droneState(i, T.returnEnd, IMPACT, NEST)).toBeNull();
+    }
+  });
+
+  it('bobs the hovering drones gently, periodically and out of step with each other', () => {
+    // An odd step so no sample lands on a bob step boundary
+    const times = sample(0, 4, 0.0137, (s) => s);
+    for (let i = 0; i < DRONE_COUNT; i++) {
+      const bobs = times.map((s) => droneBob(i, s));
+      for (const [k, b] of bobs.entries()) {
+        expect(Math.abs(b)).toBeLessThanOrEqual(DRONE_HOVER.bob);
+        expect(Math.abs(b % 2)).toBe(0); // whole art pixels
+        expect(droneBob(i, times[k] + DRONE_HOVER.bobPeriod)).toBe(b);
+      }
+      expect(Math.max(...bobs)).toBe(DRONE_HOVER.bob);
+      expect(Math.min(...bobs)).toBe(-DRONE_HOVER.bob);
+    }
+    expect(times.some((s) => droneBob(0, s) !== droneBob(1, s))).toBe(true);
+    // The bob never sets a hovering drone down
+    expect(DRONE_HOVER.lift - DRONE_HOVER.bob).toBeGreaterThan(0);
+  });
+
+  it('docks the shards on the body, then swings them out onto a tilted orbit ring', () => {
+    // Docked: level with the core, hugging both sides of the body
+    const docked = [0, 1].map((k) => shardOffset(k, 0, 0));
+    expect(docked.map((o) => o.dy)).toEqual([0, 0]);
+    expect(docked[0].dx).toBe(SHARD_ORBIT.dock);
+    expect(docked[1].dx).toBe(-SHARD_ORBIT.dock);
+    // The ring widens as the shards unfold
+    const reach = [0, 0.25, 0.5, 0.75, 1].map((f) => shardOffset(0, f, 0).dx);
+    for (let k = 1; k < reach.length; k++) expect(reach[k]).toBeGreaterThan(reach[k - 1]);
+    expect(reach[4]).toBe(SHARD_ORBIT.rx);
+
+    const ring = sample(0, Math.PI * 2, 0.05, (a) => [0, 1].map((k) => shardOffset(k, 1, a)));
+    for (const [p, q] of ring) {
+      for (const o of [p, q]) {
+        expect(Math.abs(o.dx % 2) + Math.abs(o.dy % 2)).toBe(0); // whole art pixels
+        expect(Math.abs(Math.hypot(o.dx / SHARD_ORBIT.rx, o.dy / SHARD_ORBIT.ry) - 1)).toBeLessThan(0.15);
+        if (o.dy < 0) expect(o.behind).toBe(true); // the far half of the ring passes behind the body
+        if (o.dy > 0) expect(o.behind).toBe(false);
+      }
+      // The two shards stay on opposite sides of the core
+      expect(Math.abs(p.dx + q.dx)).toBeLessThanOrEqual(2);
+      expect(Math.abs(p.dy + q.dy)).toBeLessThanOrEqual(2);
+    }
+    expect(ring.some(([p]) => p.behind) && ring.some(([p]) => !p.behind)).toBe(true);
+    expect(SHARD_COUNT).toBe(2);
+  });
+
+  it('leaves a faint light trail only while a drone glides', () => {
+    for (let i = 0; i < DRONE_COUNT; i++) {
+      expect(droneTrail(i, droneGlides(i) - 0.05, IMPACT, NEST)).toEqual([]);
+      const t = droneGlides(i) + 0.4;
+      const now = droneState(i, t, IMPACT, NEST)!;
+      const trail = droneTrail(i, t, IMPACT, NEST);
+      expect(trail.length).toBeGreaterThan(2);
+      // Behind the drone, back toward the crater, oldest last and fading out
+      for (const [k, p] of trail.entries()) {
+        expect(dist(p, IMPACT)).toBeLessThan(dist(now, IMPACT));
+        expect(p.lift).toBeGreaterThan(0);
+        if (k > 0) {
+          expect(dist(p, IMPACT)).toBeLessThanOrEqual(dist(trail[k - 1], IMPACT));
+          expect(p.age).toBeGreaterThan(trail[k - 1].age);
+        }
+      }
+      expect(droneTrail(i, T.returnEnd, IMPACT, NEST)).toEqual([]);
     }
   });
 });

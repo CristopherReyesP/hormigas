@@ -5,8 +5,9 @@ import { hash2 } from '../../engine/renderer/pixelart/palette';
  * slide in over the colony, a meteorite streaks across the map with the
  * camera chasing it, time slows for the last stretch, it hits (flash, shake,
  * shockwave, ejecta), crystal spires grow out of the crater, a cyan pulse
- * rings out and the first Crystal drones unfold and crawl out. Then the
- * camera glides home and the title card shows over the colony.
+ * rings out and the first Crystal drones rise out of the crater, unfold
+ * their orbiting shards and glide toward the colony. Then the camera glides
+ * home and the title card shows over the colony.
  *
  * Everything here is a function of INTRO time, so pausing holds the intro
  * and tests can sample any moment. IntroClock maps real frame time to intro
@@ -42,10 +43,14 @@ export const INTRO_TIMELINE = {
   spireStagger: 0.14,
   pulseStart: 4.0,
   pulseDuration: 1.1,
-  droneStart: 4.2,
-  droneStagger: 0.2,
-  droneUnfold: 0.45,
-  droneCrawl: 1.3,
+  droneStart: 4.05,
+  droneStagger: 0.12,
+  /** A drone pushes up out of the crater floor, then lifts off to hover height */
+  droneEmerge: 0.2,
+  droneRise: 0.3,
+  /** Its core wakes and its shards swing out into orbit */
+  droneUnfold: 0.35,
+  droneGlide: 1.5,
   returnStart: 5.9,
   returnEnd: 7.3,
   sporeStart: 5.7,
@@ -300,53 +305,160 @@ export function crystalPulseProgress(t: number): number | null {
 }
 
 export const DRONE_COUNT = 4;
-/** Drone frames: 0 curled, 1 half open, 2 standing, 3 and 4 the walk cycle. */
-export type DroneFrame = 0 | 1 | 2 | 3 | 4;
+/** Drone frames, by the state of its energy core: 0 dormant, 1 waking, 2 lit, 3 bright (the lit core throbs 2 ↔ 3). */
+export type DroneFrame = 0 | 1 | 2 | 3;
+export const DRONE_FRAME_COUNT = 4;
+
+/**
+ * Hovering, in world px: the gap under a drone once it is up, and how far
+ * its bob moves it up and down; one bob takes `bobPeriod` seconds.
+ */
+export const DRONE_HOVER = { lift: 10, bob: 4, bobPeriod: 1.32 } as const;
+/** The bob in art px: a stepped sine, one step every bobPeriod / 12 s. */
+const BOB_STEPS = [0, 1, 1, 2, 2, 1, 0, -1, -1, -2, -2, -1] as const;
 
 export interface DroneState extends Vec2 {
-  /** Facing, snapped to 16 directions */
-  angle: number;
+  /** World px between the crystal's lower tip and its ground point (x, y): the rise plus the bob */
+  lift: number;
+  /** How much of the crystal has pushed up out of the crater floor, in eighths; 1 once it is out */
+  emerge: number;
   frame: DroneFrame;
+  /** 0: shards docked against the body; 1: out on their orbit ring */
+  spread: number;
+  /** Orbit phase of the shards (radians) */
+  orbit: number;
+  /** Moving toward the colony: it leaves a light trail */
+  gliding: boolean;
   /** The hex shield flashes on for a moment as the drone opens */
   shieldFlash: boolean;
 }
 
-const DIRECTION_STEP = Math.PI / 8;
 /** Drones fan out toward the colony's side of the crater. */
 const DRONE_FAN = [-0.75, -0.25, 0.25, 0.75] as const;
+/** World px from the impact: where they rise in the bowl, and where their glide ends. */
+const DRONE_RISE_REACH = 30;
+const DRONE_GLIDE_REACH = 130;
+/** The bowl is drawn squashed (seen from above at an angle), so rise spots are too. */
+const BOWL_TILT = 0.7;
+/** The shards go once around the core every this many seconds. */
+const ORBIT_PERIOD = 1.6;
+
+const easeOutQuad = (f: number): number => 1 - (1 - f) ** 2;
+const droneStartTime = (i: number): number => T.droneStart + i * T.droneStagger;
+/** Intro time drone `i` reaches hover height. */
+const droneHoverTime = (i: number): number => droneStartTime(i) + T.droneEmerge + T.droneRise;
 
 /**
- * Crystal drone `i` at intro time `t` (world px): it unfolds in the bowl,
- * then crawls out past the rim toward the colony with a decelerating walk,
- * then stands its ground. Purely visual, gone once the camera is home.
+ * Drone `i`'s hover bob at intro time `t`, in world px (positive = up),
+ * snapped to whole art px. It starts at 0 the moment the drone reaches hover
+ * height, so the rise flows into the bob, and the stagger keeps the drones
+ * out of step.
+ */
+export function droneBob(i: number, t: number): number {
+  const n = BOB_STEPS.length;
+  const step = Math.floor(((t - droneHoverTime(i)) / DRONE_HOVER.bobPeriod) * n);
+  return BOB_STEPS[((step % n) + n) % n] * 2;
+}
+
+/**
+ * Crystal drone `i` at intro time `t`: its ground point (world px) and how
+ * it floats. It pushes up out of the crater floor, lifts straight up to
+ * hover height, wakes its core and swings its shards out into orbit, then
+ * glides out past the rim toward the colony, bobbing above its shadow, and
+ * hovers there. Purely visual, gone once the camera is home.
  */
 export function droneState(i: number, t: number, impact: Vec2, nest: Vec2): DroneState | null {
-  const start = T.droneStart + i * T.droneStagger;
+  const start = droneStartTime(i);
   if (t < start || t >= T.returnEnd) return null;
-  const heading = Math.atan2(nest.y - impact.y, nest.x - impact.x) + DRONE_FAN[i % DRONE_FAN.length];
-  const angle = Math.round(heading / DIRECTION_STEP) * DIRECTION_STEP;
-  const s = t - start;
-  const from = 8;
-  const to = 110 + hash2(i, 131) * 40;
-  let along = from;
-  let frame: DroneFrame;
-  if (s < T.droneUnfold) {
-    frame = Math.min(2, Math.floor((s / T.droneUnfold) * 3)) as DroneFrame;
-  } else if (s < T.droneUnfold + T.droneCrawl) {
-    const f = (s - T.droneUnfold) / T.droneCrawl;
-    along = from + (to - from) * (1 - (1 - f) ** 2);
-    frame = Math.floor(s * 10) % 2 === 0 ? 3 : 4;
-  } else {
-    along = to;
-    frame = 2;
-  }
-  return {
-    x: impact.x + Math.cos(angle) * along,
-    y: impact.y + Math.sin(angle) * along,
-    angle,
-    frame,
-    shieldFlash: s >= T.droneUnfold * (2 / 3) && s < T.droneUnfold + 0.2,
+  const toNest = Math.atan2(nest.y - impact.y, nest.x - impact.x);
+  const fan = DRONE_FAN[i % DRONE_FAN.length];
+  // Rise spots spread twice as wide as the glide headings, so the drones do not stack in the bowl
+  const riseAngle = toNest + fan * 2;
+  const from = {
+    x: impact.x + Math.cos(riseAngle) * DRONE_RISE_REACH,
+    y: impact.y + Math.sin(riseAngle) * DRONE_RISE_REACH * BOWL_TILT,
   };
+  const reach = DRONE_GLIDE_REACH + hash2(i, 131) * 40;
+  const to = { x: impact.x + Math.cos(toNest + fan) * reach, y: impact.y + Math.sin(toNest + fan) * reach };
+
+  const s = t - start;
+  const up = T.droneEmerge + T.droneRise;
+  const open = up + T.droneUnfold;
+  const state: DroneState = {
+    ...from,
+    lift: DRONE_HOVER.lift + droneBob(i, t),
+    emerge: 1,
+    frame: Math.floor(t * 2.5) % 2 === 0 ? 2 : 3,
+    spread: 1,
+    orbit: (Math.max(0, s - up) / ORBIT_PERIOD) * Math.PI * 2,
+    gliding: false,
+    shieldFlash: s >= up + T.droneUnfold * (2 / 3) && s < open + 0.2,
+  };
+  if (s < T.droneEmerge) {
+    // Tip first, in eighths, the way the spires push up
+    return { ...state, lift: 0, emerge: Math.max(1, Math.floor(easeOutCubic(s / T.droneEmerge) * 8)) / 8, frame: 0, spread: 0 };
+  }
+  if (s < up) {
+    return { ...state, lift: toArtPx(DRONE_HOVER.lift * easeOutCubic((s - T.droneEmerge) / T.droneRise)), frame: 0, spread: 0 };
+  }
+  if (s < open) {
+    const f = (s - up) / T.droneUnfold;
+    // The shards swing out in quarter steps while the core wakes
+    return { ...state, frame: Math.min(2, Math.floor(f * 3)) as DroneFrame, spread: Math.floor(easeOutCubic(f) * 4) / 4 };
+  }
+  if (s < open + T.droneGlide) {
+    return { ...state, ...lerp(from, to, easeOutQuad((s - open) / T.droneGlide)), gliding: true };
+  }
+  return { ...state, ...to };
+}
+
+export const SHARD_COUNT = 2;
+/**
+ * World px: how far from the core the shards dock against the body, and the
+ * radii of their orbit ring (tilted, as the ground is seen from above).
+ */
+export const SHARD_ORBIT = { dock: 8, rx: 22, ry: 8 } as const;
+
+export interface ShardOffset {
+  /** World px from the drone's core, in whole art px */
+  dx: number;
+  dy: number;
+  /** On the far half of the ring: drawn behind the body */
+  behind: boolean;
+}
+
+/**
+ * Shard `k` of a drone whose shards are `spread` (0 docked, 1 in orbit) at
+ * orbit phase `orbit`. Docked shards hug the body's sides level with the
+ * core; unfolding widens the ring, and the two ride opposite each other.
+ */
+export function shardOffset(k: number, spread: number, orbit: number): ShardOffset {
+  const a = orbit + k * Math.PI;
+  const rx = SHARD_ORBIT.dock + (SHARD_ORBIT.rx - SHARD_ORBIT.dock) * spread;
+  const dx = toArtPx(Math.cos(a) * rx);
+  const dy = toArtPx(Math.sin(a) * SHARD_ORBIT.ry * spread);
+  return { dx, dy, behind: dy < 0 };
+}
+
+export interface TrailPoint extends Vec2 {
+  /** The drone's lift back then, so the trail glows at core height */
+  lift: number;
+  /** 0..1, older points further back and fainter */
+  age: number;
+}
+
+const TRAIL_POINTS = 8;
+const TRAIL_GAP = 0.04;
+
+/** The faint light trail drone `i` leaves at time `t`: where it was while gliding, newest first. */
+export function droneTrail(i: number, t: number, impact: Vec2, nest: Vec2): TrailPoint[] {
+  const out: TrailPoint[] = [];
+  if (!droneState(i, t, impact, nest)) return out;
+  for (let k = 1; k <= TRAIL_POINTS; k++) {
+    const d = droneState(i, t - k * TRAIL_GAP, impact, nest);
+    if (d?.gliding) out.push({ x: d.x, y: d.y, lift: d.lift, age: k / TRAIL_POINTS });
+  }
+  return out;
 }
 
 export const SPORE_COUNT = 72;

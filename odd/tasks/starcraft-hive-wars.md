@@ -159,7 +159,13 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
       - RED: 8 card layout and speed tests. GREEN: 314/314 tests, tsc, lint, build.
     - Open:
       - `DefenderAISystem` still tells the player "Marcá 🛡️ Defensa" in voseo. It should name Área de defensa (C).
-  - [ ] P2.10 Crystal Hive less insect, more alien (user, 2026-10-09). The intro drones in `src/game/render/crystalDeployArt.ts` "unfold and crawl", which reads as an insect. Redraw them as hovering crystal drones that rise out of the crater, unfold their orbiting shards and glide toward the colony, following the new Crystal Hive art rules. Route: delegated after P2.9.
+  - [x] P2.10 Crystal Hive less insect, more alien (user, 2026-10-09). The intro drones in `src/game/render/crystalDeployArt.ts` "unfold and crawl", which reads as an insect. Redraw them as hovering crystal drones that rise out of the crater, unfold their orbiting shards and glide toward the colony, following the new Crystal Hive art rules. Route: delegated after P2.9.
+    - Route: delegated (Claude subagent, main worktree). Commit: `feat(look): redraw the intro's Crystal drones as hovering crystal beings`.
+    - Look: each drone is a narrow floating octahedron (9×16 art px, 1 art px = 2 world px) with a flush gold girdle, gold tip filigree and a cyan energy core. It has no legs, antennae or mandibles, and it never rotates, so the light stays top-left. Two shards (one gold-banded) orbit it on a tilted ring and pass behind it as a darker far sprite.
+    - Motion: it pushes up out of the crater floor tip first and lifts straight up. Then its core wakes (dormant → waking → lit, then a lit ↔ bright throb) and its docked shards swing out into orbit. Last, it glides toward the colony with a stepped bob above a soft shadow, leaving a faint cyan trail.
+    - Timing: drones start at 4.05 s, 0.12 s apart (emerge 0.2, rise 0.3, unfold 0.35, glide 1.5), so they glide before the camera leaves. Phases, skip and end state are unchanged. The spires already read as crystals and were left as they are.
+    - RED: 10 new tests failed, 4 in the new `crystalDeployArt.test.ts` and 6 in `introTimeline.test.ts`. The old frames failed the one-solid-shape check because their legs left detached pixel runs. GREEN: `npm test` 323/323, tsc, lint, build. Headless Edge frames of the rise, unfold and glide were checked by eye.
+    - Open: the Drone tier rule says "one orbiting shard"; the intro drones carry two, which the task allowed.
   - [ ] P2.4 Mutation marks drawn on ant sprites for applied mutations.
   - [ ] P2.5 Bottom console and UI restyle (`--ui-*` → `--chrome-*`, pixel icons, one font, Spanish only).
   - [ ] P2.6 One art-pixel scale for every unit, 16-direction rotation snapping, zoom steps of 0.5.
