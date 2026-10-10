@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { GameManager, GameStats, SelectedEntityInfo, SelectedGroupInfo } from '../../game/GameManager';
 import { AntRole } from '../../game/components/components';
 import { LEAPER_NAME } from '../../shared/wildlifeNames';
@@ -10,9 +10,10 @@ import { deriveBroodPipeline } from './brood';
 import { BroodReadout } from './BroodReadout';
 import { broodKeys } from './commands';
 import { ControlGroupBar } from './ControlGroupBar';
+import { infoSummary, selectionHealth, selectionTitle } from './infoSummary';
 import { useTouchUi } from '../layout/touch';
 import {
-  ANT_STATE_LABEL, BEETLE_STATE_LABEL, ROLE_BLURB, CARRY_LABEL, CRICKET_STATE_LABEL, FOOD_LABEL, ROLE_ICON, ROLE_LABEL, ROLE_PLURAL, formatClock,
+  ANT_STATE_LABEL, BEETLE_STATE_LABEL, ROLE_BLURB, CARRY_LABEL, CRICKET_STATE_LABEL, ROLE_ICON, ROLE_LABEL, ROLE_PLURAL, formatClock,
 } from './format';
 
 interface InfoPanelProps {
@@ -162,21 +163,8 @@ function NestSummary({ details }: { details: ColonyDetails }) {
 
 const DEN_KIND = new Set<SelectedEntityInfo['type']>(['beetle_den', 'cricket_den', 'crystal_hive']);
 
-function selectionTitle(sel: SelectedEntityInfo): { name: string; faction: string } {
-  switch (sel.type) {
-    case 'ant': return { name: ROLE_LABEL[sel.role ?? AntRole.Worker], faction: 'Enjambre mutante' };
-    case 'nest': return { name: 'Nido', faction: 'Enjambre mutante · colmena' };
-    case 'beetle': return { name: 'Acorazado', faction: 'Fauna salvaje' };
-    case 'cricket': return { name: LEAPER_NAME.one, faction: 'Fauna salvaje' };
-    case 'beetle_den': return { name: 'Guarida de acorazados', faction: 'Fauna salvaje · guarida' };
-    case 'cricket_den': return { name: LEAPER_NAME.den, faction: 'Fauna salvaje · guarida' };
-    case 'crystal_hive': return { name: 'Colmena de Cristal', faction: 'Colmena rival · base' };
-    case 'food': return { name: FOOD_LABEL[sel.foodType ?? 'leaf'] ?? 'Comida', faction: 'Recurso' };
-  }
-}
-
 function SelectionBars({ sel }: { sel: SelectedEntityInfo }) {
-  const health = sel.health ?? sel.beetleHealth ?? sel.cricketHealth ?? sel.denHealth ?? sel.cricketDenHealth ?? sel.hiveHealth;
+  const health = selectionHealth(sel);
   return (
     <>
       {health && (
@@ -331,12 +319,43 @@ function GroupInfo({ group, gameManager, underground }: { group: SelectedGroupIn
   );
 }
 
-/** Center console plate: what is selected, or the state of the colony on this layer; control group chips ride its top edge. */
+/**
+ * Center console plate: what is selected, or the state of the colony on this
+ * layer; control group chips ride its top edge. The compact HUD folds it to
+ * a one-line bar (info-summary) that a tap opens over the map.
+ */
 export function InfoPanel(props: InfoPanelProps) {
   const { stats, details } = props;
+  const [open, setOpen] = useState(false);
+  const selected = Boolean(stats.selectedGroup || stats.selectedEntity);
   return (
-    <section className="console-info" aria-label="Información">
+    <section className={open ? 'console-info console-info--open' : 'console-info'} aria-label="Información">
       <ControlGroupBar groups={stats.controlGroups ?? []} onRecall={(slot) => props.gameManager?.recallControlGroup(slot)} />
+      <div className="info-summary">
+        <button
+          type="button"
+          className="info-toggle"
+          aria-expanded={open}
+          title={open ? 'Ocultar los detalles' : 'Ver los detalles'}
+          onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+          onClick={() => setOpen((o) => !o)}
+        >
+          <span className="info-toggle-text">{infoSummary(stats, details)}</span>
+          <PixelIcon name={open ? 'minus' : 'plus'} />
+        </button>
+        {selected && (
+          <button
+            type="button"
+            className="hud-btn info-summary-close"
+            aria-label="Quitar selección"
+            title="Quitar selección (Esc)"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => props.gameManager?.clearSelection()}
+          >
+            ×
+          </button>
+        )}
+      </div>
       <div className="chrome-plate console-plate">
       <div className="chrome-plate-inner console-info-inner">
         {stats.selectedGroup ? (

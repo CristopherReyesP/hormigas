@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { CONSOLE_DECK_HEIGHT, HUD_BARS, STRIP_HEIGHT, hudInsets, hudLayout, hudScale } from './hudMetrics';
+import css from '../../index.css?raw';
+import {
+  COMPACT_BUTTON_PX, COMPACT_INFO_BAR_PX, CONSOLE_DECK_HEIGHT, HUD_BARS, STRIP_HEIGHT, compactCardHeight, hudInsets, hudLayout, hudScale, mapShare,
+} from './hudMetrics';
 
 describe('HUD insets around the intro', () => {
   it('gives the world the whole window during the intro and the band between the bars after the fade', () => {
@@ -70,5 +73,59 @@ describe('phone layouts', () => {
     expect(hudInsets(1, 1, 'phone-portrait')).toEqual({ top: HUD_BARS['phone-portrait'].strip, bottom: HUD_BARS['phone-portrait'].deck });
     expect(hudInsets(1, 1, 'phone-landscape')).toEqual({ top: HUD_BARS['phone-landscape'].strip, bottom: HUD_BARS['phone-landscape'].deck });
     expect(hudInsets(1, 1, 'desktop')).toEqual(hudInsets(1));
+  });
+});
+
+describe('compact HUD leaves the map most of the screen', () => {
+  it('gives the map at least 68% of a portrait phone (iPhone 13 in Safari and full screen)', () => {
+    expect(mapShare(390, 664)).toBeGreaterThanOrEqual(0.68);
+    expect(mapShare(390, 844)).toBeGreaterThanOrEqual(0.75);
+    expect(mapShare(412, 915)).toBeGreaterThanOrEqual(0.75);
+  });
+
+  it('gives the map at least 75% of a landscape phone', () => {
+    expect(mapShare(844, 390)).toBeGreaterThanOrEqual(0.75);
+    expect(mapShare(863, 360)).toBeGreaterThanOrEqual(0.75);
+    expect(mapShare(667, 375)).toBeGreaterThanOrEqual(0.75);
+  });
+
+  it('keeps the desktop console as it was', () => {
+    expect(HUD_BARS.desktop).toEqual({ strip: 30, deck: 140 });
+    expect(mapShare(1280, 720)).toBeCloseTo((720 - 30 - 140) / 720);
+  });
+
+  it('still fits finger-sized command buttons: three rows in portrait, one in landscape', () => {
+    expect(COMPACT_BUTTON_PX).toBeGreaterThanOrEqual(40);
+    expect(compactCardHeight(3)).toBeGreaterThanOrEqual(3 * COMPACT_BUTTON_PX);
+    expect(HUD_BARS['phone-portrait'].deck).toBe(COMPACT_INFO_BAR_PX + compactCardHeight(3));
+    expect(HUD_BARS['phone-landscape'].deck).toBe(compactCardHeight(1));
+  });
+
+  it('keeps the camera clear of the notch and the home indicator on phones only', () => {
+    const safe = { top: 47, bottom: 34 };
+    expect(hudInsets(1, 1, 'phone-portrait', safe)).toEqual({
+      top: HUD_BARS['phone-portrait'].strip + 47,
+      bottom: HUD_BARS['phone-portrait'].deck + 34,
+    });
+    expect(hudInsets(0, 1, 'phone-portrait', safe)).toEqual({ top: 0, bottom: 0 });
+    // The desktop HUD ignores safe areas, as its CSS does
+    expect(hudInsets(1, 1, 'desktop', safe)).toEqual(hudInsets(1));
+    expect(mapShare(390, 844, safe)).toBeGreaterThanOrEqual(0.65);
+  });
+
+  it('mirrors the bar sizes in index.css', () => {
+    const rule = (selector: string) => {
+      const at = css.indexOf(`${selector} {`);
+      expect(at, selector).toBeGreaterThanOrEqual(0);
+      return css.slice(at, css.indexOf('}', at));
+    };
+    const px = (block: string, name: string) => Number(block.match(new RegExp(`${name}:\\s*(\\d+)px`))?.[1]);
+    const phone = rule('.hud-layer--phone');
+    expect(px(phone, '--cmd-btn')).toBe(COMPACT_BUTTON_PX);
+    expect(px(phone, '--info-bar-h')).toBe(COMPACT_INFO_BAR_PX);
+    expect(px(rule('.hud-layer--phone-portrait'), '--strip-row')).toBe(HUD_BARS['phone-portrait'].strip);
+    expect(px(rule('.hud-layer--phone-portrait'), '--card-h')).toBe(compactCardHeight(3));
+    expect(px(rule('.hud-layer--phone-landscape'), '--strip-row')).toBe(HUD_BARS['phone-landscape'].strip);
+    expect(px(rule('.hud-layer--phone-landscape'), '--card-h')).toBe(compactCardHeight(1));
   });
 });
