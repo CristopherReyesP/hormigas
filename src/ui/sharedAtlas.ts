@@ -1,9 +1,6 @@
-import { SpriteAtlas } from '../engine/renderer/SpriteAtlas';
+import { sharedSpriteAtlas, type SpriteAtlas } from '../engine/renderer/SpriteAtlas';
 
-let atlas: SpriteAtlas | null = null;
-
-/** One sprite atlas for every UI preview (portraits, evolution cards); built on first use. */
+/** The sprite atlas for every UI preview (portraits, evolution cards): the game view's own, so ants show the colony's marks. */
 export function getSpriteAtlas(): SpriteAtlas {
-  atlas ??= new SpriteAtlas();
-  return atlas;
+  return sharedSpriteAtlas();
 }

@@ -21,10 +21,12 @@ import {
   type HungerComponent,
   type LayerComponent,
   type NestComponent,
+  type PlayerOrderComponent,
 } from '../components/components';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { findPath } from '../../simulation/pathfinding/AStar';
 import { buildAttackerMap, ensureCombatComponent } from './helpers/combatHelpers';
+import { endPlayerOrder } from './helpers/playerOrders';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { TransitSystem } from './TransitSystem';
 import {
@@ -59,6 +61,12 @@ import {
   NEST_THREAT_RADIUS,
   NEST_ALARM_SCORE,
   FORAGE_ENEMY_AVOID_RADIUS,
+  ORDER_PATHS_PER_TICK,
+  ORDER_PATH_MAX_STEPS,
+  ORDER_ARRIVE_RADIUS,
+  ORDER_SETTLE_RADIUS,
+  ORDER_MAX_ROUTES,
+  ORDER_TIMEOUT_SECONDS,
 } from '../../shared/constants';
 
 interface ActionCandidate {
@@ -96,6 +104,8 @@ export class AntAISystem implements System {
   private antsEngaging: Map<EntityId, number> = new Map();
   /** Recomputed once per tick — the hunger checks consult it per ant */
   private undergroundFoodAvailable = false;
+  /** A* runs left this tick for ordered ants: a 40-ant order routes over a few frames, not in one */
+  private orderRoutesLeft = 0;
 
   constructor(world: World, grid: TileGrid, visibilityGrid: VisibilityGrid, modifiers: GlobalModifiers) {
     this.world = world;
@@ -122,13 +132,20 @@ export class AntAISystem implements System {
     }
 
     this.buildTickSnapshots();
+    this.orderRoutesLeft = ORDER_PATHS_PER_TICK;
 
     const ants = this.world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.PATH, COMPONENT.CARRYING);
 
     for (const id of ants) {
+      const order = this.world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER);
+
       // Skip underground entities — handled by NurseAISystem / ExcavationSystem
       const layerComp = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
-      if (layerComp && layerComp.layer === Layer.Underground) continue;
+      if (layerComp && layerComp.layer === Layer.Underground) {
+        // Orders run on the surface only (for now): one that followed an ant below is void
+        if (order) endPlayerOrder(this.world, id);
+        continue;
+      }
 
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
@@ -136,6 +153,16 @@ export class AntAISystem implements System {
       const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
 
       ant.stateTimer += dt;
+
+      // A player order outranks the colony AI and every safety net below until
+      // the ant arrives; then it goes Idle and this loop picks its job back up.
+      if (order) {
+        if (order.layer === Layer.Surface && !this.transitSystem?.isInTransit(id)) {
+          this.followPlayerOrder(id, ant, pos, path, order, dt);
+          continue;
+        }
+        endPlayerOrder(this.world, id);
+      }
 
       // Bug 3: position-stall detection — catches stale non-empty paths.
       // Lazy-init last-known position; accumulate stuckTimer when displacement
@@ -258,6 +285,62 @@ export class AntAISystem implements System {
           }
           break;
       }
+    }
+  }
+
+  /**
+   * Walk an ordered ant to its formation slot. Routes are rationed per tick
+   * (orderRoutesLeft), so a big group starts over a few frames instead of
+   * running 40 A* searches at once. The order ends on arrival, when a finished
+   * route left the ant close enough (slot crowded or blocked), or when the slot
+   * proves unreachable; the timeout is the last resort.
+   */
+  private followPlayerOrder(
+    id: EntityId,
+    ant: AntComponent,
+    pos: PositionComponent,
+    path: PathComponent,
+    order: PlayerOrderComponent,
+    dt: number
+  ): void {
+    order.elapsed += dt;
+    ant.state = AntState.Moving;
+    // Stall detection restarts from here, so the nets cannot fire the moment the order ends
+    ant.stuckTimer = 0;
+    ant.lastX = pos.x;
+    ant.lastY = pos.y;
+
+    const dist = Math.hypot(order.target.x - pos.x, order.target.y - pos.y);
+    const routeDone = path.currentIndex >= path.waypoints.length;
+    if (
+      dist <= ORDER_ARRIVE_RADIUS ||
+      order.elapsed > ORDER_TIMEOUT_SECONDS ||
+      (routeDone && order.routes > 0 && dist <= ORDER_SETTLE_RADIUS) ||
+      (routeDone && order.routes >= ORDER_MAX_ROUTES)
+    ) {
+      endPlayerOrder(this.world, id);
+      return;
+    }
+    if (!routeDone || this.orderRoutesLeft <= 0) return;
+
+    this.orderRoutesLeft--;
+    order.routes++;
+    const route = findPath(
+      this.grid,
+      { x: Math.round(pos.x), y: Math.round(pos.y) },
+      order.target,
+      ORDER_PATH_MAX_STEPS
+    );
+    if (route && route.length > 0) {
+      path.waypoints = route;
+      path.currentIndex = 0;
+      return;
+    }
+    // No route (yet): edge toward the slot and try again when this step ends
+    const step = this.fallbackMoveToward(pos, order.target);
+    if (step) {
+      path.waypoints = [step];
+      path.currentIndex = 0;
     }
   }
 

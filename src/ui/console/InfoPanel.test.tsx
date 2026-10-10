@@ -85,3 +85,14 @@ describe('info panel default views', () => {
     expect(html).toContain('Despensa vacía');
   });
 });
+
+describe('threats column wave countdown', () => {
+  it('counts down to the real attack while the wave is telegraphed', () => {
+    const armed = { ...STATS, invasion: { waveNumber: 1, nextWaveIn: 45, active: false, invadersAlive: 0, armed: true } } as GameStats;
+    expect(render(armed)).toContain('La oleada 2 llega al anochecer, en 0:45');
+  });
+
+  it('shows the countdown before the wave is telegraphed', () => {
+    expect(render()).toContain('Oleada 1 en 2:00');
+  });
+});

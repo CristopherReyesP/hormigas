@@ -201,6 +201,65 @@ function buildTool(ctx: CommandContext, mode: BuildMode, label: string, icon: Ic
   };
 }
 
+/** Hint above the console while a card order waits for its target click. */
+export function commandTargetHint(target: GameStats['commandTarget']): string | null {
+  return target === 'move'
+    ? 'MOVER: haz clic en el destino · el clic derecho también mueve · Esc cancela'
+    : null;
+}
+
+/** Own ants are selected on the surface: the StarCraft unit card. */
+function hasUnitSelection(stats: GameStats): boolean {
+  if (stats.activeLayer !== 'surface') return false;
+  return Boolean(stats.selectedGroup) || stats.selectedEntity?.type === 'ant';
+}
+
+/** Unit card: Mover (Q), Detener (S), time controls (Z, X) and Quitar selección (B). Attack orders take A with P3b. */
+function unitPage(ctx: CommandContext): Slot[] {
+  const count = ctx.stats.selectedGroup?.count ?? 1;
+  const ants = count === 1 ? 'la hormiga seleccionada' : `las ${count} hormigas seleccionadas`;
+  return [
+    {
+      id: 'move',
+      label: 'Mover',
+      icon: 'move',
+      description: `Haz clic derecho en el suelo para mover a ${ants}. También puedes pulsar Mover y luego hacer clic en el destino. Cada una ocupa su lugar en la formación y, al llegar, vuelve a su trabajo.`,
+      altKeys: 'clic derecho en el suelo',
+      active: ctx.stats.commandTarget === 'move',
+      run: act(ctx, () => ctx.gm.armMoveTarget()),
+    },
+    null,
+    null,
+    null,
+    null,
+    null,
+    {
+      id: 'stop',
+      label: 'Detener',
+      icon: 'stop',
+      description: 'Cancela las órdenes que diste a la selección (mover, atacar guarida). Las hormigas vuelven a su trabajo.',
+      run: act(ctx, () => {
+        const stopped = ctx.gm.stopSelectedAnts();
+        ctx.notify(stopped > 0 ? `${stopped} ${stopped === 1 ? 'hormiga se detiene' : 'hormigas se detienen'}` : 'No hay órdenes que cancelar.');
+      }),
+    },
+    null,
+    null,
+    null,
+    ...timeCommands(ctx),
+    null,
+    null,
+    {
+      id: 'deselect',
+      label: 'Quitar selección',
+      icon: 'back',
+      description: 'Suelta la selección y vuelve a los comandos de la colonia.',
+      altKeys: 'Esc',
+      run: act(ctx, () => ctx.gm.clearSelection()),
+    },
+  ];
+}
+
 function surfaceRoot(ctx: CommandContext): Slot[] {
   return [
     priority(ctx, ColonyPriority.Gather, 'gather', 'Recolectar', 'leaf', 'las obreras se concentran en juntar comida.'),
@@ -349,6 +408,6 @@ export function buildCommands(ctx: CommandContext): Slot[] {
   const slots =
     ctx.stats.activeLayer === 'underground'
       ? ctx.page === 'colony' ? colonyPage(ctx) : nestRoot(ctx)
-      : surfaceRoot(ctx);
+      : hasUnitSelection(ctx.stats) ? unitPage(ctx) : surfaceRoot(ctx);
   return Array.from({ length: CARD_SLOTS }, (_, i) => slots[i] ?? null);
 }

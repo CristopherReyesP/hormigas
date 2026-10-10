@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { GameManager, GameStats, SelectedEntityInfo } from '../../game/GameManager';
+import type { GameManager, GameStats, SelectedEntityInfo, SelectedGroupInfo } from '../../game/GameManager';
 import { AntRole } from '../../game/components/components';
 import { PixelIcon } from './PixelIcon';
 import type { IconName } from './pixelIcons';
@@ -99,7 +99,7 @@ function ColonySummary({ stats, details }: { stats: GameStats; details: ColonyDe
           {stats.invasion.active
             ? `¡Oleada ${stats.invasion.waveNumber} en el nido! ${stats.invasion.invadersAlive} invasores`
             : stats.invasion.armed
-              ? `La oleada ${stats.invasion.waveNumber + 1} llega al anochecer`
+              ? `La oleada ${stats.invasion.waveNumber + 1} llega al anochecer, en ${formatClock(stats.invasion.nextWaveIn)}`
               : `Oleada ${stats.invasion.waveNumber + 1} en ${formatClock(stats.invasion.nextWaveIn)}`}
         </div>
       </Column>
@@ -259,6 +259,71 @@ function SelectionInfo({ stats, gameManager, attackCount, onAttackCountChange }:
   );
 }
 
+/** Wireframe cells that fit the panel: 3 rows of 8. */
+const GROUP_CELLS = 24;
+
+/** Castes in the order the group panel lists them: fighters first. */
+const GROUP_ROLES: readonly AntRole[] = [AntRole.Soldier, AntRole.Defender, AntRole.Worker, AntRole.Scout, AntRole.Nurse];
+
+function healthTier(ratio: number): 'ok' | 'hurt' | 'critical' {
+  return ratio > 0.5 ? 'ok' : ratio > 0.25 ? 'hurt' : 'critical';
+}
+
+/**
+ * StarCraft's multi-unit view: one wireframe cell per ant, tinted by its
+ * health (click one to select only that ant), and the count per caste.
+ */
+function GroupInfo({ group, gameManager, underground }: { group: SelectedGroupInfo; gameManager: GameManager | null; underground: boolean }) {
+  // A full grid gives its last cell to the "+N" counter
+  const shown = group.count > GROUP_CELLS ? group.units.slice(0, GROUP_CELLS - 1) : group.units;
+  const hidden = group.count - shown.length;
+  return (
+    <div className="info-group">
+      <div className="group-grid" aria-label={`${group.count} hormigas seleccionadas`}>
+        {shown.map((unit) => {
+          const name = ROLE_LABEL[unit.role];
+          const classes = [
+            'group-cell',
+            `group-cell--${healthTier(unit.health)}`,
+            unit.ordered ? 'group-cell--ordered' : '',
+          ].filter(Boolean).join(' ');
+          return (
+            <button
+              key={unit.id}
+              type="button"
+              className={classes}
+              aria-label={`${name}, vida ${Math.round(unit.health * 100)}%`}
+              title={`${name} · vida ${Math.round(unit.health * 100)}%${unit.ordered ? ' · en marcha' : ''}`}
+              onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+              onClick={() => gameManager?.selectOnly(unit.id)}
+            >
+              <PixelIcon name={ROLE_ICON[unit.role]} size={16} />
+              <span className="group-cell-hp" style={{ width: `${Math.round(unit.health * 100)}%` }} />
+            </button>
+          );
+        })}
+        {hidden > 0 && <div className="group-more">+{hidden}</div>}
+      </div>
+      <div className="group-side">
+        <h3 className="hud-label">GRUPO · {group.count}</h3>
+        {GROUP_ROLES.filter((role) => group.byRole[role]).map((role) => (
+          <Row key={role} icon={ROLE_ICON[role]} label={ROLE_PLURAL[role]} value={group.byRole[role]} />
+        ))}
+        <div className={`info-note${group.ordered > 0 ? ' info-note--good' : ''}`}>
+          {group.ordered > 0
+            ? `${group.ordered} en marcha`
+            : underground
+              ? 'Por ahora las órdenes solo funcionan en la superficie.'
+              : 'Clic derecho en el suelo: mover · S: detener'}
+        </div>
+      </div>
+      <button type="button" className="hud-btn info-close" title="Quitar selección (Esc)" onClick={() => gameManager?.clearSelection()}>
+        ×
+      </button>
+    </div>
+  );
+}
+
 /** Center console plate: what is selected, or the state of the colony on this layer. */
 export function InfoPanel(props: InfoPanelProps) {
   const { stats, details } = props;
@@ -266,7 +331,9 @@ export function InfoPanel(props: InfoPanelProps) {
     <section className="console-info" aria-label="Información">
       <div className="chrome-plate console-plate">
       <div className="chrome-plate-inner console-info-inner">
-        {stats.selectedEntity ? (
+        {stats.selectedGroup ? (
+          <GroupInfo group={stats.selectedGroup} gameManager={props.gameManager} underground={stats.activeLayer === 'underground'} />
+        ) : stats.selectedEntity ? (
           <SelectionInfo {...props} />
         ) : stats.activeLayer === 'underground' ? (
           <NestSummary details={details} />

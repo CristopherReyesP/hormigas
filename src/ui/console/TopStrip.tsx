@@ -77,17 +77,13 @@ function WaveStatus({ stats }: { stats: GameStats }) {
       </span>
     );
   }
-  if (invasion.armed) {
-    return (
-      <span className="strip-item strip-item--danger" title="La oleada llega con la noche">
-        <PixelIcon name="beetle" />
-        OLEADA {invasion.waveNumber + 1} AL ANOCHECER
-      </span>
-    );
-  }
-  const urgent = invasion.nextWaveIn < 30;
+  // nextWaveIn counts down to the real attack (nightfall), armed or not
+  const urgent = invasion.armed || invasion.nextWaveIn < 30;
   return (
-    <span className={`strip-item ${urgent ? 'strip-item--danger' : 'strip-item--warn'}`} title="Próxima oleada">
+    <span
+      className={`strip-item ${urgent ? 'strip-item--danger' : 'strip-item--warn'}`}
+      title={invasion.armed ? 'La oleada llega al anochecer' : 'Próxima oleada'}
+    >
       <PixelIcon name="beetle" />
       OLEADA {invasion.waveNumber + 1} EN {formatClock(invasion.nextWaveIn)}
     </span>

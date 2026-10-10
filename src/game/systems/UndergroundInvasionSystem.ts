@@ -2,6 +2,7 @@ import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { TransitSystem } from './TransitSystem';
+import { hasPlayerOrder } from './helpers/playerOrders';
 import type { DayNightSystem, DayPhase } from './DayNightSystem';
 import type { EntityId } from '../../shared/types';
 import {
@@ -19,9 +20,9 @@ import {
 import { createBeetle } from '../entities/factories';
 import {
   UNDERGROUND_WIDTH,
-  INVASION_FIRST_WAVE_TIME,
-  INVASION_WAVE_INTERVAL,
-  INVASION_MAX_INVADERS,
+  INVASION_WAVE_SIZE_BY_NIGHT,
+  INVASION_BOSS_NIGHT,
+  INVASION_ARM_LEAD,
   INVASION_SOLDIER_RESPONDERS,
   INVASION_CIVILIAN_ATTACK_DAMAGE,
   NURSE_DEFENSE_RADIUS,
@@ -29,27 +30,37 @@ import {
 
 export interface InvasionInfo {
   waveNumber: number;
-  /** Seconds until the next wave ARMS. 0 while a wave is active or already armed. */
+  /** Seconds until the next wave strikes (its first invader spawns). 0 while a wave is active. */
   nextWaveIn: number;
   active: boolean;
   invadersAlive: number;
-  /** Armed and waiting for nightfall to strike */
+  /** Telegraphed: the wave strikes at the coming nightfall */
   armed: boolean;
+}
+
+export interface NightWave {
+  invaders: number;
+  /** The run's last night also brings the boss. Its slot is reserved; nothing spawns for it yet. */
+  boss: boolean;
+}
+
+/** The wave a given night sends (night 1 is the first). Past the curve the last size holds. */
+export function waveForNight(night: number): NightWave {
+  const index = Math.min(Math.max(1, night), INVASION_WAVE_SIZE_BY_NIGHT.length) - 1;
+  return { invaders: INVASION_WAVE_SIZE_BY_NIGHT[index], boss: night === INVASION_BOSS_NIGHT };
 }
 
 /**
  * Survival waves: predators periodically break into the nest through the
  * entrance tunnel and march on the queen. Soldiers are auto-deployed to defend.
  *
- * Waves are ARMED by a timer but LAUNCHED by nightfall, so pressure always
- * lands on the day->night flip instead of drifting against it. Previously the
- * wave clock (INVASION_WAVE_INTERVAL) and the day/night clock
- * (DAY_DURATION + NIGHT_DURATION) ran independently and aliased: a wave could
- * coincide with night (double pressure) or land at noon (trivial), at random.
+ * Waves follow the night number: every nightfall launches that night's wave,
+ * sized by INVASION_WAVE_SIZE_BY_NIGHT (a lone scout on night 1, then a rising
+ * curve up to the boss night). The wave is ARMED (telegraphed) INVASION_ARM_LEAD
+ * seconds before dusk, and the countdown always points at the real attack.
  *
- * Splitting "armed" from "launched" keeps INVASION_WAVE_INTERVAL as the real
- * escalation knob: shorter than a full day/night cycle means a wave nearly
- * every night, longer means quiet nights appear on their own.
+ * Waves never stack: if the previous wave is still inside at nightfall, that
+ * night's wave is skipped and the next night keeps its own size.
  */
 export class UndergroundInvasionSystem implements System {
   readonly name = 'UndergroundInvasionSystem';
@@ -60,10 +71,9 @@ export class UndergroundInvasionSystem implements System {
   private transitSystem: TransitSystem;
   private dayNight: DayNightSystem;
 
-  private waveTimer = INVASION_FIRST_WAVE_TIME;
   private waveNumber = 0;
   private waveActive = false;
-  /** Timer elapsed: the wave is ready and strikes at the next nightfall */
+  /** Telegraphed late in the day: the wave strikes at the coming nightfall */
   private waveArmed = false;
   /** Previous tick's phase — used to detect the day->night edge */
   private prevPhase: DayPhase = 'day';
@@ -103,7 +113,7 @@ export class UndergroundInvasionSystem implements System {
   getInfo(): InvasionInfo {
     return {
       waveNumber: this.waveNumber,
-      nextWaveIn: this.waveActive || this.waveArmed ? 0 : Math.max(0, this.waveTimer),
+      nextWaveIn: this.waveActive ? 0 : this.dayNight.getSecondsUntilNightfall(),
       active: this.waveActive,
       invadersAlive: this.invaders.size,
       armed: this.waveArmed,
@@ -140,21 +150,19 @@ export class UndergroundInvasionSystem implements System {
     if (this.waveActive && this.pendingSpawns === 0 && this.invaders.size === 0) {
       this.waveActive = false;
       this.waveArmed = false;
-      this.waveTimer = INVASION_WAVE_INTERVAL;
       this.restoreDrafted();
       this.world.metrics.wavesRepelled++;
       this.world.pushNotification('success', `🛡️ ¡Oleada ${this.waveNumber} repelida!`);
     }
 
-    // Countdown ARMS the next wave (paused while one is active or already armed)
-    if (!this.waveActive && !this.waveArmed) {
-      this.waveTimer -= dt;
-      if (this.waveTimer <= 0) this.armWave();
+    // Late in the day, ARM tonight's wave (never while one is still inside)
+    if (phase === 'day' && !this.waveActive && !this.waveArmed
+        && this.dayNight.getPhaseRemaining() <= INVASION_ARM_LEAD) {
+      this.armWave();
     }
 
-    // Nightfall LAUNCHES it. A wave armed mid-night waits for the next dusk,
-    // and the !waveActive guard means waves never stack on top of each other.
-    if (nightfall && this.waveArmed && !this.waveActive) {
+    // Nightfall LAUNCHES it; the !waveActive guard means waves never stack.
+    if (nightfall && !this.waveActive) {
       this.launchWave();
     }
 
@@ -197,6 +205,7 @@ export class UndergroundInvasionSystem implements System {
     for (const id of ants) {
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
       if (ant.role !== AntRole.Soldier) continue;
+      if (hasPlayerOrder(this.world, id)) continue; // under the player's orders
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
 
       if (layer.layer === Layer.Underground) {
@@ -219,12 +228,19 @@ export class UndergroundInvasionSystem implements System {
     }
   }
 
-  /** Timer elapsed — telegraph the wave so the player can prepare before dusk */
+  /** Invaders tonight's wave sends. Night N follows day N, so the day number is the night number. */
+  private tonightCount(): number {
+    // Mutation costs (spore_bloom) add invaders on top of the night's size
+    return waveForNight(this.dayNight.getDayNumber()).invaders + this.world.runModifiers.extraInvadersPerWave;
+  }
+
+  /** Dusk is near — telegraph the wave so the player can prepare */
   private armWave(): void {
     this.waveArmed = true;
+    const count = this.tonightCount();
     this.world.pushNotification(
       'warning',
-      `🪲 Movimiento en el túnel — la oleada ${this.waveNumber + 1} atacará al anochecer`
+      `🪲 Movimiento en el túnel: la oleada ${this.waveNumber + 1} (${count === 1 ? 'un escarabajo explorador' : `${count} escarabajos`}) atacará al anochecer`
     );
   }
 
@@ -239,9 +255,8 @@ export class UndergroundInvasionSystem implements System {
     this.waveEntrance =
       entrances.length > 0 ? entrances[Math.floor(Math.random() * entrances.length)] : null;
 
-    // Mutation costs (spore_bloom) add invaders on top of the base cap
-    const count = Math.min(1 + Math.floor((this.waveNumber - 1) / 2), INVASION_MAX_INVADERS)
-      + this.world.runModifiers.extraInvadersPerWave;
+    // waveForNight(...).boss marks the boss night; its unit joins here once it exists
+    const count = this.tonightCount();
     // First invader enters immediately, the rest break in one by one
     this.spawnInvader();
     this.pendingSpawns = count - 1;
@@ -268,6 +283,7 @@ export class UndergroundInvasionSystem implements System {
       if (sent >= Math.min(needed, INVASION_SOLDIER_RESPONDERS)) break;
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
       if (ant.role !== AntRole.Soldier || ant.commandTargetId !== null) continue;
+      if (hasPlayerOrder(this.world, id)) continue; // under the player's orders
 
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
       if (layer.layer !== Layer.Surface) continue;
@@ -355,6 +371,7 @@ export class UndergroundInvasionSystem implements System {
       if (layer.layer !== Layer.Underground) continue;
       if (this.transitSystem.isInTransit(id)) continue;
       if (ant.role === AntRole.Defender) continue; // DefenderAISystem drives them — area-bound sentinels
+      if (hasPlayerOrder(this.world, id)) continue; // under the player's orders: never drafted
       if (ant.role === AntRole.Soldier) ugSoldiers.push(id);
       else ugCivilians.push(id);
     }

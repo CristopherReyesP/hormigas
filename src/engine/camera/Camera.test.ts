@@ -29,6 +29,28 @@ describe('zoom steps', () => {
   });
 });
 
+describe('pixel-art scale', () => {
+  it('shows one art pixel (2 world px) as 2 whole screen px on both axes at zoom 1', () => {
+    const camera = new Camera();
+    camera.zoom = 1;
+    const a = camera.worldToScreen(100, 100);
+    const b = camera.worldToScreen(102, 102);
+    expect(b.x - a.x).toBe(2);
+    expect(b.y - a.y).toBe(2);
+  });
+
+  it('keeps an art pixel a whole number of screen px at every zoom step', () => {
+    for (let zoom = MIN_ZOOM; zoom <= MAX_ZOOM; zoom += ZOOM_STEP) {
+      const camera = new Camera();
+      camera.zoom = zoom;
+      const a = camera.worldToScreen(0, 0);
+      const b = camera.worldToScreen(2, 2);
+      expect(Number.isInteger(b.x - a.x), `zoom ${zoom} x`).toBe(true);
+      expect(Number.isInteger(b.y - a.y), `zoom ${zoom} y`).toBe(true);
+    }
+  });
+});
+
 describe('wheel zoom', () => {
   it('needs a full wheel notch before it steps, so trackpads do not race', () => {
     const camera = new Camera();

@@ -116,6 +116,15 @@ export class TransitSystem implements System {
     return true;
   }
 
+  /** Call off a ride down the shaft (a player order wants the ant on the surface).
+   *  Exits are left alone: the ant is already below and on its way up. */
+  cancelEnter(entityId: number): boolean {
+    const idx = this.transitQueue.findIndex(t => t.entityId === entityId && t.direction === 'enter');
+    if (idx === -1) return false;
+    this.transitQueue.splice(idx, 1);
+    return true;
+  }
+
   update(dt: number): void {
     for (let i = this.transitQueue.length - 1; i >= 0; i--) {
       const transit = this.transitQueue[i];

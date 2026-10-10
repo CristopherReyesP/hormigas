@@ -1,3 +1,5 @@
+import type { AntMarkId } from '../../engine/renderer/sprites/antMarks';
+
 export const MUTATION_IDS = [
   'acid_mandibles', 'hyper_metabolism', 'cargo_sacs', 'bone_spurs', 'regenerative_tissue',
   'carrion_gut', 'spore_bloom', 'titan_brood', 'wing_stubs', 'hive_mind',
@@ -32,8 +34,8 @@ export interface MutationDefinition {
   readonly costText: string | null;
   readonly effects: readonly MutationEffect[];
   readonly tags: readonly MutationTag[];
-  /** Key of the sprite overlay that shows the mutation on the ant. */
-  readonly mark: string;
+  /** The mark the mutation leaves on the ant sprites (drawn by the atlas). */
+  readonly mark: AntMarkId;
   readonly maxStacks: number;
 }
 

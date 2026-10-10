@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GameManager, GameStats } from '../../game/GameManager';
 import { NotificationStack } from '../NotificationStack';
-import { buildCommands, BUILD_MODE_HINT, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
+import { buildCommands, BUILD_MODE_HINT, commandTargetHint, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
 import { CommandCard } from './CommandCard';
 import { InfoPanel } from './InfoPanel';
 import { MinimapPanel } from './MinimapPanel';
@@ -78,11 +78,13 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
     setBuildMode((current) => (current === mode ? null : mode));
   }, []);
 
+  const hasSelection = Boolean(stats.selectedEntity || stats.selectedGroup);
   const onEscape = useCallback(() => {
-    if (buildMode) setBuildMode(null);
+    if (stats.commandTarget) gameManager?.cancelCommandTarget();
+    else if (buildMode) setBuildMode(null);
     else if (page !== 'root') setPage('root');
-    else if (stats.selectedEntity) gameManager?.clearSelection();
-  }, [buildMode, page, stats.selectedEntity, gameManager]);
+    else if (hasSelection) gameManager?.clearSelection();
+  }, [stats.commandTarget, buildMode, page, hasSelection, gameManager]);
 
   const commands = useMemo(
     () =>
@@ -104,7 +106,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
     [gameManager, stats, details, page, buildMode, attackCount, toggleBuildMode, switchLayer, refresh, notify],
   );
 
-  const hint = notice?.text ?? (buildMode ? BUILD_MODE_HINT[buildMode] : null);
+  const hint = notice?.text ?? commandTargetHint(stats.commandTarget) ?? (buildMode ? BUILD_MODE_HINT[buildMode] : null);
   const overlayOpen = Boolean(stats.mutationOffer || stats.gameOver);
 
   return (
