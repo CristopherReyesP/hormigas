@@ -75,6 +75,10 @@ describe('a night wave from the map edge into the nest, in a real run', () => {
     expect(info().remaining).toBe(size);
     expect(game.getWaveThreats('surface').length).toBeGreaterThan(0);
     expect(game.getWaveThreats('underground')).toHaveLength(0);
+    // The nest alert sees them on the surface (the SUPERFICIE badge), not inside: no "¡Invasores en el nido!" yet
+    expect(game.getInvaderCount('surface')).toBe(size);
+    expect(game.getInvaderCount('underground')).toBe(0);
+    expect(game.getStats().nestAlert).toMatchObject({ nestInvaders: 0, surfaceInvaders: size, alert: null });
     for (const id of column) {
       const march = world.getComponent<WaveMarchComponent>(id, WAVE_MARCH_COMPONENT)!;
       expect(march.hole).toEqual(next.hole);
@@ -83,16 +87,24 @@ describe('a night wave from the map edge into the nest, in a real run', () => {
 
     // One by one they reach the hole, dig in and come out at the scouted entrance below
     let dug = false;
+    let alertWhileOutside = false;
     for (let t = 0; t < 60 && world.query(COMPONENT.BEETLE, WAVE_MARCH_COMPONENT).length > 0; t += DT) {
       game['update'](DT);
       if (column.some((id) => world.getComponent<WaveMarchComponent>(id, WAVE_MARCH_COMPONENT)?.phase === 'digging')) dug = true;
+      const anyInside = column.some((id) => world.hasEntity(id) && layerOf(id) === Layer.Underground);
+      if (!anyInside && game.getStats().nestAlert?.alert) alertWhileOutside = true;
     }
+    expect(alertWhileOutside).toBe(false);
     expect(dug).toBe(true);
     const inside = column.filter((id) => world.hasEntity(id) && layerOf(id) === Layer.Underground);
     expect(inside.length).toBeGreaterThan(0);
     expect(info().remaining).toBe(column.filter((id) => world.hasEntity(id)).length);
     expect(game.getWaveThreats('underground').length).toBeGreaterThan(0);
     expect(world.notifications.some((n) => n.message.includes('entran al nido'))).toBe(true);
+    // Once they are in, the nest alert fires
+    run(1);
+    expect(game.getStats().nestAlert!.nestInvaders).toBeGreaterThan(0);
+    expect(game.getStats().nestAlert!.alert).toMatchObject({ kind: 'breach' });
 
     // Inside, they go for the queen (or whoever stands in the way)
     run(1);

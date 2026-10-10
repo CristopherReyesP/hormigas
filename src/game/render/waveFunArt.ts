@@ -52,6 +52,8 @@ export interface WaveOverlay {
     hole?: { x: number; y: number } | null;
     nest: { x: number; y: number };
   } | null;
+  /** Invaders inside the nest while the player watches the surface (0: none): the mound throbs red */
+  nestAttack?: number;
 }
 
 type Visible = (x: number, y: number) => boolean;

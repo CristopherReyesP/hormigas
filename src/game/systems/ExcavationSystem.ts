@@ -86,8 +86,24 @@ export class ExcavationSystem implements System {
     return false;
   }
 
+  /** How many marks may wait at once; GameManager wires digJobCap() (upgrades raise it) */
+  private jobCap: () => number = () => MAX_DIG_JOBS;
+
+  setJobCap(cap: () => number): void {
+    this.jobCap = cap;
+  }
+
+  getJobCap(): number {
+    return this.jobCap();
+  }
+
+  /** The queue is full: a new mark would be refused */
+  isFull(): boolean {
+    return this.jobs.length >= this.jobCap();
+  }
+
   designateTile(x: number, y: number): boolean {
-    if (this.jobs.length >= MAX_DIG_JOBS) return false;
+    if (this.isFull()) return false;
     if (this.jobs.some(j => j.x === x && j.y === y)) return false;
 
     const success = this.grid.designate(x, y);
@@ -118,6 +134,36 @@ export class ExcavationSystem implements System {
 
   getPendingJobCount(): number {
     return this.jobs.length;
+  }
+
+  /** Workers on a job: walking to the site or opening the tile */
+  getActiveDiggerCount(): number {
+    let n = 0;
+    for (const job of this.jobs) if (job.assignedTo !== null) n++;
+    return n;
+  }
+
+  /** Seconds one ant spends on one tile with the current upgrade and run modifiers */
+  getSecondsPerTile(): number {
+    return EXCAVATION_TIME / (this.world.upgrades.digSpeedMult * this.world.runModifiers.digSpeedMult);
+  }
+
+  /**
+   * Pending marks in queue order (1 = first in line) with the dig progress of
+   * a tile being opened (0..1), null while nobody is opening it.
+   */
+  getJobProgress(): Array<{ x: number; y: number; order: number; progress: number | null }> {
+    const total = this.getSecondsPerTile();
+    return this.jobs.map((job, i) => {
+      let progress: number | null = null;
+      if (job.assignedTo !== null && this.world.hasEntity(job.assignedTo)) {
+        const ant = this.world.getComponent<AntComponent>(job.assignedTo, COMPONENT.ANT);
+        if (ant && ant.state === AntState.Excavating && total > 0) {
+          progress = Math.min(1, Math.max(0, 1 - ant.stateTimer / total));
+        }
+      }
+      return { x: job.x, y: job.y, order: i + 1, progress };
+    });
   }
 
   update(dt: number): void {
@@ -310,7 +356,7 @@ export class ExcavationSystem implements System {
     if (dist < 1.8) {
       // Close enough — start excavating (queen 'dig' upgrade shortens the job)
       ant.state = AntState.Excavating;
-      ant.stateTimer = EXCAVATION_TIME / (this.world.upgrades.digSpeedMult * this.world.runModifiers.digSpeedMult);
+      ant.stateTimer = this.getSecondsPerTile();
     } else {
       // Re-path if MovementSystem cleared the route (blocked). If NO route
       // exists, release the job immediately — never walk a straight line

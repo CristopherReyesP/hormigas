@@ -5,7 +5,9 @@ import { CARD_SLOTS, cardHotkeys } from './commandCardLayout';
 import type { IconName } from './pixelIcons';
 import type { ColonyDetails } from './useColonyDetails';
 import { ROLE_BLURB, ROLE_LABEL, stripEmoji } from './format';
+import { humanCommands } from '../races/human/humanCommands';
 import { DEFENSE_STATS, type DefenseKind } from '../../game/run/defenses';
+import { digLimitMessage, type DigStatus } from '../../game/dig/digStatus';
 
 /**
  * Command card contents per context. Every button maps an action the game
@@ -15,8 +17,8 @@ import { DEFENSE_STATS, type DefenseKind } from '../../game/run/defenses';
 
 /** Nest tools (underground only) and the defense build tools (both layers: Espina, Trampa, Muro) */
 export type BuildMode = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense' | DefenseKind;
-/** 'groups' is the touch stand-in for Ctrl/Shift+digit: bind the selection to a control group */
-export type CardPage = 'root' | 'colony' | 'groups' | 'defenses';
+/** 'groups' is the touch stand-in for Ctrl/Shift+digit: bind the selection to a control group; 'build' is a Human builder's Construir menu */
+export type CardPage = 'root' | 'colony' | 'groups' | 'defenses' | 'build';
 
 const DEFENSE_KINDS: readonly DefenseKind[] = ['spine', 'trap', 'wall'];
 
@@ -34,10 +36,10 @@ export interface CommandDef {
   glyph?: string;
   description: string;
   /** Price printed on the button face; `short` paints it red when the stock cannot pay it */
-  cost?: { amount: number; resource: 'comida' | 'hongos' | 'minerales'; short?: boolean };
+  cost?: { amount: number; resource: 'comida' | 'hongos' | 'raciones' | 'minerales'; short?: boolean };
   /** Small corner text: queue size, tile count, upgrade level */
   badge?: string;
-  badgeTone?: 'warn';
+  badgeTone?: 'warn' | 'danger';
   /** Extra keys that also trigger this action, for the tooltip */
   altKeys?: string;
   active?: boolean;
@@ -45,6 +47,14 @@ export interface CommandDef {
   /** Why it is disabled, for the tooltip */
   disabledReason?: string;
   tone?: 'danger';
+  /**
+   * A main order of its card (Mover, Atacar, Volver al nido, Atacar guarida):
+   * the compact layout draws it as a big button with its name on it; the
+   * desktop card is unchanged.
+   */
+  prominent?: boolean;
+  /** The name on a prominent button, when the tooltip title is longer */
+  shortLabel?: string;
   run: () => void;
 }
 
@@ -105,8 +115,8 @@ interface BuildToolDef {
 const BUILD_TOOLS: ReadonlyArray<BuildToolDef> = [
   {
     mode: 'dig', label: 'Excavar', icon: 'pick',
-    description: 'Haz clic en casillas de tierra para marcarlas. Las obreras cavan túneles allí.',
-    touch: 'Toca casillas de tierra o pasa el dedo sobre ellas para marcarlas. Las obreras cavan túneles allí.',
+    description: 'Haz clic en casillas de tierra para marcarlas; otro clic quita la marca. Las obreras cavan túneles allí.',
+    touch: 'Toca casillas de tierra o pasa el dedo sobre ellas para marcarlas; toca una marca para quitarla. Las obreras cavan túneles allí.',
   },
   {
     mode: 'incubation', label: 'Incubación', icon: 'egg',
@@ -141,7 +151,7 @@ const AREA_TOOLS: ReadonlyArray<BuildToolDef> = [
 
 /** Hint shown above the console while a build tool is armed. */
 export const BUILD_MODE_HINT: Record<BuildMode, string> = {
-  dig: 'EXCAVAR: haz clic en casillas de tierra para marcar túneles · Esc cancela',
+  dig: 'EXCAVAR: haz clic en la tierra para marcar túneles; clic en una marca la quita · Esc cancela',
   incubation: 'INCUBACIÓN: haz clic en casillas excavadas · Esc cancela',
   farm: 'GRANJA: haz clic en casillas excavadas para sembrar hongos · Esc cancela',
   storage: 'ALMACÉN: haz clic en casillas excavadas para ampliar la despensa · Esc cancela',
@@ -154,7 +164,7 @@ export const BUILD_MODE_HINT: Record<BuildMode, string> = {
 
 /** BUILD_MODE_HINT for touch screens: tap or paint with a finger (two fingers still move the camera); the tool's button turns it off. */
 export const BUILD_MODE_TOUCH_HINT: Record<BuildMode, string> = {
-  dig: 'EXCAVAR: toca o arrastra el dedo sobre la tierra · toca Excavar para salir',
+  dig: 'EXCAVAR: toca o arrastra el dedo sobre la tierra · toca una marca para quitarla',
   incubation: 'INCUBACIÓN: toca o pinta casillas excavadas',
   farm: 'GRANJA: toca o pinta casillas excavadas',
   storage: 'ALMACÉN: toca o pinta casillas excavadas',
@@ -168,6 +178,19 @@ export const BUILD_MODE_TOUCH_HINT: Record<BuildMode, string> = {
 /** Hint above the console while a build tool is armed. */
 export function buildModeHint(mode: BuildMode, touch = false): string {
   return (touch ? BUILD_MODE_TOUCH_HINT : BUILD_MODE_HINT)[mode];
+}
+
+/** At the dig limit the tool's hint becomes the refusal, in red; null under it. */
+export function digHint(status: DigStatus): { text: string; tone: NoticeTone } | null {
+  return status.level === 'full' ? { text: digLimitMessage(status.cap), tone: 'danger' } : null;
+}
+
+/** Excavar's badge: marks over the cap, amber near the limit and red at it */
+function digBadge(ctx: CommandContext): Pick<CommandDef, 'badge' | 'badgeTone'> {
+  const dig = ctx.stats.dig;
+  if (!dig || (dig.pending === 0 && ctx.buildMode !== 'dig')) return {};
+  const tone = dig.level === 'full' ? 'danger' : dig.level === 'near' ? 'warn' : undefined;
+  return { badge: `${dig.pending}/${dig.cap}`, badgeTone: tone };
 }
 
 function act(ctx: CommandContext, action: () => void): () => void {
@@ -253,6 +276,8 @@ function attackDen(ctx: CommandContext): CommandDef {
   return {
     id: 'attack-den',
     label: hive ? 'Atacar colmena' : spire ? 'Atacar aguja' : human ? 'Atacar edificio' : 'Atacar guarida',
+    shortLabel: hive ? 'Atacar colmena' : spire ? 'Atacar aguja' : human ? 'Atacar edificio' : 'Atacar guarida',
+    prominent: true,
     icon: 'sword',
     description: `Ordena a los soldados libres más cercanos atacar ${base} seleccionada hasta destruirla. Ajusta cuántos en el panel central.`,
     badge: ready ? String(count) : undefined,
@@ -277,6 +302,7 @@ function buildTool(ctx: CommandContext, tool: BuildToolDef, badge?: number): Com
     icon,
     description: ctx.touch ? tool.touch : tool.description,
     badge: badge ? String(badge) : undefined,
+    ...(mode === 'dig' ? digBadge(ctx) : {}),
     active: ctx.buildMode === mode,
     run: act(ctx, () => ctx.toggleBuildMode(mode)),
   };
@@ -319,9 +345,11 @@ function unitPage(ctx: CommandContext): Slot[] {
         : `Haz clic derecho en el suelo para mover a ${ants}. También puedes pulsar Mover y luego hacer clic en el destino. Cada una ocupa su lugar en la formación. Al llegar, las obreras vuelven a su trabajo y las guerreras montan guardia allí.`,
       altKeys: ctx.touch ? 'tocar el suelo' : 'clic derecho en el suelo',
       active: ctx.stats.commandTarget === 'move',
+      prominent: true,
+      shortLabel: 'Mover',
       run: act(ctx, () => armOrCancel(ctx, 'move')),
     },
-    null,
+    ctx.touch ? rally(ctx, ants) : null,
     null,
     null,
     ctx.touch ? groupsButton(ctx) : null,
@@ -334,6 +362,8 @@ function unitPage(ctx: CommandContext): Slot[] {
         : `Pulsa Atacar y haz clic. Sobre un enemigo, ${ants} lo persiguen hasta matarlo. En el suelo, avanzan, pelean con cada enemigo que ven en el camino y, al llegar, atacan la guarida o la colmena que haya allí. Al terminar, vuelven a su trabajo y defienden el nido si hace falta.`,
       altKeys: ctx.touch ? 'tocar un enemigo' : 'clic derecho en un enemigo',
       tone: 'danger',
+      prominent: true,
+      shortLabel: 'Atacar',
       active: ctx.stats.commandTarget === 'attack',
       run: act(ctx, () => armOrCancel(ctx, 'attack')),
     },
@@ -364,6 +394,21 @@ function unitPage(ctx: CommandContext): Slot[] {
     null,
     deselect(ctx),
   ];
+}
+
+/** Volver al nido (touch): the selection walks back to the nest entrance, a move order there. */
+function rally(ctx: CommandContext, ants: string): CommandDef {
+  return {
+    id: 'rally',
+    label: 'Volver al nido',
+    icon: 'descend',
+    description: `Ordena a ${ants} volver a la entrada del nido. Al llegar, las obreras vuelven a su trabajo y las guerreras montan guardia allí.`,
+    prominent: true,
+    shortLabel: 'Volver al nido',
+    run: act(ctx, () => {
+      if (ctx.gm.returnSelectedToNest() === 0) ctx.notify('Ninguna hormiga elegida puede volver al nido ahora.', 'danger');
+    }),
+  };
 }
 
 /** Mover / Atacar: arm the order; on a touch screen pressing the armed one again cancels it (there is no Esc). */
@@ -673,8 +718,10 @@ function colonyPage(ctx: CommandContext): Slot[] {
 
 /** The 15 slots of the card for the current layer and page (null = empty slot). */
 export function buildCommands(ctx: CommandContext): Slot[] {
-  const slots =
-    ctx.stats.activeLayer === 'underground'
+  // A Human player has a card of their own (units, Construir, production); the Swarm's Defensas page is not on it
+  const slots = ctx.stats.human
+    ? humanCommands(ctx, ctx.stats.human)
+    : ctx.stats.activeLayer === 'underground'
       ? ctx.page === 'colony' ? colonyPage(ctx) : ctx.page === 'defenses' ? defensesPage(ctx) : nestRoot(ctx)
       : hasUnitSelection(ctx.stats) ? ctx.page === 'groups' ? groupsPage(ctx) : unitPage(ctx)
       : isDenSelected(ctx.stats) ? denPage(ctx)

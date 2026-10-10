@@ -33,6 +33,12 @@ describe('objectives panel', () => {
     expect(html).toContain('0/8');
   });
 
+  it('states the endless goal of the run when open', () => {
+    const html = renderToStaticMarkup(<ObjectivePanelView objective={OBJECTIVE} open onToggle={noop} />);
+    expect(html).toContain('Haz crecer la colonia y sobrevive el mayor número de noches. Si muere la reina, pierdes.');
+    expect(html).not.toContain('7 noches');
+  });
+
   it('keeps the all-done message when every objective is met', () => {
     const html = renderToStaticMarkup(<ObjectivePanelView objective={null} open onToggle={noop} />);
     expect(html).toContain('¡Todos cumplidos!');
