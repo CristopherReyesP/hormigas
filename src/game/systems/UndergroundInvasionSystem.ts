@@ -212,10 +212,7 @@ export class UndergroundInvasionSystem implements System {
         underground++;
       } else if (this.transitSystem.isInTransit(id)) {
         incoming++;
-      } else if (
-        ant.commandTargetId === null &&
-        (ant.state === AntState.Idle || ant.state === AntState.Searching || ant.state === AntState.PatrollingNest)
-      ) {
+      } else if (ant.state === AntState.Idle || ant.state === AntState.Searching || ant.state === AntState.PatrollingNest) {
         candidates.push(id);
       }
     }
@@ -282,7 +279,7 @@ export class UndergroundInvasionSystem implements System {
     for (const id of ants) {
       if (sent >= Math.min(needed, INVASION_SOLDIER_RESPONDERS)) break;
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
-      if (ant.role !== AntRole.Soldier || ant.commandTargetId !== null) continue;
+      if (ant.role !== AntRole.Soldier) continue;
       if (hasPlayerOrder(this.world, id)) continue; // under the player's orders
 
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;

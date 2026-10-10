@@ -60,8 +60,6 @@ export const ANT_STATE_LABEL: Record<string, string> = {
   chasing_enemy: 'Persiguiendo enemigo',
   attacking_enemy: 'En combate',
   patrolling_nest: 'Patrullando',
-  going_to_den: 'Yendo a la guarida',
-  attacking_den: 'Destruyendo guarida',
   healing: 'Curándose',
   feeding_queen: 'Alimentando a la reina',
   tending_egg: 'Cuidando huevos',
@@ -73,6 +71,8 @@ export const ANT_STATE_LABEL: Record<string, string> = {
   hauling: 'Acarreando',
   scavenging: 'Carroñeando',
   moving: 'En marcha',
+  guarding: 'De guardia',
+  holding: 'Manteniendo posición',
 };
 
 export const BEETLE_STATE_LABEL: Record<string, string> = {

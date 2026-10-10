@@ -112,6 +112,13 @@ export class SelectionSystem implements System {
     this.setSelection(group, layer);
   }
 
+  /** Select exactly these own ants on `layer` (a control group recall); anything else is left out. */
+  selectAnts(ids: readonly EntityId[], layer: LayerValue): number {
+    const group = ids.filter((id, i) => ids.indexOf(id) === i && this.isAnt(id) && this.layerOf(id) === layer);
+    this.setSelection(group, layer);
+    return group.length;
+  }
+
   /** Narrow the selection to one entity (a click on its card in the group panel). */
   selectOnly(id: EntityId): void {
     if (!this.world.hasEntity(id)) return;

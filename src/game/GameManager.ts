@@ -8,14 +8,14 @@ import type { EntityId } from '../shared/types';
 import { World } from '../engine/ecs/World';
 import { GameLoop } from '../engine/loop/GameLoop';
 import { CanvasRenderer } from '../engine/renderer/CanvasRenderer';
-import { InputManager, type InputModifiers, type ScreenBox } from '../engine/input/InputManager';
+import { InputManager, type InputModifiers, type KeyPress, type ScreenBox } from '../engine/input/InputManager';
 import { Camera, type ViewportRect } from '../engine/camera/Camera';
 import { isTileVisible, type VisibilityReader } from '../engine/renderer/fogVisibility';
 import { TileGrid } from '../simulation/world/TileGrid';
 import { VisibilityGrid } from '../simulation/world/VisibilityGrid';
 import { UndergroundGrid } from '../simulation/world/UndergroundGrid';
 import { TerrainType, ChamberType } from '../simulation/world/types';
-import { RenderSystem } from './systems/RenderSystem';
+import { RenderSystem, type OrderPing } from './systems/RenderSystem';
 import { MovementSystem } from './systems/MovementSystem';
 import { PheromoneSystem } from './systems/PheromoneSystem';
 import { AntAISystem } from './systems/AntAISystem';
@@ -28,7 +28,18 @@ import { HungerSystem } from './systems/HungerSystem';
 import { RegenerationSystem } from './systems/RegenerationSystem';
 import { BreedingSystem } from './systems/BreedingSystem';
 import { SelectionSystem, type SelectionBox } from './systems/SelectionSystem';
-import { endPlayerOrder, hasPlayerOrder, issueMoveOrders, stopAnts } from './systems/helpers/playerOrders';
+import { ControlGroups } from './systems/ControlGroups';
+import {
+  dispatchDenAttack,
+  findEnemyAt,
+  hasActiveOrder,
+  isFreeSoldier,
+  issueAttackOrders,
+  issueHoldOrders,
+  issueMoveOrders,
+  soundRetreatHorn,
+  stopAnts,
+} from './systems/helpers/playerOrders';
 import { FoodRespawnSystem } from './systems/FoodRespawnSystem';
 import { FogOfWarSystem } from './systems/FogOfWarSystem';
 import { EggIncubationSystem } from './systems/EggIncubationSystem';
@@ -55,6 +66,7 @@ import {
   ColonyPriority,
   FoodType,
   Layer,
+  OrderKind,
   COMPONENT,
   type NestComponent,
   type QueenComponent,
@@ -115,10 +127,15 @@ import {
   CRATER_CLEAR_RADIUS,
   CRATER_EDGE_MARGIN,
   CRATER_FAR_FRACTION,
+  CONTROL_GROUP_SLOTS,
+  GAME_SPEED_MAX,
 } from '../shared/constants';
 
 /** Mixed into the run seed so the crater does not share the dawn offers' draws. */
 const CRATER_SEED_SALT = 0x9e3779b9;
+
+/** A command card order that waits for a click: Mover (Q) or Atacar (A). */
+export type CommandTarget = 'move' | 'attack';
 
 export interface SelectedEntityInfo {
   entityId: EntityId;
@@ -162,6 +179,18 @@ export interface SelectedGroupInfo {
   ordered: number;
   /** The first GROUP_GRID_MAX ants, castes in breed order: the wireframe grid */
   units: Array<{ id: EntityId; role: AntRole; health: number; ordered: boolean }>;
+}
+
+/** A bound control group, for the chips above the info panel. */
+export interface ControlGroupInfo {
+  /** Digit it is bound to (1-9) */
+  slot: number;
+  /** Ants in it still alive */
+  count: number;
+  /** The caste most of it belongs to (fighters win ties): the chip's icon */
+  role: AntRole;
+  /** It is exactly the current selection */
+  selected: boolean;
 }
 
 /** Wireframe cells the group panel shows (StarCraft shows 24 too). */
@@ -246,8 +275,10 @@ export interface GameStats {
   selectedEntity: SelectedEntityInfo | null;
   /** Two or more own ants selected (selectedEntity is null then) */
   selectedGroup?: SelectedGroupInfo | null;
-  /** A command card order waiting for its target click ('move': Mover was pressed) */
-  commandTarget?: 'move' | null;
+  /** A command card order waiting for its target click: Mover or Atacar was pressed */
+  commandTarget?: CommandTarget | null;
+  /** Bound control groups, by digit */
+  controlGroups?: ControlGroupInfo[];
   notifications: GameNotification[];
   objective: ObjectiveState | null;
   invasion: InvasionInfo;
@@ -340,10 +371,12 @@ export class GameManager {
   private storageMode = false;
   private viewportConfigured = false;
   private transitSystem: TransitSystem;
-  /** Mover was pressed: the next left click on the ground is the move target */
-  private moveTargetArmed = false;
+  /** Mover or Atacar was pressed: the next left click on the surface is that order's target */
+  private armedCommand: CommandTarget | null = null;
   /** Order pings for the renderer (tile coords), drained every frame */
-  private orderPings: Array<{ x: number; y: number }> = [];
+  private orderPings: OrderPing[] = [];
+  /** Ctrl+digit groups of own ants */
+  private readonly controlGroups = new ControlGroups();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -456,9 +489,16 @@ export class GameManager {
 
     // Setup input
     this.input.onKeyAction('Space', () => this.togglePause());
-    this.input.onKeyAction('Digit1', () => this.handleSlotKey(1));
-    this.input.onKeyAction('Digit2', () => this.handleSlotKey(2));
-    this.input.onKeyAction('Digit3', () => this.handleSlotKey(3));
+    // Digits are control groups (the dawn pick borrows 1-3); + and - set game speed
+    for (let slot = 1; slot <= CONTROL_GROUP_SLOTS; slot++) {
+      this.input.onKeyAction(`Digit${slot}`, (press) => this.handleDigitKey(slot, press));
+    }
+    // '=' is the unshifted + key on US layouts; the numpad and other layouts print '+' and '-'
+    for (const [key, step] of [['+', 1], ['=', 1], ['-', -1]] as const) {
+      this.input.onKeyAction(key, (press) => {
+        if (!press.repeat) this.stepSpeed(step);
+      });
+    }
     if (import.meta.env.DEV) {
       // Dev-only preview of the evolution chamber; stripped from production builds.
       // KeyE (evolution) because KeyM already toggles the underground minimap.
@@ -495,9 +535,10 @@ export class GameManager {
         }
         return;
       }
-      if (this.moveTargetArmed) {
-        // Mover was pressed: this click is the destination
-        this.commandAt(screenX, screenY);
+      if (this.armedCommand) {
+        // Mover or Atacar was pressed: this click is the order's target
+        if (this.armedCommand === 'attack') this.attackAt(screenX, screenY);
+        else this.commandAt(screenX, screenY);
         return;
       }
       const tile = this.camera.screenToTile(screenX, screenY);
@@ -809,14 +850,89 @@ export class GameManager {
     this.publishStats();
   }
 
-  /** Keys 1-3 pick a card while the evolution chamber is open, otherwise they set game speed. */
-  private handleSlotKey(slot: number): void {
-    if (!this.mutationOffer) {
-      this.gameLoop.setSpeed(slot);
+  /**
+   * Digit keys. While the evolution chamber is open, 1-3 pick a card and
+   * nothing else happens. Otherwise Ctrl+digit binds the selected ants to that
+   * control group, Shift+digit adds them, and the digit alone recalls it. A
+   * held key's auto-repeat is ignored.
+   */
+  private handleDigitKey(slot: number, press: KeyPress): void {
+    if (press.repeat) return;
+    if (this.mutationOffer) {
+      const option = this.mutationOffer.options[slot - 1];
+      if (option && !press.ctrl && !press.shift) this.chooseMutation(option.id);
       return;
     }
-    const option = this.mutationOffer.options[slot - 1];
-    if (option) this.chooseMutation(option.id);
+    if (this.gameOver) return;
+    if (press.ctrl) this.bindControlGroup(slot);
+    else if (press.shift) this.bindControlGroup(slot, true);
+    else this.recallControlGroup(slot);
+  }
+
+  /** Ctrl+digit: the selected own ants become group `slot`; `add` (Shift+digit) adds them instead. */
+  bindControlGroup(slot: number, add = false): boolean {
+    const ants = this.selectionSystem.getSelectedAnts();
+    const bound = add ? this.controlGroups.add(slot, ants) : this.controlGroups.bind(slot, ants);
+    if (bound) this.publishStats();
+    return bound;
+  }
+
+  /**
+   * Digit (or a click on its chip): select group `slot`'s living ants on the
+   * layer in view. Pressed twice within CONTROL_GROUP_DOUBLE_TAP_MS it also
+   * centers the camera on them, unless a cinematic owns the camera. Returns
+   * how many ants were selected.
+   */
+  recallControlGroup(slot: number, nowMs = performance.now()): number {
+    const double = this.controlGroups.tap(slot, nowMs);
+    const layer = this.activeLayerValue();
+    const living = this.controlGroups.recall(slot, (id) => this.world.getComponent(id, COMPONENT.ANT) !== undefined);
+    const here = living.filter((id) => (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer ?? Layer.Surface) === layer);
+    if (here.length === 0) return 0;
+    const selected = this.selectionSystem.selectAnts(here, layer);
+    this.armedCommand = null;
+    if (double) this.centerOnAnts(here);
+    this.publishStats();
+    return selected;
+  }
+
+  /** The bound control groups for the HUD chips: living count, lead caste, and whether it is the selection. */
+  getControlGroups(): ControlGroupInfo[] {
+    const selection = this.selectionSystem.getSelectedAnts();
+    const out: ControlGroupInfo[] = [];
+    for (const slot of this.controlGroups.slots()) {
+      const ids = this.controlGroups.members(slot).filter((id) => this.world.getComponent(id, COMPONENT.ANT) !== undefined);
+      if (ids.length === 0) continue;
+      const byRole = new Map<AntRole, number>();
+      for (const id of ids) {
+        const role = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!.role;
+        byRole.set(role, (byRole.get(role) ?? 0) + 1);
+      }
+      const role = GROUP_ROLE_ORDER.reduce((best, r) => ((byRole.get(r) ?? 0) > (byRole.get(best) ?? 0) ? r : best));
+      const selected = selection.length === ids.length && ids.every((id) => selection.includes(id));
+      out.push({ slot, count: ids.length, role, selected });
+    }
+    return out;
+  }
+
+  /** Center the camera of the layer in view on these ants. */
+  private centerOnAnts(ids: readonly EntityId[]): void {
+    const camera = this.activeCamera();
+    if (camera.isDirected()) return; // the intro cinematic owns the camera
+    let x = 0;
+    let y = 0;
+    for (const id of ids) {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      x += pos.x;
+      y += pos.y;
+    }
+    camera.centerOn((x / ids.length) * TILE_SIZE + TILE_SIZE / 2, (y / ids.length) * TILE_SIZE + TILE_SIZE / 2);
+  }
+
+  /** + and -: one game speed step faster or slower, between ×1 and ×GAME_SPEED_MAX. */
+  stepSpeed(step: 1 | -1): void {
+    this.gameLoop.setSpeed(Math.max(1, Math.min(GAME_SPEED_MAX, this.gameLoop.getSpeed() + step)));
+    this.publishStats();
   }
 
   private render(interpolation: number, dt: number): void {
@@ -887,7 +1003,7 @@ export class GameManager {
 
   clearSelection(): void {
     this.selectionSystem.clearSelection();
-    this.moveTargetArmed = false;
+    this.armedCommand = null;
     this.publishStats();
   }
 
@@ -900,41 +1016,75 @@ export class GameManager {
   /** Detener: drop the orders of the selected ants; their own AI takes over. */
   stopSelectedAnts(): number {
     const stopped = stopAnts(this.world, this.selectionSystem.getSelectedAnts());
-    this.moveTargetArmed = false;
+    this.armedCommand = null;
     this.publishStats();
     return stopped;
   }
 
   /** Mover: arm a move order; the next left click on the ground is the target. */
   armMoveTarget(): void {
-    this.moveTargetArmed = this.activeLayer === 'surface' && this.selectionSystem.getSelectedAnts().length > 0;
+    this.armCommand('move');
+  }
+
+  /** Atacar: arm an attack; the next left click picks an enemy, or the ground to attack-move to. */
+  armAttackTarget(): void {
+    this.armCommand('attack');
+  }
+
+  private armCommand(command: CommandTarget): void {
+    this.armedCommand = this.activeLayer === 'surface' && this.selectionSystem.getSelectedAnts().length > 0 ? command : null;
     this.publishStats();
   }
 
   cancelCommandTarget(): void {
-    if (!this.moveTargetArmed) return;
-    this.moveTargetArmed = false;
+    if (!this.armedCommand) return;
+    this.armedCommand = null;
     this.publishStats();
+  }
+
+  /** Surface orders need the surface in view, a running game and some own ants selected. */
+  private selectedAntsForOrder(): EntityId[] {
+    this.armedCommand = null;
+    if (this.activeLayer !== 'surface' || this.gameOver) return [];
+    return this.selectionSystem.getSelectedAnts();
   }
 
   /**
    * Order the selected ants to walk to a tile: each gets its own formation slot.
-   * Surface only for now. Returns how many ants took the order.
+   * `attack` makes it an attack-move. Surface only for now. Returns how many
+   * ants took the order.
    */
-  orderSelectedMove(tileX: number, tileY: number): number {
-    this.moveTargetArmed = false;
-    if (this.activeLayer !== 'surface' || this.gameOver) return 0;
-    const ants = this.selectionSystem.getSelectedAnts();
+  orderSelectedMove(tileX: number, tileY: number, attack = false): number {
+    const ants = this.selectedAntsForOrder();
     if (ants.length === 0) return 0;
-    const result = issueMoveOrders(this.world, this.grid, ants, { x: tileX, y: tileY }, this.transitSystem);
+    const kind = attack ? OrderKind.AttackMove : OrderKind.Move;
+    const result = issueMoveOrders(this.world, this.grid, ants, { x: tileX, y: tileY }, this.transitSystem, kind);
     if (!result) return 0;
-    this.orderPings.push(result.target);
+    this.orderPings.push({ ...result.target, kind: attack ? 'attack' : 'move' });
     this.publishStats();
     return result.ordered.length;
   }
 
+  /** Order the selected ants to attack one enemy until it dies. Returns how many took the order. */
+  orderSelectedAttack(targetId: EntityId): number {
+    const ants = this.selectedAntsForOrder();
+    if (ants.length === 0) return 0;
+    const result = issueAttackOrders(this.world, this.grid, ants, targetId, this.transitSystem);
+    if (!result) return 0;
+    this.orderPings.push({ ...result.target, kind: 'attack', targetId });
+    this.publishStats();
+    return result.ordered.length;
+  }
+
+  /** Mantener posición: the selected ants stand still and fight only what is in reach. */
+  holdSelectedAnts(): number {
+    const held = issueHoldOrders(this.world, this.selectedAntsForOrder(), this.transitSystem);
+    this.publishStats();
+    return held.length;
+  }
+
   /** Order pings since the last frame (tile coords); the renderer animates them. */
-  drainOrderPings(): Array<{ x: number; y: number }> {
+  drainOrderPings(): OrderPing[] {
     return this.orderPings.splice(0);
   }
 
@@ -968,7 +1118,7 @@ export class GameManager {
     } else {
       this.selectionSystem.selectAt(at.x, at.y, { layer, additive: mods.shift });
     }
-    if (this.selectionSystem.getSelectedAnts().length === 0) this.moveTargetArmed = false;
+    if (this.selectionSystem.getSelectedAnts().length === 0) this.armedCommand = null;
     this.publishStats();
   }
 
@@ -978,21 +1128,37 @@ export class GameManager {
     const b = this.screenToEntity(box.x1, box.y1);
     const area: SelectionBox = { minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y), maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y) };
     this.selectionSystem.selectInBox(area, this.activeLayerValue(), mods.shift);
-    this.moveTargetArmed = false;
+    this.armedCommand = null;
     this.publishStats();
   }
 
-  /** Right tap (or a click with Mover armed): the selected ants move there. */
+  /** Right tap (or a click with Mover armed): attack the enemy under the pointer, else move there. */
   private commandAt(screenX: number, screenY: number): void {
     // Orders run on the surface only for now; right-click does nothing below
     if (this.activeLayer !== 'surface') return;
     const at = this.screenToEntity(screenX, screenY);
-    this.orderSelectedMove(Math.round(at.x), Math.round(at.y));
+    const enemy = this.armedCommand === 'move' ? null : this.enemyAt(at);
+    if (enemy !== null) this.orderSelectedAttack(enemy);
+    else this.orderSelectedMove(Math.round(at.x), Math.round(at.y));
+  }
+
+  /** A click with Atacar armed: the enemy under the pointer, or an attack-move to the ground. */
+  private attackAt(screenX: number, screenY: number): void {
+    const at = this.screenToEntity(screenX, screenY);
+    const enemy = this.enemyAt(at);
+    if (enemy !== null) this.orderSelectedAttack(enemy);
+    else this.orderSelectedMove(Math.round(at.x), Math.round(at.y), true);
+  }
+
+  /** The surface enemy drawn under the pointer: wildlife where the colony sees now, dens on explored ground. */
+  private enemyAt(at: { x: number; y: number }): EntityId | null {
+    const fog = this.visibilityGrid;
+    return findEnemyAt(this.world, at, (x, y, den) => (den ? fog.isExplored(x, y) : isTileVisible(fog, x, y)));
   }
 
   /** Leaving a layer drops the ants picked on it; a selected nest or food stays. */
   private dropAntSelection(): void {
-    this.moveTargetArmed = false;
+    this.armedCommand = null;
     if (this.selectionSystem.getSelectedAnts().length > 0) this.selectionSystem.clearSelection();
   }
 
@@ -1212,33 +1378,9 @@ export class GameManager {
 
   // ── Retreat horn ──────────────────────────────────────────────────
 
-  /** Recall every surface ant to the nest — defensive posture */
+  /** Recall every surface ant to the nest — defensive posture; it outranks every player order */
   soundRetreat(): void {
-    const ants = this.world.query(COMPONENT.ANT, COMPONENT.LAYER);
-    let recalled = 0;
-
-    for (const id of ants) {
-      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
-      if (layer.layer !== Layer.Surface) continue;
-
-      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
-      // The horn outranks the player's own orders: everybody home
-      if (hasPlayerOrder(this.world, id)) endPlayerOrder(this.world, id);
-      // Porters keep their load and task — they're heading to the nest or
-      // underground anyway, and re-typing their state would double-count food
-      if (ant.state === AntState.FetchingFood || ant.state === AntState.Hauling) continue;
-      ant.commandTargetId = null;
-      ant.state = ant.role === AntRole.Soldier ? AntState.PatrollingNest : AntState.ReturningHome;
-      ant.stateTimer = 0;
-
-      const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH);
-      if (path) {
-        path.waypoints = [];
-        path.currentIndex = 0;
-      }
-      recalled++;
-    }
-
+    const recalled = soundRetreatHorn(this.world);
     if (recalled > 0) {
       this.world.pushNotification('info', `📯 ¡Retirada! ${recalled} hormigas vuelven al nido`);
     }
@@ -1822,7 +1964,7 @@ export class GameManager {
     for (const id of ids) {
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
       const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-      const hasOrder = hasPlayerOrder(this.world, id);
+      const hasOrder = hasActiveOrder(this.world, id);
       byRole[ant.role] = (byRole[ant.role] ?? 0) + 1;
       if (hasOrder) ordered++;
       units.push({
@@ -1995,18 +2137,10 @@ export class GameManager {
       }
     }
 
-    // Count available soldiers (idle/searching/patrolling, no active command)
+    // Soldiers free for the den attack: on the surface, no player order, idling, foraging or patrolling
     let availableSoldiers = 0;
     for (const id of ants) {
-      const antComp = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
-      if (antComp.role === AntRole.Soldier && antComp.commandTargetId === null) {
-        if (antComp.state === AntState.Searching ||
-            antComp.state === AntState.PatrollingNest ||
-            antComp.state === AntState.Idle ||
-            antComp.state === AntState.GoingToDen) {
-          availableSoldiers++;
-        }
-      }
+      if (isFreeSoldier(this.world, id)) availableSoldiers++;
     }
 
     return {
@@ -2035,7 +2169,8 @@ export class GameManager {
       breeding: this.getBreedingStatus(),
       selectedEntity: this.getSelectedEntity(),
       selectedGroup: this.getSelectedGroup(),
-      commandTarget: this.moveTargetArmed && this.selectionSystem.getSelectedAnts().length > 0 ? 'move' : null,
+      commandTarget: this.selectionSystem.getSelectedAnts().length > 0 ? this.armedCommand : null,
+      controlGroups: this.getControlGroups(),
       notifications: this.getActiveNotifications(),
       objective: this.objectiveSystem.getState(),
       invasion: this.invasionSystem.getInfo(),
@@ -2062,50 +2197,17 @@ export class GameManager {
     return [...this.world.notifications];
   }
 
+  /**
+   * Atacar guarida: the `soldierCount` free soldiers closest to the den get a
+   * real attack order on it, the same order a right-click gives. Returns how
+   * many were sent.
+   */
   dispatchAttackWave(targetEntityId: EntityId, soldierCount: number): number {
-    // Validate target exists and is a den
-    if (!this.world.hasEntity(targetEntityId)) return 0;
-    const isBeetleDen = this.world.getComponent<BeetleDenComponent>(targetEntityId, COMPONENT.BEETLE_DEN);
-    const isCricketDen = this.world.getComponent<CricketDenComponent>(targetEntityId, COMPONENT.CRICKET_DEN);
-    if (!isBeetleDen && !isCricketDen) return 0;
-
-    const targetPos = this.world.getComponent<PositionComponent>(targetEntityId, COMPONENT.POSITION);
-    if (!targetPos) return 0;
-
-    // Find available soldiers
-    const ants = this.world.query(COMPONENT.ANT, COMPONENT.POSITION);
-    const available: { id: EntityId; dist: number }[] = [];
-
-    for (const id of ants) {
-      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
-      if (ant.role !== AntRole.Soldier) continue;
-      if (ant.commandTargetId !== null) continue;
-
-      // Accept soldiers that are idle/searching/patrolling/going to den (auto)
-      if (ant.state !== AntState.Searching &&
-          ant.state !== AntState.PatrollingNest &&
-          ant.state !== AntState.Idle &&
-          ant.state !== AntState.GoingToDen) continue;
-
-      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-      const dx = pos.x - targetPos.x;
-      const dy = pos.y - targetPos.y;
-      available.push({ id, dist: Math.sqrt(dx * dx + dy * dy) });
+    const sent = dispatchDenAttack(this.world, this.grid, targetEntityId, soldierCount, this.transitSystem);
+    const den = this.world.getComponent<PositionComponent>(targetEntityId, COMPONENT.POSITION);
+    if (sent.length > 0 && den) {
+      this.orderPings.push({ x: Math.round(den.x), y: Math.round(den.y), kind: 'attack', targetId: targetEntityId });
     }
-
-    // Sort by distance (closest first)
-    available.sort((a, b) => a.dist - b.dist);
-
-    // Dispatch up to soldierCount
-    const toDispatch = Math.min(soldierCount, available.length);
-    for (let i = 0; i < toDispatch; i++) {
-      const ant = this.world.getComponent<AntComponent>(available[i].id, COMPONENT.ANT)!;
-      ant.commandTargetId = targetEntityId;
-      ant.state = AntState.GoingToDen;
-      ant.stateTimer = 0;
-      // Path computed on next tick by handleGoingToDen
-    }
-
-    return toDispatch;
+    return sent.length;
   }
 }

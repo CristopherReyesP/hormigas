@@ -15,7 +15,12 @@ export interface ScreenBox {
   y1: number;
 }
 
-export type KeyHandler = (mods: InputModifiers) => void;
+/** A key press: its modifiers, and whether the OS is auto-repeating a held key. */
+export interface KeyPress extends InputModifiers {
+  repeat: boolean;
+}
+
+export type KeyHandler = (press: KeyPress) => void;
 export type PointHandler = (screenX: number, screenY: number, mods: InputModifiers) => void;
 
 /** Pointer gestures beyond the plain click, wired at construction. */
@@ -70,6 +75,11 @@ export class InputManager {
     this.camera = camera;
   }
 
+  /**
+   * Run `handler` on a key press. `key` is a KeyboardEvent.code ("Digit1",
+   * "Space"), or a printed character ("+") used when no code is bound: that
+   * one works wherever the layout puts the key, numpad included.
+   */
   onKeyAction(key: string, handler: KeyHandler): void {
     this.keyHandlers.set(key, handler);
   }
@@ -137,10 +147,11 @@ export class InputManager {
 
   private onKeyDown = (e: KeyboardEvent): void => {
     this.keysDown.add(e.code);
-    const handler = this.keyHandlers.get(e.code);
+    const handler = this.keyHandlers.get(e.code) ?? this.keyHandlers.get(e.key);
     if (handler) {
+      // Also keeps Ctrl+digit (a control group) from switching browser tabs
       e.preventDefault();
-      handler(modifiersOf(e));
+      handler({ ...modifiersOf(e), repeat: e.repeat });
     }
   };
 

@@ -6,7 +6,7 @@ import { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { TerrainType } from '../../simulation/world/types';
 import type { PathGrid } from '../../simulation/pathfinding/AStar';
 import { createDefaultModifiers } from '../events/GlobalModifiers';
-import { createAnt, createBeetle, createBeetleDen, createNest } from '../entities/factories';
+import { createAnt, createBeetle, createNest } from '../entities/factories';
 import {
   AntRole,
   AntState,
@@ -26,7 +26,7 @@ import { TransitSystem } from './TransitSystem';
 import { PorterSystem } from './PorterSystem';
 import { UndergroundInvasionSystem } from './UndergroundInvasionSystem';
 import { DayNightSystem } from './DayNightSystem';
-import { formationSlots, issueMoveOrders, stopAnts, hasPlayerOrder } from './helpers/playerOrders';
+import { formationSlots, issueMoveOrders, hasPlayerOrder } from './helpers/playerOrders';
 
 const NX = Math.floor(WORLD_WIDTH / 2);
 const NY = Math.floor(WORLD_HEIGHT / 2);
@@ -251,30 +251,5 @@ describe('colony systems leave ordered ants alone', () => {
     invasion.update(TICK);
     expect(antOf(free).state).toBe(AntState.AttackingEnemy);
     expect(antOf(ordered).state).toBe(AntState.Idle);
-  });
-});
-
-describe('Detener', () => {
-  it('clears move orders and the den dispatch; autonomous ants are untouched', () => {
-    const { world, surface, antOf, pathOf, orderOf } = setup();
-    const moving = createAnt(world, NX + 2, NY, AntRole.Soldier);
-    issueMoveOrders(world, surface, [moving], { x: NX + 15, y: NY });
-    pathOf(moving).waypoints = [{ x: NX + 3, y: NY }];
-
-    const den = createBeetleDen(world, NX + 20, NY + 10);
-    const raider = createAnt(world, NX + 3, NY, AntRole.Soldier);
-    antOf(raider).commandTargetId = den;
-    antOf(raider).state = AntState.GoingToDen;
-
-    const forager = createAnt(world, NX + 4, NY, AntRole.Worker);
-    antOf(forager).state = AntState.GoingToFood;
-
-    expect(stopAnts(world, [moving, raider, forager])).toBe(2);
-    expect(orderOf(moving)).toBeUndefined();
-    expect(antOf(moving).state).toBe(AntState.Idle);
-    expect(pathOf(moving).waypoints).toEqual([]);
-    expect(antOf(raider).commandTargetId).toBeNull();
-    expect(antOf(raider).state).toBe(AntState.Idle);
-    expect(antOf(forager).state).toBe(AntState.GoingToFood);
   });
 });

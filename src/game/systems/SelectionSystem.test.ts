@@ -124,3 +124,17 @@ describe('click selection keeps the single-entity flow', () => {
     expect(selection.getSelectedEntityId()).toBe(c);
   });
 });
+
+describe('control group recall', () => {
+  it('selects exactly the given own ants on the layer, nothing else', () => {
+    const { world, selection, isFlagged, below } = setup();
+    const a = createAnt(world, 12, 12, AntRole.Soldier);
+    const b = createAnt(world, 40, 30, AntRole.Worker);
+    const down = below(createAnt(world, 13, 12, AntRole.Worker));
+    const beetle = createBeetle(world, 14, 12);
+    selection.selectAt(14, 12, { layer: Layer.Surface });
+    expect(selection.selectAnts([a, b, down, beetle, a], Layer.Surface)).toBe(2);
+    expect(selection.getSelectedIds()).toEqual([a, b]);
+    expect([isFlagged(a), isFlagged(b), isFlagged(down), isFlagged(beetle)]).toEqual([true, true, false, false]);
+  });
+});

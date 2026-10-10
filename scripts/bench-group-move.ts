@@ -15,7 +15,7 @@ import { PheromoneSystem } from '../src/game/systems/PheromoneSystem';
 import { FogOfWarSystem } from '../src/game/systems/FogOfWarSystem';
 import { HungerSystem } from '../src/game/systems/HungerSystem';
 import { TransitSystem } from '../src/game/systems/TransitSystem';
-import { issueMoveOrders } from '../src/game/systems/helpers/playerOrders';
+import { hasActiveOrder, issueMoveOrders } from '../src/game/systems/helpers/playerOrders';
 import { createAnt, createFood, createNest } from '../src/game/entities/factories';
 import { AntRole, COMPONENT, type PlayerOrderComponent, type PositionComponent } from '../src/game/components/components';
 import { findPath } from '../src/simulation/pathfinding/AStar';
@@ -131,7 +131,8 @@ for (const groupSize of [30, 60]) {
   const routingTicks = Math.ceil(result.ordered.length / ORDER_PATHS_PER_TICK);
   const ordered = runTicks(world, 60 * 50);
   const routingWindow = ordered.slice(0, routingTicks + 2);
-  const stillOrdered = result.ordered.filter((id) => world.getComponent(id, COMPONENT.PLAYER_ORDER)).length;
+  // Warriors keep a guard order once they arrive; only the move itself counts as still under way
+  const stillOrdered = result.ordered.filter((id) => hasActiveOrder(world, id)).length;
 
   const avgBase = mean(baseline);
   console.log(`\n=== ${result.ordered.length} ants ordered from the nest to (${target.x}, ${target.y}), ${Math.round(Math.hypot(target.x - NX, target.y - NY))} tiles away ===`);
