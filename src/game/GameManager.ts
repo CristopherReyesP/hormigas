@@ -75,6 +75,7 @@ import { createHumanBase } from './rival/humanFactories';
 import { humanSelection, type HumanSelection } from './rival/humanInfo';
 import { pickHumanBaseSite } from './rival/humanSite';
 import { FactionId, FactionRegistry, defaultFactions } from './factions/factions';
+import type { TutorialStage } from './tutorial/stage';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
 import {
@@ -931,6 +932,17 @@ export class GameManager {
     for (const field of fields) {
       for (const node of field.nodes) createMineral(this.world, node.x, node.y);
     }
+  }
+
+  /** The tutorial's handle on this run (src/game/tutorial): the world to stage its lessons on and the day clock to hold. */
+  getTutorialStage(): TutorialStage {
+    return {
+      world: this.world,
+      grid: this.grid,
+      nest: { x: Math.floor(WORLD_WIDTH / 2), y: Math.floor(WORLD_HEIGHT / 2) },
+      reveal: (x, y, radius) => this.visibilityGrid.revealArea(x, y, radius),
+      holdDayClock: (held) => this.dayNightSystem.setHeld(held),
+    };
   }
 
   /** Tile where the meteorite struck (crater center); fixed for the whole run. */
