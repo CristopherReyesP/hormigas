@@ -94,6 +94,7 @@ import { HumanBaseSystem } from './systems/HumanBaseSystem';
 import { HumanUnitAISystem } from './systems/HumanUnitAISystem';
 import { HUMAN_COMPONENT, type HumanBuildingComponent, type HumanUnitComponent } from './rival/humanComponents';
 import { createHumanBase } from './rival/humanFactories';
+import type { HumanUnitType } from './rival/humanBase';
 import { humanSelection, type HumanSelection } from './rival/humanInfo';
 import { pickHumanBaseSite } from './rival/humanSite';
 import { FactionId, FactionRegistry, defaultFactions, isHostileTo, ownerOf } from './factions/factions';
@@ -1056,11 +1057,19 @@ export class GameManager {
    * the chip) the camera centers on them instead. An empty caste changes
    * nothing.
    */
-  quickSelect(kind: QuickSelectKind): { selected: number; centered: boolean } {
+  quickSelect(kind: QuickSelectKind): { selected: number; centered: boolean; notice?: string } {
     if (this.gameOver) return { selected: 0, centered: false };
     const layer = this.activeLayerValue();
     const ids = quickSelectIds(this.world, kind, layer);
-    if (ids.length === 0) return { selected: 0, centered: false };
+    if (ids.length === 0) {
+      // A Human player's empty chip points at the building that trains that unit
+      const notice = this.humanPlayer && kind.startsWith('human-') ? this.humanPlayer.emptyChip(kind.slice(6) as HumanUnitType) : null;
+      if (!notice) return { selected: 0, centered: false };
+      this.armedCommand = null;
+      this.areaSelect = false;
+      this.publishStats();
+      return { selected: 0, centered: false, notice };
+    }
     const again = sameMembers(ids, this.selectionSystem.getSelectedAnts());
     this.selectionSystem.selectAnts(ids, layer);
     this.armedCommand = null;

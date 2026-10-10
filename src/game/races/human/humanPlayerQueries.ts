@@ -6,10 +6,11 @@ import type { EntityId, Vector2 } from '../../../shared/types';
 import { findPath, type PathGrid } from '../../../simulation/pathfinding/AStar';
 import { COMPONENT, Layer, type LayerComponent, type PathComponent, type PositionComponent } from '../../components/components';
 import { FactionId, ownerOf } from '../../factions/factions';
-import { HUMAN_UNIT_STATS, humanSupplyCap, type HumanBuildingKind, type HumanUnitType } from '../../rival/humanBase';
+import { HUMAN_BUILDING_STATS, HUMAN_UNIT_STATS, humanSupplyCap, type HumanBuildingKind, type HumanUnitType } from '../../rival/humanBase';
 import { HUMAN_COMPONENT, type HumanBuildingComponent, type HumanUnitComponent } from '../../rival/humanComponents';
 import { ORDER_PATH_MAX_STEPS } from '../../../shared/constants';
 import { HUMAN_PLAYER_COMPONENT, type HumanProducerComponent } from './humanPlayerComponents';
+import type { PlacementWorld } from './humanPlayerRules';
 
 export function isPlayerOwned(world: World, id: EntityId): boolean {
   return ownerOf(world, id) === FactionId.PLAYER;
@@ -101,4 +102,35 @@ export function clearPath(path: PathComponent | undefined): void {
 
 export function pathDone(path: PathComponent): boolean {
   return path.currentIndex >= path.waypoints.length;
+}
+
+/** Wildlife and Crystal structures a building cannot overlap (their footprint, as a building's half width) */
+const OTHER_STRUCTURES = [COMPONENT.CRYSTAL_HIVE, COMPONENT.CRYSTAL_SPIRE, COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN];
+const OTHER_HALF_WIDTH = 1.5;
+
+/**
+ * What the placement rules see of the map: its size and ground, every
+ * building and den of any faction, and the mineral nodes. `exclude` leaves
+ * entities out (a building checked against everything else).
+ */
+export function placementWorldOf(
+  world: World,
+  grid: { width: number; height: number; isWalkable(x: number, y: number): boolean },
+  exclude: readonly EntityId[] = [],
+): PlacementWorld {
+  const skip = new Set(exclude);
+  const at = (id: EntityId) => positionOf(world, id)!;
+  return {
+    width: grid.width,
+    height: grid.height,
+    isWalkable: (x, y) => grid.isWalkable(x, y),
+    buildings: world.query(HUMAN_COMPONENT.BUILDING, COMPONENT.POSITION).filter((id) => !skip.has(id)).map((id) => {
+      const kind = world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!.kind;
+      return { x: at(id).x, y: at(id).y, halfWidth: HUMAN_BUILDING_STATS[kind].halfWidth };
+    }).concat(
+      OTHER_STRUCTURES.flatMap((store) => world.query(store, COMPONENT.POSITION).filter((id) => !skip.has(id))
+        .map((id) => ({ x: at(id).x, y: at(id).y, halfWidth: OTHER_HALF_WIDTH }))),
+    ),
+    minerals: world.query(COMPONENT.MINERAL, COMPONENT.POSITION).filter((id) => !skip.has(id)).map((id) => ({ x: at(id).x, y: at(id).y })),
+  };
 }

@@ -40,7 +40,11 @@ export const HUMAN_COACH_STEPS: readonly CoachStep[] = [
     title: 'Elige tus tropas',
     text: 'Toca «Soldados», «Constructores» o «Todas» para elegir a todas esas unidades del mapa. Toca otra vez para ir hacia ellas.',
   },
-  COACH_STEPS[1],
+  {
+    anchor: 'hint-line',
+    title: 'Entrena soldados',
+    text: 'Toca el Cuartel o el Centro de mando para entrenar soldados. Esta línea siempre dice qué pasa si tocas el mapa.',
+  },
   COACH_STEPS[2],
 ];
 

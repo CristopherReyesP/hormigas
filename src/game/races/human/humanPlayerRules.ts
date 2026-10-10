@@ -50,12 +50,17 @@ export function trainableAt(kind: HumanBuildingKind): HumanUnitType[] {
   return TRAIN_ORDER.filter((type) => PRODUCER_OF[type] === kind);
 }
 
-/** The expedition's landing: the command center at the map center plus this. */
+/**
+ * The expedition's landing: the command center at the map center, a finished
+ * Cuartel beside it (so soldiers can be trained from the first minute) plus
+ * this. The free Cuartel (150 minerals) is paid out of the starting bank:
+ * 150 -> 50 minerals, which still covers two Tiradores.
+ */
 export const PLAYER_HUMAN_START = {
   builders: 2,
   soldiers: 2,
   rations: 150,
-  minerals: 150,
+  minerals: 50,
 } as const;
 
 /** Builders mining the mineral fields for the command center. */
@@ -131,6 +136,38 @@ export function placementProblem(kind: HumanBuildingKind, tile: { x: number; y: 
   }
   for (const m of map.minerals) {
     if (Math.abs(m.x - tile.x) < half + 1 && Math.abs(m.y - tile.y) < half + 1) return 'No se puede construir sobre un yacimiento de minerales.';
+  }
+  return null;
+}
+
+/**
+ * Offsets tried for a building that lands with the expedition, nearest
+ * first: west and north of the command center before the other sides (the
+ * builders stand south, the soldiers east, the home field most often
+ * south-east).
+ */
+const START_SPOT_DIRECTIONS: ReadonlyArray<readonly [number, number]> = [
+  [-1, 0], [0, -1], [-1, -1], [-1, 1], [1, -1], [0, 1], [1, 0], [1, 1],
+];
+
+/**
+ * The first tile next to `center` where a `kind` building passes
+ * placementProblem and keeps its footprint off every tile in `avoid` (units
+ * standing there). Deterministic; null when nothing within 10 tiles fits.
+ */
+export function startBuildingSpot(
+  kind: HumanBuildingKind,
+  center: { x: number; y: number },
+  map: PlacementWorld,
+  avoid: ReadonlyArray<{ x: number; y: number }> = [],
+): { x: number; y: number } | null {
+  const r = footprintRadius(kind);
+  for (let distance = 3; distance <= 10; distance++) {
+    for (const [dx, dy] of START_SPOT_DIRECTIONS) {
+      const tile = { x: center.x + dx * distance, y: center.y + dy * distance };
+      if (avoid.some((u) => Math.abs(u.x - tile.x) <= r + 1 && Math.abs(u.y - tile.y) <= r + 1)) continue;
+      if (placementProblem(kind, tile, map) === null) return tile;
+    }
   }
   return null;
 }

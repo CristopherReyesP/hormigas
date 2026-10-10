@@ -134,7 +134,7 @@ describe('the hint line in a Humans run', () => {
   });
 
   it('nothing selected: pick a unit', () => {
-    expect(touchHint({ ...NONE, human: { group: null } }).text).toBe('Toca una unidad o usa la barra de abajo para elegir tropas');
+    expect(touchHint({ ...NONE, human: { group: null } }).text).toBe('Toca el Cuartel o el Centro de mando para entrenar soldados · usa la barra para elegir tropas');
   });
 
   it('builders mine', () => {

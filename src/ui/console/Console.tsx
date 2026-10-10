@@ -14,7 +14,7 @@ import { touchHint } from './touchHint';
 import { TouchFeedback, type CasteBurst, type OrderToast } from './TouchFeedback';
 import { CoachMarks } from './CoachMarks';
 import { HAPTIC_PATTERN, feedbackText, hapticFor, vibrate } from './feedbackText';
-import { humanHint } from '../races/human/humanCommands';
+import { humanHint, humanIdleHint } from '../races/human/humanCommands';
 
 interface ConsoleProps {
   stats: GameStats;
@@ -169,22 +169,25 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   const quickSelect = useCallback(
     (kind: QuickSelectKind) => {
       if (!gameManager) return;
-      if (gameManager.quickSelect(kind).selected > 0 && touch) {
+      const picked = gameManager.quickSelect(kind);
+      if (picked.selected > 0 && touch) {
         vibrate(typeof navigator !== 'undefined' ? navigator : undefined, HAPTIC_PATTERN.select);
       }
+      // A Human player's empty chip selected the building that trains that unit: say so
+      if (picked.notice) notify(picked.notice);
       // Picking troops leaves the Defensas page and drops its build tool: the next tap is an order
       setPage('root');
       setBuildMode((mode) => (isDefenseMode(mode) ? null : mode));
       refresh();
     },
-    [gameManager, touch, refresh],
+    [gameManager, touch, refresh, notify],
   );
 
   const areaHint = touch && stats.areaSelect ? 'SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus hormigas' : null;
   // A Human player placing a building: its hint first
   const placingHint = humanHint(stats, touch);
   // The compact HUD's hint line already says what the mode does: the feed only carries notices there
-  const modeHint = compact ? null : placingHint ?? commandTargetHint(stats.commandTarget, touch) ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint);
+  const modeHint = compact ? null : placingHint ?? commandTargetHint(stats.commandTarget, touch) ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint) ?? humanIdleHint(stats);
   const hint = notice?.text ?? modeHint;
   const lineHint = touchHint({ ...stats, buildMode, touch, toolHint: placingHint });
   const overlayOpen = Boolean(stats.mutationOffer || stats.gameOver);

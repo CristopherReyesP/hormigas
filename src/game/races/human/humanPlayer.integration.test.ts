@@ -84,6 +84,9 @@ describe('a Humans run against the Crystal Hive', () => {
     const { game, world, selection, run, mine, myBuildings, human } = start(VS_CRYSTAL);
     const builders = mine('builder');
     const minerals = world.minerals.stored;
+    // The expedition lands with one Cuartel; this opening raises a second
+    const starter = myBuildings('barracks');
+    expect(starter).toHaveLength(1);
     // Right-click a home mineral node with the builders selected: they mine it
     selection.selectAnts(builders, Layer.Surface);
     const node = world.query(COMPONENT.MINERAL).map((id) => ({ id, p: world.getComponent<PositionComponent>(id, COMPONENT.POSITION)! }))
@@ -93,6 +96,7 @@ describe('a Humans run against the Crystal Hive', () => {
     expect(world.minerals.stored).toBeGreaterThan(minerals);
 
     // Construir → Cuartel, then a click on open ground
+    world.minerals.deposit(150);
     selection.selectAnts([builders[0]], Layer.Surface);
     expect(human.beginPlacement('barracks')).toBeNull();
     expect(game.getStats().human?.placing?.kind).toBe('barracks');
@@ -101,7 +105,7 @@ describe('a Humans run against the Crystal Hive', () => {
     expect(game.getStats().human?.placing?.valid).toBe(true);
     expect(human.clickAt(spot, false)).toBe(true);
     expect(game.getStats().human?.placing).toBeNull();
-    const barracks = myBuildings('barracks')[0];
+    const barracks = myBuildings('barracks').find((id) => !starter.includes(id))!;
     expect(barracks).toBeDefined();
     run(HUMAN_BUILDING_STATS.barracks.buildTime + 15);
     expect(world.getComponent<HumanBuildingComponent>(barracks, HUMAN_COMPONENT.BUILDING)!.constructing).toBe(0);
@@ -274,8 +278,8 @@ describe('a Human mirror match', () => {
     const b = world.getComponent<PositionComponent>(rivalCore!, COMPONENT.POSITION)!;
     expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(25);
     run(5);
-    // The rival's AI never trains or builds for the player
-    expect(world.query(HUMAN_COMPONENT.BUILDING).filter((id) => ownerOf(world, id) === FactionId.PLAYER)).toHaveLength(1);
+    // The rival's AI never trains or builds for the player: still the command center and the starting Cuartel
+    expect(world.query(HUMAN_COMPONENT.BUILDING).filter((id) => ownerOf(world, id) === FactionId.PLAYER)).toHaveLength(2);
     game.stop();
   });
 });
