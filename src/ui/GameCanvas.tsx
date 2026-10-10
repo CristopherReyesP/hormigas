@@ -1,8 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { GameManager } from '../game/GameManager';
 import type { GameStats } from '../game/GameManager';
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../shared/constants';
-import { fitCanvasToViewport, pickDefaultZoom, visibleCanvasRect, type CanvasFit } from './layout/canvasFit';
+import { fitCanvasToWindow, pickDefaultZoom, visibleCanvasRect, type CanvasFit } from './layout/canvasFit';
 import { HUD_FADE_MS, hudInsets } from './layout/hudMetrics';
 
 interface GameCanvasProps {
@@ -13,10 +12,11 @@ interface GameCanvasProps {
 }
 
 /**
- * The world fills the whole window: the fixed-resolution canvas is scaled to
- * cover it (pixelated, whole device pixels when the crop allows) and the HUD
- * floats on top. The camera is told which band of the canvas stays visible
- * between the top strip and the console, so it centers and clamps there.
+ * The world fills the whole window at its real resolution: the canvas backing
+ * store is the window's CSS size × devicePixelRatio (capped), so nothing is
+ * upscaled, and the HUD floats on top. The camera is told which band of the
+ * canvas stays visible between the top strip and the console, so it centers
+ * and clamps there.
  * During the intro the HUD is hidden and that band is the whole window; as
  * the HUD fades in, the band eases back so the camera glides instead of jumping.
  */
@@ -24,7 +24,7 @@ export function GameCanvas({ onStatsUpdate, onGameManager, introPlaying }: GameC
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const gameManagerRef = useRef<GameManager | null>(null);
-  const [fit, setFit] = useState<CanvasFit>({ scale: 1, width: CANVAS_WIDTH, height: CANVAS_HEIGHT, left: 0, top: 0 });
+  const [fit, setFit] = useState<CanvasFit>(() => fitCanvasToWindow(0, 0));
   /** HUD fade-in progress: 0 while the intro plays (the world takes the whole window), 1 once the HUD is in */
   const hudReveal = useRef(introPlaying ? 0 : 1);
   /** Re-sends the visible band to the camera; set by the resize effect */
@@ -53,25 +53,19 @@ export function GameCanvas({ onStatsUpdate, onGameManager, introPlaying }: GameC
     const container = containerRef.current;
     if (!container) return;
 
-    let measured: { fit: CanvasFit; width: number; height: number } | null = null;
+    let measured: CanvasFit | null = null;
     const pushViewport = () => {
       if (!measured) return;
-      const visible = visibleCanvasRect(
-        measured.fit,
-        measured.width,
-        measured.height,
-        hudInsets(hudReveal.current),
-        CANVAS_WIDTH,
-        CANVAS_HEIGHT,
-      );
-      gameManagerRef.current?.setViewport(visible, pickDefaultZoom(measured.fit.scale));
+      const visible = visibleCanvasRect(measured, hudInsets(hudReveal.current));
+      gameManagerRef.current?.setViewport(visible, pickDefaultZoom(measured.backingWidth, measured.pixelRatio));
     };
     const recompute = () => {
       const rect = container.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      const next = fitCanvasToViewport(rect.width, rect.height, CANVAS_WIDTH, CANVAS_HEIGHT, dpr);
+      const next = fitCanvasToWindow(rect.width, rect.height, window.devicePixelRatio || 1);
       setFit(next);
-      measured = { fit: next, width: rect.width, height: rect.height };
+      measured = next;
+      // The buffer resizes at once (cheap); size-bound render caches rebuild once the size settles
+      gameManagerRef.current?.resizeCanvas(next.backingWidth, next.backingHeight, next.pixelRatio);
       pushViewport();
     };
     syncViewport.current = pushViewport;
@@ -126,12 +120,7 @@ export function GameCanvas({ onStatsUpdate, onGameManager, introPlaying }: GameC
         ref={canvasRef}
         className="game-canvas"
         onContextMenu={(e) => e.preventDefault()}
-        style={{
-          width: `${fit.width}px`,
-          height: `${fit.height}px`,
-          left: `${fit.left}px`,
-          top: `${fit.top}px`,
-        }}
+        style={{ width: `${fit.width}px`, height: `${fit.height}px`, left: 0, top: 0 }}
       />
     </div>
   );

@@ -2,7 +2,9 @@ export const TILE_SIZE = 32; // pixels per tile
 export const WORLD_WIDTH = 120; // tiles
 export const WORLD_HEIGHT = 90; // tiles
 
-// Viewport size (fixed) — NOT derived from world size
+// Reference canvas size, NOT derived from world size. The real canvas follows the
+// window (GameCanvas); this is only its size before the first measure, a test
+// fallback, and the design size screen-space overlays scale from (screenPixelScale).
 export const CANVAS_WIDTH = 800;
 export const CANVAS_HEIGHT = 600;
 
