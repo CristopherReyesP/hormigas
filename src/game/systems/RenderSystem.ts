@@ -8,7 +8,8 @@ import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { TerrainRenderer } from '../../engine/renderer/TerrainRenderer';
 import { FoliageOverlay } from '../../engine/renderer/FoliageOverlay';
 import { PostProcessor, nightGlowAlpha, type ScreenLight } from '../../engine/renderer/PostProcessor';
-import { SpriteAtlas, antGlowPoints } from '../../engine/renderer/SpriteAtlas';
+import { SpriteAtlas, antGlowPoints, sharedSpriteAtlas } from '../../engine/renderer/SpriteAtlas';
+import { snapAngle } from '../../engine/renderer/pixelart/directions';
 import { computeUndergroundLight, UG_LIGHT_RIM, UG_LIGHT_FULL } from './undergroundLight';
 import { FogRenderer } from '../../engine/renderer/FogRenderer';
 import { isTileVisible } from '../../engine/renderer/fogVisibility';
@@ -191,7 +192,7 @@ export class RenderSystem {
     this.terrainRenderer = new TerrainRenderer(grid);
     this.foliageOverlay = new FoliageOverlay(grid);
     this.postProcessor = new PostProcessor();
-    this.spriteAtlas = new SpriteAtlas();
+    this.spriteAtlas = sharedSpriteAtlas();
     this.fogRenderer = new FogRenderer(visibilityGrid);
     this.ambientParticles = new AmbientParticleSystem(grid, world);
     this.initFxCaches();
@@ -734,6 +735,8 @@ export class RenderSystem {
   /** The single render path. `dt` is real frame time (0 while paused). */
   renderInterpolated(interpolation: number, dt: number): void {
     this.animationTime += dt;
+    // Mutation marks are baked into the ant sheets; same object = no work
+    this.spriteAtlas.setColonyMarks(this.world.runModifiers.getColonyMarks());
     this.terrainRenderer.update(dt);
     // Day phase is read on BOTH layers so the dusk alarm fires at the real
     // nightfall even when the player is watching the underground
@@ -1247,15 +1250,9 @@ export class RenderSystem {
         const queenAngle = queenFacing?.angle ?? 0;
         const queenLegPhase = queenFacing?.legPhase ?? 0;
 
-        // Draw dedicated queen sprite — large gaster, short compact legs.
-        // Using her own sprite (not a scaled Worker) ensures the legs never
-        // bleed onto the chamber floor and look like moving ground.
-        ctx.save();
-        ctx.translate(px, py);
-        ctx.scale(2.2 * bodyPulse, 2.2 * bodyPulse);
-        ctx.translate(-px, -py);
-        this.spriteAtlas.drawQueenAnt(ctx, px, py, queenAngle, queenLegPhase);
-        ctx.restore();
+        // Dedicated queen sprite on her own big grid at the one art-pixel
+        // scale (never scaled up); the pulse is her sac's breathing frame.
+        this.spriteAtlas.drawQueenAnt(ctx, px, py, queenAngle, queenLegPhase, bodyPulse > 1);
 
         // Glowing vein crest above the queen (3 spikes + base, Swarm palette)
         const cp = new PixelPainter(ctx, 2);
@@ -1673,7 +1670,7 @@ export class RenderSystem {
         const isInCombat = ant.state === AntState.AttackingEnemy || ant.state === AntState.AttackingDen;
         const isFleeing = ant.state === AntState.Fleeing;
         this.drawAnt(ctx, x, y, facing.angle, facing.legPhase, ant.role, isSelected, isCarrying, isInCombat, isFleeing);
-        this.recordGlowAnt(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2, facing.angle, ant.role);
+        this.recordGlowAnt(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2, snapAngle(facing.angle), ant.role);
 
         // Health bar for damaged ants
         const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
@@ -2098,20 +2095,20 @@ export class RenderSystem {
 
     // Combat glow for attacking crickets — boss-sized dithered stamp, 2-state blink
     if (isAttacking && Math.floor(this.animationTime * 8) % 2 === 0) {
-      this.drawGlowStamp(ctx, px, py, TILE_SIZE * 2.2, 'danger');
+      this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.2, 'danger');
     }
 
     // STEALING glow — amber dithered stamp, slower 2-state blink
     if (isStealing) {
       if (Math.floor(this.animationTime * 5) % 2 === 0) {
-        this.drawGlowStamp(ctx, px, py, TILE_SIZE * 2.5, 'amber');
+        this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.4, 'amber');
       }
 
       // Food chunks being siphoned — square pixels, smooth motion, quantized alpha
       ctx.fillStyle = PAL.glowAmber;
       for (let i = 0; i < 6; i++) {
         const phase = (this.animationTime * 2 + i * 1.05) % (Math.PI * 2);
-        const dist = TILE_SIZE * (1.5 + Math.sin(phase) * 0.8);
+        const dist = TILE_SIZE * (1.0 + Math.sin(phase) * 0.5);
         const angle = phase * 1.3 + i * 0.9;
         const fx = Math.round(px + Math.cos(angle) * dist);
         const fy = Math.round(py + Math.sin(angle) * dist);
@@ -2121,15 +2118,15 @@ export class RenderSystem {
       ctx.globalAlpha = 1;
     }
 
-    // Drop shadow — massive, matching 2.5 tile radius (pre-rendered dither stamp)
-    this.drawShadow(ctx, px + 7, py + 10, TILE_SIZE * 1.4, TILE_SIZE * 0.7);
+    // Drop shadow under the 48-art-px body (pre-rendered dither stamp)
+    this.drawShadow(ctx, px + 4, py + 5, TILE_SIZE * 0.8, TILE_SIZE * 0.4);
 
     this.spriteAtlas.drawCricket(ctx, px, py, facing, legPhase);
 
     // Health bar — segmented pixel bar at 2× scale, positioned higher for the big sprite
     const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
     if (health && health.current < health.max) {
-      this.drawHealthBar(ctx, px, py, health.current, health.max, false, 2, -TILE_SIZE * 2.8);
+      this.drawHealthBar(ctx, px, py, health.current, health.max, false, 2, -TILE_SIZE * 1.6);
     }
   }
 

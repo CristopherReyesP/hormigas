@@ -1,4 +1,6 @@
+import type { AntMarks } from '../../engine/renderer/sprites/antMarks';
 import { ADDITIVE_STATS, MULTIPLIER_STATS, MUTATION_DEFINITIONS, type MutationId, type RunStat } from './MutationDefinitions';
+import { colonyMarks } from './mutationMarks';
 
 export type { RunStat } from './MutationDefinitions';
 
@@ -24,6 +26,7 @@ export class RunModifiers implements Record<RunStat, number> {
   scoutVisionMult = 1;
   flankingBonusMult = 1;
   private readonly appliedMutations: MutationId[] = [];
+  private marks: AntMarks | null = null;
 
   /** Adds one stack of every effect; refuses (false, no change) at maxStacks. */
   apply(id: MutationId): boolean {
@@ -34,6 +37,7 @@ export class RunModifiers implements Record<RunStat, number> {
       else this[effect.stat] *= effect.value;
     }
     this.appliedMutations.push(id);
+    this.marks = null;
     return true;
   }
 
@@ -43,6 +47,12 @@ export class RunModifiers implements Record<RunStat, number> {
 
   getAppliedMutations(): MutationId[] {
     return [...this.appliedMutations];
+  }
+
+  /** The marks these mutations leave on the ants; the same object until the next pick, so renderers can compare by identity. */
+  getColonyMarks(): AntMarks {
+    this.marks ??= colonyMarks(this.appliedMutations);
+    return this.marks;
   }
 
   snapshot(): Record<RunStat, number> {

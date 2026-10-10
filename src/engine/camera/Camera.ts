@@ -1,6 +1,7 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT, TILE_SIZE } from '../../shared/constants';
 
-const PERSPECTIVE_Y_SCALE = 0.85;
+// 1: one art pixel stays a square of whole screen px on both axes (no vertical squash).
+const PERSPECTIVE_Y_SCALE = 1;
 
 // Pixel art shimmers at fractional zoom — zoom moves on a fixed 0.5 grid.
 export const ZOOM_STEP = 0.5;
