@@ -54,6 +54,7 @@ import type { ShieldComponent } from '../rival/crystalShield';
 import { combatVfxFor } from '../vfx/CombatVfx';
 import { drawCombatVfx } from '../vfx/drawCombatVfx';
 import { HumanRenderer } from './HumanRenderer';
+import { drawDefenses, drawGhost, drawScoutMarks, drawWaveFx, drawWaveUnits, type WaveOverlay } from '../render/waveFunArt';
 import type { IntroClock, Vec2 } from '../render/introTimeline';
 import { LeapTracker, type LeapDraw } from '../render/leapMotion';
 import type { TilePos } from '../run/craterSite';
@@ -576,6 +577,13 @@ export class RenderSystem {
   private getFarmStatus: (() => string) | null = null;
 
   /** Farm tiles pulse while the farm is converting — wired by GameManager */
+  private getWaveOverlay: (() => WaveOverlay) | null = null;
+
+  /** The defense build ghost and the scouted breach, from the GameManager */
+  setWaveOverlayProvider(fn: () => WaveOverlay): void {
+    this.getWaveOverlay = fn;
+  }
+
   setFarmStatusProvider(fn: () => string): void {
     this.getFarmStatus = fn;
   }
@@ -878,13 +886,22 @@ export class RenderSystem {
     this.renderPheromones();
     this.renderParticles();
     this.renderOrderLines(ctx, interpolation);
+    drawDefenses(ctx, this.world, Layer.Surface, this.animationTime);
     this.renderEntitiesInterpolated(interpolation);
+    const seen = (x: number, y: number) => isTileVisible(this.visibilityGrid, x, y);
+    drawWaveUnits(ctx, this.world, Layer.Surface, this.animationTime, interpolation, seen);
+    drawWaveFx(ctx, this.world, Layer.Surface, this.animationTime, seen);
     this.renderDeathEffects(ctx, dt);
     drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Surface, this.visibilityGrid);
     this.fogRenderer.update();
     this.fogRenderer.draw(ctx);
     // The player's own command feedback reads over the fog
     this.renderOrderPings(ctx);
+    const overlay = this.getWaveOverlay?.() ?? null;
+    if (overlay) {
+      drawScoutMarks(ctx, overlay, Layer.Surface, this.animationTime);
+      drawGhost(ctx, overlay, this.animationTime);
+    }
     if (this.camera) this.intro?.drawWorldFx(ctx, this.camera);
     ctx.restore();
     this.postProcessor.setLights(dayPhase?.phase === 'night' ? this.collectSurfaceLights() : []);
@@ -1319,6 +1336,8 @@ export class RenderSystem {
     }
 
     drawCombatVfx(ctx, combatVfxFor(this.world), 'ground', Layer.Underground, null);
+    // Nest defenses stand on the floor, under the units
+    drawDefenses(ctx, this.world, Layer.Underground, this.animationTime);
 
     // === PASS 4: Underground entities ===
     const entities = this.world.query(COMPONENT.POSITION, COMPONENT.RENDER, COMPONENT.LAYER);
@@ -1525,6 +1544,13 @@ export class RenderSystem {
       }
     }
 
+    drawWaveUnits(ctx, this.world, Layer.Underground, this.animationTime, 1, null);
+    drawWaveFx(ctx, this.world, Layer.Underground, this.animationTime, null);
+    const overlay = this.getWaveOverlay?.() ?? null;
+    if (overlay) {
+      drawScoutMarks(ctx, overlay, Layer.Underground, this.animationTime);
+      drawGhost(ctx, overlay, this.animationTime);
+    }
     drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Underground, null);
     ctx.restore(); // restore camera transform
 
