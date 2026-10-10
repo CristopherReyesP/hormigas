@@ -37,4 +37,19 @@ describe('evolution chamber specimen', () => {
     expect(canvas).toContain('width="96"');
     expect(canvas).toContain('height="96"');
   });
+
+  it('previews the mark at the stack the pick would give: owned stacks + 1', () => {
+    const owned: Record<string, number> = { acid_mandibles: 0, cargo_sacs: 1, hive_mind: 2 };
+    const offer = buildMutationOffer(4, ['acid_mandibles', 'cargo_sacs', 'hive_mind'], id => owned[id] ?? 0);
+    const [fresh, second, third] = previews(renderToStaticMarkup(<EvolutionChamber offer={offer} lastPick={null} onChoose={noop} />));
+    expect(fresh).toContain('data-stacks="1"');
+    expect(second).toContain('data-stacks="2"');
+    expect(third).toContain('data-stacks="3"');
+  });
+
+  it('never previews more stacks than the mark can show', () => {
+    const offer = buildMutationOffer(5, ['bone_spurs'], () => 5);
+    const [canvas] = previews(renderToStaticMarkup(<EvolutionChamber offer={offer} lastPick={null} onChoose={noop} />));
+    expect(canvas).toContain('data-stacks="3"');
+  });
 });

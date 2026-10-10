@@ -238,7 +238,7 @@ export class UndergroundInvasionSystem implements System {
     const count = this.tonightCount();
     this.world.pushNotification(
       'warning',
-      `🪲 Movimiento en el túnel: la oleada ${this.waveNumber + 1} (${count === 1 ? 'un escarabajo explorador' : `${count} escarabajos`}) atacará al anochecer`
+      `🪲 Movimiento en el túnel: la oleada ${this.waveNumber + 1} (${count === 1 ? 'un acorazado explorador' : `${count} acorazados`}) atacará al anochecer`
     );
   }
 
@@ -267,7 +267,7 @@ export class UndergroundInvasionSystem implements System {
         : '';
     this.world.pushNotification(
       'danger',
-      `🪲 ¡OLEADA ${this.waveNumber}! ${count > 1 ? `${count} escarabajos están entrando` : 'Un escarabajo entró'}${where}`
+      `🪲 ¡OLEADA ${this.waveNumber}! ${count > 1 ? `${count} acorazados están entrando` : 'Un acorazado entró'}${where}`
     );
 
     this.deploySoldiers(Math.max(count + 1, 3));

@@ -287,7 +287,7 @@ function surfaceRoot(ctx: CommandContext): Slot[] {
   return [
     priority(ctx, ColonyPriority.Gather, 'gather', 'Recolectar', 'leaf', 'las obreras se concentran en juntar comida.'),
     priority(ctx, ColonyPriority.Explore, 'explore', 'Explorar', 'eye', 'las exploradoras se alejan más del nido.'),
-    priority(ctx, ColonyPriority.Defend, 'defend', 'Defender', 'shield', 'los soldados patrullan el nido y cazan escarabajos.'),
+    priority(ctx, ColonyPriority.Defend, 'defend', 'Defender', 'shield', 'los soldados patrullan el nido y cazan acorazados.'),
     {
       id: 'retreat',
       label: '¡Retirada al nido!',

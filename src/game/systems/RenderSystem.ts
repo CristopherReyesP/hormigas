@@ -62,9 +62,9 @@ const NEST_PILE_MAX_ITEMS = 30;
 const NEST_PILE_UNITS_PER_ITEM = 12;
 const STORAGE_PILE_MAX_ITEMS = 40;
 // Two palette shades per food type for visual texture (picked deterministically per dot)
-const PILE_COLORS: Record<'leaf' | 'mushroom' | 'meat', [string, string]> = {
+export const PILE_COLORS: Record<'leaf' | 'mushroom' | 'meat', [string, string]> = {
   leaf: [PAL.leaf[1], PAL.leaf[0]],
-  mushroom: [PAL.wood[2], PAL.wood[1]],
+  mushroom: [PAL.shroomCapLight, PAL.shroomCap],
   meat: [PAL.meat[1], PAL.meat[0]],
 };
 

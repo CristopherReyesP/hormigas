@@ -562,7 +562,15 @@ button:focus-visible {
 /* The whole HUD rides one layer (HudLayer): hidden for the opening cinematic, then it fades in */
 .hud-layer {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  /* Laid out at the window size over the whole-number step, then scaled back up (hudScale) */
+  width: calc(100% / var(--hud-scale, 1));
+  height: calc(100% / var(--hud-scale, 1));
+  transform: scale(var(--hud-scale, 1));
+  transform-origin: 0 0;
+  /* Width queries inside the HUD see its own laid-out width, not the window's */
+  container: hud / inline-size;
   pointer-events: none; /* the world takes every click no HUD block takes */
   transition: opacity 400ms ease-out; /* HUD_FADE_MS */
 }
@@ -1113,8 +1121,8 @@ button:focus-visible {
   gap: 18px;
 }
 
-/* Narrow screens: drop the column the top strip already repeats so the brood stages keep their labels */
-@media (max-width: 1499px) {
+/* Narrow HUD: drop the column the top strip already repeats so the brood stages keep their labels */
+@container hud (max-width: 1499px) {
   .info-grid--brood {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.8fr);
   }

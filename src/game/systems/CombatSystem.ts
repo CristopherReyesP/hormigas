@@ -331,7 +331,7 @@ export class CombatSystem implements System {
   }
 
   private destroyDen(denId: EntityId): void {
-    this.world.pushNotification('success', '💥 ¡Nido de escarabajos destruido!');
+    this.world.pushNotification('success', '💥 ¡Guarida de acorazados destruida!');
     this.world.metrics.densDestroyed++;
     // The den caves in: dust ring, soil and crystal shards
     const pos = this.world.getComponent<PositionComponent>(denId, COMPONENT.POSITION);

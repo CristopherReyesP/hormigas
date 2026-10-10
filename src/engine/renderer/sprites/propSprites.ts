@@ -158,13 +158,15 @@ export function paintDen(p: PixelPainter, cricket: boolean): void {
 }
 
 /**
- * Beetle den: a lumpy regolith mound ribbed like a vent, breathing spiracles
- * on its flanks, a lipped burrow mouth with two amber beetle eyes glinting in
- * the dark, and angular outcrop chips around its foot.
+ * Beetle den (the acorazados' guarida): an alien burrow mound, a lumpy
+ * regolith heap shingled with overlapping bony ash plates around a burrow
+ * mouth ringed by pale fangs, a small cluster of amber eyes in the dark,
+ * and angular outcrop chips around its foot.
  */
 function paintBurrowMound(p: PixelPainter): void {
   const S = PAL.soil;
   const R = PAL.stone;
+  const H = PAL.beetleAsh;
   const inMound = (x: number, y: number): boolean =>
     inEllipse(x, y, 20, 20, 13, 10) || inEllipse(x, y, 9, 24, 6, 5) || inEllipse(x, y, 31, 23, 6, 5);
   p.shadow(20, 28, 16, 6, PAL.outline);
@@ -179,35 +181,33 @@ function paintBurrowMound(p: PixelPainter): void {
   ditherInside(p, 12, 10, 7, 3, S[3], S[2], inMound);
   ditherInside(p, 4, 20, 6, 3, S[2], S[1], inMound);
   ditherInside(p, 21, 26, 17, 6, S[0], S[1], inMound);
-
-  // Radial ribs from the mouth to the foot: lit crest, dark trough beside it
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + 0.2;
-    const lit = Math.cos(a) + Math.sin(a) < 0; // ribs facing the top-left light
-    const x0 = 20 + Math.cos(a) * 8;
-    const y0 = 19 + Math.sin(a) * 5.6;
-    const x1 = 20 + Math.cos(a) * 12;
-    const y1 = 20 + Math.sin(a) * 8.6;
-    p.line(x0 + 1, y0 + 1, x1 + 1, y1, S[0]);
-    p.line(x0, y0, x1, y1, lit ? S[3] : S[2]);
-  }
   p.line(8, 23, 12, 20, PAL.outcropVein); // faint outcrop veins through the crust
   p.line(27, 14, 30, 18, PAL.outcropVein);
 
-  // Breathing spiracles on the flanks
-  for (const [x, y] of [[8, 25], [31, 24], [25, 27]] as const) {
-    p.hline(x, y - 1, 2, S[3]);
-    p.hline(x, y, 2, PAL.earth[0]);
+  // Overlapping bony plates shingled around the mouth, back row first so the
+  // front plates lap over it: a pale lit crown, a dark lapped lower edge
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i < 5 ? i - 2 : i - 7) * 0.62 + (i < 5 ? 0 : Math.PI);
+    const x = Math.round(20 + Math.cos(a) * 10.5);
+    const y = Math.round(20 + Math.sin(a) * 7.2);
+    p.ellipse(x, y, 2.4, 1.6, H[1]);
+    p.hline(x - 1, y - 1, 3, H[2]);
+    p.hline(x - 2, y + 1, 5, H[0]);
   }
 
-  // Burrow mouth: a raised lip, the far inner wall, the throat and amber eyes in the dark
+  // Burrow mouth: a raised lip ringed by pale fangs, the throat and a small
+  // cluster of amber eyes in the dark
   p.ellipse(20, 19, 7.6, 5.2, S[2]);
   ditherInside(p, 12, 13, 17, 2, S[3], S[2], (x, y) => inEllipse(x, y, 20, 19, 7.6, 5.2));
   p.ellipse(20, 19, 6, 4, S[0]);
   p.ellipse(20, 20, 5, 3, PAL.earth[0]);
   p.ellipse(20, 21, 3, 1.8, PAL.black);
+  for (const x of [16, 18, 20, 22, 24]) p.px(x, 16, H[2]);
+  for (const x of [17, 20, 23]) p.px(x, 23, H[2]);
   p.px(18, 21, PAL.beetleEye);
-  p.px(21, 21, PAL.beetleEye);
+  p.px(19, 20, PAL.beetleEye);
+  p.px(21, 20, PAL.beetleEye);
+  p.px(22, 21, PAL.beetleEye);
 
   // Angular outcrop chips and pale mineral flecks around the foot
   for (let i = 0; i < 7; i++) {
