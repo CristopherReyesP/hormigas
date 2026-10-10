@@ -91,7 +91,8 @@ export default function App() {
   // Tutorial: the run is the guided one while true; the overlay shows until it is finished or left
   const [tutorial, setTutorial] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
-  const [offerTutorial, setOfferTutorial] = useState(() => firstVisit.shouldOffer());
+  // First visit: Hormi's offer waits for COMENZAR, so it never hides the race cards; holds the run it interrupted
+  const [offerTutorial, setOfferTutorial] = useState<RunSetup | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const touch = useTouchUi();
   // Builds a run loaded from a save (undefined for a new run); `runKey` remounts the canvas for each run
@@ -116,7 +117,7 @@ export default function App() {
     firstVisit.remember('done');
     // The tutorial teaches what the touch coach marks point at: they need not show after it either
     markCoachSeen(coachStorage());
-    setOfferTutorial(false);
+    setOfferTutorial(null);
     setHelpOpen(false);
     gameManagerRef.current = null;
     setGameManager(null);
@@ -130,8 +131,16 @@ export default function App() {
 
   const declineTutorial = useCallback(() => {
     firstVisit.remember('skipped');
-    setOfferTutorial(false);
-  }, []);
+    const pending = offerTutorial;
+    setOfferTutorial(null);
+    if (pending) handleStart(pending);
+  }, [offerTutorial, handleStart]);
+
+  /** COMENZAR on a first visit asks about the tutorial first; afterwards it starts right away */
+  const handlePickerStart = useCallback((setup: RunSetup) => {
+    if (firstVisit.shouldOffer()) setOfferTutorial(setup);
+    else handleStart(setup);
+  }, [handleStart]);
 
   const closeTutorial = useCallback(() => setTutorialOpen(false), []);
 
@@ -229,7 +238,7 @@ export default function App() {
       <>
         <RacePicker
           initialSetup={loadRunSetup()}
-          onStart={handleStart}
+          onStart={handlePickerStart}
           onTutorial={handleTutorial}
           savedRun={<StartSaves storage={saveStorage} onLoad={handleLoadSave} />}
         />

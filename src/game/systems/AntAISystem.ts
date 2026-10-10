@@ -80,6 +80,7 @@ import {
   MINERAL_MINE_SECONDS,
   MINER_ALLOCATE_SECONDS,
   MINER_FIELD_REACH,
+  SURFACE_GLUT_PILE,
 } from '../../shared/constants';
 import { autoMinerTarget, clampMinerTarget, type MinerStatus } from '../economy/minerAllocation';
 import { clearResourceOrder } from './helpers/resourceOrders';
@@ -138,6 +139,8 @@ export class AntAISystem implements System {
   private antsEngaging: Map<EntityId, number> = new Map();
   /** Recomputed once per tick — the hunger checks consult it per ant */
   private undergroundFoodAvailable = false;
+  /** Pantry full with a pile waiting at the entrance (recomputed each tick) */
+  private surfaceGlut = false;
   /** A* runs left this tick for ordered ants: a 40-ant order routes over a few frames, not in one */
   private orderRoutesLeft = 0;
 
@@ -671,6 +674,7 @@ export class AntAISystem implements System {
   private buildTickSnapshots(): void {
     this.attackerByTarget = buildAttackerMap(this.world);
     this.undergroundFoodAvailable = this.computeUndergroundFood();
+    this.surfaceGlut = this.computeSurfaceGlut();
 
     // SURFACE predators only. Invasion beetles live underground on the SAME
     // coordinate space, so an unfiltered scan made surface soldiers charge at
@@ -1644,6 +1648,14 @@ export class AntAISystem implements System {
     carrying.resourceType = null;
   }
 
+  /** Pantry full and a pile already waiting at the entrance: more forage would only rot */
+  private computeSurfaceGlut(): boolean {
+    if (!this.undergroundGrid || this.nestEntityId === null) return false;
+    const nest = this.world.getComponent<NestComponent>(this.nestEntityId, COMPONENT.NEST);
+    if (!nest || nest.foodStored < SURFACE_GLUT_PILE) return false;
+    return !this.undergroundGrid.hasDepositSpace();
+  }
+
   private computeUndergroundFood(): boolean {
     if (!this.undergroundGrid) return false;
     if (this.undergroundGrid.getPantryStored().total >= 1) return true;
@@ -2152,13 +2164,13 @@ export class AntAISystem implements System {
       }
     }
 
-    // GATHER action
-    const nearbyFood = this.findNearestFoodEntity(id, pos, ant);
+    // GATHER action — none while the entrance pile can't go below anyway
+    const nearbyFood = this.surfaceGlut ? null : this.findNearestFoodEntity(id, pos, ant);
     if (nearbyFood) {
       const score = ACTION_SCORE.FOOD_VISION_BONUS * roleWeights.food * priorityMult.food;
       candidates.push({ action: 'gather', score, targetId: nearbyFood.entityId });
     } else {
-      const foodPhero = this.sampleFoodPheromone(pos, 3);
+      const foodPhero = this.surfaceGlut ? 0 : this.sampleFoodPheromone(pos, 3);
       if (foodPhero > 1.0) {
         const score = (foodPhero / PHEROMONE_MAX) * ACTION_SCORE.PHEROMONE_TRAIL_BONUS
                       * roleWeights.food * priorityMult.food;

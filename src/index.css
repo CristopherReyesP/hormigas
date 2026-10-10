@@ -2113,6 +2113,11 @@ button:focus-visible {
   display: none;
 }
 
+/* Portrait closed: the wave readout drops its words so the countdown is never cut off */
+.hud-layer--phone-portrait .top-strip:not(.top-strip--open) .strip-wave-words {
+  display: none;
+}
+
 /* Open: every readout, wrapped over a few rows that hang over the map */
 .hud-layer--phone .top-strip--open {
   z-index: 30; /* over the floating minimap */
@@ -3440,6 +3445,11 @@ button:focus-visible {
   top: calc(var(--strip-h) + 52px);
   width: 210px;
   z-index: 16;
+}
+
+/* The narrow card has no room for the label's tracking: "Próxima oleada" lost its end */
+.hud-layer--phone .next-wave .hud-label {
+  letter-spacing: 0;
 }
 
 .hud-layer--phone .next-wave-body {

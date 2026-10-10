@@ -20,15 +20,15 @@ describe('night sky (red-violet, the Swarm hour)', () => {
   it('uses the red-violet edge step at the start and end of the night', () => {
     const pp = new PostProcessor();
     pp.setDayPhase('night', 0.05);
-    expect(pp.getSkyState()).toEqual({ color: '#2a0d1e', alpha: 0.28, night: true });
+    expect(pp.getSkyState()).toEqual({ color: '#2a0d1e', alpha: 0.22, night: true });
     pp.setDayPhase('night', 0.95);
-    expect(pp.getSkyState()).toEqual({ color: '#2a0d1e', alpha: 0.28, night: true });
+    expect(pp.getSkyState()).toEqual({ color: '#2a0d1e', alpha: 0.22, night: true });
   });
 
   it('uses the deep red-violet step in the middle of the night', () => {
     const pp = new PostProcessor();
     pp.setDayPhase('night', 0.5);
-    expect(pp.getSkyState()).toEqual({ color: '#1a0612', alpha: 0.5, night: true });
+    expect(pp.getSkyState()).toEqual({ color: '#1a0612', alpha: 0.38, night: true });
   });
 });
 
@@ -110,8 +110,8 @@ describe('nightGlowAlpha (post-tint bioluminescence)', () => {
     expect(edge).toBeGreaterThan(0);
     expect(edge).toBeLessThan(NIGHT_GLOW_MAX);
     expect(nightGlowAlpha('night', 0.95)).toBe(edge);
-    // Proportional to the tint it has to shine through (0.28 vs 0.5)
-    expect(edge / NIGHT_GLOW_MAX).toBeCloseTo(0.28 / 0.5);
+    // Proportional to the tint it has to shine through (0.22 vs 0.38)
+    expect(edge / NIGHT_GLOW_MAX).toBeCloseTo(0.22 / 0.38);
   });
 });
 
