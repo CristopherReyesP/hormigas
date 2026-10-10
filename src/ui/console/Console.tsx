@@ -17,6 +17,9 @@ import { CoachMarks } from './CoachMarks';
 import { HAPTIC_PATTERN, feedbackText, hapticFor, vibrate } from './feedbackText';
 import { humanHint } from '../races/human/humanCommands';
 import { DigMeter } from './DigMeter';
+import { UpgradesButton } from '../upgrades/UpgradesButton';
+import { UpgradesOverlay } from '../upgrades/UpgradesOverlay';
+import type { UpgradeTab } from '../upgrades/upgradeUi';
 
 interface ConsoleProps {
   stats: GameStats;
@@ -51,6 +54,11 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   const [attackCount, setAttackCount] = useState(10);
   const [notice, setNotice] = useState<{ text: string; tone: NoticeTone } | null>(null);
   const [groupAdd, setGroupAdd] = useState(false);
+  /** The Mejoras panel's tab while it is open */
+  const [upgradesTab, setUpgradesTab] = useState<UpgradeTab | null>(null);
+  // Mejoras is the Swarm's: a Human player has its own base
+  const swarm = !stats.human;
+  const openUpgrades = useCallback((tab: UpgradeTab = 'queen') => setUpgradesTab(tab), []);
   const [infoOpen, setInfoOpen] = useState(false);
   const [toast, setToast] = useState<OrderToast | null>(null);
   const [burst, setBurst] = useState<CasteBurst | null>(null);
@@ -167,9 +175,10 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
             touch,
             groupAdd,
             setGroupAdd,
+            openUpgrades,
           })
         : [],
-    [gameManager, stats, details, page, buildMode, attackCount, toggleBuildMode, switchLayer, refresh, notify, touch, groupAdd],
+    [gameManager, stats, details, page, buildMode, attackCount, toggleBuildMode, switchLayer, refresh, notify, touch, groupAdd, openUpgrades],
   );
 
   const quickSelect = useCallback(
@@ -204,6 +213,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   const lineExtra = digging && compact && !placingHint ? <DigMeter status={digging} /> : null;
   const lineRefused = Boolean(digLimit && lineHint.text === digLimit.text);
   const overlayOpen = Boolean(stats.mutationOffer || stats.gameOver);
+  const upgradesOpen = swarm && upgradesTab !== null && !overlayOpen;
 
   return (
     <>
@@ -212,6 +222,10 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
         <div className="console-deck" aria-hidden="true">
           <div className="console-vein" />
         </div>
+        {/* Before the plates, so the command card's tooltip paints over it */}
+        {swarm && gameManager && page === 'root' && (
+          <UpgradesButton affordable={stats.upgradesAffordable ?? 0} onOpen={() => openUpgrades()} />
+        )}
         <MinimapPanel
           gameManager={gameManager}
           activeLayer={stats.activeLayer}
@@ -225,6 +239,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
           gameManager={gameManager}
           attackCount={attackCount}
           onAttackCountChange={setAttackCount}
+          onOpenUpgrades={swarm ? openUpgrades : undefined}
           open={compact ? infoOpen : undefined}
           onOpenChange={compact ? setInfoOpen : undefined}
         />
@@ -247,12 +262,23 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
         />
         <CommandCard
           commands={commands}
-          hotkeysEnabled={!overlayOpen && commands.length > 0}
+          hotkeysEnabled={!overlayOpen && !upgradesOpen && commands.length > 0}
           onEscape={onEscape}
           onBlocked={explainBlocked}
           touch={touch}
         />
       </footer>
+      {upgradesOpen && gameManager && (
+        <UpgradesOverlay
+          gm={gameManager}
+          upgrades={details.upgrades}
+          funds={{ food: details.food.total, mushrooms: details.food.mushrooms, minerals: stats.mineralsStored ?? 0 }}
+          tab={upgradesTab ?? 'queen'}
+          touch={touch}
+          onClose={() => setUpgradesTab(null)}
+          refresh={refresh}
+        />
+      )}
       {touch && <TouchFeedback toast={toast} burst={burst} />}
       {touch && compact && <CoachMarks active={!stats.introPlaying && !overlayOpen} race={stats.human ? 'human' : 'swarm'} />}
     </>

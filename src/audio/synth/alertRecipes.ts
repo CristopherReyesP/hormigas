@@ -101,4 +101,14 @@ export const ALERT_RECIPES = {
     });
     return end;
   },
+
+  /** A Mejoras level bought: a quick rising arpeggio over a soft thump, one step higher per level */
+  levelUp: (v, params) => {
+    const lift = Math.pow(2, Math.min(4, Math.max(0, (params.index ?? 1) - 1)) / 12);
+    let end = tone(v, { freq: 110, to: 70, dur: 0.18, attack: 0.004, peak: 0.3 });
+    [523.3, 659.3, 784, 1046.5].forEach((freq, i) => {
+      end = Math.max(end, bell(v, { freq: freq * lift, at: 0.04 + i * 0.07, dur: 0.6, peak: 0.2 }));
+    });
+    return end;
+  },
 } satisfies Record<string, Recipe>;

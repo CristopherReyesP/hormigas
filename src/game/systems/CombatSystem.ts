@@ -39,6 +39,7 @@ import { FactionId, ownerOf } from '../factions/factions';
 import { advanceWaveFx, waveRuntimeFor } from '../run/waveRuntime';
 import { onWaveUnitDeath } from '../run/waveDeaths';
 import { DEFENSE_STATS, STRUCTURE_COMPONENT, type StructureComponent } from '../run/defenses';
+import { tallyDeath } from '../upgrades/applyUpgrades';
 
 export class CombatSystem implements System {
   readonly name = 'CombatSystem';
@@ -289,6 +290,7 @@ export class CombatSystem implements System {
   }
 
   private handleDeath(entityId: EntityId, _toDestroy: EntityId[]): void {
+    tallyDeath(this.world, entityId);
     onWaveUnitDeath(this.world, entityId);
     if (this.handleStructureDeath(entityId)) return;
     if (handleHumanDeath(this.world, this.vfx, entityId)) return;

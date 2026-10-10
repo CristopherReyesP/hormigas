@@ -48,6 +48,8 @@ import { UndergroundTerrainType, ChamberType, TerrainType } from '../../simulati
 import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
+import { drawIncubationTier, drawQueenCrown } from '../upgrades/upgradeArt';
+import { queenTier } from '../upgrades/upgradeEffects';
 import { MeteorIntro } from '../render/MeteorIntro';
 import { CrystalRivalArt } from '../render/crystalRivalArt';
 import type { CrystalOverlay } from '../races/crystal/CrystalPlayerController';
@@ -1125,6 +1127,9 @@ export class RenderSystem {
 
     const T = TILE_SIZE;
     const texCanvas = this.ugTextureCanvas!;
+    // Mejoras: Cámara de incubación dresses its floor up one detail per level
+    const incubationLevel = this.world.upgradeLevels.incubation;
+    const incubationBlink = Math.floor(frameTime * 0.004) % 2 === 0;
 
     // === PASS 1: Base terrain (textured tiles) ===
     const farmTime = frameTime / 1000;
@@ -1175,6 +1180,9 @@ export class RenderSystem {
 
         // Draw pre-rendered texture tile
         ctx.drawImage(texCanvas, col * T, row * T, T, T, px, py, T, T);
+        if (incubationLevel > 0 && tile.walkable && tile.chamberType === ChamberType.Incubation) {
+          drawIncubationTier(ctx, px, py, T, 2, incubationLevel, incubationBlink);
+        }
 
         // Area identity comes from the FLOOR TEXTURES themselves (rows 2/3/4/8/9)
         // — no overlays, no icons: each chamber type has its own realistic ground
@@ -1520,6 +1528,16 @@ export class RenderSystem {
         cp.rect(ccx - 1, ccy - 2, 2, 3, PAL.swarm.vein[1]); // center spike (taller)
         cp.rect(ccx + 2, ccy - 1, 2, 2, PAL.swarm.vein[1]); // right spike
         cp.px(ccx - 1, ccy - 2, PAL.white); // catch-light
+
+        // Mejoras: the queen wears a crown per tier of queen upgrades, and glows warmer at the top tier
+        const tier = queenTier(this.world.upgradeLevels);
+        if (tier >= 3) {
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          this.drawGlowStamp(ctx, px, py - TILE_SIZE * 0.9, TILE_SIZE * 0.8, 'amber');
+          ctx.restore();
+        }
+        drawQueenCrown(cp, ccx, ccy - 4, tier, Math.floor(frameTime * 0.003) % 2 === 0);
       } else if (render.shape === 'beetle') {
         // Underground invaders — same sprite as surface beetles (NOT a plain circle)
         const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);

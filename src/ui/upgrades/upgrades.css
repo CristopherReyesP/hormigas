@@ -1,0 +1,620 @@
+/* ── Mejoras: the launch button over the command card ─────── */
+.upg-launch {
+  position: absolute;
+  right: 10px;
+  /* Above the command card: its height, the console's bottom padding and a gap */
+  bottom: calc(176px + 8px + 6px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px 0 8px;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  color: var(--chrome-accent);
+  background: var(--chrome-panel-light);
+  border: 2px solid var(--chrome-border-light);
+  box-shadow: inset -2px -2px 0 var(--chrome-bg), 3px 3px 0 #000;
+  cursor: pointer;
+  pointer-events: auto;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.upg-launch:hover {
+  border-color: var(--chrome-accent);
+}
+
+.upg-launch:active {
+  transform: translate(1px, 1px);
+  box-shadow: inset -2px -2px 0 var(--chrome-bg);
+}
+
+/* Something can be bought: a stepped glow and a count */
+.upg-launch--ready {
+  border-color: var(--chrome-accent);
+  animation: upg-glow 1.2s steps(2) infinite;
+}
+
+@keyframes upg-glow {
+  0% { box-shadow: inset -2px -2px 0 var(--chrome-bg), 3px 3px 0 #000, 0 0 0 2px var(--chrome-accent-dim); }
+  50% { box-shadow: inset -2px -2px 0 var(--chrome-bg), 3px 3px 0 #000, 0 0 0 4px var(--chrome-accent), 0 0 12px 2px var(--chrome-accent); }
+}
+
+.upg-launch-badge {
+  min-width: 16px;
+  padding: 3px 3px 2px;
+  font-size: 8px;
+  line-height: 1;
+  text-align: center;
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+  text-shadow: none;
+}
+
+.hud-layer--phone .upg-launch {
+  right: calc(8px + var(--safe-r));
+  bottom: calc(var(--deck-h) + 8px);
+  height: 34px;
+}
+
+.hud-layer--phone-landscape .upg-launch {
+  bottom: calc(var(--deck-h) + 6px);
+}
+
+/* ── The panel ──────────────────────────────────────────────── */
+.upg-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  padding: 12px;
+  pointer-events: auto;
+  background-color: color-mix(in srgb, var(--chrome-bg) 70%, transparent);
+  background-image: repeating-conic-gradient(var(--chrome-bg) 0% 25%, transparent 0% 50%);
+  background-size: 4px 4px;
+  animation: upg-fade-in 200ms steps(3) both;
+}
+
+@keyframes upg-fade-in {
+  from { opacity: 0; }
+}
+
+.upg-frame {
+  margin: auto;
+  width: min(760px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  filter: drop-shadow(5px 5px 0 #000);
+  animation: upg-panel-in 280ms steps(5) both;
+}
+
+@keyframes upg-panel-in {
+  from { transform: translateY(16px); opacity: 0; }
+}
+
+.upg-plate {
+  --cut: 14px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+}
+
+.upg-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  padding: 14px 16px 12px;
+  gap: 10px;
+  color: var(--chrome-text);
+  font-family: var(--font-pixel);
+  font-size: 8px;
+}
+
+.upg-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.upg-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: normal;
+  color: var(--chrome-accent);
+  text-shadow: 2px 2px 0 #000;
+}
+
+.upg-funds {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+  font-size: 9px;
+}
+
+.upg-funds > span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.upg-close {
+  height: 24px;
+  min-width: 24px;
+  font-size: 12px;
+}
+
+.upg-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--chrome-border);
+}
+
+.upg-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 9px 6px;
+  font: inherit;
+  color: var(--chrome-dim);
+  background: var(--chrome-bg);
+  border: 2px solid var(--chrome-border);
+  border-bottom: 0;
+  cursor: pointer;
+}
+
+.upg-tab:hover {
+  color: var(--chrome-text);
+}
+
+.upg-tab--active {
+  color: var(--chrome-accent);
+  background: var(--chrome-panel-light);
+  border-color: var(--chrome-border-light);
+}
+
+.upg-tab-badge {
+  padding: 2px 3px 1px;
+  line-height: 1;
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+}
+
+.upg-body {
+  min-height: 0;
+  overflow-y: auto;
+  touch-action: pan-y;
+  padding-right: 2px;
+}
+
+.upg-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 8px;
+}
+
+.upg-card {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  font: inherit;
+  text-align: left;
+  color: var(--chrome-text);
+  background: var(--chrome-bg);
+  border: 2px solid var(--chrome-border);
+  box-shadow: inset 2px 2px 0 #000;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.upg-card:hover {
+  border-color: var(--chrome-border-light);
+}
+
+.upg-card--ready {
+  border-color: var(--chrome-accent-dim);
+}
+
+.upg-card--selected,
+.upg-card--selected:hover {
+  border-color: var(--chrome-accent);
+  background: #1a2410;
+  box-shadow: inset 2px 2px 0 #000, 0 0 0 2px var(--chrome-accent-dim);
+}
+
+.upg-card--max {
+  opacity: 0.8;
+}
+
+.upg-card-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--chrome-panel-light);
+  border: 2px solid var(--chrome-border);
+}
+
+.upg-card-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.upg-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.upg-card-name {
+  flex: 1 1 auto;
+  font-size: 9px;
+  color: var(--chrome-accent);
+}
+
+.upg-level {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--chrome-dim);
+}
+
+.upg-pips {
+  display: flex;
+  gap: 2px;
+}
+
+.upg-pip {
+  width: 6px;
+  height: 6px;
+  background: var(--chrome-panel-light);
+  border: 1px solid var(--chrome-border);
+}
+
+.upg-pip--on {
+  background: var(--chrome-accent);
+  border-color: var(--chrome-accent);
+}
+
+.upg-effect {
+  line-height: 1.5;
+}
+
+.upg-effect strong {
+  font-weight: normal;
+  color: var(--chrome-text);
+}
+
+.upg-effect .upg-next {
+  color: var(--chrome-accent);
+}
+
+/* The pixel font has no arrow: draw it in a plain font, big enough to read */
+.upg-arrow {
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--chrome-accent);
+}
+
+.upg-card-foot {
+  display: flex;
+}
+
+.upg-maxed {
+  color: var(--chrome-warn);
+}
+
+.upg-costs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.upg-cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--chrome-text);
+}
+
+.upg-cost--short {
+  color: var(--chrome-danger);
+}
+
+/* Level-up: the card flashes in stepped beats and a "¡NIVEL n!" rises */
+.upg-card--levelup {
+  animation: upg-levelup-flash 600ms steps(1) both;
+}
+
+@keyframes upg-levelup-flash {
+  0%, 34% { background: #3a5418; border-color: #fff; }
+  35%, 67% { background: #1a2410; border-color: var(--chrome-accent); }
+  68%, 100% { background: #2a3c14; }
+}
+
+.upg-levelup {
+  position: absolute;
+  right: 10px;
+  bottom: 6px;
+  font-size: 11px;
+  color: #fff;
+  text-shadow: 2px 2px 0 var(--chrome-accent-dim), 0 0 6px var(--chrome-accent);
+  pointer-events: none;
+  animation: upg-levelup-rise 900ms steps(6) both;
+}
+
+@keyframes upg-levelup-rise {
+  from { transform: translateY(14px); opacity: 1; }
+  80% { opacity: 1; }
+  to { transform: translateY(-6px); opacity: 0; }
+}
+
+.upg-confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding-top: 8px;
+  border-top: 2px solid var(--chrome-border);
+}
+
+.upg-confirm-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.upg-confirm-name {
+  font-size: 9px;
+  color: var(--chrome-accent);
+}
+
+.upg-confirm-effect {
+  line-height: 1.5;
+}
+
+.upg-confirm-warn {
+  color: var(--chrome-danger);
+}
+
+.upg-buy {
+  flex: none;
+  min-width: 96px;
+  height: 34px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 10px;
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+  border: 2px solid #fff;
+  box-shadow: 3px 3px 0 #000;
+  cursor: pointer;
+}
+
+.upg-buy:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
+.upg-buy:disabled {
+  color: var(--chrome-dim);
+  background: var(--chrome-panel-light);
+  border-color: var(--chrome-border);
+  cursor: not-allowed;
+}
+
+.upg-hint {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--chrome-dim);
+}
+
+/* Estadísticas */
+.upg-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 8px;
+}
+
+.upg-stats-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: var(--chrome-bg);
+  border: 2px solid var(--chrome-border);
+}
+
+.upg-stats-block--wide {
+  grid-column: 1 / -1;
+}
+
+.upg-stats-title {
+  margin: 0 0 2px;
+  font-size: 8px;
+  font-weight: normal;
+  color: var(--chrome-accent);
+}
+
+.upg-stat {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  line-height: 1.5;
+}
+
+.upg-stat-label {
+  color: var(--chrome-dim);
+}
+
+.upg-caste-table {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.upg-caste-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2.4fr) repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  line-height: 1.5;
+}
+
+.upg-caste-row > span:not(:first-child) {
+  text-align: right;
+}
+
+.upg-caste-row--head {
+  color: var(--chrome-dim);
+}
+
+.upg-caste-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Phones: one column, the whole screen, bigger touch targets */
+.hud-layer--phone .upg-backdrop {
+  padding: calc(4px + var(--safe-t)) calc(4px + var(--safe-r)) calc(4px + var(--safe-b)) calc(4px + var(--safe-l));
+}
+
+.hud-layer--phone .upg-frame {
+  width: 100%;
+  height: 100%;
+}
+
+.hud-layer--phone .upg-plate {
+  height: 100%;
+}
+
+.hud-layer--phone .upg-panel {
+  height: 100%;
+  padding: 10px;
+  gap: 8px;
+}
+
+.hud-layer--phone .upg-body {
+  flex: 1 1 auto;
+}
+
+.hud-layer--phone .upg-title {
+  font-size: 11px;
+}
+
+.hud-layer--phone .upg-close {
+  height: 32px;
+  min-width: 32px;
+}
+
+.hud-layer--phone .upg-tabs {
+  overflow-x: auto;
+  touch-action: pan-x;
+}
+
+.hud-layer--phone .upg-tab {
+  flex: none;
+  min-height: 34px;
+}
+
+.hud-layer--phone-portrait .upg-tab-label {
+  display: none;
+}
+
+.hud-layer--phone-portrait .upg-tab--active .upg-tab-label {
+  display: inline;
+}
+
+.hud-layer--phone .upg-list,
+.hud-layer--phone .upg-stats {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.hud-layer--phone-landscape .upg-list,
+.hud-layer--phone-landscape .upg-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.hud-layer--phone .upg-confirm {
+  flex-wrap: wrap;
+}
+
+.hud-layer--phone .upg-buy {
+  height: 40px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .upg-launch--ready,
+  .upg-card--levelup,
+  .upg-levelup,
+  .upg-frame,
+  .upg-backdrop {
+    animation: none;
+  }
+}
+
+/* ── Hooks into the console ─────────────────────────────────── */
+/* A command card button with something waiting behind it (Mejoras) */
+.cmd-btn--glow {
+  animation: upg-cmd-glow 1.2s steps(2) infinite;
+}
+
+@keyframes upg-cmd-glow {
+  50% { background: var(--chrome-accent); }
+}
+
+/* "Mejorar reina" in the queen's column of the nest summary */
+.info-upgrade-queen {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  height: 20px;
+  margin-top: 2px;
+  font: inherit;
+  color: var(--chrome-accent);
+}
+
+/* The selected ant's stats with their bonus: "Daño 10 (+2)" */
+.info-ant-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+
+.info-ant-stat strong {
+  font-weight: normal;
+  color: var(--chrome-text);
+}
+
+.info-bonus {
+  color: var(--chrome-accent);
+}
+
+.info-bonus--down {
+  color: var(--chrome-danger);
+}
+
+/* Phones: the message feed rides above the MEJORAS button instead of under it */
+.hud-layer--phone .hive-console:has(.upg-launch) ~ .notif-feed,
+.hud-layer--phone:has(.upg-launch) .notif-feed {
+  bottom: calc(var(--deck-h) + 50px);
+}

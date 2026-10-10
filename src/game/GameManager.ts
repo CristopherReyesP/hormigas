@@ -1,6 +1,15 @@
 import { RunModifiers } from './run/RunModifiers';
 import type { MutationId } from './run/MutationDefinitions';
-import { antSpawnStats } from './run/antStats';
+import { retrofitAntStats } from './run/antStats';
+import { UpgradeSystem } from './upgrades/UpgradeSystem';
+import { applyQueenUpgrades, retimeQueuedEggs, syncWorldUpgrades } from './upgrades/applyUpgrades';
+import { affordableCount, purchase, type UpgradeFunds, type UpgradePayer } from './upgrades/purchase';
+import { breedCost, eggsPerIncubationTile, pantryTileBonus, queenLayTime, queenTier } from './upgrades/upgradeEffects';
+import { normalizeUpgradeLevels, type UpgradeLevels } from './upgrades/upgradeLevels';
+import { UPGRADE_GROUP_LABEL, upgradeDef, type UpgradeId } from './upgrades/upgradeTable';
+import { antStatLines, upgradeInfos, type AntStatLine, type UpgradeInfo } from './upgrades/upgradeView';
+import { buildColonyStats, type ColonyStatsReport } from './upgrades/colonyStats';
+import { emitUpgradeAudio } from './upgrades/upgradeAudio';
 import { buildMutationOffer, shouldOfferMutation, summarizeMutationBuild, type MutationBuildEntry, type MutationOffer } from './run/DawnPick';
 import { createSeededRng, offerMutations } from './run/MutationOffers';
 import { createStatefulLcg, SimRandom } from './save/rng';
@@ -132,7 +141,6 @@ import {
   type CricketComponent,
   type CricketDenComponent,
   type EggQueueComponent,
-  type CombatComponent,
   type PathComponent,
   type CrystalUnitComponent,
   type CrystalSpireComponent,
@@ -151,11 +159,6 @@ import {
   WORLD_WIDTH,
   WORLD_HEIGHT,
   TILE_SIZE,
-  BREED_COST_WORKER,
-  BREED_COST_SOLDIER,
-  BREED_COST_SCOUT,
-  BREED_COST_NURSE,
-  BREED_COST_DEFENDER,
   BREED_TIME_WORKER,
   BREED_TIME_SOLDIER,
   BREED_TIME_SCOUT,
@@ -173,10 +176,7 @@ import {
   GIANT_MUSHROOM_SPAWN_DISTANCE_MAX,
   UNDERGROUND_WIDTH,
   UNDERGROUND_HEIGHT,
-  QUEEN_EGG_LAY_TIME,
   QUEEN_MIN_HUNGER_TO_LAY,
-  MAX_EGGS_PER_INCUBATION_TILE,
-  PANTRY_STORAGE_UPGRADE_PER_TILE,
   CRATER_CLEAR_RADIUS,
   CRATER_EDGE_MARGIN,
   CRATER_FAR_FRACTION,
@@ -218,6 +218,8 @@ export interface SelectedEntityInfo {
   health?: { current: number; max: number };
   hunger?: { current: number; max: number };
   carrying?: { type: string | null; amount: number };
+  /** Stats with their bonus over the caste base, from Mejoras and mutations ("Daño 10 (+2)") */
+  antStats?: AntStatLine[];
   // Food-specific
   foodAmount?: number;
   foodType?: string;
@@ -304,20 +306,8 @@ export interface GameNotification {
   createdAt: number;
 }
 
-export type UpgradeId = 'carry' | 'damage' | 'storage' | 'dig' | 'porters' | 'heal';
-
-export interface UpgradeInfo {
-  id: UpgradeId;
-  name: string;
-  description: string;
-  level: number;
-  maxLevel: number;
-  nextCost: number | null;
-}
-
-// Upgrade costs are paid in MUSHROOMS — the farm is the colony's tech economy:
-// leaves feed bellies, mushrooms buy progress
-const UPGRADE_COSTS = [40, 80, 140];
+export type { UpgradeId } from './upgrades/upgradeTable';
+export type { UpgradeInfo } from './upgrades/upgradeView';
 
 export interface GameOverStats {
   outcome: RunOutcome;
@@ -404,6 +394,8 @@ export interface GameStats {
   entranceFoodStored: number;
   /** The minerals bank: what miners delivered, the currency for structures */
   mineralsStored: number;
+  /** Mejoras lines the colony can pay now: the glowing badge on the Mejoras button */
+  upgradesAffordable?: number;
   beetleCount: number;
   beetleDenCount: number;
   cricketCount: number;
@@ -553,7 +545,6 @@ export class GameManager {
   private milestone: { info: MilestoneInfo; remaining: number } | null = null;
   /** The local record when this run started, to tell a new record */
   private runStartBest = loadBestNight();
-  private upgradeLevels: Record<UpgradeId, number> = { carry: 0, damage: 0, storage: 0, dig: 0, porters: 0, heal: 0 };
   private fungusFarmSystem!: FungusFarmSystem;
   private dayNightSystem!: DayNightSystem;
   private farmMode = false;
@@ -654,6 +645,7 @@ export class GameManager {
     this.dayNightSystem = new DayNightSystem(this.world, modifiers);
     const hungerSystem = new HungerSystem(this.world, modifiers);
     const regenerationSystem = new RegenerationSystem(this.world);
+    const upgradeSystem = new UpgradeSystem(this.world);
     const breedingSystem = new BreedingSystem(this.world);
     this.selectionSystem = new SelectionSystem(this.world);
     if (setup.playerRace === 'human') {
@@ -680,6 +672,7 @@ export class GameManager {
     this.world.addSystem(pheromoneSystem);
     this.world.addSystem(hungerSystem);
     this.world.addSystem(regenerationSystem);
+    this.world.addSystem(upgradeSystem);
     this.world.addSystem(breedingSystem);
     const transitSystem = new TransitSystem(this.world, this.undergroundGrid);
     this.transitSystem = transitSystem;
@@ -2222,8 +2215,8 @@ export class GameManager {
     // Add to queue
     eggQueue.queue.push({
       role,
-      layTimer: QUEEN_EGG_LAY_TIME,
-      layTimerTotal: QUEEN_EGG_LAY_TIME,
+      layTimer: queenLayTime(this.world.upgradeLevels),
+      layTimerTotal: queenLayTime(this.world.upgradeLevels),
     });
     emitAudio({ type: 'eggQueued' });
 
@@ -2239,13 +2232,8 @@ export class GameManager {
 
   /** Food cost to breed one ant of this role, including run mutation surcharges. */
   getBreedCost(role: AntRole): number {
-    switch (role) {
-      case AntRole.Soldier: return BREED_COST_SOLDIER + this.runModifiers.soldierCostBonus;
-      case AntRole.Scout: return BREED_COST_SCOUT;
-      case AntRole.Nurse: return BREED_COST_NURSE;
-      case AntRole.Defender: return BREED_COST_DEFENDER;
-      default: return BREED_COST_WORKER;
-    }
+    // Nutrición de larvas discounts the whole price, the mutation surcharge included
+    return breedCost(this.world.upgradeLevels, role, role === AntRole.Soldier ? this.runModifiers.soldierCostBonus : 0);
   }
 
   /** Apply one mutation stack; false (nothing changes) once it reached maxStacks. */
@@ -2292,91 +2280,71 @@ export class GameManager {
 
   /** Recompute spawn-time stats from base stats so purchase/pick order never compounds rounding. */
   private retrofitAntStats(): void {
-    for (const antId of this.world.query(COMPONENT.ANT)) {
-      const ant = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT)!;
-      const stats = antSpawnStats(this.world, ant.role);
-      const hunger = this.world.getComponent<HungerComponent>(antId, COMPONENT.HUNGER);
-      if (hunger) {
-        hunger.max = stats.maxHunger;
-        hunger.current = Math.min(hunger.current, stats.maxHunger);
-      }
-      if (ant.role === AntRole.Worker) {
-        const carrying = this.world.getComponent<CarryingComponent>(antId, COMPONENT.CARRYING);
-        if (carrying) carrying.maxCapacity = stats.carryCapacity;
-      } else if (ant.role === AntRole.Soldier) {
-        const health = this.world.getComponent<HealthComponent>(antId, COMPONENT.HEALTH);
-        if (health) {
-          // Extra max HP arrives as health, like a newborn's full bar
-          health.current = Math.min(stats.maxHealth, health.current + Math.max(0, stats.maxHealth - health.max));
-          health.max = stats.maxHealth;
-          health.damage = stats.damage;
-        }
-        const combat = this.world.getComponent<CombatComponent>(antId, COMPONENT.COMBAT);
-        if (combat) combat.attackDamage = stats.damage;
-      }
-    }
+    retrofitAntStats(this.world);
   }
 
-  // ── Queen upgrades ────────────────────────────────────────────────
+  // ── Mejoras (Swarm upgrades) ─────────────────────────────────────
 
+  /** Every upgrade line with its level, next price, affordability and effect numbers */
   getUpgrades(): UpgradeInfo[] {
-    const defs: Array<{ id: UpgradeId; name: string; description: string }> = [
-      { id: 'carry', name: '💪 Obreras fuertes', description: '+25% capacidad de carga por nivel' },
-      { id: 'damage', name: '⚔️ Soldados feroces', description: '+25% daño por nivel' },
-      { id: 'storage', name: '🏠 Despensa amplia', description: '+15 capacidad por tile por nivel' },
-      { id: 'dig', name: '⛏️ Excavación rápida', description: '+30% velocidad de excavación por nivel' },
-      { id: 'porters', name: '🐜 Más porteadoras', description: '+1 porteadora simultánea por nivel' },
-      { id: 'heal', name: '🌿 Curación veloz', description: '+50% velocidad de curación por nivel' },
-    ];
-    return defs.map((d) => {
-      const level = this.upgradeLevels[d.id];
-      return {
-        ...d,
-        level,
-        maxLevel: UPGRADE_COSTS.length,
-        nextCost: level < UPGRADE_COSTS.length ? UPGRADE_COSTS[level] : null,
-      };
-    });
+    return upgradeInfos(this.world.upgradeLevels, this.upgradeFunds());
   }
 
-  /** Upgrades cost MUSHROOMS only — drains pantry + farm piles. False if insufficient. */
-  private deductMushrooms(cost: number): boolean {
-    if (this.undergroundGrid.getPantryStored().mushroom < cost) return false;
-    this.undergroundGrid.drainFoodOfType('mushroom', cost);
-    return true;
+  /** What the colony can pay upgrades with: pantry and farm food, mushrooms among it, and the mineral bank */
+  private upgradeFunds(): UpgradeFunds {
+    const stored = this.undergroundGrid.getPantryStored();
+    return { food: stored.total, mushrooms: stored.mushroom, minerals: this.world.minerals.stored };
   }
 
+  /** Pays an upgrade price: mushrooms from the farm piles first, then food (leaf → mushroom → meat), then minerals. */
+  private payUpgradeCost(cost: { food: number; minerals: number; mushrooms: number }): void {
+    if (cost.mushrooms > 0) this.undergroundGrid.drainFoodOfType('mushroom', cost.mushrooms);
+    if (cost.food > 0) this.undergroundGrid.drainFood(cost.food);
+    if (cost.minerals > 0) this.world.minerals.spend(cost.minerals);
+  }
+
+  /** Buy the next level of a line. False (nothing spent) at max level or when the colony cannot pay. */
   purchaseUpgrade(id: UpgradeId): boolean {
-    const level = this.upgradeLevels[id];
-    if (level >= UPGRADE_COSTS.length) return false;
-    if (!this.deductMushrooms(UPGRADE_COSTS[level])) return false;
-
-    this.upgradeLevels[id] = level + 1;
-    const newLevel = level + 1;
-
-    if (id === 'carry') {
-      this.world.upgrades.workerCarryMult = 1 + 0.25 * newLevel;
-      this.retrofitAntStats();
-      this.world.pushNotification('success', `👑 Mejora: obreras nivel ${newLevel} — cargan más comida`);
-    } else if (id === 'damage') {
-      this.world.upgrades.soldierDamageMult = 1 + 0.25 * newLevel;
-      this.retrofitAntStats();
-      this.world.pushNotification('success', `👑 Mejora: soldados nivel ${newLevel} — pegan más fuerte`);
-    } else if (id === 'storage') {
-      // Flat extra capacity on every pantry tile (scales with excavated pantry size)
-      this.undergroundGrid.setPantryTileCapacityBonus(PANTRY_STORAGE_UPGRADE_PER_TILE * newLevel);
-      this.world.pushNotification('success', `👑 Mejora: despensa nivel ${newLevel} — +${PANTRY_STORAGE_UPGRADE_PER_TILE} de capacidad por tile`);
-    } else if (id === 'dig') {
-      this.world.upgrades.digSpeedMult = 1 + 0.3 * newLevel;
-      this.world.pushNotification('success', `👑 Mejora: excavación nivel ${newLevel} — las obreras cavan más rápido`);
-    } else if (id === 'porters') {
-      this.world.upgrades.porterBonus = newLevel;
-      this.world.pushNotification('success', `👑 Mejora: logística nivel ${newLevel} — +1 porteadora simultánea`);
-    } else {
-      this.world.upgrades.healRateMult = 1 + 0.5 * newLevel;
-      this.world.pushNotification('success', `👑 Mejora: curación nivel ${newLevel} — las hormigas sanan más rápido`);
-    }
+    const payer: UpgradePayer = { funds: () => this.upgradeFunds(), pay: (cost) => this.payUpgradeCost(cost) };
+    const result = purchase(this.world.upgradeLevels, id, payer);
+    if (!result.ok) return false;
+    this.applyUpgradeLevels();
+    const def = upgradeDef(id);
+    this.world.pushNotification('success', `👑 Mejora: ${def.name} nivel ${result.level} (${UPGRADE_GROUP_LABEL[def.group]})`);
+    emitUpgradeAudio(result.level);
     return true;
+  }
+
+  /** Push the levels into everything that reads them: ants, queen, queued eggs, pantry, colony multipliers */
+  private applyUpgradeLevels(): void {
+    syncWorldUpgrades(this.world);
+    this.undergroundGrid.setPantryTileCapacityBonus(pantryTileBonus(this.world.upgradeLevels));
+    this.retrofitAntStats();
+    applyQueenUpgrades(this.world);
+    retimeQueuedEggs(this.world);
+  }
+
+  /** The bought levels, as plain data for a save */
+  getUpgradeLevels(): UpgradeLevels {
+    return { ...this.world.upgradeLevels };
+  }
+
+  /** Restore saved levels (unknown lines dropped, levels clamped) and apply them to the colony */
+  setUpgradeLevels(levels: Partial<Record<string, unknown>>): void {
+    this.world.upgradeLevels = normalizeUpgradeLevels(levels);
+    this.applyUpgradeLevels();
+  }
+
+  /** 0-3: the crown the queen wears for her upgrades */
+  getQueenTier(): number {
+    return queenTier(this.world.upgradeLevels);
+  }
+
+  /** The Estadísticas tab: population, stores, queen and brood rates, run tallies */
+  getColonyStatsReport(): ColonyStatsReport {
+    const stored = this.undergroundGrid.getPantryStored();
+    const day = this.dayNightSystem.getDayNumber();
+    return buildColonyStats(this.world, { food: stored.total, mushrooms: stored.mushroom, day, nightsSurvived: day - 1 });
   }
 
   // ── Retreat horn ──────────────────────────────────────────────────
@@ -2758,7 +2726,7 @@ export class GameManager {
 
   /** Pending dig marks the colony may queue at once: the base cap plus 5 per level of Excavación rápida */
   getDigCap(): number {
-    return digJobCap(this.upgradeLevels.dig);
+    return digJobCap(this.world.upgradeLevels.dig);
   }
 
   /** The dig counter: marks over the cap, the crew on them and the time left */
@@ -3134,12 +3102,13 @@ export class GameManager {
 
     let incubationTiles = 0;
     let freeSlots = 0;
+    const perTile = eggsPerIncubationTile(this.world.upgradeLevels);
     for (let y = 0; y < this.undergroundGrid.height; y++) {
       for (let x = 0; x < this.undergroundGrid.width; x++) {
         const tile = this.undergroundGrid.getTile(x, y);
         if (!tile || !tile.walkable || tile.chamberType !== ChamberType.Incubation) continue;
         incubationTiles++;
-        freeSlots += Math.max(0, MAX_EGGS_PER_INCUBATION_TILE - (eggsPerTile.get(y * this.undergroundGrid.width + x) ?? 0));
+        freeSlots += Math.max(0, perTile - (eggsPerTile.get(y * this.undergroundGrid.width + x) ?? 0));
       }
     }
 
@@ -3237,6 +3206,7 @@ export class GameManager {
         health: health ? { current: health.current, max: health.max } : undefined,
         hunger: hunger ? { current: hunger.current, max: hunger.max } : undefined,
         carrying: carrying ? { type: carrying.resourceType, amount: carrying.amount } : undefined,
+        antStats: antStatLines(this.world, selectedId),
       };
     }
 
@@ -3439,6 +3409,7 @@ export class GameManager {
       entranceFoodStored: Math.floor(entranceFoodStored),
       pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
       mineralsStored: Math.floor(this.world.minerals.stored),
+      upgradesAffordable: this.humanPlayer ? 0 : affordableCount(this.world.upgradeLevels, this.upgradeFunds()),
       beetleCount: this.world.query(COMPONENT.BEETLE).length,
       beetleDenCount: this.world.query(COMPONENT.BEETLE_DEN).length,
       cricketCount: this.world.query(COMPONENT.CRICKET).length,
