@@ -1,4 +1,5 @@
 import { AntRole } from '../../game/components/components';
+import { LEAPER_NAME } from '../../shared/wildlifeNames';
 import type { IconName } from './pixelIcons';
 
 /** Pictographs plus the variation selector, zero-width joiner and keycap that glue emoji together. */
@@ -97,7 +98,7 @@ export const FOOD_LABEL: Record<string, string> = {
   mushroom: 'Hongo',
   giant_mushroom: 'Hongo gigante',
   beetle_meat: 'Carne de escarabajo',
-  cricket_meat: 'Carne de grillo',
+  cricket_meat: LEAPER_NAME.meat,
 };
 
 export const CARRY_LABEL: Record<string, string> = {

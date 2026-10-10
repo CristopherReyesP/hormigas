@@ -24,6 +24,7 @@ import {
   DANGER_PHEROMONE_PASSIVE_STRENGTH,
   PHEROMONE_MAX,
 } from '../../shared/constants';
+import { LEAPER_NOTICE } from '../../shared/wildlifeNames';
 
 export class CricketAISystem implements System {
   readonly name = 'CricketAISystem';
@@ -129,7 +130,7 @@ export class CricketAISystem implements System {
       cricket.stateTimer = 0;
       path.waypoints = [];
       path.currentIndex = 0;
-      this.world.pushNotification('danger', '🦗 ¡Un grillo está robando comida del nido!', 'cricket-steal', 10000);
+      this.world.pushNotification('danger', LEAPER_NOTICE.stealing, 'cricket-steal', 10000);
       return;
     }
 

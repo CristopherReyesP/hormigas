@@ -51,6 +51,7 @@ import { CRYSTAL_FRAME_MS, UNIT_ART_PX, bakeCrystalUnit, drawUnitFrame } from '.
 import { combatVfxFor } from '../vfx/CombatVfx';
 import { drawCombatVfx } from '../vfx/drawCombatVfx';
 import type { IntroClock, Vec2 } from '../render/introTimeline';
+import { LeapTracker, type LeapDraw } from '../render/leapMotion';
 import type { TilePos } from '../run/craterSite';
 import type { EntityId } from '../../shared/types';
 
@@ -164,6 +165,10 @@ export class RenderSystem {
   private fogRenderer: FogRenderer;
   private visibilityGrid: VisibilityGrid;
   private animationTime: number = 0;
+  /** Real time of the frame being drawn (0 while paused) */
+  private frameDt = 0;
+  /** Visual hops of the alien leapers (crickets) over their real positions */
+  private leapTracker = new LeapTracker();
   private camera: Camera | null = null;
   private ambientParticles: AmbientParticleSystem;
   private ugGrid: UndergroundGrid | null = null;
@@ -821,6 +826,7 @@ export class RenderSystem {
   /** The single render path. `dt` is real frame time (0 while paused). */
   renderInterpolated(interpolation: number, dt: number): void {
     this.animationTime += dt;
+    this.frameDt = dt;
     // Mutation marks are baked into the ant sheets; same object = no work
     this.spriteAtlas.setColonyMarks(this.world.runModifiers.getColonyMarks());
     this.terrainRenderer.update(dt);
@@ -1755,19 +1761,25 @@ export class RenderSystem {
       }
     }
 
+    // Alien leapers travel in visible hops: the drawing stays planted, then
+    // arcs to the real (unchanged) gameplay position
+    const drawnLeapers = new Set<number>();
     for (const { id, pos } of cricketEntities) {
       if (!isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
-      const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
-      const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
+      const liveX = pos.prevX + (pos.x - pos.prevX) * interpolation;
+      const liveY = pos.prevY + (pos.y - pos.prevY) * interpolation;
+      const hop = this.leapTracker.step(id, liveX, liveY, this.frameDt);
+      drawnLeapers.add(id);
       const cricket = this.world.getComponent<CricketComponent>(id, COMPONENT.CRICKET);
       const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
-      this.drawTargetFlash(ctx, id, x, y, 'cricket');
+      this.drawTargetFlash(ctx, id, hop.x, hop.y, 'cricket');
       if (facing) {
         const isAttacking = cricket && cricket.state === CricketState.Attacking;
         const isStealing = cricket && cricket.state === CricketState.StealingFood;
-        this.drawCricket(ctx, x, y, facing.angle, facing.legPhase, id, isAttacking, isStealing);
+        this.drawCricket(ctx, hop.x, hop.y, facing.angle, facing.legPhase, id, isAttacking, isStealing, hop);
       }
     }
+    this.leapTracker.retain(drawnLeapers);
 
     // Crystal drones, like wildlife, show only where the colony sees now
     for (const { id, pos } of crystalEntities) {
@@ -2192,7 +2204,8 @@ export class RenderSystem {
     legPhase: number,
     entityId: number,
     isAttacking: boolean = false,
-    isStealing: boolean = false
+    isStealing: boolean = false,
+    hop: Pick<LeapDraw, 'lift' | 'pose'> = { lift: 0, pose: 'walk' }
   ): void {
     const px = tileX * TILE_SIZE + TILE_SIZE / 2;
     const py = tileY * TILE_SIZE + TILE_SIZE / 2;
@@ -2222,10 +2235,12 @@ export class RenderSystem {
       ctx.globalAlpha = 1;
     }
 
-    // Drop shadow under the 48-art-px body (pre-rendered dither stamp)
-    this.drawShadow(ctx, px + 4, py + 5, TILE_SIZE * 0.8, TILE_SIZE * 0.4);
+    // Drop shadow under the 48-art-px body (pre-rendered dither stamp); it
+    // stays on the ground and tightens while the leaper is in the air
+    const shrink = hop.lift > 0 ? 0.8 : 1;
+    this.drawShadow(ctx, px + 4, py + 5, TILE_SIZE * 0.8 * shrink, TILE_SIZE * 0.4 * shrink);
 
-    this.spriteAtlas.drawCricket(ctx, px, py, facing, legPhase);
+    this.spriteAtlas.drawCricket(ctx, px, py - hop.lift, facing, legPhase, hop.pose);
 
     // Health bar — segmented pixel bar at 2× scale, positioned higher for the big sprite
     const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);

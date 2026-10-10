@@ -5,7 +5,7 @@ import { blitArtGrid, type ArtGrid } from './pixelart/ArtGrid';
 import { DIRECTIONS, directionIndex } from './pixelart/directions';
 import { ART_PX, SPRITE_GRID, WALK_FRAMES, nestPixelsPerArtPixel, spritePivot, walkFrame } from './sprites/spriteScale';
 import { paintAnt, paintQueen } from './sprites/swarmSprites';
-import { paintBeetle, paintCricket } from './sprites/wildlifeSprites';
+import { LEAPER_FRAMES, type LeaperPose, leaperFrameIndex, paintBeetle, paintCricket } from './sprites/wildlifeSprites';
 import { FOOD_SIZE_LEVELS, FOOD_VARIANTS, paintDen, paintFood, paintGiantMushroom } from './sprites/propSprites';
 import { NO_MARKS, antSheetKey, type AntMarks } from './sprites/antMarks';
 
@@ -359,11 +359,13 @@ export class SpriteAtlas {
     worldX: number,
     worldY: number,
     angle: number,
-    legPhase: number
+    legPhase: number,
+    pose: LeaperPose = 'walk'
   ): void {
-    this.cricketSheet ??= new DirectionalSheet(SPRITE_GRID.cricket, WALK_FRAMES, 1, (_row, frame, direction) =>
-      paintCricket({ frame, direction }));
-    this.cricketSheet.draw(ctx, worldX, worldY, angle, walkFrame(legPhase));
+    // The alien leaper: 4 walk frames, then its crouch and leap poses
+    this.cricketSheet ??= new DirectionalSheet(SPRITE_GRID.cricket, LEAPER_FRAMES.length, 1, (_row, frame, direction) =>
+      paintCricket({ ...LEAPER_FRAMES[frame], direction }));
+    this.cricketSheet.draw(ctx, worldX, worldY, angle, leaperFrameIndex(pose, legPhase));
   }
 
   drawCricketDen(
