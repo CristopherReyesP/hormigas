@@ -1,0 +1,173 @@
+/* Night-wave alerts (WaveAlert.tsx). Self-contained: fixed over the whole
+   screen, never takes input, sized with clamp() so it reads on phones too. */
+
+.wave-alert {
+  position: fixed;
+  inset: 0;
+  z-index: 40; /* over the HUD, under the dawn pick (50) and the game-over screen */
+  pointer-events: none;
+  font-family: var(--font-pixel, monospace);
+  color: var(--chrome-text, #e8d8dc);
+  text-align: center;
+}
+
+/* Warning banner, under the top strip */
+.wave-banner {
+  position: absolute;
+  top: clamp(64px, 12vh, 110px);
+  left: 0;
+  right: 0;
+  width: fit-content;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 8px 14px;
+  background: rgba(14, 8, 11, 0.88);
+  border: 2px solid var(--chrome-danger, #ff3b3b);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6), 0 0 18px rgba(255, 59, 59, 0.45);
+  animation: wave-blink 1s steps(2, jump-none) infinite;
+}
+
+.wave-banner-title {
+  font-size: clamp(11px, 2.4vw, 18px);
+  color: var(--chrome-danger, #ff3b3b);
+  white-space: nowrap;
+}
+
+.wave-banner-sub {
+  font-size: clamp(8px, 1.4vw, 11px);
+  color: var(--chrome-warn, #f0b541);
+}
+
+/* Remaining-enemies counter, same spot as the warning (they never show together) */
+.wave-counter {
+  position: absolute;
+  top: clamp(64px, 12vh, 110px);
+  left: 0;
+  right: 0;
+  width: fit-content;
+  margin: 0 auto;
+  max-width: calc(100% - 24px);
+  padding: 6px 12px;
+  white-space: nowrap;
+  font-size: clamp(9px, 1.8vw, 13px);
+  background: rgba(14, 8, 11, 0.85);
+  border: 2px solid var(--chrome-danger, #ff3b3b);
+}
+
+.wave-counter strong {
+  color: var(--chrome-danger, #ff3b3b);
+  font-weight: normal;
+}
+
+/* The big centre announcement: arrival and "cleared" */
+.wave-announce {
+  position: absolute;
+  top: 34%;
+  left: 12px;
+  right: 12px;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-shadow: 3px 3px 0 #000, 0 0 16px rgba(255, 59, 59, 0.7);
+  animation: wave-announce 5s ease-out forwards;
+}
+
+.wave-announce-title {
+  font-size: clamp(22px, 8vw, 56px);
+  white-space: nowrap;
+  color: var(--chrome-danger, #ff3b3b);
+}
+
+.wave-announce-sub {
+  font-size: clamp(11px, 2.6vw, 20px);
+  color: var(--chrome-text, #e8d8dc);
+}
+
+.wave-announce--cleared .wave-announce-title {
+  font-size: clamp(14px, 4.4vw, 34px);
+  color: var(--chrome-accent, #c6ff3d);
+  text-shadow: 3px 3px 0 #000, 0 0 16px rgba(198, 255, 61, 0.5);
+  white-space: normal;
+}
+
+/* Red pulse on the screen edges as the wave strikes */
+.wave-edge-pulse {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 0 6px rgba(255, 59, 59, 0.85), inset 0 0 60px 20px rgba(255, 59, 59, 0.45);
+  animation: wave-edge 1.2s ease-out 4 forwards;
+}
+
+/* Edge arrow toward an off-screen threat; rotated by the component */
+.wave-arrow {
+  position: absolute;
+  width: clamp(26px, 5vw, 40px);
+  height: clamp(26px, 5vw, 40px);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(14, 8, 11, 0.75);
+  border: 2px solid var(--chrome-danger, #ff3b3b);
+  animation: wave-arrow 0.9s ease-in-out infinite;
+}
+
+.wave-arrow-head {
+  width: 0;
+  height: 0;
+  margin-left: 4px;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 12px solid var(--chrome-danger, #ff3b3b);
+}
+
+/* On-screen threat: a pulsing ring on the spot */
+.wave-ping {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  transform: translate(-50%, -50%);
+  border: 3px solid var(--chrome-danger, #ff3b3b);
+  border-radius: 50%;
+  animation: wave-ping 1.2s ease-out infinite;
+}
+
+@keyframes wave-blink {
+  50% { border-color: var(--chrome-warn, #f0b541); }
+}
+
+@keyframes wave-announce {
+  0% { opacity: 0; transform: translateY(-50%) scale(1.6); }
+  10% { opacity: 1; transform: translateY(-50%) scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes wave-edge {
+  0% { opacity: 1; }
+  100% { opacity: 0.15; }
+}
+
+@keyframes wave-arrow {
+  50% { box-shadow: 0 0 14px rgba(255, 59, 59, 0.9); }
+}
+
+@keyframes wave-ping {
+  0% { opacity: 1; width: 18px; height: 18px; }
+  100% { opacity: 0; width: 64px; height: 64px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave-banner,
+  .wave-arrow,
+  .wave-ping,
+  .wave-edge-pulse {
+    animation: none;
+  }
+  .wave-announce {
+    animation-name: none;
+  }
+}

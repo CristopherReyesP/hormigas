@@ -2,17 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { World } from '../../engine/ecs/World';
 import { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import { createDefaultModifiers } from '../events/GlobalModifiers';
-import { COMPONENT } from '../components/components';
+import { COMPONENT, Layer, type LayerComponent } from '../components/components';
 import {
   DAY_DURATION,
   INVASION_ARM_LEAD,
   INVASION_BOSS_NIGHT,
-  INVASION_WAVE_SIZE_BY_NIGHT,
   RUN_NIGHTS_TO_WIN,
+  WAVE_WARNING_LEAD,
 } from '../../shared/constants';
+import { waveComposition } from '../run/waveComposition';
 import { DayNightSystem } from './DayNightSystem';
 import { TransitSystem } from './TransitSystem';
-import { UndergroundInvasionSystem, waveForNight } from './UndergroundInvasionSystem';
+import { UndergroundInvasionSystem, isBossNight, type RaidSource } from './UndergroundInvasionSystem';
+import type { EntityId } from '../../shared/types';
 
 // A power of two keeps the tick sum exact, so nightfall lands on a known tick
 const DT = 1 / 16;
@@ -34,54 +36,69 @@ function setup() {
 
 const beetles = (world: World) => world.query(COMPONENT.BEETLE).length;
 
-describe('wave size per night', () => {
-  it('opens with a lone scout on night 1, then rises 2, 3, 4, 5, 6, 8', () => {
-    const sizes = [1, 2, 3, 4, 5, 6, 7].map((night) => waveForNight(night).invaders);
-    expect(sizes).toEqual([1, 2, 3, 4, 5, 6, 8]);
-  });
+const sizes = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => waveComposition(from + i).total);
 
+describe('wave size per wave number', () => {
   it('keeps the boss slot on the last night of the run only', () => {
-    expect(INVASION_WAVE_SIZE_BY_NIGHT).toHaveLength(RUN_NIGHTS_TO_WIN);
     expect(INVASION_BOSS_NIGHT).toBe(RUN_NIGHTS_TO_WIN);
-    const bossNights = [1, 2, 3, 4, 5, 6, 7].filter((night) => waveForNight(night).boss);
+    const bossNights = [1, 2, 3, 4, 5, 6, 7, 8].filter(isBossNight);
     expect(bossNights).toEqual([7]);
   });
 
-  it('holds the last size after the curve ends', () => {
-    expect(waveForNight(9).invaders).toBe(8);
-    expect(waveForNight(9).boss).toBe(false);
-  });
-
-  it('sends exactly the curve, one wave per night, over a whole run', () => {
+  it('sends exactly the composition curve, one wave per night, over a whole run', () => {
     const { world, invasion, step } = setup();
     const sent: number[] = [];
     for (let night = 1; night <= RUN_NIGHTS_TO_WIN; night++) {
       while (invasion.getInfo().waveNumber < night) step();
       // Let the staged entry finish, then clear the wave so it counts as repelled
-      for (let i = 0; i < 12 / DT; i++) step();
+      for (let i = 0; i < 20 / DT; i++) step();
       sent.push(beetles(world));
       for (const id of world.query(COMPONENT.BEETLE)) world.destroyEntity(id);
     }
-    expect(sent).toEqual([1, 2, 3, 4, 5, 6, 8]);
+    // No hive here: the drone share breaks in as beetles, so every wave keeps its size
+    expect(sent).toEqual(sizes(1, RUN_NIGHTS_TO_WIN));
   });
 
-  it('adds the mutation surcharge on top of the night size', () => {
+  it('adds the mutation surcharge on top of the wave size', () => {
     const { world, step, dayNight } = setup();
     world.runModifiers.extraInvadersPerWave = 1;
     while (dayNight.getPhase() === 'day') step();
-    for (let i = 0; i < 5 / DT; i++) step();
-    expect(beetles(world)).toBe(2);
+    for (let i = 0; i < 8 / DT; i++) step();
+    expect(beetles(world)).toBe(waveComposition(1).total + 1);
+  });
+
+  it('folds the hive raid into the wave: drones from the hive, the rest into the nest', () => {
+    const { world, invasion, step, dayNight } = setup();
+    invasion['waveNumber'] = 4;
+    const sent: EntityId[] = [];
+    const raid: RaidSource = {
+      launch: (count) => {
+        for (let i = 0; i < count; i++) sent.push(world.createEntity());
+        return [...sent];
+      },
+      origin: () => ({ x: 90, y: 40 }),
+    };
+    invasion.setRaidSource(raid);
+    const wave = waveComposition(5);
+    while (dayNight.getPhaseRemaining() > WAVE_WARNING_LEAD - 1) step();
+    expect(invasion.getInfo().threats).toContainEqual({ x: 90, y: 40, layer: 'surface' });
+    while (dayNight.getPhase() === 'day') step();
+    for (let i = 0; i < 20 / DT; i++) step();
+    expect(sent).toHaveLength(wave.drones);
+    const underground = world.query(COMPONENT.BEETLE).filter((id) => world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground);
+    expect(underground).toHaveLength(wave.youngBeetles + wave.beetles);
+    expect(invasion.getInfo().remaining).toBe(wave.total);
   });
 });
 
-describe('night 1 scout wave', () => {
-  it('a single invader breaks in at the first nightfall', () => {
+describe('night 1 wave', () => {
+  it('its young beetles break in at the first nightfall', () => {
     const { world, invasion, step, dayNight, now } = setup();
     while (dayNight.getPhase() === 'day') step();
     expect(now()).toBeCloseTo(DAY_DURATION, 0);
     expect(invasion.getInfo().waveNumber).toBe(1);
     for (let i = 0; i < 10 / DT; i++) step();
-    expect(beetles(world)).toBe(1);
+    expect(beetles(world)).toBe(waveComposition(1).total);
   });
 });
 
@@ -106,7 +123,7 @@ describe('wave countdown', () => {
 
   it('after a wave is repelled mid-night, counts down to the next nightfall spawn', () => {
     const { world, invasion, step, now } = setup();
-    while (beetles(world) === 0) step();
+    while (beetles(world) < waveComposition(1).total) step();
     for (const id of world.query(COMPONENT.BEETLE)) world.destroyEntity(id);
     step();
     const info = invasion.getInfo();
@@ -127,10 +144,10 @@ describe('wave countdown', () => {
   it('does not stack a new wave on one still inside the nest', () => {
     const { world, invasion, step, dayNight } = setup();
     while (beetles(world) === 0) step();
-    // Night 1's scout is never killed: the next nightfall passes with it still inside
+    // Night 1's wave is never killed: the next nightfall passes with it still inside
     while (dayNight.getDayNumber() < 2 || dayNight.getPhase() === 'day') step();
     for (let i = 0; i < 10 / DT; i++) step();
     expect(invasion.getInfo().waveNumber).toBe(1);
-    expect(beetles(world)).toBe(1);
+    expect(beetles(world)).toBe(waveComposition(1).total);
   });
 });

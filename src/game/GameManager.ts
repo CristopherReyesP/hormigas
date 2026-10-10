@@ -50,7 +50,7 @@ import { TransitSystem } from './systems/TransitSystem';
 import { ExcavationSystem } from './systems/ExcavationSystem';
 import { PorterSystem } from './systems/PorterSystem';
 import { ObjectiveSystem, type ObjectiveState } from './systems/ObjectiveSystem';
-import { UndergroundInvasionSystem, type InvasionInfo } from './systems/UndergroundInvasionSystem';
+import { UndergroundInvasionSystem, type InvasionInfo, type WaveThreat } from './systems/UndergroundInvasionSystem';
 import { SpoilageSystem } from './systems/SpoilageSystem';
 import { FungusFarmSystem } from './systems/FungusFarmSystem';
 import { UndergroundHealingSystem } from './systems/UndergroundHealingSystem';
@@ -525,7 +525,13 @@ export class GameManager {
       this.dayNightSystem
     );
     this.world.addSystem(this.invasionSystem);
-    this.world.addSystem(new CrystalHiveSystem(this.world, this.grid, this.dayNightSystem));
+    // The hive's night raids are part of each invasion wave, not waves of their own
+    const crystalHiveSystem = new CrystalHiveSystem(this.world, this.grid, this.dayNightSystem, { autoRaids: false });
+    this.world.addSystem(crystalHiveSystem);
+    this.invasionSystem.setRaidSource({
+      launch: (count) => crystalHiveSystem.launchRaid(count),
+      origin: () => crystalHiveSystem.raidOrigin(),
+    });
     this.world.addSystem(new CrystalUnitAISystem(this.world, this.grid));
     // Waves land at nightfall, so the dusk warning doubles as the last call
     this.dayNightSystem.setWaveArmedProvider(() => this.invasionSystem.getInfo().armed);
@@ -1996,6 +2002,25 @@ export class GameManager {
   /** Camera viewport as a tile rect — drawn as the "you are here" box */
   getUndergroundView(): { x: number; y: number; w: number; h: number } {
     return this.undergroundCamera.getViewRectTiles();
+  }
+
+  /**
+   * The camera view of the layer on screen, in tiles, and the band of the
+   * screen it fills (fractions: the HUD covers the rest) — the wave alert's edge arrows
+   */
+  getActiveView(): { x: number; y: number; w: number; h: number; band: { left: number; top: number; width: number; height: number } } {
+    const camera = this.activeCamera();
+    const v = camera.getViewport();
+    const canvas = camera.getCanvasSize();
+    return {
+      ...camera.getViewRectTiles(),
+      band: { left: v.x / canvas.width, top: v.y / canvas.height, width: v.w / canvas.width, height: v.h / canvas.height },
+    };
+  }
+
+  /** Where the coming or ongoing wave is on one layer — minimap pings */
+  getWaveThreats(layer: 'surface' | 'underground'): WaveThreat[] {
+    return this.invasionSystem.getInfo().threats.filter((t) => t.layer === layer);
   }
 
   /** Entrances the colony currently has — every one is also a breach point */

@@ -92,7 +92,7 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer }: Minima
     const draw = () => {
       tick++;
       if (activeLayer === 'surface') drawSurfaceMinimap(ctx, gameManager, cache, unit, tick % 4 < 2);
-      else drawUndergroundMinimap(ctx, gameManager, cache, unit);
+      else drawUndergroundMinimap(ctx, gameManager, cache, unit, tick % 4 < 2);
     };
     draw();
     const interval = window.setInterval(draw, POLL_MS);
