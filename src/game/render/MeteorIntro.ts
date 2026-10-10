@@ -139,6 +139,8 @@ export class MeteorIntro {
   private droneFrames: OffscreenCanvas[] = [];
   private shardFrames: ShardArt[] = [];
   private spires: PlacedSpire[] = [];
+  /** False once the Crystal Hive is destroyed: its spires no longer stand on the crater */
+  private spiresStanding = true;
   /** Crystal shards around the crater (the Hive's corruption) and their tips */
   private readonly shards: readonly CrystalShard[];
   private shardLayer: OffscreenCanvas | null = null;
@@ -172,6 +174,11 @@ export class MeteorIntro {
     return true;
   }
 
+  /** The Crystal Hive stands or has fallen; a fallen hive leaves the bare crater. */
+  setSpiresStanding(standing: boolean): void {
+    this.spiresStanding = standing;
+  }
+
   isPlaying(): boolean {
     return this.clock.isPlaying();
   }
@@ -195,7 +202,7 @@ export class MeteorIntro {
     const step = crystalPulseProgress(this.t) !== null ? 2 : crackPulseStep(time);
     ctx.drawImage(this.crackLayers[step], x, y);
     if (this.shardLayer) ctx.drawImage(this.shardLayer, this.shardOrigin().x, this.shardOrigin().y);
-    this.spires.forEach((s, i) => this.drawSpire(ctx, s, spireGrowth(i, this.t), s.art.body));
+    if (this.spiresStanding) this.spires.forEach((s, i) => this.drawSpire(ctx, s, spireGrowth(i, this.t), s.art.body));
   }
 
   /** The top `growth` of a spire, seated on its base: it pushes up out of the ground tip first. */
@@ -222,7 +229,7 @@ export class MeteorIntro {
     const y = Math.round(this.impact.y) - CR_CY * ART;
     ctx.drawImage(this.crackLayers[crackPulseStep(time)], x, y);
     if (this.shardGlints) ctx.drawImage(this.shardGlints, this.shardOrigin().x, this.shardOrigin().y);
-    this.spires.forEach((s, i) => this.drawSpire(ctx, s, spireGrowth(i, this.t), s.art.glint));
+    if (this.spiresStanding) this.spires.forEach((s, i) => this.drawSpire(ctx, s, spireGrowth(i, this.t), s.art.glint));
     const h = this.crystalHalo.width / 2;
     ctx.drawImage(this.crystalHalo, Math.round(this.impact.x - h), Math.round(this.impact.y - h));
   }

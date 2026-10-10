@@ -28,6 +28,7 @@ import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { findPath } from '../../simulation/pathfinding/AStar';
 import { buildAttackerMap, ensureCombatComponent } from './helpers/combatHelpers';
 import { canFight, completePlayerOrder, endPlayerOrder, isSurfaceEnemy } from './helpers/playerOrders';
+import { FactionId, isHostileTo } from '../factions/factions';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { TransitSystem } from './TransitSystem';
 import {
@@ -593,6 +594,14 @@ export class AntAISystem implements System {
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
         this.enemySnapshot.push({ id, x: pos.x, y: pos.y });
       }
+    }
+    // Rival faction units (Crystal drones) the colony is at war with
+    for (const id of this.world.query(COMPONENT.CRYSTAL_UNIT, COMPONENT.POSITION)) {
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+      if (layer && layer.layer !== Layer.Surface) continue;
+      if (!isHostileTo(this.world, FactionId.PLAYER, id)) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      this.enemySnapshot.push({ id, x: pos.x, y: pos.y });
     }
 
     // Who is already engaging whom — drives focus fire (see selectSoldierTarget)

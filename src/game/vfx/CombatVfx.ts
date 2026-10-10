@@ -46,7 +46,8 @@ export type DebrisStyle = 'chitin' | 'straw' | 'flesh' | 'goo' | 'shard' | 'soil
 export type CrossStyle = 'acid' | 'impact';
 export type BodyKind = 'ant' | 'beetle' | 'cricket';
 export type DenKind = 'beetleDen' | 'cricketDen';
-export type VictimKind = BodyKind | DenKind;
+/** 'crystal': a Crystal Hive unit or structure, which sheds cyan shards */
+export type VictimKind = BodyKind | DenKind | 'crystal';
 /** Who landed the blow: the Swarm spits acid, wildlife just bites */
 export type Attacker = 'swarm' | 'wildlife';
 export type VfxStyle = DebrisStyle | CrossStyle | BodyKind | DenKind;
@@ -95,6 +96,7 @@ const CHIP_STYLE: Record<VictimKind, DebrisStyle> = {
   cricket: 'straw',
   beetleDen: 'soil',
   cricketDen: 'straw',
+  crystal: 'shard',
 };
 
 function emptySlot(): VfxSlot {

@@ -3,6 +3,9 @@ import type { EntityId } from '../../../shared/types';
 import { COMPONENT, type CombatComponent } from '../../components/components';
 import { SOLDIER_ATTACK_RANGE, SOLDIER_ATTACK_COOLDOWN } from '../../../shared/constants';
 
+/** Everything that hunts the colony: wildlife predators and rival Crystal units, in that order */
+const PREDATOR_STORES = [COMPONENT.BEETLE, COMPONENT.CRICKET, COMPONENT.CRYSTAL_UNIT] as const;
+
 /**
  * Build the victim → attacker map for this tick in ONE pass over the predators.
  * Callers that check "who is attacking me?" per ant MUST use this instead of
@@ -11,7 +14,7 @@ import { SOLDIER_ATTACK_RANGE, SOLDIER_ATTACK_COOLDOWN } from '../../../shared/c
  */
 export function buildAttackerMap(world: World): Map<EntityId, EntityId> {
   const map = new Map<EntityId, EntityId>();
-  for (const store of [COMPONENT.BEETLE, COMPONENT.CRICKET]) {
+  for (const store of PREDATOR_STORES) {
     for (const pid of world.query(store, COMPONENT.COMBAT)) {
       const combat = world.getComponent<CombatComponent>(pid, COMPONENT.COMBAT);
       if (combat && combat.targetEntityId !== null && !map.has(combat.targetEntityId)) {
@@ -28,20 +31,10 @@ export function buildAttackerMap(world: World): Map<EntityId, EntityId> {
  * (PorterSystem's handful of porters); per-ant loops use buildAttackerMap.
  */
 export function findAttacker(world: World, entityId: EntityId): EntityId | null {
-  // Check if any beetle has this ant as its combat target
-  const beetles = world.query(COMPONENT.BEETLE, COMPONENT.COMBAT);
-  for (const bid of beetles) {
-    const combat = world.getComponent<CombatComponent>(bid, COMPONENT.COMBAT);
-    if (combat && combat.targetEntityId === entityId) {
-      return bid;
-    }
-  }
-  // Check if any cricket has this ant as its combat target
-  const crickets = world.query(COMPONENT.CRICKET, COMPONENT.COMBAT);
-  for (const cid of crickets) {
-    const combat = world.getComponent<CombatComponent>(cid, COMPONENT.COMBAT);
-    if (combat && combat.targetEntityId === entityId) {
-      return cid;
+  for (const store of PREDATOR_STORES) {
+    for (const pid of world.query(store, COMPONENT.COMBAT)) {
+      const combat = world.getComponent<CombatComponent>(pid, COMPONENT.COMBAT);
+      if (combat && combat.targetEntityId === entityId) return pid;
     }
   }
   return null;
