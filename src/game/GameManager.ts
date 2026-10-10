@@ -25,7 +25,7 @@ import { Camera, type ViewportRect } from '../engine/camera/Camera';
 import { isTileVisible, type VisibilityReader } from '../engine/renderer/fogVisibility';
 import { TileGrid } from '../simulation/world/TileGrid';
 import { VisibilityGrid } from '../simulation/world/VisibilityGrid';
-import { UndergroundGrid } from '../simulation/world/UndergroundGrid';
+import { UndergroundGrid, type PantryFoodType } from '../simulation/world/UndergroundGrid';
 import { TerrainType, ChamberType, UndergroundTerrainType } from '../simulation/world/types';
 import { RenderSystem, type OrderPing } from './systems/RenderSystem';
 import { MovementSystem } from './systems/MovementSystem';
@@ -139,6 +139,7 @@ import {
   Layer,
   OrderKind,
   COMPONENT,
+  isOreLoad,
   type NestComponent,
   type QueenComponent,
   type QueenEntityComponent,
@@ -247,8 +248,10 @@ export interface SelectedEntityInfo {
   mineralMax?: number;
   /** Food source or mineral node: workers gathering or mining it now */
   workers?: number;
-  // Nest-specific
+  // Nest-specific: foodStored is the entrance pile, pantry* the underground stock
   foodStored?: number;
+  pantryStored?: number;
+  pantryCapacity?: number;
   mushroomStored?: number;
   meatStored?: number;
   totalAnts?: number;
@@ -409,6 +412,11 @@ export interface GameStats {
   scoutCount: number;
   nurseCount: number;
   defenderCount: number;
+  /**
+   * Food in the pantry (pantry and farm piles): what pays for eggs. The type
+   * totals split it; leaves are the remainder. Food at the entrance or in the
+   * ants' jaws is not counted here, it is `foodInTransit`.
+   */
   foodStored: number;
   mushroomStored: number;
   meatStored: number;
@@ -416,6 +424,10 @@ export interface GameStats {
   pantryCapacity: number;
   /** Food on the pile at the nest entrance, still waiting for porters to carry it to the pantry */
   entranceFoodStored: number;
+  /** Food on its way to the pantry: the entrance pile plus what workers, soldiers and scouts carry */
+  foodInTransit: number;
+  /** No pantry tile can take the food on its way (or any food at all): more Almacén tiles are needed */
+  pantryFull: boolean;
   /** The minerals bank: what miners delivered, the currency for structures */
   mineralsStored: number;
   /** Workers on the mineral fields and the colony's miner target (Mineras: N) */
@@ -497,6 +509,8 @@ export interface BroodSnapshot {
   incubation: { tiles: number; freeSlots: number };
   /** Nurses below ground: only they carry eggs to incubation and feed larvae and the queen */
   nurses: number;
+  /** Workers alive. With none, a worker egg may be paid with the entrance pile (see queueBreed). */
+  workers?: number;
   costs: Record<AntRole, number>;
 }
 
@@ -2401,8 +2415,13 @@ export class GameManager {
     const countForRole = eggQueue.queue.filter(e => e.role === role).length;
     if (countForRole >= eggQueue.maxPerType) return false;
 
-    // Spend from the pantry tile piles (leaf → mushroom → meat priority)
-    if (!this.deductFromStorage(this.getBreedCost(role))) return false;
+    // Spend from the pantry tile piles (leaf → mushroom → meat priority). A
+    // colony with no workers left may pay a worker egg with the entrance pile:
+    // nobody may be able to carry that food down, and without a worker the
+    // colony could never recover (player report: "me quedé sin obreras").
+    const cost = this.getBreedCost(role);
+    const rescue = role === AntRole.Worker && this.countWorkers() === 0;
+    if (!this.deductFromStorage(cost, rescue)) return false;
 
     // Add to queue
     eggQueue.queue.push({
@@ -2415,11 +2434,44 @@ export class GameManager {
     return true;
   }
 
-  /** Deduct food from the underground pantry tiles (leaf → mushroom → meat). False if insufficient. */
-  private deductFromStorage(cost: number): boolean {
-    if (this.undergroundGrid.getPantryStored().total < cost) return false;
-    this.undergroundGrid.drainFood(cost);
+  /**
+   * Deduct food from the underground pantry tiles (leaf → mushroom → meat).
+   * With `orEntrance`, what the pantry lacks comes off the entrance pile.
+   * False (nothing spent) if insufficient.
+   */
+  private deductFromStorage(cost: number, orEntrance = false): boolean {
+    const pantry = this.undergroundGrid.getPantryStored().total;
+    if (pantry >= cost) {
+      this.undergroundGrid.drainFood(cost);
+      return true;
+    }
+    const nest = orEntrance ? this.getPlayerNest() : undefined;
+    if (!nest || pantry + nest.foodStored < cost) return false;
+    this.undergroundGrid.drainFood(pantry);
+    this.takeFromEntrancePile(nest, cost - pantry);
     return true;
+  }
+
+  /** Take food off the entrance pile, each type in proportion to what lies there */
+  private takeFromEntrancePile(nest: NestComponent, amount: number): void {
+    const share = nest.foodStored > 0 ? Math.min(1, amount / nest.foodStored) : 0;
+    nest.mushroomStored = Math.max(0, nest.mushroomStored * (1 - share));
+    nest.meatStored = Math.max(0, nest.meatStored * (1 - share));
+    nest.foodStored = Math.max(0, nest.foodStored - amount);
+  }
+
+  private getPlayerNest(): NestComponent | undefined {
+    const nestId = this.world.query(COMPONENT.NEST)[0];
+    return nestId !== undefined ? this.world.getComponent<NestComponent>(nestId, COMPONENT.NEST) : undefined;
+  }
+
+  private countWorkers(): number {
+    let workers = 0;
+    for (const id of this.world.query(COMPONENT.ANT)) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      if (ant.role === AntRole.Worker) workers++;
+    }
+    return workers;
   }
 
   /** Food cost to breed one ant of this role, including run mutation surcharges. */
@@ -3310,6 +3362,7 @@ export class GameManager {
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
       if (ant.role === AntRole.Nurse && layer.layer === Layer.Underground) nurses++;
     }
+    const workers = this.countWorkers();
 
     return {
       pantry: {
@@ -3328,6 +3381,7 @@ export class GameManager {
       eggs,
       incubation: { tiles: incubationTiles, freeSlots },
       nurses,
+      workers,
       costs: {
         [AntRole.Worker]: this.getBreedCost(AntRole.Worker),
         [AntRole.Soldier]: this.getBreedCost(AntRole.Soldier),
@@ -3534,6 +3588,8 @@ export class GameManager {
         type: 'nest',
         position: { x: Math.round(pos.x), y: Math.round(pos.y) },
         foodStored: nest.foodStored,
+        pantryStored: Math.floor(this.undergroundGrid.getPantryStored().total),
+        pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
         mushroomStored: nest.mushroomStored,
         meatStored: nest.meatStored,
         totalAnts: ants.length,
@@ -3541,6 +3597,33 @@ export class GameManager {
     }
 
     return null;
+  }
+
+  /**
+   * Food headed for the pantry: the entrance pile and the food in the jaws of
+   * workers, soldiers and scouts (nurses carry food already taken out of the
+   * pantry; ore is not food). `types` are the food types among it.
+   */
+  private foodOnItsWay(nests: EntityId[]): { entrance: number; carried: number; types: PantryFoodType[] } {
+    let entrance = 0;
+    const types = new Set<PantryFoodType>();
+    for (const id of nests) {
+      const nest = this.world.getComponent<NestComponent>(id, COMPONENT.NEST);
+      if (!nest) continue;
+      entrance += nest.foodStored;
+      if (nest.mushroomStored >= 1) types.add('mushroom');
+      if (nest.meatStored >= 1) types.add('meat');
+      if (nest.foodStored - nest.mushroomStored - nest.meatStored >= 1) types.add('leaf');
+    }
+    let carried = 0;
+    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.CARRYING)) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      const load = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
+      if (ant.role === AntRole.Nurse || load.amount <= 0 || !load.resourceType || isOreLoad(load.resourceType)) continue;
+      carried += load.amount;
+      types.add(load.resourceType === 'mushroom' || load.resourceType === 'meat' ? load.resourceType : 'leaf');
+    }
+    return { entrance, carried, types: [...types] };
   }
 
   /** Workers taking food from this source now: on a Recolectar order or walking to it on their own. */
@@ -3560,25 +3643,8 @@ export class GameManager {
   getStats(): GameStats {
     const ants = this.world.query(COMPONENT.ANT);
     const nests = this.world.query(COMPONENT.NEST);
-    let foodStored = 0;
-    let mushroomStored = 0;
-    let meatStored = 0;
-    for (const id of nests) {
-      const nest = this.world.getComponent<NestComponent>(id, COMPONENT.NEST);
-      if (nest) {
-        foodStored += nest.foodStored;
-        mushroomStored += nest.mushroomStored;
-        meatStored += nest.meatStored;
-      }
-    }
-
-    const entranceFoodStored = foodStored;
-
-    // Add underground pantry (tile piles are the source of truth) to total
     const pantryStored = this.undergroundGrid.getPantryStored();
-    foodStored += pantryStored.total;
-    mushroomStored += pantryStored.mushroom;
-    meatStored += pantryStored.meat;
+    const transit = this.foodOnItsWay(nests);
 
     // Count ants by role
     let workerCount = 0;
@@ -3623,11 +3689,14 @@ export class GameManager {
       scoutCount,
       nurseCount,
       defenderCount,
-      foodStored: Math.floor(foodStored),
-      mushroomStored: Math.floor(mushroomStored),
-      meatStored: Math.floor(meatStored),
+      // The food totals are the pantry: the only food that pays for eggs
+      foodStored: Math.floor(pantryStored.total),
+      mushroomStored: Math.floor(pantryStored.mushroom),
+      meatStored: Math.floor(pantryStored.meat),
       pantryStored: Math.floor(pantryStored.total),
-      entranceFoodStored: Math.floor(entranceFoodStored),
+      entranceFoodStored: Math.floor(transit.entrance),
+      foodInTransit: Math.floor(transit.entrance + transit.carried),
+      pantryFull: !this.undergroundGrid.hasDepositSpace() || transit.types.some((type) => !this.undergroundGrid.hasDepositSpace([type])),
       pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
       mineralsStored: Math.floor(this.world.minerals.stored),
       miners: this.minerStats(),

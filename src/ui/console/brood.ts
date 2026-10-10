@@ -79,7 +79,16 @@ function cheapestCost(s: BroodSnapshot): number {
   return Math.min(...Object.values(s.costs));
 }
 
+/** No worker left: nobody forages or carries food, and only a worker egg brings them back. */
+export const NO_WORKERS_TEXT = '¡Sin obreras! Cría obreras para recolectar y llevar comida';
+
+/** A worker egg the pantry cannot cover, paid with the entrance pile because the colony has no workers. */
+function rescueWorker(role: AntRole, s: BroodSnapshot): boolean {
+  return role === AntRole.Worker && s.workers === 0;
+}
+
 function pantryIssue(s: BroodSnapshot, keys: BroodKeys): BroodIssue | null {
+  if (s.workers === 0) return { stage: 'pantry', tone: 'blocked', text: NO_WORKERS_TEXT };
   const stored = Math.floor(s.pantry.stored);
   const cheapest = cheapestCost(s);
   if (stored >= cheapest) return null;
@@ -223,6 +232,8 @@ export interface BreedButtonState {
   affordable: boolean;
   disabled: boolean;
   reason?: string;
+  /** How an enabled egg is paid when it is not the usual pantry (a worker with no workers left) */
+  note?: string;
 }
 
 /** Mirrors GameManager.queueBreed: a queen, room in this caste's queue, and the price in the pantry. */
@@ -231,8 +242,12 @@ export function breedButtonState(role: AntRole, s: BroodSnapshot): BreedButtonSt
   const stored = Math.floor(s.pantry.stored);
   const queued = s.queue.filter((egg) => egg.role === role).length;
   const full = queued >= s.maxQueuedPerRole;
-  const affordable = stored >= cost;
+  const fromEntrance = stored < cost && rescueWorker(role, s) && stored + Math.floor(s.surfaceStock) >= cost;
+  const affordable = stored >= cost || fromEntrance;
   const state: BreedButtonState = { cost, queued, full, affordable, disabled: false };
+  if (fromEntrance) {
+    state.note = `Sin obreras: este huevo se paga con comida de la entrada (${s.surfaceStock} allí).`;
+  }
   if (!s.hasQueen) return { ...state, disabled: true, reason: 'No hay reina que ponga huevos.' };
   if (full) {
     return { ...state, disabled: true, reason: `Cola llena: ya hay ${queued} huevos de ${ROLE_LABEL[role].toLowerCase()} en espera.` };

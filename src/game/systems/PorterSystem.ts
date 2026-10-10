@@ -25,6 +25,7 @@ import {
 import {
   ANT_DEPOSIT_RANGE,
   PORTER_MAX_COUNT,
+  PORTER_PILE_PER_EXTRA,
   PORTER_ASSIGN_COOLDOWN,
   SCAVENGER_MAX_COUNT,
   PANTRY_FULL_NOTIFY_COOLDOWN_MS,
@@ -42,11 +43,21 @@ import {
  * - FetchingFood: walk to the surface stockpile, load up to carry capacity,
  *   then ride the entrance shaft down (TransitSystem).
  * - Hauling: walk to a pantry tile with space and deposit. If the pantry
- *   fills up mid-trip, the porter carries the remainder back up and returns
- *   it to the surface pile — food never appears or disappears.
+ *   is full, the porter carries the load back up and leaves it on the
+ *   entrance pile, then goes back to work: food never appears or disappears,
+ *   and no worker idles below ground with food in its jaws.
  * - Scavenging: walk to loose food lying on the underground layer (meat
  *   dropped by invaders killed inside the nest), load it, then deposit it
  *   through the same Hauling flow.
+ *
+ * Stand-in porters: porters are workers, but a colony that lost its workers
+ * (or whose pile outgrows them) must not starve with food at the door. When
+ * no worker is free to fetch and the colony has no workers, or the entrance
+ * pile reaches STAND_IN_PILE, the job falls to the next caste that can reach
+ * the pile: soldiers and scouts on the surface run the same porter trip;
+ * failing those, nurses take loads at the foot of the shaft (they never go
+ * up) and carry them to the pantry, at most half of them so the queen and the
+ * brood keep their care. Defenders keep guarding.
  */
 export class PorterSystem implements System {
   readonly name = 'PorterSystem';
@@ -58,12 +69,17 @@ export class PorterSystem implements System {
   private transitSystem: TransitSystem;
   private assignTimer = 0;
   private lastPantryFullNotify = 0;
+  /** Non-workers on porter duty (soldiers, scouts, nurses at the shaft) */
+  private standIns = new Set<number>();
+  /** Whether stand-ins are wanted this tick: no workers, or a pile too big for them */
+  private standInsWanted = false;
+  /** Game seconds the entrance pile has waited with nobody carrying it down */
+  private unattendedPile = 0;
 
   /** Retained for GameManager compatibility — the dig-jobs gate was removed (Bug 2 fix) */
   setDigJobsProvider(_fn: () => number): void {
-    // No-op: the pantry-full branch now goes Idle unconditionally regardless of
-    // pending dig jobs. The loaded-idle resume check re-animates the ant when
-    // space frees, which is a cleaner reactivation path.
+    // No-op: with the pantry full a hauler takes its load back up to the
+    // entrance pile, whatever the pending dig jobs.
   }
 
   constructor(world: World, grid: UndergroundGrid, surfaceGrid: TileGrid, transitSystem: TransitSystem) {
@@ -81,17 +97,44 @@ export class PorterSystem implements System {
     const nest = this.world.getComponent<NestComponent>(nests[0], COMPONENT.NEST)!;
     const nestPos = this.world.getComponent<PositionComponent>(nests[0], COMPONENT.POSITION)!;
 
+    // No free pantry tile: merge partial piles so a type the piles do not
+    // hold yet can still be stored while there is room
+    this.grid.compactPiles();
+
+    const ants = this.world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.LAYER, COMPONENT.CARRYING);
+    let workers = 0;
+    for (const id of ants) {
+      if (this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!.role === AntRole.Worker) workers++;
+    }
+    const haulable = this.hasHaulableFood(nest);
+    this.standInsWanted = haulable && (workers === 0 || nest.foodStored >= STAND_IN_PILE);
+    this.warnFewWorkers(workers);
+
     // Drive active porters. The state itself is the registry — a dead porter
     // simply stops being counted (its load is lost with it, like a real ant).
     let activePorters = 0;
     let activeScavengers = 0;
+    let nurses = 0;
+    let nurseRelays = 0;
     const idleSurfaceWorkers: number[] = [];
     const idleUndergroundWorkers: number[] = [];
-    const ants = this.world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.LAYER, COMPONENT.CARRYING);
+    const idleSurfaceHelpers: number[] = [];
+    const idleNurses: number[] = [];
 
     for (const id of ants) {
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
-      if (ant.role !== AntRole.Worker) continue;
+      if (ant.role === AntRole.Nurse) nurses++;
+      if (ant.role !== AntRole.Worker) {
+        if (this.standIns.has(id)) {
+          if (this.driveStandIn(id, ant, nest, nestPos, dt)) {
+            activePorters++;
+            if (ant.role === AntRole.Nurse) nurseRelays++;
+          }
+        } else if (this.standInsWanted) {
+          this.sortStandInCandidate(id, ant, idleSurfaceHelpers, idleNurses);
+        }
+        continue;
+      }
       // The player gave this ant an order: it is not a porter until the order ends
       if (hasPlayerOrder(this.world, id)) continue;
 
@@ -124,17 +167,12 @@ export class PorterSystem implements System {
       const load = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
       if (isOreLoad(load.resourceType) && load.amount > 0) continue;
 
-      // A loaded idle ant below resumes its delivery the moment a pile frees
-      // up (it was parked waiting for space, or finished a dig with food in
-      // its mouth) — this is what re-animates held loads after expansion
-      if (layer.layer === Layer.Underground && ant.state === AntState.Idle) {
-        const held = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
-        const heldType = this.asPantryType(held.resourceType);
-        if (held.amount > 0 && heldType !== null && this.grid.hasDepositSpace([heldType])) {
-          ant.state = AntState.Hauling;
-          ant.stateTimer = 0;
-          continue;
-        }
+      // A loaded idle ant below (it finished a dig with food in its mouth)
+      // delivers it: to a pile if there is room, else up to the entrance pile
+      if (layer.layer === Layer.Underground && ant.state === AntState.Idle && load.amount > 0) {
+        ant.state = AntState.Hauling;
+        ant.stateTimer = 0;
+        continue;
       }
 
       if (
@@ -146,6 +184,10 @@ export class PorterSystem implements System {
         idleUndergroundWorkers.push(id);
       }
     }
+
+    // Forget stand-ins that died
+    for (const id of this.standIns) if (!this.world.getComponent(id, COMPONENT.ANT)) this.standIns.delete(id);
+    this.warnUnattendedPile(haulable && nest.foodStored >= 1 && activePorters === 0, dt);
 
     // Assign at most ONE recruit per cooldown window — requesting in a loop here
     // once vacuumed the entire idle workforce in a second (see ExcavationSystem)
@@ -175,19 +217,155 @@ export class PorterSystem implements System {
       }
     }
 
-    if (idleSurfaceWorkers.length === 0) return;
-    if (!this.hasHaulableFood(nest)) return;
+    if (!haulable) return;
 
-    // Demand-driven cap: no point sending 4 porters for half a load.
-    // The queen's 'porters' upgrade raises the simultaneous-porter ceiling.
+    // Demand-driven: one porter per load on the pile, no point sending 4 for
+    // half a load. The ceiling grows with the pile (a flat 4 left a big haul
+    // rotting at the entrance) and with the queen's 'porters' upgrade.
     const porterCapacity = Math.max(1, antSpawnStats(this.world, AntRole.Worker).carryCapacity);
-    const desired = Math.min(PORTER_MAX_COUNT + this.world.upgrades.porterBonus, Math.ceil(nest.foodStored / porterCapacity));
+    const desired = Math.min(porterCeiling(nest.foodStored, this.world.upgrades.porterBonus), Math.ceil(nest.foodStored / porterCapacity));
     if (activePorters >= desired) return;
 
-    const recruit = this.world.getComponent<AntComponent>(idleSurfaceWorkers[0], COMPONENT.ANT)!;
-    recruit.state = AntState.FetchingFood;
-    recruit.stateTimer = 0;
+    if (idleSurfaceWorkers.length > 0) {
+      const recruit = this.world.getComponent<AntComponent>(idleSurfaceWorkers[0], COMPONENT.ANT)!;
+      recruit.state = AntState.FetchingFood;
+      recruit.stateTimer = 0;
+      this.assignTimer = PORTER_ASSIGN_COOLDOWN;
+      return;
+    }
+
+    // No worker free to fetch: a stand-in takes the job (see the class comment)
+    if (!this.standInsWanted) return;
+    const helperId = idleSurfaceHelpers[0] ?? (nurseRelays < Math.ceil(nurses / 2) ? idleNurses[0] : undefined);
+    if (helperId === undefined) return;
+    const helper = this.world.getComponent<AntComponent>(helperId, COMPONENT.ANT)!;
+    // Soldiers and scouts run the porter trip; a nurse works the foot of the shaft (Hauling, empty)
+    helper.state = helper.role === AntRole.Nurse ? AntState.Hauling : AntState.FetchingFood;
+    helper.stateTimer = 0;
+    this.clearPath(helperId);
+    this.standIns.add(helperId);
     this.assignTimer = PORTER_ASSIGN_COOLDOWN;
+  }
+
+  /** A soldier or scout idling on the surface, or a free nurse below, with empty jaws and no order. */
+  private sortStandInCandidate(id: number, ant: AntComponent, surface: number[], nurses: number[]): void {
+    if (hasPlayerOrder(this.world, id) || this.transitSystem.isInTransit(id)) return;
+    const load = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
+    if (load.amount > 0) return;
+    const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!.layer;
+    if ((ant.role === AntRole.Soldier || ant.role === AntRole.Scout) && layer === Layer.Surface) {
+      if (ant.state === AntState.Idle || ant.state === AntState.Searching || ant.state === AntState.PatrollingNest) {
+        surface.push(id);
+      }
+    } else if (ant.role === AntRole.Nurse && layer === Layer.Underground) {
+      if (ant.state === AntState.Idle || ant.state === AntState.Searching) nurses.push(id);
+    }
+  }
+
+  /** Run one stand-in's porter job; false (and released) once another system took the ant. */
+  private driveStandIn(id: number, ant: AntComponent, nest: NestComponent, nestPos: PositionComponent, dt: number): boolean {
+    if (ant.role === AntRole.Nurse) {
+      if (ant.state !== AntState.Hauling) {
+        this.standIns.delete(id);
+        return false;
+      }
+      this.handleShaftRelay(id, ant, nest, dt);
+      return true;
+    }
+    if (ant.state === AntState.FetchingFood) {
+      if (this.reactToSurfaceThreat(id, ant, nestPos)) return false;
+      this.handleFetchingFood(id, ant, nest, nestPos);
+      return true;
+    }
+    if (ant.state === AntState.Hauling) {
+      if (this.reactToSurfaceThreat(id, ant, nestPos)) return false;
+      this.handleHauling(id, ant, nest, nestPos, dt);
+      return true;
+    }
+    // A fight, a hunger trip or an order took it: it is a soldier again
+    this.standIns.delete(id);
+    return false;
+  }
+
+  /**
+   * A nurse stand-in: walk to the foot of the shaft, take a load off the
+   * entrance pile (it sits at the top of that same shaft), carry it to a pile,
+   * and repeat while the colony still needs it. Nurses never leave the nest.
+   */
+  private handleShaftRelay(id: number, ant: AntComponent, nest: NestComponent, dt: number): void {
+    const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+    const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
+    ant.stateTimer += dt;
+
+    const release = () => {
+      ant.state = AntState.Idle;
+      ant.stateTimer = 0;
+      this.clearPath(id);
+      this.standIns.delete(id);
+    };
+
+    if (carrying.amount > 0) {
+      const type = this.asPantryType(carrying.resourceType) ?? 'leaf';
+      const target = this.grid.findDepositTile(type, pos.x, pos.y);
+      if (!target) {
+        // Pantry full after all: the load goes back on the pile
+        this.dropOnEntrancePile(nest, carrying, type);
+        release();
+        return;
+      }
+      if (Math.hypot(target.x + 0.5 - pos.x, target.y + 0.5 - pos.y) < 1.2) {
+        carrying.amount -= this.grid.depositFood(target.x, target.y, type, carrying.amount);
+        if (carrying.amount <= 1e-6) {
+          carrying.amount = 0;
+          carrying.resourceType = null;
+          ant.stateTimer = 0;
+          if (!this.standInsWanted) release();
+        } else {
+          this.clearPath(id);
+        }
+      } else {
+        this.setUndergroundPath(id, pos, target.x + 0.5, target.y + 0.5);
+      }
+      return;
+    }
+
+    if (!this.standInsWanted || ant.stateTimer > 60) {
+      release();
+      return;
+    }
+    const foot = this.grid.findNearestEntrance(pos.x, pos.y);
+    if (!foot) {
+      release();
+      return;
+    }
+    if (Math.hypot(foot.x - pos.x, foot.y - pos.y) < 1.5) {
+      const load = this.takeFromStockpile(nest, carrying.maxCapacity);
+      if (load.amount <= 0) {
+        release();
+        return;
+      }
+      carrying.resourceType = load.type;
+      carrying.amount = load.amount;
+      this.clearPath(id);
+    } else {
+      this.setUndergroundPath(id, pos, foot.x, foot.y);
+    }
+  }
+
+  /** "¡Sin obreras!": nobody left to forage or carry food, and only eggs bring them back. */
+  private warnFewWorkers(workers: number): void {
+    if (workers === 0) {
+      this.world.pushNotification('danger', '¡Sin obreras! Cría obreras para recolectar y llevar comida', 'no-workers', 60_000);
+    } else if (workers <= FEW_WORKERS) {
+      this.world.pushNotification('warning', '¡Quedan muy pocas obreras! Cría obreras para recolectar y llevar comida', 'few-workers', 60_000);
+    }
+  }
+
+  /** Food waiting at the entrance with room below and nobody carrying it down, for a while. */
+  private warnUnattendedPile(unattended: boolean, dt: number): void {
+    this.unattendedPile = unattended ? this.unattendedPile + dt : 0;
+    if (this.unattendedPile < UNATTENDED_PILE_SECONDS) return;
+    this.world.pushNotification('warning', 'Hay comida en la entrada y nadie la baja a la despensa', 'unattended-pile', 60_000);
   }
 
   /**
@@ -287,12 +465,20 @@ export class PorterSystem implements System {
     if (type === null) return; // ore: sendOreUp already took it off porter duty
 
     if (layer.layer === Layer.Surface) {
-      // FOOD IS ONLY STORED UNDERGROUND: a loaded ant on the surface walks to
-      // the nest and rides down — it never drops the load on the surface
+      // A loaded ant on the surface walks to the nest and rides down. With the
+      // pantry full it leaves the load on the entrance pile instead (porters
+      // bring it down once there is room) and goes back to work.
       const dx = nestPos.x - pos.x;
       const dy = nestPos.y - pos.y;
       if (Math.sqrt(dx * dx + dy * dy) < ANT_DEPOSIT_RANGE) {
-        this.transitSystem.requestTransit(id, 'enter');
+        if (this.grid.hasDepositSpace([type])) {
+          this.transitSystem.requestTransit(id, 'enter');
+        } else {
+          this.dropOnEntrancePile(nest, carrying, type);
+          ant.state = AntState.Searching;
+          ant.stateTimer = 0;
+          this.clearPath(id);
+        }
       } else {
         this.setSurfacePathToNest(id, pos, nestPos);
       }
@@ -304,19 +490,13 @@ export class PorterSystem implements System {
 
     const target = this.grid.findDepositTile(type, pos.x, pos.y);
     if (!target) {
-      // Pantry is FULL — the ant keeps the food in its mouth (visible: carry
-      // sprite). If it gets hungry it eats from its own load (HungerSystem).
-      // Nothing is ever dropped. And CRUCIALLY: a waiting hauler is wasted
-      // labor when there's digging to do — release it to the excavation pool
-      // (Idle underground = recruitable; the load travels with it). Expanding
-      // storage is exactly what unblocks the deposit.
+      // Pantry is FULL. Waiting below with the food in its jaws froze the
+      // whole workforce once a big haul filled the pantry (every worker idle
+      // underground, 400+ food in mouths, nobody foraging). The ant rides up
+      // still Hauling and leaves the load on the entrance pile (surface branch).
       this.notifyPantryFull();
       this.clearPath(id);
-      // Unconditionally go Idle — the loaded-idle resume check in update() will
-      // re-attempt hauling as soon as pantry space frees up, breaking the spin
-      // loop that previously locked the ant in this branch every frame.
-      ant.state = AntState.Idle;
-      ant.stateTimer = 0;
+      this.transitSystem.requestTransit(id, 'exit');
       return;
     }
 
@@ -343,7 +523,10 @@ export class PorterSystem implements System {
   /** Load delivered — loop for more if there's work, otherwise back to the surface to forage */
   private finishTrip(id: number, ant: AntComponent, nest: NestComponent, layer: LayerComponent): void {
     ant.stateTimer = 0;
-    if (this.hasHaulableFood(nest)) {
+    // A stand-in loops only while the colony still needs it
+    const loop = this.standIns.has(id) ? this.standInsWanted : true;
+    if (!loop) this.standIns.delete(id);
+    if (loop && this.hasHaulableFood(nest)) {
       ant.state = AntState.FetchingFood;
       if (layer.layer === Layer.Underground) {
         this.transitSystem.requestTransit(id, 'exit');
@@ -498,6 +681,15 @@ export class PorterSystem implements System {
     return { type: 'leaf', amount: 0 };
   }
 
+  /** Leave a typed load on the entrance pile: porters carry it down once the pantry has room. */
+  private dropOnEntrancePile(nest: NestComponent, carrying: CarryingComponent, type: PantryFoodType): void {
+    nest.foodStored += carrying.amount;
+    if (type === 'mushroom') nest.mushroomStored += carrying.amount;
+    else if (type === 'meat') nest.meatStored += carrying.amount;
+    carrying.amount = 0;
+    carrying.resourceType = null;
+  }
+
   /**
    * Porter loads are pantry-typed; anything unknown defaults defensively to
    * leaf. Ore is the exception: it is not food and has no pantry type (null).
@@ -570,6 +762,21 @@ export class PorterSystem implements System {
     const now = Date.now();
     if (now - this.lastPantryFullNotify < PANTRY_FULL_NOTIFY_COOLDOWN_MS) return;
     this.lastPantryFullNotify = now;
-    this.world.pushNotification('warning', '🍖 ¡Despensa llena! Los porteadores devuelven la comida a la superficie — excavá más despensa');
+    this.world.pushNotification('warning', '🍖 ¡Despensa llena! La comida espera en la entrada: marca más casillas de Almacén en el nido');
   }
+}
+
+/**
+ * Most porters at once: the base ceiling plus the queen's upgrade, and one
+ * more for every PORTER_PILE_PER_EXTRA food waiting on the entrance pile.
+ */
+/** Entrance pile from which soldiers, scouts and nurses help the workers carry it down */
+const STAND_IN_PILE = 150;
+/** Workers at or below this count trigger the "pocas obreras" warning */
+const FEW_WORKERS = 2;
+/** Game seconds a pile may wait with nobody hauling before the player is told */
+const UNATTENDED_PILE_SECONDS = 10;
+
+export function porterCeiling(entrancePile: number, upgradeBonus: number): number {
+  return PORTER_MAX_COUNT + upgradeBonus + Math.floor(Math.max(0, entrancePile) / PORTER_PILE_PER_EXTRA);
 }
