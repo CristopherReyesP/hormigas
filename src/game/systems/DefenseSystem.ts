@@ -210,6 +210,13 @@ export class DefenseSystem implements System {
     }
   }
 
+  /** Held (the tutorial's calm): spines and traps stand idle, so the practice wave is the soldiers' to fight */
+  private held = false;
+
+  setHeld(held: boolean): void {
+    this.held = held;
+  }
+
   update(dt: number): void {
     // Fallen walls free their tile
     for (const [id, wall] of this.walls) {
@@ -217,6 +224,7 @@ export class DefenseSystem implements System {
       this.walls.delete(id);
       this.setWalkable(wall.layer, wall.x, wall.y, true);
     }
+    if (this.held) return;
     const structures = this.world.query(STRUCTURE_COMPONENT);
     if (structures.length === 0 && this.slowed.size === 0) return;
     const victims = this.snapshotHostiles();

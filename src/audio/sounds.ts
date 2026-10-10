@@ -27,6 +27,7 @@ export const SOUND_IDS = [
   'hatchChime',
   'dawnSwell',
   'mutationChosen',
+  'levelUp',
   // The opening cinematic
   'introWhoosh',
   'introImpact',
@@ -91,6 +92,7 @@ export const SOUND_SPECS: Record<SoundId, SoundSpec> = {
   hatchChime: { bus: 'sfx', cooldown: 0.6, maxInstances: 2, priority: PRIORITY.alert, duration: 1.4, gain: 0.32 },
   dawnSwell: { bus: 'sfx', cooldown: 2, maxInstances: 1, priority: PRIORITY.alert, duration: 4, gain: 0.45 },
   mutationChosen: { bus: 'sfx', cooldown: 0.5, maxInstances: 1, priority: PRIORITY.alert, duration: 1.6, gain: 0.5 },
+  levelUp: { bus: 'sfx', cooldown: 0.15, maxInstances: 1, priority: PRIORITY.alert, duration: 1.1, gain: 0.5 },
 
   introWhoosh: { bus: 'sfx', cooldown: 1, maxInstances: 1, priority: PRIORITY.cinematic, duration: 2.7, gain: 0.55 },
   introImpact: { bus: 'sfx', cooldown: 1, maxInstances: 1, priority: PRIORITY.cinematic, duration: 3.2, gain: 0.8 },
@@ -124,6 +126,7 @@ export const SOUND_LABELS: Record<SoundId, string> = {
   hatchChime: 'Alerta: nace una hormiga',
   dawnSwell: 'Alerta: cámara de evolución al amanecer',
   mutationChosen: 'Alerta: mutación elegida',
+  levelUp: 'Alerta: mejora comprada',
   introWhoosh: 'Intro: caída del meteorito',
   introImpact: 'Intro: impacto',
   introCrystal: 'Intro: crecen las agujas de cristal',

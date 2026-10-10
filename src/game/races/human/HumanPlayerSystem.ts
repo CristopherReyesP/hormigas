@@ -45,6 +45,7 @@ import {
   nearest,
   onSurface,
   pathDone,
+  placementWorldOf,
   playerBuildings,
   playerSupplyCap,
   playerSupplyUsed,
@@ -152,26 +153,7 @@ export class HumanPlayerSystem implements System {
   }
 
   private placementWorld() {
-    return {
-      width: this.grid.width,
-      height: this.grid.height,
-      isWalkable: (x: number, y: number) => this.grid.isWalkable(x, y),
-      buildings: this.world.query(HUMAN_COMPONENT.BUILDING, COMPONENT.POSITION).map((id) => {
-        const p = positionOf(this.world, id)!;
-        const kind = this.world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!.kind;
-        return { x: p.x, y: p.y, halfWidth: HUMAN_BUILDING_STATS[kind].halfWidth };
-      }).concat(
-        [COMPONENT.CRYSTAL_HIVE, COMPONENT.CRYSTAL_SPIRE, COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN].flatMap((store) =>
-          this.world.query(store, COMPONENT.POSITION).map((id) => {
-            const p = positionOf(this.world, id)!;
-            return { x: p.x, y: p.y, halfWidth: 1.5 };
-          })),
-      ),
-      minerals: this.world.query(COMPONENT.MINERAL, COMPONENT.POSITION).map((id) => {
-        const p = positionOf(this.world, id)!;
-        return { x: p.x, y: p.y };
-      }),
-    };
+    return placementWorldOf(this.world, this.grid);
   }
 
   /**

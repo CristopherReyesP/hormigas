@@ -18,9 +18,11 @@ import {
   type RenderComponent,
 } from '../../components/components';
 import { ENEMY_PICK_RADIUS, ORDER_SNAP_RADIUS } from '../../../shared/constants';
-import { FactionId, isHostileTo, ownerOf } from '../../factions/factions';
+import { FactionId, isHostileTo } from '../../factions/factions';
 import { HUMAN_COMPONENT, type HumanBuildingComponent } from '../../rival/humanComponents';
 import { HUMAN_BUILDING_STATS } from '../../rival/humanBase';
+import { clearResourceOrder } from './resourceOrders';
+import { isPlayerUnit } from '../../factions/playerUnits';
 
 /**
  * Player orders, StarCraft style: move, attack a target, attack-move, hold
@@ -285,14 +287,8 @@ export interface MoveOrderResult {
   target: Vector2;
 }
 
-/**
- * A unit the player commands: an own ant, or a Human unit the player owns
- * (a Human player's troops; HumanPlayerUnitSystem carries their orders out).
- */
-export function isPlayerUnit(world: World, id: EntityId): boolean {
-  if (world.getComponent(id, COMPONENT.ANT) !== undefined) return true;
-  return world.getComponent(id, HUMAN_COMPONENT.UNIT) !== undefined && ownerOf(world, id) === FactionId.PLAYER;
-}
+/** A unit the player commands: an own ant, or a Human or Crystal player's unit (factions/playerUnits) */
+export { isPlayerUnit };
 
 /** Own surface units among `ids` that can take an order, with their distance to `target`. */
 function orderableUnits(world: World, ids: readonly EntityId[], target: Vector2): Array<{ id: EntityId; dist: number }> {
@@ -408,7 +404,9 @@ export function completePlayerOrder(world: World, id: EntityId): void {
   const ant = world.getComponent<AntComponent>(id, COMPONENT.ANT);
   const order = world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER);
   const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
-  if (!ant || !order || !pos || !isWarrior(ant.role)) {
+  // A playable race's units are all warriors: they keep the spot too
+  const warrior = ant ? isWarrior(ant.role) : isPlayerUnit(world, id);
+  if (!order || !pos || !warrior) {
     endPlayerOrder(world, id);
     return;
   }
@@ -418,8 +416,10 @@ export function completePlayerOrder(world: World, id: EntityId): void {
   order.elapsed = 0;
   order.routes = 0;
   order.repath = 0;
-  ant.state = AntState.Guarding;
-  ant.stateTimer = 0;
+  if (ant) {
+    ant.state = AntState.Guarding;
+    ant.stateTimer = 0;
+  }
   clearCombatTarget(world, id);
   clearPath(world, id);
 }
@@ -463,7 +463,12 @@ export function endPlayerOrder(world: World, id: EntityId): void {
 export function stopAnts(world: World, ids: readonly EntityId[]): number {
   let stopped = 0;
   for (const id of ids) {
-    if (!hasPlayerOrder(world, id)) continue;
+    // Minar and Recolectar loop until told otherwise: Detener is how
+    const looped = clearResourceOrder(world, id);
+    if (!hasPlayerOrder(world, id)) {
+      if (looped) stopped++;
+      continue;
+    }
     endPlayerOrder(world, id);
     stopped++;
   }
@@ -521,6 +526,7 @@ export function soundRetreatHorn(world: World): number {
     if (layer.layer !== Layer.Surface) continue;
     const ant = world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
     if (hasPlayerOrder(world, id)) endPlayerOrder(world, id);
+    clearResourceOrder(world, id);
     if (ant.state === AntState.FetchingFood || ant.state === AntState.Hauling) continue;
     ant.state = ant.role === AntRole.Soldier ? AntState.PatrollingNest : AntState.ReturningHome;
     ant.stateTimer = 0;
@@ -532,8 +538,15 @@ export function soundRetreatHorn(world: World): number {
 
 /** Drop the target and the route; the caller sets the new state. */
 function abandonCurrentTask(world: World, id: EntityId): void {
+  // A new order replaces a Minar or Recolectar loop
+  clearResourceOrder(world, id);
   const ant = world.getComponent<AntComponent>(id, COMPONENT.ANT);
-  if (ant) ant.stateTimer = 0;
+  if (ant) {
+    ant.stateTimer = 0;
+    // An autonomous miner taken off its node is not a miner any more
+    ant.mineralTargetId = null;
+    ant.miningProgress = 0;
+  }
   clearCombatTarget(world, id);
   clearPath(world, id);
 }

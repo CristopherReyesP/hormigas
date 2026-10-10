@@ -30,6 +30,9 @@ const CHIP: Record<QuickSelectKind, { label: string; icon: IconName }> = {
   'human-marksman': { label: 'Tiradores', icon: 'target' },
   'human-tank': { label: 'Tanques', icon: 'shield' },
   'human-builder': { label: 'Constructores', icon: 'pick' },
+  // A Crystal player's units
+  'crystal-drone': { label: 'Drones', icon: 'sword' },
+  'crystal-sentinel': { label: 'Centinelas', icon: 'eye' },
   all: { label: 'Todas', icon: 'group' },
 };
 
@@ -92,6 +95,7 @@ export function TouchCommandBar({ stats, hint, hintExtra, hintRefused, infoOpen,
               key={chip.kind}
               type="button"
               className={chip.selected ? 'quick-chip quick-chip--selected' : 'quick-chip'}
+              data-quick-chip={chip.kind}
               aria-pressed={chip.selected}
               aria-label={`${label}: ${chip.count}`}
               title={chip.selected ? `${label}: toca otra vez para centrar la vista en el grupo` : `Elegir ${label.toLowerCase()} en todo el mapa`}

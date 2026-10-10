@@ -28,7 +28,7 @@ const RESERVED_REASON: Record<string, string> = {
 
 const PRESS_FLASH_MS = 140;
 
-/** Eggs are paid from the pantry, upgrades from farm fungus; a Human player pays rations and minerals */
+/** Eggs are paid from the pantry, upgrades from farm fungus; a Human player pays rations and minerals, the Crystal Hive minerals */
 const COST_ICON: Record<NonNullable<CommandDef['cost']>['resource'], IconName> = {
   comida: 'pantry',
   hongos: 'fungus',
@@ -113,6 +113,7 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked, tou
               command.active ? 'cmd-btn--active' : '',
               command.tone === 'danger' ? 'cmd-btn--danger' : '',
               command.disabled ? 'cmd-btn--disabled' : '',
+              command.glow ? 'cmd-btn--glow' : '',
               pressed === i ? 'cmd-btn--pressed' : '',
             ].filter(Boolean).join(' ');
             return (
@@ -148,6 +149,7 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked, tou
                   aria-label={`${command.label} (${key})`}
                   aria-keyshortcuts={key}
                   data-sfx="command"
+                  data-cmd={command.id}
                   aria-pressed={command.active ?? undefined}
                   onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
                   onFocus={() => {

@@ -15,7 +15,7 @@ export const PORTRAIT_SIZE = 64;
 export const NEST_PORTRAIT_RADIUS = (SPRITE_GRID.nest * ART_PX) / (TILE_SIZE * 2.6);
 
 /** Atlas sprite a portrait can show (a key of SPRITE_GRID). */
-export type PortraitSprite = 'ant' | 'beetle' | 'cricket' | 'den' | 'nest' | 'food' | 'giantMushroom';
+export type PortraitSprite = 'ant' | 'beetle' | 'cricket' | 'den' | 'nest' | 'food' | 'giantMushroom' | 'mineral';
 
 /** Where to draw a sprite in a square frame so it stays pixel-crisp. */
 export interface CrispPlacement {

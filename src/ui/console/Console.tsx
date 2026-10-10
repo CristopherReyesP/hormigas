@@ -8,20 +8,26 @@ import { InfoPanel } from './InfoPanel';
 import { MinimapPanel } from './MinimapPanel';
 import { useColonyDetails } from './useColonyDetails';
 import { useTouchUi } from '../layout/touch';
+import { crystalBuildHint } from '../races/crystal/crystalCommands';
 import { useHudLayout } from '../layout/useHudLayout';
 import { TouchCommandBar } from './TouchCommandBar';
 import { touchHint } from './touchHint';
 import { TouchFeedback, type CasteBurst, type OrderToast } from './TouchFeedback';
 import { CoachMarks } from './CoachMarks';
 import { HAPTIC_PATTERN, feedbackText, hapticFor, vibrate } from './feedbackText';
-import { humanHint } from '../races/human/humanCommands';
+import { humanHint, humanIdleHint } from '../races/human/humanCommands';
 import { DigMeter } from './DigMeter';
+import { UpgradesButton } from '../upgrades/UpgradesButton';
+import { UpgradesOverlay } from '../upgrades/UpgradesOverlay';
+import type { UpgradeTab } from '../upgrades/upgradeUi';
 
 interface ConsoleProps {
   stats: GameStats;
   gameManager: GameManager | null;
   /** Pull a fresh stats snapshot (the sim stops pushing while paused) */
   refreshStats: () => void;
+  /** The guided tutorial is running: it teaches the same controls, so the coach marks stay away */
+  tutorialRunning?: boolean;
 }
 
 const NOTICE_MS = 3000;
@@ -43,13 +49,18 @@ function applyBuildMode(gm: GameManager | null, mode: BuildMode | null, layer: '
 }
 
 /** StarCraft-style bottom console: minimap · info panel · command card, plus the message feed. */
-export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
+export function Console({ stats, gameManager, refreshStats, tutorialRunning = false }: ConsoleProps) {
   const [details, refreshDetails] = useColonyDetails(gameManager);
   const [page, setPage] = useState<CardPage>('root');
   const [buildMode, setBuildMode] = useState<BuildMode | null>(null);
   const [attackCount, setAttackCount] = useState(10);
   const [notice, setNotice] = useState<{ text: string; tone: NoticeTone } | null>(null);
   const [groupAdd, setGroupAdd] = useState(false);
+  /** The Mejoras panel's tab while it is open */
+  const [upgradesTab, setUpgradesTab] = useState<UpgradeTab | null>(null);
+  // Mejoras is the Swarm's: a Human player has its own base
+  const swarm = !stats.human;
+  const openUpgrades = useCallback((tab: UpgradeTab = 'queen') => setUpgradesTab(tab), []);
   const [infoOpen, setInfoOpen] = useState(false);
   const [toast, setToast] = useState<OrderToast | null>(null);
   const [burst, setBurst] = useState<CasteBurst | null>(null);
@@ -131,7 +142,8 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
 
   const hasSelection = Boolean(stats.selectedEntity || stats.selectedGroup);
   // The groups page belongs to a selection of own ants: it closes when they are gone
-  const hasAnts = stats.activeLayer === 'surface' && Boolean(stats.selectedGroup || stats.selectedEntity?.type === 'ant');
+  const hasAnts = stats.activeLayer === 'surface'
+    && Boolean(stats.selectedGroup || stats.selectedEntity?.type === 'ant' || (stats.selectedEntity?.type === 'crystal_unit' && stats.selectedEntity.owned));
   if (page === 'groups' && !hasAnts) setPage('root');
   // A Human builder's Construir menu closes when no builder is selected any more
   if (page === 'build' && !stats.human?.selectedBuilders) setPage('root');
@@ -139,10 +151,13 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   const onEscape = useCallback(() => {
     if (placing) gameManager?.getHumanPlayer()?.cancelPlacement();
     else if (stats.commandTarget) gameManager?.cancelCommandTarget();
-    else if (buildMode) setBuildMode(null);
+    else if (stats.crystal?.buildMode) {
+      gameManager?.getCrystal()?.setBuildMode(null);
+      refreshStats();
+    } else if (buildMode) setBuildMode(null);
     else if (page !== 'root') setPage('root');
     else if (hasSelection) gameManager?.clearSelection();
-  }, [placing, stats.commandTarget, buildMode, page, hasSelection, gameManager]);
+  }, [placing, stats.commandTarget, stats.crystal?.buildMode, buildMode, page, hasSelection, gameManager, refreshStats]);
 
   const commands = useMemo(
     () =>
@@ -162,34 +177,40 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
             touch,
             groupAdd,
             setGroupAdd,
+            openUpgrades,
           })
         : [],
-    [gameManager, stats, details, page, buildMode, attackCount, toggleBuildMode, switchLayer, refresh, notify, touch, groupAdd],
+    [gameManager, stats, details, page, buildMode, attackCount, toggleBuildMode, switchLayer, refresh, notify, touch, groupAdd, openUpgrades],
   );
 
   const quickSelect = useCallback(
     (kind: QuickSelectKind) => {
       if (!gameManager) return;
-      if (gameManager.quickSelect(kind).selected > 0 && touch) {
+      const picked = gameManager.quickSelect(kind);
+      if (picked.selected > 0 && touch) {
         vibrate(typeof navigator !== 'undefined' ? navigator : undefined, HAPTIC_PATTERN.select);
       }
+      // A Human player's empty chip selected the building that trains that unit: say so
+      if (picked.notice) notify(picked.notice);
       // Picking troops leaves the Defensas page and drops its build tool: the next tap is an order
       setPage('root');
       setBuildMode((mode) => (isDefenseMode(mode) ? null : mode));
       refresh();
     },
-    [gameManager, touch, refresh],
+    [gameManager, touch, refresh, notify],
   );
 
-  const areaHint = touch && stats.areaSelect ? 'SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus hormigas' : null;
-  // A Human player placing a building: its hint first
-  const placingHint = humanHint(stats, touch);
+  const areaHint = touch && stats.areaSelect
+    ? `SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus ${stats.crystal || stats.human ? 'unidades' : 'hormigas'}`
+    : null;
+  // A Human player placing a building, or a Crystal player's build mode: its hint first
+  const placingHint = humanHint(stats, touch) ?? (stats.crystal?.buildMode ? crystalBuildHint(stats.crystal.buildMode, touch) : null);
   // Excavar: its counter rides with the tool hint; at the limit the hint turns into the refusal
   const digging = buildMode === 'dig' && stats.activeLayer === 'underground' && stats.dig ? stats.dig : null;
   const digLimit = digging ? digHint(digging) : null;
   const toolHint = buildMode ? (digLimit?.text ?? buildModeHint(buildMode, touch)) : areaHint;
   // The compact HUD's hint line already says what the mode does: the feed only carries notices there
-  const modeHint = compact ? null : placingHint ?? commandTargetHint(stats.commandTarget, touch) ?? toolHint;
+  const modeHint = compact ? null : placingHint ?? commandTargetHint(stats.commandTarget, touch) ?? toolHint ?? humanIdleHint(stats);
   const hint = notice?.text ?? modeHint;
   const hintTone = notice?.tone ?? (digLimit && hint === digLimit.text ? digLimit.tone : undefined);
   const hintExtra = digging && !compact && hint === toolHint ? <DigMeter status={digging} /> : null;
@@ -197,6 +218,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   const lineExtra = digging && compact && !placingHint ? <DigMeter status={digging} /> : null;
   const lineRefused = Boolean(digLimit && lineHint.text === digLimit.text);
   const overlayOpen = Boolean(stats.mutationOffer || stats.gameOver);
+  const upgradesOpen = swarm && upgradesTab !== null && !overlayOpen;
 
   return (
     <>
@@ -205,10 +227,15 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
         <div className="console-deck" aria-hidden="true">
           <div className="console-vein" />
         </div>
+        {/* Before the plates, so the command card's tooltip paints over it */}
+        {swarm && gameManager && page === 'root' && (
+          <UpgradesButton affordable={stats.upgradesAffordable ?? 0} onOpen={() => openUpgrades()} />
+        )}
         <MinimapPanel
           gameManager={gameManager}
           activeLayer={stats.activeLayer}
           onSwitchLayer={switchLayer}
+          hideNest={Boolean(stats.crystal)}
           invaders={{ underground: stats.nestAlert?.nestInvaders ?? 0, surface: stats.nestAlert?.surfaceInvaders ?? 0 }}
         />
         <InfoPanel
@@ -217,6 +244,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
           gameManager={gameManager}
           attackCount={attackCount}
           onAttackCountChange={setAttackCount}
+          onOpenUpgrades={swarm ? openUpgrades : undefined}
           open={compact ? infoOpen : undefined}
           onOpenChange={compact ? setInfoOpen : undefined}
         />
@@ -239,14 +267,25 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
         />
         <CommandCard
           commands={commands}
-          hotkeysEnabled={!overlayOpen && commands.length > 0}
+          hotkeysEnabled={!overlayOpen && !upgradesOpen && commands.length > 0}
           onEscape={onEscape}
           onBlocked={explainBlocked}
           touch={touch}
         />
       </footer>
+      {upgradesOpen && gameManager && (
+        <UpgradesOverlay
+          gm={gameManager}
+          upgrades={details.upgrades}
+          funds={{ food: details.food.total, mushrooms: details.food.mushrooms, minerals: stats.mineralsStored ?? 0 }}
+          tab={upgradesTab ?? 'queen'}
+          touch={touch}
+          onClose={() => setUpgradesTab(null)}
+          refresh={refresh}
+        />
+      )}
       {touch && <TouchFeedback toast={toast} burst={burst} />}
-      {touch && compact && <CoachMarks active={!stats.introPlaying && !overlayOpen} race={stats.human ? 'human' : 'swarm'} />}
+      {touch && compact && <CoachMarks active={!stats.introPlaying && !overlayOpen && !tutorialRunning} race={stats.human ? 'human' : 'swarm'} />}
     </>
   );
 }

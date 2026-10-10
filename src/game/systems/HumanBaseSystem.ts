@@ -421,7 +421,7 @@ export class HumanBaseSystem implements System {
     this.sendOut(wave, core, target, 'assaulting');
     this.world.pushNotification(
       'danger',
-      `🪖 Los humanos lanzan un asalto: ${wave.length} ${wave.length === 1 ? 'tropa va' : 'tropas van'} hacia tu nido`,
+      `🪖 Los humanos lanzan un asalto: ${wave.length} ${wave.length === 1 ? 'tropa va' : 'tropas van'} hacia tu base`,
     );
     return wave;
   }
@@ -484,7 +484,7 @@ export class HumanBaseSystem implements System {
     }
   }
 
-  /** The closest nest of a faction the base is at war with, as a tile */
+  /** The closest base core (a nest, or a playable race's core) of a faction the base is at war with, as a tile */
   private enemyNest(core: EntityId): Vector2 | null {
     return nearestEnemyBase(this.world, this.factionOf(core), this.world.getComponent<PositionComponent>(core, COMPONENT.POSITION)!);
   }

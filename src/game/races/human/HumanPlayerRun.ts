@@ -19,11 +19,12 @@ import { HumanPlayerUnitSystem } from './HumanPlayerUnitSystem';
 import { HumanWaveSystem, type WaveClock } from './HumanWaveSystem';
 import { HUMAN_PLAYER_COMPONENT, type HumanProducerComponent, type HumanWorkerComponent } from './humanPlayerComponents';
 import { spawnHumanPlayerStart } from './humanPlayerFactories';
-import { isPlayerOwned, playerBuildings, playerUnits, positionOf } from './humanPlayerQueries';
+import { isPlayerOwned, nearest, playerBuildings, playerUnits, positionOf } from './humanPlayerQueries';
 import {
   PLAYER_BUILD_COST,
   PLAYER_BUILDABLE,
   PLAYER_TRAIN_COST,
+  PRODUCER_OF,
   trainableAt,
   type HumanCost,
   type PlayerBuildable,
@@ -67,6 +68,8 @@ export interface HumanTrainOption {
   cost: HumanCost;
   /** Why it cannot be queued now (null: it can) */
   reason: string | null;
+  /** Queued at the nearest building of this kind instead of the selected one (the command center's shortcuts) */
+  at?: HumanBuildingKind;
 }
 
 /** One of the player's own buildings, selected */
@@ -123,6 +126,23 @@ export interface HumanPlayerStats {
   /** The landing banner, while it shows */
   intro: string | null;
 }
+
+/** Units the command center's card also offers, queued at the nearest building that trains them */
+const CORE_REMOTE: readonly HumanUnitType[] = ['soldier', 'marksman', 'tank'];
+
+/** Why a remote unit cannot be queued when the player has no building that trains it */
+export const HUMAN_MISSING_PRODUCER: Readonly<Partial<Record<HumanBuildingKind, string>>> = {
+  barracks: 'Necesitas un Cuartel: selecciona un constructor → Construir → Cuartel',
+  factory: 'Necesitas una Fábrica: selecciona un constructor → Construir → Fábrica',
+};
+
+/** The notice of an empty quick-select chip: where that unit comes from */
+const EMPTY_CHIP: Readonly<Record<HumanUnitType, string>> = {
+  builder: 'Entrena constructores en el Centro de Mando',
+  soldier: 'Entrena soldados en el Cuartel',
+  marksman: 'Entrena tiradores en el Cuartel',
+  tank: 'Fabrica tanques en la Fábrica',
+};
 
 const GROUP_ORDER: readonly HumanUnitType[] = ['tank', 'soldier', 'marksman', 'builder'];
 const GROUP_MAX = 24;
@@ -340,11 +360,87 @@ export class HumanPlayerRun {
 
   // ── Production ──
 
-  /** Queue `type` at the selected building; returns why it cannot, or null */
+  /**
+   * Queue `type` at the selected building; returns why it cannot, or null.
+   * The command center also takes soldiers, marksmen and tanks: they queue at
+   * the nearest finished Cuartel (or Fábrica) that can take them.
+   */
   train(type: HumanUnitType): string | null {
     const id = this.selection.getSelectedEntityId();
     if (id === null) return 'Selecciona un edificio.';
+    if (this.isCore(id) && PRODUCER_OF[type] !== 'command_center') {
+      const remote = this.remoteProducer(type, id);
+      return remote.id === null || remote.reason !== null ? remote.reason : this.economy.train(remote.id, type);
+    }
     return this.economy.train(id, type);
+  }
+
+  private isCore(id: EntityId): boolean {
+    if (!isPlayerOwned(this.world, id)) return false;
+    return this.world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)?.kind === 'command_center';
+  }
+
+  /**
+   * Where the command center's shortcut queues `type`: the nearest finished
+   * building that trains it and can take it now (else the nearest one, with
+   * its reason). With none finished, the reason says how to get one.
+   */
+  private remoteProducer(type: HumanUnitType, from: EntityId): { id: EntityId | null; reason: string | null } {
+    const kind = PRODUCER_OF[type];
+    const at = positionOf(this.world, from) ?? { x: 0, y: 0 };
+    const distance = (id: EntityId) => {
+      const p = positionOf(this.world, id)!;
+      return Math.hypot(p.x - at.x, p.y - at.y);
+    };
+    const finished = playerBuildings(this.world, kind, true).sort((a, b) => distance(a) - distance(b) || a - b);
+    if (finished.length === 0) {
+      const frames = playerBuildings(this.world, kind).length > 0;
+      const missing = HUMAN_MISSING_PRODUCER[kind] ?? `Necesitas: ${HUMAN_BUILDING_NAME[kind]}.`;
+      return { id: null, reason: frames ? `${HUMAN_BUILDING_NAME[kind]} sigue en construcción.` : missing };
+    }
+    for (const id of finished) {
+      if (this.economy.trainProblem(id, type) === null) return { id, reason: null };
+    }
+    return { id: finished[0], reason: this.economy.trainProblem(finished[0], type) };
+  }
+
+  /**
+   * Construir Cuartel on the command center's card: select the nearest idle
+   * builder (any builder when none is idle) and start the Cuartel's
+   * placement ghost. Returns why it cannot, or null.
+   */
+  startBarracksPlacement(): string | null {
+    const cost = PLAYER_BUILD_COST.barracks.minerals;
+    if (this.world.minerals.stored < cost) return `Faltan minerales: ${HUMAN_BUILDING_NAME.barracks} cuesta ${cost}.`;
+    const builders = playerUnits(this.world, 'builder');
+    if (builders.length === 0) return 'No hay constructores: entrena uno en el Centro de Mando.';
+    const idle = builders.filter((id) => {
+      const worker = this.world.getComponent<HumanWorkerComponent>(id, HUMAN_PLAYER_COMPONENT.WORKER);
+      return worker?.task === 'idle' && !hasActiveOrder(this.world, id);
+    });
+    const from = this.corePosition() ?? positionOf(this.world, builders[0])!;
+    const builder = nearest(this.world, idle.length > 0 ? idle : builders, from);
+    if (builder === null) return 'No hay constructores.';
+    this.cancelPlacement();
+    this.selection.selectAnts([builder], Layer.Surface);
+    return this.beginPlacement('barracks');
+  }
+
+  /**
+   * A quick-select chip with no units of `type`: select the building that
+   * trains them (the nearest, finished first; the command center when there
+   * is none, whose card can build one) and return the notice to show.
+   */
+  emptyChip(type: HumanUnitType): string | null {
+    const kind = PRODUCER_OF[type];
+    const from = this.corePosition() ?? { x: 0, y: 0 };
+    const target = nearest(this.world, playerBuildings(this.world, kind, true), from)
+      ?? nearest(this.world, playerBuildings(this.world, kind), from)
+      ?? this.liveCore();
+    if (target === null) return null;
+    this.cancelPlacement();
+    this.selection.selectOnly(target);
+    return EMPTY_CHIP[type];
   }
 
   /** Take the last unit off the selected building's queue (refunded) */
@@ -426,12 +522,21 @@ export class HumanPlayerRun {
       progress: head ? Math.min(1, producer!.progress / trainTime) : 0,
       remaining: head ? Math.max(0, Math.ceil(trainTime - producer!.progress)) : 0,
       rally: producer?.rally ? { ...producer.rally } : null,
-      trains: trainableAt(building.kind).map((type) => ({
-        type,
-        name: HUMAN_UNIT_NAME[type],
-        cost: PLAYER_TRAIN_COST[type],
-        reason: this.economy.trainProblem(id, type),
-      })),
+      trains: [
+        ...trainableAt(building.kind).map((type) => ({
+          type,
+          name: HUMAN_UNIT_NAME[type],
+          cost: PLAYER_TRAIN_COST[type],
+          reason: this.economy.trainProblem(id, type),
+        })),
+        ...(building.kind === 'command_center' && building.constructing <= 0 ? CORE_REMOTE.map((type) => ({
+          type,
+          name: HUMAN_UNIT_NAME[type],
+          cost: PLAYER_TRAIN_COST[type],
+          reason: this.remoteProducer(type, id).reason,
+          at: PRODUCER_OF[type],
+        })) : []),
+      ],
     };
   }
 

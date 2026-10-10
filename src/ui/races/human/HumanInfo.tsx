@@ -55,12 +55,32 @@ function Bar({ label, ratio, color }: { label: string; ratio: number; color: str
   );
 }
 
+/** What the expedition trains and where: the command center's card offers all four */
+const TRAIN_GUIDE: ReadonlyArray<{ type: HumanUnitType; from: string }> = [
+  { type: 'builder', from: 'Centro de Mando' },
+  { type: 'soldier', from: 'Cuartel' },
+  { type: 'marksman', from: 'Cuartel' },
+  { type: 'tank', from: 'Fábrica' },
+];
+
+/** "Entrena: Constructor · Soldado · Tirador · Tanque" and where each comes from */
+export function HumanTrainGuide() {
+  return (
+    <div className="human-train-guide">
+      <div className="info-note"><strong>Entrena: {TRAIN_GUIDE.map((g) => HUMAN_UNIT_NAME[g.type]).join(' · ')}</strong></div>
+      {TRAIN_GUIDE.map((g) => (
+        <div key={g.type} className="info-note">{HUMAN_UNIT_NAME[g.type]}: {g.from}</div>
+      ))}
+    </div>
+  );
+}
+
 /** Nothing selected: the expedition's troops, economy and the next wave */
 export function HumanBaseSummary({ human, stats }: { human: HumanPlayerStats; stats: GameStats }) {
   const total = TYPES.reduce((n, t) => n + human.units[t], 0);
   const full = human.supply >= human.supplyCap;
   return (
-    <div className="info-grid">
+    <div className="info-grid info-grid--4">
       <Column title={`EXPEDICIÓN · ${total}`}>
         {TYPES.map((type) => <Row key={type} icon={UNIT_ICON[type]} label={UNIT_PLURAL[type]} value={human.units[type]} />)}
       </Column>
@@ -83,6 +103,9 @@ export function HumanBaseSummary({ human, stats }: { human: HumanPlayerStats; st
             {human.idleBuilders === 1 ? 'Hay 1 constructor ocioso.' : `Hay ${human.idleBuilders} constructores ociosos.`}
           </div>
         )}
+      </Column>
+      <Column title="RECLUTAR">
+        <HumanTrainGuide />
       </Column>
     </div>
   );
@@ -157,6 +180,7 @@ export function HumanProduction({ selected }: { selected: HumanSelectedBuilding 
         <div className="info-note">Sin producción. Usa los botones de entrenar.</div>
       )}
       <div className="info-note">{selected.rally ? `Punto de reunión: (${selected.rally.x}, ${selected.rally.y})` : 'Clic derecho en el suelo: punto de reunión'}</div>
+      {selected.kind === 'command_center' && <HumanTrainGuide />}
     </>
   );
 }

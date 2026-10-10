@@ -17,8 +17,13 @@ import {
   type LayerComponent,
   type CarryingComponent,
   type HealthComponent,
+  type NestComponent,
+  type RenderComponent,
+  type FacingComponent,
 } from '../components/components';
+import { FactionId, isHostileTo, ownerOf } from '../factions/factions';
 import { createBeetle } from '../entities/factories';
+import { findPath, type PathGrid } from '../../simulation/pathfinding/AStar';
 import { emitAudio } from '../../audio/events';
 import {
   waveComposition,
@@ -33,15 +38,31 @@ import { ELITE_AFFIXES, makeElite } from '../run/eliteAffixes';
 import {
   BOSS_COMPONENT,
   MINI_BOSSES,
-  createColossus,
   makeMiniBoss,
   markCrystalQueen,
   type BossComponent,
   type BossKind,
 } from '../run/miniBoss';
 import { BOSS_REWARD, waveClearReward, type WaveReward } from '../run/waveRewards';
-import { waveRuntimeFor } from '../run/waveRuntime';
-import { STRUCTURE_COMPONENT } from '../run/defenses';
+import { dealDamage, pushWaveFx, setSpeedFactor, waveRuntimeFor } from '../run/waveRuntime';
+import { STRUCTURE_COMPONENT, type StructureComponent } from '../run/defenses';
+import { floodFromNest } from '../run/craterSite';
+import {
+  MARCH_SPEED_KEY,
+  MARCH_TUNING,
+  SIEGE_TUNING,
+  WAVE_MARCH_COMPONENT,
+  columnInterval,
+  columnSlot,
+  compassVector,
+  edgePoint,
+  marchSpeedFactor,
+  scoutedCompass,
+  surfaceHoleFor,
+  type SurfaceMap,
+  type TilePos,
+  type WaveMarchComponent,
+} from '../run/waveMarch';
 import type { ShieldComponent } from '../rival/crystalShield';
 import {
   UNDERGROUND_WIDTH,
@@ -54,6 +75,8 @@ import {
   NURSE_DEFENSE_RADIUS,
   WORLD_HEIGHT,
   WORLD_WIDTH,
+  BEETLE_STATS,
+  ENTRANCE_ROW,
 } from '../../shared/constants';
 
 /** The big wave messages the HUD shows: the 30 s warning, the arrival, the clear, a boss falling */
@@ -100,6 +123,10 @@ export interface NextWaveIntel {
   entrance: { x: number; y: number; label: string } | null;
   /** Where the rival's raiders leave from (surface tiles) and the compass direction from the nest */
   surface: { x: number; y: number; direction: string } | null;
+  /** Where the beetles that break in leave from: a tile on the map edge (surface) and its compass direction */
+  wildlife: { x: number; y: number; direction: string } | null;
+  /** The hole on the nest mound they march on (surface tiles): it leads down to `entrance` */
+  hole: { x: number; y: number } | null;
 }
 
 /** A boss on the field, for the health bar at the top of the screen */
@@ -168,29 +195,45 @@ const GROUP_LABELS: Record<WaveUnitKind, (rival: WaveRival) => string> = {
 
 type InvaderKind = 'young' | 'adult' | 'boss';
 
+/** A* budget for the march from the map edge (the default 2000 runs out on a long, winding way) */
+const MARCH_PATH_STEPS = 8000;
+
+/** A small fixed offset per unit (golden angle), inside its tile: units heading for one spot spread around it */
+function spreadOffset(id: EntityId): { x: number; y: number } {
+  const angle = id * 2.39996;
+  const r = 0.12 + 0.18 * ((id * 7) % 5) / 4;
+  return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+}
+
 interface PendingInvader {
   kind: InvaderKind;
   affix?: EliteAffix;
 }
 
 /**
- * Survival waves: predators periodically break into the nest through the
- * entrance tunnel and march on the queen. Soldiers are auto-deployed to defend.
+ * Survival waves: predators cross the surface, break into the nest through
+ * one of its holes and march on the queen. Soldiers are auto-deployed to defend.
  *
  * Every nightfall launches the next wave, sized and mixed by waveComposition()
  * (3 young beetles on wave 1, then a fast rising curve, elites from wave 3 and
- * a mini-boss every third wave). Beetles break into the nest through one
- * entrance, scouted and announced all day ahead (the "Próxima oleada" card);
- * the rival base (RaidSource) sends its share at the nest on the surface, and
- * it counts as part of the wave. The wave is ARMED (telegraphed)
- * INVASION_ARM_LEAD seconds before dusk, the HUD banner warns
- * WAVE_WARNING_LEAD seconds ahead, and the countdown always points at the
- * real attack. Clearing a wave pays minerals and food, more for a perfect
- * defense (no ant lost); killing a mini-boss always pays its reward.
+ * a mini-boss every third wave). The beetles leave the map edge in a column
+ * (from the side of the nearest wildlife den, else from a scouted compass
+ * direction), march on the surface hole of the entrance the scout announced
+ * all day ahead (the "Próxima oleada" card), fight the ants and defenses in
+ * their way, dig in (a short shrink-into-the-hole animation) and come out at
+ * that entrance below (waveMarch.ts). The Acorazado Colosal is too big for a
+ * hole: it besieges it first (SIEGE_TUNING). The rival base (RaidSource) sends
+ * its share at the nest on the surface, and it counts as part of the wave.
+ * The wave is ARMED (telegraphed) INVASION_ARM_LEAD seconds before dusk, the
+ * HUD banner warns WAVE_WARNING_LEAD seconds ahead, and the countdown always
+ * points at the moment the column appears at the edge. Clearing a wave pays
+ * minerals and food, more for a perfect defense (no ant lost); killing a
+ * mini-boss always pays its reward.
  *
- * Waves never stack: if the previous wave is still inside the nest at
- * nightfall, that night's wave is skipped and the next one keeps its own size.
- * Drones still roaming the surface do not block it: the new wave supersedes them.
+ * Waves never stack: if the previous wave is still on its way in or inside
+ * the nest at nightfall, that night's wave is skipped and the next one keeps
+ * its own size. Raiders still roaming the surface do not block it: the new
+ * wave supersedes them.
  */
 export class UndergroundInvasionSystem implements System {
   readonly name = 'UndergroundInvasionSystem';
@@ -240,6 +283,22 @@ export class UndergroundInvasionSystem implements System {
   /** Ants alive while the wave is on; one gone means the defense was not perfect */
   private watchedAnts = new Set<EntityId>();
   private antsLost = 0;
+  /** The surface the wave marches across */
+  private surface: SurfaceMap;
+  /** The wave on now: where its column leaves the map edge, and the mound hole it marches on */
+  private waveOrigin: TilePos | null = null;
+  private waveHole: TilePos | null = null;
+  /** The edge scouted for wave `wave` (toward hole `hole`), kept until that wave strikes */
+  private scoutedOrigin: { wave: number; hole: TilePos; x: number; y: number } | null = null;
+  /** Units of the wave on now that left the edge, for their lane in the column */
+  private columnIndex = 0;
+  /** The march speed boost of the wave on now */
+  private marchFactor = 1;
+  /** Units of the wave on now that got into the nest */
+  private brokeIn = 0;
+  /** March clock (seconds) and, per hole, when the next unit may squeeze through it */
+  private marchClock = 0;
+  private holeFreeAt = new Map<number, number>();
 
   /** Wire the Crystal Hive's drones into the waves */
   setRaidSource(source: RaidSource | null): void {
@@ -258,12 +317,19 @@ export class UndergroundInvasionSystem implements System {
     world: World,
     grid: UndergroundGrid,
     transitSystem: TransitSystem,
-    dayNight: DayNightSystem
+    dayNight: DayNightSystem,
+    surface: SurfaceMap | null = null
   ) {
     this.world = world;
     this.grid = grid;
     this.transitSystem = transitSystem;
     this.dayNight = dayNight;
+    // Without a map (tests), an open field the size of the world
+    this.surface = surface ?? {
+      width: WORLD_WIDTH,
+      height: WORLD_HEIGHT,
+      isWalkable: (x, y) => x >= 0 && y >= 0 && x < WORLD_WIDTH && y < WORLD_HEIGHT,
+    };
   }
 
   getInfo(): InvasionInfo {
@@ -357,6 +423,9 @@ export class UndergroundInvasionSystem implements System {
     const breach = this.scoutEntrance(this.waveNumber + 1);
     const surfaceOrigin = (wave.drones > 0 || (wave.boss !== null && wave.boss !== 'colossus')) ? this.raidSource?.origin() ?? null : null;
     const nest = this.nestTile();
+    const breakers = this.breakersOf(wave) > 0;
+    const hole = breakers ? this.holeFor(breach) : null;
+    const wild = breakers ? this.scoutOrigin(this.waveNumber + 1) : null;
     return {
       wave: wave.wave,
       total: wave.total,
@@ -365,7 +434,64 @@ export class UndergroundInvasionSystem implements System {
       boss,
       entrance: breach ? { x: breach.x, y: breach.y, label: this.entranceLabel(breach.x) } : null,
       surface: surfaceOrigin ? { x: surfaceOrigin.x, y: surfaceOrigin.y, direction: compassLabel(nest.x, nest.y, surfaceOrigin.x, surfaceOrigin.y) } : null,
+      wildlife: wild ? { x: wild.x, y: wild.y, direction: compassLabel(nest.x, nest.y, wild.x, wild.y) } : null,
+      hole,
     };
+  }
+
+  /** The units of a wave that break into the nest (the beetles and the Colosal), as opposed to the rival's raiders */
+  private breakersOf(wave: WaveComposition): number {
+    return wave.youngBeetles + wave.beetles + (wave.boss === 'colossus' ? 1 : 0);
+  }
+
+  /** The nest's tile on the surface, rounded */
+  private nestCell(): TilePos {
+    const nest = this.nestTile();
+    return { x: Math.round(nest.x), y: Math.round(nest.y) };
+  }
+
+  /** The mound hole an entrance below opens at (the nest tile when the nest has no entrance) */
+  private holeFor(entrance: TilePos | null): TilePos {
+    const nest = this.nestCell();
+    return entrance ? surfaceHoleFor(this.surface, entrance, nest, this.grid.width) : nest;
+  }
+
+  /**
+   * Where wave `wave`'s column leaves the map edge: on the side of the
+   * wildlife den nearest the nest, or, with no den, from the scouted compass
+   * direction. Only edge tiles that can walk to the hole count. Kept until
+   * the wave strikes (while its hole stays the same).
+   */
+  private scoutOrigin(wave: number): TilePos {
+    const hole = this.holeFor(this.scoutEntrance(wave));
+    const kept = this.scoutedOrigin;
+    if (kept && kept.wave === wave && kept.hole.x === hole.x && kept.hole.y === hole.y) return { x: kept.x, y: kept.y };
+    const { width, height } = this.surface;
+    // Walls do not close the road: the column breaks through them
+    const walls = this.surfaceWalls();
+    const reach = floodFromNest({ width, height, nest: hole, isWalkable: (x, y) => this.surface.isWalkable(x, y) || walls.has(y * width + x) });
+    const map: SurfaceMap = { width, height, isWalkable: (x, y) => x >= 0 && y >= 0 && x < width && y < height && reach[y * width + x] === 1 };
+    const den = this.nearestDen(hole);
+    const dir = den && Math.hypot(den.x - hole.x, den.y - hole.y) > 1 ? { x: den.x - hole.x, y: den.y - hole.y } : compassVector(scoutedCompass(wave));
+    const origin = edgePoint(map, hole, dir);
+    this.scoutedOrigin = { wave, hole, x: origin.x, y: origin.y };
+    return origin;
+  }
+
+  /** The wildlife den on the surface closest to `from` */
+  private nearestDen(from: TilePos): TilePos | null {
+    let best: TilePos | null = null;
+    let bestDist = Infinity;
+    for (const id of this.world.query(COMPONENT.BEETLE_DEN, COMPONENT.POSITION)) {
+      if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const d = Math.hypot(pos.x - from.x, pos.y - from.y);
+      if (d < bestDist) {
+        bestDist = d;
+        best = { x: pos.x, y: pos.y };
+      }
+    }
+    return best;
   }
 
   private nestTile(): { x: number; y: number } {
@@ -398,31 +524,44 @@ export class UndergroundInvasionSystem implements System {
   private threats(): WaveThreat[] {
     const out: WaveThreat[] = [];
     if (this.waveActive) {
-      // One marker per layer: the centre of the wave's live units there
-      const sums = { surface: { x: 0, y: 0, n: 0 }, underground: { x: 0, y: 0, n: 0 } };
+      // One marker per group: the column marching on the nest, the rival's raiders, the invaders inside
+      const sums = { column: { x: 0, y: 0, n: 0 }, raiders: { x: 0, y: 0, n: 0 }, underground: { x: 0, y: 0, n: 0 } };
       for (const id of this.invaders) {
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
         if (!pos) continue;
-        const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground ? 'underground' : 'surface';
-        sums[layer].x += pos.x;
-        sums[layer].y += pos.y;
-        sums[layer].n++;
+        const below = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground;
+        const group = below ? sums.underground : this.world.getComponent(id, WAVE_MARCH_COMPONENT) ? sums.column : sums.raiders;
+        group.x += pos.x;
+        group.y += pos.y;
+        group.n++;
       }
-      for (const layer of ['surface', 'underground'] as const) {
-        const sum = sums[layer];
-        if (sum.n > 0) out.push({ x: sum.x / sum.n, y: sum.y / sum.n, layer });
+      for (const key of ['column', 'raiders', 'underground'] as const) {
+        const sum = sums[key];
+        if (sum.n > 0) out.push({ x: sum.x / sum.n, y: sum.y / sum.n, layer: key === 'underground' ? 'underground' : 'surface' });
       }
-      if (sums.underground.n === 0 && this.pendingSpawns.length > 0 && this.waveEntrance) {
-        out.push({ x: this.waveEntrance.x + 0.5, y: this.waveEntrance.y + 0.5, layer: 'underground' });
+      // The column has not shown up yet: point at the edge it comes from
+      if (sums.column.n === 0 && sums.underground.n === 0 && this.pendingSpawns.length > 0 && this.waveOrigin) {
+        out.push({ x: this.waveOrigin.x, y: this.waveOrigin.y, layer: 'surface' });
       }
       return out;
     }
     if (!this.warned) return out;
     if (this.waveEntrance) out.push({ x: this.waveEntrance.x + 0.5, y: this.waveEntrance.y + 0.5, layer: 'underground' });
     const next = this.nextComposition();
+    if (this.breakersOf(next) > 0) {
+      const edge = this.scoutOrigin(this.waveNumber + 1);
+      out.push({ x: edge.x, y: edge.y, layer: 'surface' });
+    }
     const origin = next.drones > 0 || (next.boss !== null && next.boss !== 'colossus') ? this.raidSource?.origin() ?? null : null;
     if (origin) out.push({ x: origin.x, y: origin.y, layer: 'surface' });
     return out;
+  }
+
+  /** Held (the tutorial): no wave is armed, warned of or launched; a wave already on plays out */
+  private held = false;
+
+  setHeld(held: boolean): void {
+    this.held = held;
   }
 
   update(dt: number): void {
@@ -439,7 +578,7 @@ export class UndergroundInvasionSystem implements System {
     if (this.waveActive) this.watchAnts();
     this.payBossKills();
 
-    // Staged entry: one invader breaks in at a time (faster for big waves)
+    // The column leaves the map edge one unit at a time (faster for big waves)
     if (this.pendingSpawns.length > 0) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
@@ -447,6 +586,8 @@ export class UndergroundInvasionSystem implements System {
         this.spawnInvader(this.pendingSpawns.shift()!);
       }
     }
+    // Digging in, besieging a hole, arriving at it: every tick, it is cheap
+    this.advanceMarch(dt);
 
     // Arrival and "cleared" banners fade after a few seconds; the warning lasts until the wave strikes
     if (this.banner && this.banner.kind !== 'warning') {
@@ -471,29 +612,29 @@ export class UndergroundInvasionSystem implements System {
     }
 
     // Late in the day, ARM tonight's wave (never while one is still inside)
-    if (phase === 'day' && !this.waveActive && !this.waveArmed
+    if (!this.held && phase === 'day' && !this.waveActive && !this.waveArmed
         && this.dayNight.getPhaseRemaining() <= INVASION_ARM_LEAD) {
       this.armWave();
     }
 
     // Half a minute out, the big warning banner
-    if (phase === 'day' && !this.waveActive && !this.warned
+    if (!this.held && phase === 'day' && !this.waveActive && !this.warned
         && this.dayNight.getPhaseRemaining() <= WAVE_WARNING_LEAD) {
       this.warnWave();
     }
 
-    // Drones still roaming the surface do not hold the next wave back
-    if (nightfall && this.waveActive && this.pendingSpawns.length === 0 && this.undergroundInvaders() === 0) {
+    // Raiders still roaming the surface do not hold the next wave back
+    if (nightfall && this.waveActive && this.pendingSpawns.length === 0 && this.nestBreakers() === 0) {
       this.invaders.clear();
       this.waveActive = false;
     }
 
     // Nightfall LAUNCHES it; the !waveActive guard means waves never stack.
-    if (nightfall && !this.waveActive) {
+    if (nightfall && !this.waveActive && !this.held) {
       this.launchWave();
     }
     // The boss night: the Crystal Queen joins whatever wave is on
-    if (nightfall && isBossNight(this.dayNight.getDayNumber())) this.launchBoss();
+    if (nightfall && !this.held && isBossNight(this.dayNight.getDayNumber())) this.launchBoss();
 
     // Drive invaders and defenders (throttled — pathfinding is not free)
     this.repathTimer -= dt;
@@ -565,38 +706,326 @@ export class UndergroundInvasionSystem implements System {
     return 'centro';
   }
 
-  private undergroundInvaders(): number {
+  /** Units of the wave inside the nest or still on their way in (marching, besieging, digging) */
+  private nestBreakers(): number {
     let n = 0;
     for (const id of this.invaders) {
-      if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground) n++;
+      if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground || this.world.getComponent(id, WAVE_MARCH_COMPONENT)) n++;
     }
     return n;
   }
 
+  /** The next unit of the column leaves the map edge, in its lane, and sets off for the hole */
   private spawnInvader(next: PendingInvader): void {
-    const e = this.waveEntrance;
-    const ex = e ? e.x + 0.5 : Math.floor(UNDERGROUND_WIDTH / 2) + 0.5;
-    const ey = e ? e.y + 0.5 : 1.5;
+    const hole = this.waveHole ?? this.nestCell();
+    const origin = this.waveOrigin ?? hole;
+    const at = columnSlot(this.surface, this.columnIndex++, origin, hole);
+    const id = createBeetle(this.world, at.x, at.y, null);
+    const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
+    if (facing) facing.angle = Math.atan2(hole.y - at.y, hole.x - at.x);
     if (next.kind === 'boss') {
-      const id = createColossus(this.world, ex, ey, this.bossTier);
+      makeMiniBoss(this.world, id, 'colossus', this.bossTier);
       this.scaleUnit(id, this.statScale, this.statScale);
-      this.invaders.add(id);
       this.bosses.add(id);
       emitAudio({ type: 'waveFx', kind: 'boss' });
-      this.world.pushNotification('danger', `👑 ¡El ${MINI_BOSSES.colossus.name} irrumpe en el nido${this.whereLabel()}!`);
-      return;
+      this.world.pushNotification('danger', `👑 ¡El ${MINI_BOSSES.colossus.name} avanza hacia el nido desde el ${this.originLabel()}!`);
+    } else {
+      const young = next.kind === 'young';
+      this.scaleUnit(
+        id,
+        (young ? YOUNG_BEETLE_SCALE.health : 1) * this.statScale,
+        (young ? YOUNG_BEETLE_SCALE.damage : 1) * this.statScale,
+      );
+      if (next.affix) makeElite(this.world, id, next.affix);
     }
-    const id = createBeetle(this.world, ex, ey, null);
-    const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
-    if (layer) layer.layer = Layer.Underground;
-    const young = next.kind === 'young';
-    this.scaleUnit(
-      id,
-      (young ? YOUNG_BEETLE_SCALE.health : 1) * this.statScale,
-      (young ? YOUNG_BEETLE_SCALE.damage : 1) * this.statScale,
-    );
-    if (next.affix) makeElite(this.world, id, next.affix);
+    const entrance = this.waveEntrance ?? { x: Math.floor(this.grid.width / 2), y: ENTRANCE_ROW };
+    this.world.addComponent<WaveMarchComponent>(id, WAVE_MARCH_COMPONENT, {
+      phase: 'marching',
+      hole: { x: hole.x, y: hole.y },
+      entrance: { x: entrance.x, y: entrance.y },
+      timer: 0,
+      duration: 0,
+      wallId: null,
+      poundTimer: 0,
+    });
+    setSpeedFactor(this.world, id, MARCH_SPEED_KEY, this.marchFactor);
     this.invaders.add(id);
+  }
+
+  /** "oeste": where the column of the wave on now comes from, seen from the nest */
+  private originLabel(): string {
+    const nest = this.nestTile();
+    const from = this.waveOrigin ?? nest;
+    return compassLabel(nest.x, nest.y, from.x, from.y);
+  }
+
+  /** The Acorazado Colosal (and anything that big) cannot fit through a hole */
+  private tooBigForHole(id: EntityId): boolean {
+    return (this.world.getComponent<RenderComponent>(id, COMPONENT.RENDER)?.radius ?? 0) >= SIEGE_TUNING.minSize;
+  }
+
+  private stopMoving(id: EntityId): void {
+    const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH);
+    if (path) {
+      path.waypoints = [];
+      path.currentIndex = 0;
+    }
+    const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
+    if (combat) combat.targetEntityId = null;
+  }
+
+  /** Every tick: arrivals at the hole, sieges and digs */
+  private advanceMarch(dt: number): void {
+    this.marchClock += dt;
+    for (const id of this.invaders) {
+      const march = this.world.getComponent<WaveMarchComponent>(id, WAVE_MARCH_COMPONENT);
+      if (!march) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+      if (!pos) continue;
+      if (march.phase === 'marching') {
+        if (Math.hypot(pos.x - march.hole.x, pos.y - march.hole.y) <= MARCH_TUNING.digReach) {
+          if (this.tooBigForHole(id)) this.startSiege(id, march);
+          else this.startDig(id, march);
+        } else if (march.wallId !== null) {
+          // Breaking through a wall: at it, bite it; once it falls, plan the way on
+          const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH);
+          const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
+          if (!this.world.hasEntity(march.wallId)) {
+            march.wallId = null;
+            this.stopMoving(id);
+          } else if (combat && path && path.currentIndex >= path.waypoints.length) {
+            combat.targetEntityId = march.wallId;
+          }
+        }
+        continue;
+      }
+      const before = march.timer;
+      march.timer -= dt;
+      if (march.phase === 'siege') {
+        march.poundTimer -= dt;
+        if (march.poundTimer <= 0) {
+          march.poundTimer += SIEGE_TUNING.poundEvery;
+          this.pound(id, march);
+        }
+        if (march.timer <= 0) this.startDig(id, march);
+        continue;
+      }
+      // Digging in: clods of dirt fly out of the hole
+      if (Math.floor(before / 0.3) !== Math.floor(march.timer / 0.3)) {
+        pushWaveFx(this.world, { kind: 'dig', x: march.hole.x, y: march.hole.y, layer: Layer.Surface, radius: 0.9, life: 0.6 });
+      }
+      if (march.timer <= 0) this.breakIn(id, march);
+    }
+  }
+
+  /**
+   * At the hole: it digs in, shrinking into it. One unit squeezes through a
+   * hole at a time (MARCH_TUNING.holeGap apart): the rest wait their turn at
+   * it, so they come out below one by one instead of in a heap.
+   */
+  private startDig(id: EntityId, march: WaveMarchComponent): void {
+    const key = march.hole.y * this.surface.width + march.hole.x;
+    const start = Math.max(this.marchClock, this.holeFreeAt.get(key) ?? 0);
+    this.holeFreeAt.set(key, start + MARCH_TUNING.holeGap);
+    march.phase = 'digging';
+    march.timer = start - this.marchClock + MARCH_TUNING.digSeconds;
+    march.duration = MARCH_TUNING.digSeconds;
+    march.wallId = null;
+    this.stopMoving(id);
+    pushWaveFx(this.world, { kind: 'dig', x: march.hole.x, y: march.hole.y, layer: Layer.Surface, radius: 1.1, life: 0.7 });
+  }
+
+  /** Too big for the hole: it besieges it (SIEGE_TUNING) */
+  private startSiege(id: EntityId, march: WaveMarchComponent): void {
+    march.phase = 'siege';
+    march.timer = SIEGE_TUNING.seconds;
+    march.poundTimer = SIEGE_TUNING.poundEvery * 0.4;
+    march.wallId = null;
+    this.stopMoving(id);
+    const name = this.world.getComponent<BossComponent>(id, BOSS_COMPONENT)?.name ?? MINI_BOSSES.colossus.name;
+    emitAudio({ type: 'waveFx', kind: 'boss' });
+    this.world.pushNotification('danger', `👑 ¡El ${name} no cabe por la entrada y asedia el nido! Si no lo detienes, en ${SIEGE_TUNING.seconds} s abrirá la brecha`);
+  }
+
+  /** A siege blow on the mound: the colony's units and defenses near the hole get hit, the stockpile spills */
+  private pound(id: EntityId, march: WaveMarchComponent): void {
+    const hole = march.hole;
+    pushWaveFx(this.world, { kind: 'dig', x: hole.x, y: hole.y, layer: Layer.Surface, radius: SIEGE_TUNING.radius, life: 0.8 });
+    emitAudio({ type: 'waveFx', kind: 'explode', at: { x: hole.x, y: hole.y, layer: Layer.Surface } });
+    const side = ownerOf(this.world, id) ?? FactionId.WILDLIFE;
+    for (const store of [COMPONENT.ANT, STRUCTURE_COMPONENT] as const) {
+      for (const other of this.world.query(store, COMPONENT.POSITION, COMPONENT.HEALTH)) {
+        if (this.world.getComponent<LayerComponent>(other, COMPONENT.LAYER)?.layer === Layer.Underground) continue;
+        if (this.transitSystem.isInTransit(other) || !isHostileTo(this.world, side, other)) continue;
+        const at = this.world.getComponent<PositionComponent>(other, COMPONENT.POSITION)!;
+        if (Math.hypot(at.x - hole.x, at.y - hole.y) > SIEGE_TUNING.radius) continue;
+        dealDamage(this.world, other, SIEGE_TUNING.damage);
+      }
+    }
+    const nestId = this.world.query(COMPONENT.NEST)[0];
+    const nest = nestId !== undefined ? this.world.getComponent<NestComponent>(nestId, COMPONENT.NEST) : undefined;
+    if (nest) {
+      const keep = 1 - SIEGE_TUNING.spill;
+      nest.foodStored = Math.floor(nest.foodStored * keep);
+      nest.mushroomStored = Math.floor(nest.mushroomStored * keep);
+      nest.meatStored = Math.floor(nest.meatStored * keep);
+    }
+  }
+
+  /** Through the hole: it comes out at the matching entrance below, and the fight moves into the nest */
+  private breakIn(id: EntityId, march: WaveMarchComponent): void {
+    const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+    const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+    if (!layer || !pos) return;
+    // The entrance may have been filled in since: the closest one left
+    const open = this.grid.getEntrances();
+    const entrance = open.some((e) => e.x === march.entrance.x && e.y === march.entrance.y)
+      ? march.entrance
+      : this.grid.findNearestEntrance(march.entrance.x + 0.5, march.entrance.y + 0.5) ?? march.entrance;
+    layer.layer = Layer.Underground;
+    const off = spreadOffset(id);
+    pos.x = entrance.x + 0.5 + off.x;
+    pos.y = entrance.y + 0.5 + off.y;
+    pos.prevX = pos.x;
+    pos.prevY = pos.y;
+    this.stopMoving(id);
+    setSpeedFactor(this.world, id, MARCH_SPEED_KEY, 1);
+    this.world.removeComponent(id, WAVE_MARCH_COMPONENT);
+    pushWaveFx(this.world, { kind: 'dig', x: pos.x, y: pos.y, layer: Layer.Underground, radius: 1, life: 0.7 });
+    this.brokeIn++;
+    const boss = this.world.getComponent<BossComponent>(id, BOSS_COMPONENT);
+    if (boss) {
+      this.world.pushNotification('danger', `👑 ¡El ${boss.name} abrió la brecha y entra al nido${this.whereLabel()}!`);
+    }
+    if (this.brokeIn === 1) {
+      this.world.pushNotification('danger', `🪲 ¡Los invasores entran al nido${this.whereLabel()}! Van por la reina`);
+      this.deploySoldiers(Math.max(this.nestBreakers() + 1, 3));
+    }
+  }
+
+  /** Surface walls by tile (y * width + x) */
+  private surfaceWalls(): Map<number, EntityId> {
+    const walls = new Map<number, EntityId>();
+    for (const id of this.world.query(STRUCTURE_COMPONENT)) {
+      const s = this.world.getComponent<StructureComponent>(id, STRUCTURE_COMPONENT)!;
+      if (s.kind === 'wall' && s.layer === 'surface') walls.set(s.y * this.surface.width + s.x, id);
+    }
+    return walls;
+  }
+
+  /**
+   * The way to the hole. Walls are gone around, unless going around costs
+   * more than MARCH_TUNING.wallDetour extra tiles: then it walks up to the
+   * first wall on the straight way and breaks it.
+   */
+  private planMarch(pos: PositionComponent, path: PathComponent, march: WaveMarchComponent): void {
+    const start = { x: Math.round(pos.x), y: Math.round(pos.y) };
+    const around = findPath(this.surface, start, march.hole, MARCH_PATH_STEPS);
+    const walls = this.surfaceWalls();
+    if (walls.size > 0) {
+      const width = this.surface.width;
+      const open: PathGrid = {
+        width,
+        height: this.surface.height,
+        isWalkable: (x, y) => this.surface.isWalkable(x, y) || walls.has(y * width + x),
+      };
+      const through = findPath(open, start, march.hole, MARCH_PATH_STEPS);
+      if (through && (!around || around.length > through.length + MARCH_TUNING.wallDetour)) {
+        const i = through.findIndex((p) => walls.has(p.y * width + p.x));
+        if (i > 0) {
+          const wall = through[i];
+          const prev = through[i - 1];
+          const dx = wall.x - prev.x;
+          const dy = wall.y - prev.y;
+          const len = Math.hypot(dx, dy) || 1;
+          // Stop just short of the wall, close enough to bite it
+          path.waypoints = [...through.slice(0, i), { x: prev.x + (dx / len) * 0.45, y: prev.y + (dy / len) * 0.45 }];
+          path.currentIndex = 0;
+          march.wallId = walls.get(wall.y * width + wall.x)!;
+          return;
+        }
+      }
+    }
+    path.waypoints = around && around.length > 0 ? around : [{ x: march.hole.x, y: march.hole.y }];
+    path.currentIndex = 0;
+  }
+
+  /** Short hop toward a target on the surface (a fight on the way) */
+  private routeTo(id: EntityId, path: PathComponent, pos: PositionComponent, target: { x: number; y: number }): void {
+    const route = findPath(this.surface, { x: Math.round(pos.x), y: Math.round(pos.y) }, { x: Math.round(target.x), y: Math.round(target.y) }, 600);
+    const off = spreadOffset(id);
+    const end = route && route.length > 0 ? route[route.length - 1] : { x: Math.round(target.x), y: Math.round(target.y) };
+    path.waypoints = [...(route && route.length > 0 ? route.slice(0, -1) : []), { x: end.x + off.x, y: end.y + off.y }];
+    path.currentIndex = 0;
+  }
+
+  /**
+   * The column on the surface: each unit fights the ants that block its way
+   * or bite it, breaks the Espinas and Trampas right by its way, and
+   * otherwise marches on its hole (walls: see planMarch).
+   */
+  private driveMarchers(): void {
+    const ants: Array<{ id: EntityId; pos: PositionComponent }> = [];
+    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.LAYER)) {
+      if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!.layer !== Layer.Surface) continue;
+      if (this.transitSystem.isInTransit(id)) continue;
+      ants.push({ id, pos: this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)! });
+    }
+    const defenses: Array<{ id: EntityId; pos: PositionComponent }> = [];
+    for (const id of this.world.query(STRUCTURE_COMPONENT, COMPONENT.POSITION)) {
+      const s = this.world.getComponent<StructureComponent>(id, STRUCTURE_COMPONENT)!;
+      if (s.layer !== 'surface' || s.kind === 'wall') continue;
+      defenses.push({ id, pos: this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)! });
+    }
+    for (const id of this.invaders) {
+      const march = this.world.getComponent<WaveMarchComponent>(id, WAVE_MARCH_COMPONENT);
+      if (!march || march.phase !== 'marching') continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+      const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
+      const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH);
+      if (!pos || !combat || !path) continue;
+
+      let prey: { id: EntityId; pos: PositionComponent } | null = null;
+      let best = Infinity;
+      for (const a of ants) {
+        const d = Math.hypot(a.pos.x - pos.x, a.pos.y - pos.y);
+        const biting = d < MARCH_TUNING.retaliate && this.world.getComponent<CombatComponent>(a.id, COMPONENT.COMBAT)?.targetEntityId === id;
+        if ((d < MARCH_TUNING.aggro || biting) && d < best) {
+          best = d;
+          prey = a;
+        }
+      }
+      if (!prey) {
+        for (const s of defenses) {
+          const d = Math.hypot(s.pos.x - pos.x, s.pos.y - pos.y);
+          if (d < MARCH_TUNING.structureAggro && d < best) {
+            best = d;
+            prey = s;
+          }
+        }
+      }
+      if (prey) {
+        march.wallId = null;
+        combat.targetEntityId = prey.id;
+        if (best <= combat.attackRange * 0.9) {
+          path.waypoints = [];
+          path.currentIndex = 0;
+        } else {
+          this.routeTo(id, path, pos, prey.pos);
+        }
+        continue;
+      }
+      // Breaking through a wall (advanceMarch points the bite)
+      if (march.wallId !== null && this.world.hasEntity(march.wallId)) continue;
+      march.wallId = null;
+      // On to the hole; a wall it is biting (DefenseSystem points it at walls it bumps into) stays its target
+      const target = combat.targetEntityId;
+      const atWall = target !== null && this.world.hasEntity(target) && this.world.getComponent<StructureComponent>(target, STRUCTURE_COMPONENT)?.kind === 'wall';
+      if (!atWall) combat.targetEntityId = null;
+      const end = path.waypoints[path.waypoints.length - 1];
+      const done = path.currentIndex >= path.waypoints.length;
+      if (done || !end || end.x !== march.hole.x || end.y !== march.hole.y) this.planMarch(pos, path, march);
+    }
   }
 
   /** Multiply a unit's health and damage (young beetles, and every unit past the size cap) */
@@ -706,7 +1135,7 @@ export class UndergroundInvasionSystem implements System {
     });
     this.world.pushNotification(
       'danger',
-      `⚠️ ¡Oleada ${this.waveNumber + 1} en ${WAVE_WARNING_LEAD} s! ${wave.total} enemigos${this.extrasLabel(wave)}${this.whereLabel()}`
+      `⚠️ ¡Oleada ${this.waveNumber + 1} en ${WAVE_WARNING_LEAD} s! ${wave.total} enemigos${this.extrasLabel(wave)}${this.whereLabel()}${intel.wildlife ? ` · los acorazados llegan desde el ${intel.wildlife.direction}` : ''}`
     );
   }
 
@@ -714,6 +1143,13 @@ export class UndergroundInvasionSystem implements System {
     emitAudio({ type: 'wave' });
     const wave = this.nextComposition();
     this.pickEntrance();
+    // The column's road: from the scouted edge to the hole of the scouted entrance
+    this.waveHole = this.holeFor(this.waveEntrance);
+    this.waveOrigin = this.scoutOrigin(this.waveNumber + 1);
+    this.marchFactor = marchSpeedFactor(Math.hypot(this.waveOrigin.x - this.waveHole.x, this.waveOrigin.y - this.waveHole.y), BEETLE_STATS.speed);
+    this.columnIndex = 0;
+    this.brokeIn = 0;
+    this.holeFreeAt.clear();
     this.waveNumber++;
     this.waveActive = true;
     this.waveArmed = false;
@@ -751,7 +1187,7 @@ export class UndergroundInvasionSystem implements System {
     this.waveSize = wave.youngBeetles + beetles + drones.length + (bossId !== null || undergroundBoss ? 1 : 0);
 
     // On the boss night the Crystal Queen joins right after (launchBoss).
-    // Young beetles lead, the full-strength ones follow, the Colosal comes last; the first breaks in now.
+    // Young beetles lead, the full-strength ones follow, the Colosal comes last; the first leaves the edge now.
     const youngAffixes = affixesOf('young');
     const beetleAffixes = [...affixesOf('beetle'), ...droneAffixes.slice(drones.length)];
     this.pendingSpawns = [
@@ -759,9 +1195,9 @@ export class UndergroundInvasionSystem implements System {
       ...Array.from({ length: beetles }, (_, i): PendingInvader => ({ kind: 'adult', affix: beetleAffixes[i] })),
       ...(undergroundBoss ? [{ kind: 'boss' as const }] : []),
     ];
-    const underground = this.pendingSpawns.length;
-    this.spawnInterval = Math.min(1.2, 15 / Math.max(1, underground));
-    if (underground > 0) this.spawnInvader(this.pendingSpawns.shift()!);
+    const breakers = this.pendingSpawns.length;
+    this.spawnInterval = columnInterval(breakers);
+    if (breakers > 0) this.spawnInvader(this.pendingSpawns.shift()!);
     this.spawnTimer = this.spawnInterval;
 
     const bossKind: MiniBossKind | null = bossId !== null ? surfaceBoss : undergroundBoss ? 'colossus' : null;
@@ -773,13 +1209,13 @@ export class UndergroundInvasionSystem implements System {
       this.bannerTimer = WAVE_BANNER_SECONDS + 3; // the boss banner stays up longer
       emitAudio({ type: 'waveFx', kind: 'boss' });
     }
-    const parts = drones.length > 0 || bossId !== null
-      ? ` ${underground} acorazados al nido y ${drones.length + (bossId !== null ? 1 : 0)} ${this.raidSource?.unitLabel?.(drones.length) ?? 'drones de cristal'} por la superficie`
-      : ` Los acorazados están entrando${this.whereLabel()}`;
-    this.world.pushNotification('danger', `🪲 ¡OLEADA ${this.waveNumber} · ${this.waveSize} enemigos!${parts}`);
+    const march = breakers > 0 ? ` ${breakers} acorazados marchan desde el ${this.originLabel()} hacia la entrada${this.whereLabel() ? ` ${this.entranceLabel(this.waveEntrance!.x)}` : ' del nido'}` : '';
+    const raid = drones.length > 0 || bossId !== null
+      ? `${breakers > 0 ? ' y' : ''} ${drones.length + (bossId !== null ? 1 : 0)} ${this.raidSource?.unitLabel?.(drones.length) ?? 'drones de cristal'} atacan por la superficie`
+      : '';
+    this.world.pushNotification('danger', `🪲 ¡OLEADA ${this.waveNumber} · ${this.waveSize} enemigos!${march}${raid}`);
     if (bossId !== null && bossKind) this.world.pushNotification('danger', `👑 ¡El ${MINI_BOSSES[bossKind].name} encabeza el asalto!`);
-
-    if (underground > 0) this.deploySoldiers(Math.max(underground + 1, 3));
+    // Soldiers stay up top to meet the column; they are sent below once it breaks in (breakIn)
   }
 
   /** The Crystal Queen leaves the hive; the wave on counts her, and the arrival banner announces her */
@@ -838,6 +1274,7 @@ export class UndergroundInvasionSystem implements System {
 
   private driveInvaders(): void {
     if (this.invaders.size === 0) return;
+    this.driveMarchers();
 
     const queens = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.POSITION);
     const queenId = queens.length > 0 ? queens[0] : null;
@@ -907,6 +1344,10 @@ export class UndergroundInvasionSystem implements System {
       if (path.waypoints.length === 0 || path.currentIndex >= path.waypoints.length) {
         const route = this.grid.findPath(pos.x, pos.y, target.x, target.y);
         if (route && route.length > 0) {
+          // Each invader stops at its own spot in the last tile: a pack that shares a route does not pile up as one
+          const last = route[route.length - 1];
+          const off = spreadOffset(invaderId);
+          route[route.length - 1] = { x: last.x + off.x, y: last.y + off.y };
           path.waypoints = route;
           path.currentIndex = 0;
         }

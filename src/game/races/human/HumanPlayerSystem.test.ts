@@ -12,7 +12,8 @@ import { HUMAN_BUILDING_STATS, HUMAN_UNIT_STATS } from '../../rival/humanBase';
 import { HUMAN_COMPONENT, type HumanBuildingComponent, type HumanUnitComponent } from '../../rival/humanComponents';
 import { HumanPlayerSystem } from './HumanPlayerSystem';
 import { createPlayerHumanBuilding, createPlayerHumanUnit, spawnHumanPlayerStart } from './humanPlayerFactories';
-import { HUMAN_GATHER, PLAYER_BUILD_COST, PLAYER_HUMAN_START, PLAYER_TRAIN_COST } from './humanPlayerRules';
+import { HUMAN_GATHER, PLAYER_BUILD_COST, PLAYER_HUMAN_START, PLAYER_TRAIN_COST, placementProblem } from './humanPlayerRules';
+import { placementWorldOf } from './humanPlayerQueries';
 import { HUMAN_PLAYER_COMPONENT, type HumanProducerComponent, type HumanWorkerComponent } from './humanPlayerComponents';
 
 const CX = Math.floor(WORLD_WIDTH / 2);
@@ -79,6 +80,42 @@ describe('the Human expedition start', () => {
       expect(d).toBeGreaterThan(HUMAN_BUILDING_STATS.command_center.halfWidth + 2);
       expect(d).toBeLessThan(12);
     }
+  });
+});
+
+describe('the Human start\'s Cuartel', () => {
+  it('stands finished beside the command center, on a tile the placement rules accept', () => {
+    const world = new World();
+    const grid = openGrid();
+    const start = spawnHumanPlayerStart(world, grid, { x: CX, y: CY });
+    expect(start.barracksId).not.toBeNull();
+    const barracks = world.getComponent<HumanBuildingComponent>(start.barracksId!, HUMAN_COMPONENT.BUILDING)!;
+    expect(barracks.kind).toBe('barracks');
+    expect(barracks.constructing).toBe(0);
+    expect(ownerOf(world, start.barracksId!)).toBe(FactionId.PLAYER);
+    expect(world.getComponent(start.barracksId!, HUMAN_PLAYER_COMPONENT.PRODUCER)).toBeDefined();
+    const pos = world.getComponent<PositionComponent>(start.barracksId!, COMPONENT.POSITION)!;
+    // Close to the command center: a short walk, on screen with it
+    expect(Math.hypot(pos.x - CX, pos.y - CY)).toBeLessThanOrEqual(8);
+    // Valid by the same rules a builder's Construir uses (the Cuartel itself left out)
+    const map = placementWorldOf(world, grid, [start.barracksId!]);
+    expect(placementProblem('barracks', { x: pos.x, y: pos.y }, map)).toBeNull();
+    // No starting unit stands inside its footprint
+    for (const id of [...start.builders, ...start.soldiers]) {
+      const u = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      expect(Math.max(Math.abs(u.x - pos.x), Math.abs(u.y - pos.y))).toBeGreaterThan(HUMAN_BUILDING_STATS.barracks.halfWidth);
+    }
+  });
+
+  it('pays for the free Cuartel out of the starting minerals', () => {
+    expect(PLAYER_HUMAN_START.minerals).toBe(50);
+    expect(PLAYER_HUMAN_START.minerals).toBeLessThan(PLAYER_BUILD_COST.barracks.minerals);
+  });
+
+  it('can be left out', () => {
+    const world = new World();
+    const start = spawnHumanPlayerStart(world, openGrid(), { x: CX, y: CY }, { homeField: false, barracks: false });
+    expect(start.barracksId).toBeNull();
   });
 });
 
@@ -153,9 +190,10 @@ describe('Human construction', () => {
     expect(onCore.ok).toBe(false);
     const poor = setup();
     poor.world.minerals.spend(poor.world.minerals.stored);
+    const standing = poor.world.query(HUMAN_COMPONENT.BUILDING).length;
     const broke = poor.system.placeBuilding([poor.units('builder')[0]], 'factory', { x: CX + 8, y: CY });
     expect(broke).toMatchObject({ ok: false });
-    expect(poor.world.query(HUMAN_COMPONENT.BUILDING)).toHaveLength(1);
+    expect(poor.world.query(HUMAN_COMPONENT.BUILDING)).toHaveLength(standing);
   });
 
   it('a second builder helps and finishes the frame sooner', () => {

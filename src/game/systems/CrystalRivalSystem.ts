@@ -360,7 +360,7 @@ export class CrystalRivalSystem implements System {
     this.sendOut([queen], target, CrystalUnitState.Assaulting);
     this.pulseTimers.set(queen, CRYSTAL_QUEEN_POWERS.pulseCooldown);
     combatVfxFor(this.world).crystalPulse(at.x, at.y, Layer.Surface);
-    this.world.pushNotification('danger', '👑 ¡La Reina de Cristal despierta y marcha hacia tu nido! Su aura recarga los escudos de su escolta');
+    this.world.pushNotification('danger', '👑 ¡La Reina de Cristal despierta y marcha hacia tu base! Su aura recarga los escudos de su escolta');
     return queen;
   }
 
@@ -411,9 +411,9 @@ export class CrystalRivalSystem implements System {
 
   // ── Lookups ──────────────────────────────────────────────
 
+  /** The rival's hive (a Crystal player's own Hive is never run by this AI) */
   private hive(): EntityId | null {
-    const hives = this.world.query(COMPONENT.CRYSTAL_HIVE, COMPONENT.POSITION);
-    return hives.length > 0 ? hives[0] : null;
+    return this.world.query(COMPONENT.CRYSTAL_HIVE, COMPONENT.POSITION).find((id) => ownerOf(this.world, id) !== FactionId.PLAYER) ?? null;
   }
 
   private spiresOf(hive: EntityId): EntityId[] {
@@ -430,6 +430,7 @@ export class CrystalRivalSystem implements System {
     }).sort((a, b) => a - b);
   }
 
+  /** The closest enemy base core: a nest, or a Crystal player's Hive */
   private enemyNest(hive: EntityId): Vector2 | null {
     return nearestEnemyBase(this.world, ownerOf(this.world, hive) ?? FactionId.RIVAL, this.posOf(hive)!);
   }

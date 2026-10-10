@@ -50,9 +50,9 @@ import {
   QUEEN_MAX_HUNGER,
   QUEEN_HUNGER_DECAY,
   MAX_EGGS_PER_TYPE,
-  EGG_FOOD_REQUIRED,
 } from '../../shared/constants';
 import { antSpawnStats } from '../run/antStats';
+import { larvaFoodRequired } from '../upgrades/upgradeEffects';
 
 function stampOwner(world: World, entity: EntityId, faction: FactionId): void {
   world.addComponent<OwnerComponent>(entity, COMPONENT.OWNER, { faction });
@@ -139,7 +139,7 @@ export function createAnt(
   // ALL roles get RoleStatsComponent (not just scouts anymore)
   world.addComponent<RoleStatsComponent>(entity, COMPONENT.ROLE_STATS, {
     visionRange: stats.visionRange,
-    speedMultiplier: stats.speedMultiplier,
+    speedMultiplier: spawn.speedMultiplier,
     carrySpeedPenalty: stats.carrySpeedPenalty,
   });
 
@@ -166,6 +166,7 @@ export function createFood(
   world.addComponent<FoodSourceComponent>(entity, COMPONENT.FOOD_SOURCE, {
     resourceType,
     amount,
+    maxAmount: amount,
   });
 
   const foodColors: Record<FoodType, string> = {
@@ -197,6 +198,8 @@ export function createMineral(world: World, x: number, y: number, amount: number
   world.addComponent<MineralComponent>(entity, COMPONENT.MINERAL, { amount, maxAmount: amount });
   world.addComponent<RenderComponent>(entity, COMPONENT.RENDER, { color: '#2fa3b8', radius: 0.4, shape: 'mineral' });
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
+  // Selectable: a click shows its card (ore left, workers mining it)
+  world.addComponent<SelectableComponent>(entity, COMPONENT.SELECTABLE, { selected: false });
   return entity;
 }
 
@@ -465,7 +468,7 @@ export function createEgg(
     hatchTimer: hatchTime,
     hatchTime,
     fedAmount: 0, // nurses must feed the larva (from the pantry) before it can hatch
-    requiredFood: EGG_FOOD_REQUIRED,
+    requiredFood: larvaFoodRequired(world.upgradeLevels), // Nutrición de larvas lowers it
   });
   world.addComponent<RenderComponent>(entity, COMPONENT.RENDER, { color: '#fffff0', radius: 0.25, shape: 'circle' });
   stampOwner(world, entity, faction);

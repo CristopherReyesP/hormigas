@@ -1,6 +1,6 @@
 import type { World } from '../engine/ecs/World';
 import type { EntityId } from '../shared/types';
-import { AntRole, COMPONENT, type AntComponent } from './components/components';
+import { AntRole, COMPONENT, type AntComponent, type CrystalUnitComponent, type CrystalUnitKind } from './components/components';
 import { HUMAN_COMPONENT, type HumanUnitComponent } from './rival/humanComponents';
 import type { HumanUnitType } from './rival/humanBase';
 
@@ -9,7 +9,7 @@ import type { HumanUnitType } from './rival/humanBase';
  * confirm it on a phone (a toast, a buzz, a burst where the finger was):
  * an order the selected ants took, or a long press that took a caste.
  */
-export type OrderFeedbackKind = 'move' | 'attack' | 'attack-move' | 'rally';
+export type OrderFeedbackKind = 'move' | 'attack' | 'attack-move' | 'rally' | 'mine' | 'gather';
 
 /** What an attack order names, for the toast ("atacar guarida") */
 export type FeedbackTarget = 'den' | 'hive' | 'spire' | 'beetle' | 'cricket' | 'crystal-unit' | 'human-unit' | 'human-building' | 'enemy';
@@ -22,10 +22,14 @@ export interface OrderFeedback {
   byRole: Partial<Record<AntRole, number>>;
   /** A Human player's units that took it, per type (empty for the Swarm) */
   byHuman?: Partial<Record<HumanUnitType, number>>;
+  /** A Crystal player's units that took it, per kind (empty for the other races) */
+  byCrystal?: Partial<Record<CrystalUnitKind, number>>;
   /** The enemy an attack names; null for a move, an attack-move or a rally */
   target: FeedbackTarget | null;
   /** Given with a finger tap (the phone HUD confirms it louder) */
   touch: boolean;
+  /** Recolectar: what the source holds, plural ("hojas", "hongos", "carne") */
+  resource?: string;
 }
 
 export interface CasteSelectFeedback {
@@ -38,6 +42,8 @@ export interface CasteSelectFeedback {
   role: AntRole;
   /** A Human player's unit type, when the long press took Human units */
   humanType?: HumanUnitType;
+  /** A Crystal player's unit kind, when the long press took Crystal units */
+  crystalKind?: CrystalUnitKind;
 }
 
 export type CommandFeedback = OrderFeedback | CasteSelectFeedback;
@@ -60,6 +66,16 @@ export function countHumanTypes(world: World, ids: readonly EntityId[]): Partial
     if (type !== undefined) byType[type] = (byType[type] ?? 0) + 1;
   }
   return byType;
+}
+
+/** A Crystal player's units per kind among `ids` */
+export function countCrystalKinds(world: World, ids: readonly EntityId[]): Partial<Record<CrystalUnitKind, number>> {
+  const byKind: Partial<Record<CrystalUnitKind, number>> = {};
+  for (const id of ids) {
+    const kind = world.getComponent<CrystalUnitComponent>(id, COMPONENT.CRYSTAL_UNIT)?.kind;
+    if (kind !== undefined) byKind[kind] = (byKind[kind] ?? 0) + 1;
+  }
+  return byKind;
 }
 
 /** What kind of enemy `id` is, for the toast. */

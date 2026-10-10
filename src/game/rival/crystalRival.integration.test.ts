@@ -23,6 +23,7 @@ import { combatVfxFor } from '../vfx/CombatVfx';
 import type { ShieldComponent } from './crystalShield';
 import { CRYSTAL_UNIT_STATS } from './crystalRival';
 import { waveComposition } from '../run/waveComposition';
+import { WAVE_MARCH_COMPONENT } from '../run/waveMarch';
 import { selectionTitle } from '../../ui/console/infoSummary';
 import type { RunSetup } from '../run/RunSetup';
 import type { CrystalRivalSystem } from '../systems/CrystalRivalSystem';
@@ -69,7 +70,7 @@ describe('rival Fauna salvaje: no Crystal Hive', () => {
   });
 
   it('a wave that would bring drones brings beetles instead', () => {
-    const { game, run, nightfallIn, info, crystalUnits, undergroundBeetles } = setup(WILDLIFE);
+    const { game, world, run, nightfallIn, info, crystalUnits } = setup(WILDLIFE);
     game['invasionSystem']['waveNumber'] = 3;
     const expected = waveComposition(4);
     expect(expected.drones).toBeGreaterThan(0);
@@ -77,10 +78,10 @@ describe('rival Fauna salvaje: no Crystal Hive', () => {
     expect(info().waveSize).toBe(expected.total);
     nightfallIn(0.05);
     run(0.1);
-    // Every unit of the wave breaks into the nest (the first already did)
+    // Every unit of the wave marches on the nest to break in (the first already left the map edge)
     expect(info()).toMatchObject({ active: true, waveSize: expected.total, remaining: expected.total });
     expect(game['invasionSystem']['pendingSpawns']).toHaveLength(expected.total - 1);
-    expect(undergroundBeetles()).toHaveLength(1);
+    expect(world.query(COMPONENT.BEETLE, WAVE_MARCH_COMPONENT)).toHaveLength(1);
     while (game['invasionSystem']['pendingSpawns'].length > 0) run(DT);
     expect(crystalUnits()).toHaveLength(0);
     game.stop();

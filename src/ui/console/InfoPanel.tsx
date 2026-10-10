@@ -11,10 +11,13 @@ import { deriveBroodPipeline } from './brood';
 import { BroodReadout } from './BroodReadout';
 import { broodKeys } from './commands';
 import { ControlGroupBar } from './ControlGroupBar';
-import { infoSummary, selectionHealth, selectionTitle } from './infoSummary';
+import { infoSummary, resourceAmountText, selectionHealth, selectionTitle } from './infoSummary';
+import { RESOURCE_COLOR, foodTone, type ResourceTone } from '../../game/render/resourceArt';
 import { CRYSTAL_UNIT_BLURB, SPIRE_BLURB } from '../../game/rival/crystalNames';
 import { CRYSTAL_MAX_FLOORS } from '../../game/rival/crystalRival';
 import { useTouchUi } from '../layout/touch';
+import { CrystalInfo } from '../races/crystal/CrystalInfo';
+import type { UpgradeTab } from '../upgrades/upgradeUi';
 import { HumanBaseSummary, HumanGroupPanel, HumanProduction } from '../races/human/HumanInfo';
 import {
   ANT_STATE_LABEL, BEETLE_STATE_LABEL, ROLE_BLURB, CARRY_LABEL, CRICKET_STATE_LABEL, ROLE_ICON, ROLE_LABEL, ROLE_PLURAL, formatClock,
@@ -26,6 +29,8 @@ interface InfoPanelProps {
   gameManager: GameManager | null;
   attackCount: number;
   onAttackCountChange: (count: number) => void;
+  /** Opens the Mejoras panel on a tab (the Swarm only) */
+  onOpenUpgrades?: (tab?: UpgradeTab) => void;
   /** Compact HUD: the panel is open over the map (the hint line's details button drives it when given) */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -36,7 +41,7 @@ function healthColor(ratio: number): string {
 }
 
 /** One-row bar: icon · label · segmented track · number ('ratio' = value/max, 'value', or none). */
-function Bar({ label, value, max, color, icon, numbers = 'ratio' }: {
+export function Bar({ label, value, max, color, icon, numbers = 'ratio' }: {
   label: string; value: number; max: number; color: string; icon?: IconName; numbers?: 'ratio' | 'value' | 'none';
 }) {
   const ratio = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
@@ -56,7 +61,7 @@ function Bar({ label, value, max, color, icon, numbers = 'ratio' }: {
   );
 }
 
-function Row({ icon, label, value, tone }: { icon: IconName; label: string; value: ReactNode; tone?: string }) {
+export function Row({ icon, label, value, tone }: { icon: IconName; label: string; value: ReactNode; tone?: string }) {
   return (
     <div className="info-row">
       <PixelIcon name={icon} />
@@ -67,7 +72,7 @@ function Row({ icon, label, value, tone }: { icon: IconName; label: string; valu
 }
 
 /** `optional` columns repeat the top strip and give way to the brood readout on narrow screens */
-function Column({ title, children, optional = false }: { title: string; children: ReactNode; optional?: boolean }) {
+export function Column({ title, children, optional = false }: { title: string; children: ReactNode; optional?: boolean }) {
   return (
     <section className={optional ? 'info-col info-col--optional' : 'info-col'}>
       <h3 className="hud-label">{title}</h3>
@@ -108,7 +113,9 @@ function ColonySummary({ stats, details }: { stats: GameStats; details: ColonyDe
         <Row icon="alert" label={LEAPER_NAME.many} value={stats.cricketCount} tone={stats.cricketCount ? 'var(--chrome-danger)' : undefined} />
         <div className={`info-note${threats > 0 || stats.invasion.active ? ' info-note--danger' : ''}`}>
           {stats.invasion.active
-            ? `¡Oleada ${stats.invasion.waveNumber} en el nido! ${stats.invasion.invadersAlive} invasores`
+            ? stats.invasion.threats?.some((t) => t.layer === 'underground')
+              ? `¡Oleada ${stats.invasion.waveNumber} en el nido! ${stats.invasion.invadersAlive} invasores`
+              : `¡Oleada ${stats.invasion.waveNumber} en camino! ${stats.invasion.invadersAlive} invasores en la superficie`
             : stats.invasion.armed
               ? `La oleada ${stats.invasion.waveNumber + 1} llega al anochecer, en ${formatClock(stats.invasion.nextWaveIn)}`
               : `Oleada ${stats.invasion.waveNumber + 1} en ${formatClock(stats.invasion.nextWaveIn)}`}
@@ -127,7 +134,7 @@ const FARM_STATUS: Record<string, string> = {
 };
 
 /** Underground, nothing selected: queen, pantry, farm, brood. */
-function NestSummary({ details }: { details: ColonyDetails }) {
+function NestSummary({ details, onOpenUpgrades }: { details: ColonyDetails; onOpenUpgrades?: (tab?: UpgradeTab) => void }) {
   const { queen, food, farm, garrison } = details;
   const pantryMax = Math.max(food.total, 1);
   const diet = { leaf: 'hojas', mushroom: 'hongos', meat: 'carne' }[details.eatFirst];
@@ -139,6 +146,16 @@ function NestSummary({ details }: { details: ColonyDetails }) {
             <Bar label="Vida" icon="heart" value={queen.health} max={queen.maxHealth} color={healthColor(queen.health / Math.max(1, queen.maxHealth))} />
             <Bar label="Saciedad" icon="bowl" value={queen.hunger} max={queen.maxHunger} color="var(--chrome-accent)" />
             <div className="info-note">{queen.isLaying ? 'Poniendo huevos' : 'Descansando'} · guarnición {garrison.current}/{garrison.target}</div>
+            {onOpenUpgrades && (
+              <button
+                type="button"
+                className="hud-btn info-upgrade-queen"
+                onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+                onClick={() => onOpenUpgrades('queen')}
+              >
+                <PixelIcon name="crown" size={8} /> Mejorar reina
+              </button>
+            )}
           </>
         ) : (
           <div className="info-note info-note--danger">Sin reina</div>
@@ -192,7 +209,7 @@ const CRYSTAL_STATE_LABEL: Record<string, string> = {
   raiding: 'De incursión en tus minas',
 };
 
-function SelectionBars({ sel }: { sel: SelectedEntityInfo }) {
+export function SelectionBars({ sel }: { sel: SelectedEntityInfo }) {
   const health = selectionHealth(sel);
   return (
     <>
@@ -202,18 +219,63 @@ function SelectionBars({ sel }: { sel: SelectedEntityInfo }) {
       )}
       {sel.hunger && <Bar label="Saciedad" icon="bowl" value={sel.hunger.current} max={sel.hunger.max} color="var(--chrome-accent)" />}
       {sel.type === 'food' && (
-        <Bar label="Cantidad" icon="leaf" value={sel.foodAmount ?? 0} max={Math.max(100, sel.foodAmount ?? 0)} color="var(--chrome-accent)" numbers="value" />
+        <Bar label="Queda" icon={FOOD_ICON[sel.foodType ?? 'leaf'] ?? 'leaf'} value={sel.foodAmount ?? 0} max={Math.max(1, sel.foodMax ?? 100, sel.foodAmount ?? 0)} color={RESOURCE_BAR_COLOR[foodTone(sel.foodType)]} numbers="value" />
+      )}
+      {sel.type === 'mineral' && (
+        <Bar label="Queda" icon="mineral" value={sel.mineralAmount ?? 0} max={Math.max(1, sel.mineralMax ?? 250)} color={RESOURCE_BAR_COLOR.crystal} numbers="value" />
       )}
     </>
   );
 }
 
-function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
+/** Icons of the food types on the resource card */
+const FOOD_ICON: Record<string, 'leaf' | 'fungus' | 'meat'> = {
+  leaf: 'leaf', mushroom: 'fungus', giant_mushroom: 'fungus', beetle_meat: 'meat', cricket_meat: 'meat',
+};
+/** The resource bars in each resource's own color */
+const RESOURCE_BAR_COLOR: Record<ResourceTone, string> = {
+  leaf: RESOURCE_COLOR.leaf, fungus: RESOURCE_COLOR.fungus, meat: RESOURCE_COLOR.meat, crystal: RESOURCE_COLOR.crystal,
+};
+
+/** Food source or mineral node: "Cristal mineral · 180/250", who works it, and how to order it. */
+function ResourceFacts({ sel }: { sel: SelectedEntityInfo }) {
+  const mineral = sel.type === 'mineral';
+  const name = selectionTitle(sel).name;
+  const n = sel.workers ?? 0;
+  const verb = mineral ? 'minando' : 'recolectando';
+  const touch = useTouchUi();
   return (
     <>
+      <div className="info-line"><strong>{`${name} · ${resourceAmountText(sel)}`}</strong></div>
+      <div className="info-line">
+        {n > 0 ? `${n} ${n === 1 ? 'obrera' : 'obreras'} ${verb}` : mineral ? 'Nadie lo mina' : 'Nadie la recolecta'}
+      </div>
+      <div className="info-note">
+        {mineral
+          ? `Selecciona obreras y ${touch ? 'toca' : 'haz clic derecho en'} el cristal para que lo minen sin parar.`
+          : `Selecciona obreras y ${touch ? 'tócala' : 'haz clic derecho en ella'} para que la lleven a la despensa hasta agotarla.`}
+      </div>
+    </>
+  );
+}
+
+export function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
+  return (
+    <>
+      {(sel.type === 'food' || sel.type === 'mineral') && <ResourceFacts sel={sel} />}
       {sel.type === 'ant' && <div className="info-note">{ROLE_BLURB[sel.role ?? AntRole.Worker]}</div>}
       {sel.type === 'ant' && (
         <div className="info-line">Estado: <strong>{ANT_STATE_LABEL[sel.state ?? ''] ?? sel.state}</strong></div>
+      )}
+      {sel.type === 'ant' && sel.antStats && sel.antStats.length > 0 && (
+        <div className="info-line info-ant-stats">
+          {sel.antStats.map((line) => (
+            <span key={line.label} className="info-ant-stat">
+              {line.label} <strong>{line.value}</strong>
+              {line.bonus !== 0 && <span className={line.bonus > 0 ? 'info-bonus' : 'info-bonus info-bonus--down'}> ({line.bonus > 0 ? '+' : ''}{line.bonus})</span>}
+            </span>
+          ))}
+        </div>
       )}
       {sel.type === 'ant' && sel.carrying && (
         <div className="info-line">
@@ -270,7 +332,7 @@ function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
   );
 }
 
-function SelectionInfo({ stats, gameManager, attackCount, onAttackCountChange }: Omit<InfoPanelProps, 'details'>) {
+export function SelectionInfo({ stats, gameManager, attackCount, onAttackCountChange }: Omit<InfoPanelProps, 'details'>) {
   const sel = stats.selectedEntity!;
   const { name, faction } = selectionTitle(sel);
   const enemy = !sel.human?.own && (sel.type === 'beetle' || sel.type === 'cricket' || sel.type === 'crystal_unit' || sel.type === 'crystal_spire'
@@ -429,14 +491,16 @@ export function InfoPanel(props: InfoPanelProps) {
       </div>
       <div className="chrome-plate console-plate">
       <div className="chrome-plate-inner console-info-inner">
-        {stats.human?.group ? (
+        {stats.crystal ? (
+          <CrystalInfo {...props} crystal={stats.crystal} />
+        ) : stats.human?.group ? (
           <HumanGroupPanel group={stats.human.group} gameManager={props.gameManager} />
         ) : stats.selectedGroup ? (
           <GroupInfo group={stats.selectedGroup} gameManager={props.gameManager} underground={stats.activeLayer === 'underground'} />
         ) : stats.selectedEntity ? (
           <SelectionInfo {...props} />
         ) : stats.activeLayer === 'underground' ? (
-          <NestSummary details={details} />
+          <NestSummary details={details} onOpenUpgrades={props.onOpenUpgrades} />
         ) : stats.human ? (
           <HumanBaseSummary human={stats.human} stats={stats} />
         ) : (

@@ -23,6 +23,8 @@ export interface TouchHintInput {
   touch: boolean;
   /** A Human player's base (null for the Swarm): its selected group */
   human?: Pick<HumanPlayerStats, 'group'> | null;
+  /** A Crystal player's HUD (null for the other races): the selected units by kind */
+  crystal?: { selectedKinds: { drones: number; sentinels: number } } | null;
   /** A race's own placement hint (a Human building being placed): it wins over everything */
   toolHint?: string | null;
 }
@@ -71,6 +73,20 @@ export function humanCountLabel(byType: Partial<Record<HumanUnitType, number>>):
   return `${count} ${(count === 1 ? HUMAN_ONE : HUMAN_MANY)[types[0]]} ${count === 1 ? 'elegido' : 'elegidos'}`;
 }
 
+/** "2 drones elegidos", "1 centinela elegido", "3 unidades elegidas" (mixed kinds). */
+export function crystalCountLabel(kinds: { drones: number; sentinels: number }): string {
+  const count = kinds.drones + kinds.sentinels;
+  if (kinds.drones > 0 && kinds.sentinels > 0) return `${count} unidades elegidas`;
+  const noun = kinds.drones > 0 ? (count === 1 ? 'dron' : 'drones') : (count === 1 ? 'centinela' : 'centinelas');
+  return `${count} ${noun} ${count === 1 ? 'elegido' : 'elegidos'}`;
+}
+
+/** A Crystal player's selected own units, or null when none */
+function selectedCrystalKinds(input: TouchHintInput): { drones: number; sentinels: number } | null {
+  const kinds = input.crystal?.selectedKinds;
+  return kinds && kinds.drones + kinds.sentinels > 0 ? kinds : null;
+}
+
 /** A Human player's selected own units per type: a group, or one unit; null when none */
 function selectedHumanTypes(input: TouchHintInput): Partial<Record<HumanUnitType, number>> | null {
   const group = input.human?.group;
@@ -94,11 +110,15 @@ const TEXT = {
     order: 'Toca el suelo para mover · toca un enemigo para atacar',
     orderScouts: 'Toca el suelo para mover · las exploradoras no pelean',
     orderBuilders: 'Toca el suelo para mover · toca un mineral para extraerlo',
+    orderWorkers: 'Toca el suelo para mover · toca un cristal para minar · toca comida para recolectar',
     move: 'Toca el destino para mover',
+    gather: 'Toca una hoja, un hongo o carne: la llevan a la despensa hasta agotarla',
+    mine: 'Toca un cristal: lo minan sin parar hasta otra orden',
+    mineral: 'Elige obreras en la barra y toca el cristal para minarlo',
     attack: 'Toca un enemigo para atacarlo, o el suelo para avanzar peleando',
     enemy: 'Elige tropas en la barra y luego toca al enemigo para atacarlo',
     nest: 'Toca el nido otra vez para bajar al hormiguero',
-    food: 'Las obreras recogen la comida solas · elige tropas en la barra',
+    food: 'Las obreras recogen la comida solas · elige obreras y toca la comida para recolectarla',
     below: 'Elige una herramienta abajo y toca la tierra · arrastra para mover la vista',
   },
   mouse: {
@@ -106,26 +126,38 @@ const TEXT = {
     order: 'Clic derecho en el suelo para mover · en un enemigo para atacar',
     orderScouts: 'Clic derecho en el suelo para mover · las exploradoras no pelean',
     orderBuilders: 'Clic derecho en el suelo para mover · en un mineral para extraerlo',
+    orderWorkers: 'Clic derecho en el suelo para mover · en un cristal para minar · en comida para recolectar',
     move: 'Haz clic en el destino para mover',
+    gather: 'Haz clic en una hoja, un hongo o carne: la llevan a la despensa hasta agotarla',
+    mine: 'Haz clic en un cristal: lo minan sin parar hasta otra orden',
+    mineral: 'Elige obreras y haz clic derecho en el cristal para minarlo',
     attack: 'Haz clic en un enemigo para atacarlo, o en el suelo para avanzar peleando',
     enemy: 'Elige tropas en la barra y luego haz clic derecho en el enemigo',
     nest: 'Haz clic en el nido otra vez para bajar al hormiguero',
-    food: 'Las obreras recogen la comida solas · elige tropas en la barra',
+    food: 'Las obreras recogen la comida solas · elige obreras y haz clic derecho en la comida',
     below: 'Elige una herramienta abajo y haz clic en la tierra',
   },
 } as const;
 
+/** A Crystal player's own spire or Hive selected: its card produces and grows */
+const OWN_CRYSTAL = 'Produce o añade pisos con los botones de abajo · elige tropas en la barra';
 /** A Human player's own building selected: its card trains and builds */
 const OWN_BUILDING = 'Entrena o construye con los botones de abajo · elige tropas en la barra';
+/** A Human player with nothing selected: where soldiers come from (the most missed step), then the bar */
+const HUMAN_PICK = 'Toca el Cuartel o el Centro de mando para entrenar soldados · usa la barra para elegir tropas';
 const AREA = 'Arrastra un rectángulo para elegir hormigas';
 const BELOW_ANTS = 'Bajo tierra las hormigas trabajan solas · sube para darles órdenes';
 
 export function touchHint(input: TouchHintInput): TouchHint {
   const text = input.touch ? TEXT.touch : TEXT.mouse;
   const humans = selectedHumanTypes(input);
-  const roles = selectedRoles(input) ?? humans;
+  const crystals = selectedCrystalKinds(input);
+  const roles = crystals ? null : selectedRoles(input) ?? humans;
   const sel = input.selectedEntity;
-  const selection = humans ? humanCountLabel(humans) : roles ? selectionCountLabel(roles as Partial<Record<AntRole, number>>) : sel ? selectionTitle(sel).name : null;
+  const selection = crystals ? crystalCountLabel(crystals)
+    : humans ? humanCountLabel(humans)
+    : roles ? selectionCountLabel(roles as Partial<Record<AntRole, number>>)
+    : sel ? selectionTitle(sel).name : null;
 
   if (input.toolHint) return { mode: 'build', text: input.toolHint, selection };
 
@@ -134,7 +166,12 @@ export function touchHint(input: TouchHintInput): TouchHint {
   if (input.activeLayer === 'underground') {
     return { mode: roles ? 'info' : 'pick', text: roles ? BELOW_ANTS : text.below, selection };
   }
-  if (input.areaSelect) return { mode: 'area', text: AREA, selection };
+  if (input.areaSelect) return { mode: 'area', text: input.crystal ? AREA.replace('hormigas', 'unidades') : AREA, selection };
+  if (crystals) {
+    if (input.commandTarget === 'move') return { mode: 'target', text: text.move, selection };
+    if (input.commandTarget === 'attack') return { mode: 'target', text: text.attack, selection };
+    return { mode: 'order', text: text.order, selection };
+  }
   if (roles) {
     if (humans) {
       if (input.commandTarget === 'move') return { mode: 'target', text: text.move, selection };
@@ -144,16 +181,21 @@ export function touchHint(input: TouchHintInput): TouchHint {
     }
     if (input.commandTarget === 'move') return { mode: 'target', text: text.move, selection };
     if (input.commandTarget === 'attack') return { mode: 'target', text: text.attack, selection };
+    if (input.commandTarget === 'gather') return { mode: 'target', text: text.gather, selection };
+    if (input.commandTarget === 'mine') return { mode: 'target', text: text.mine, selection };
     const onlyScouts = Object.entries(roles).every(([role, n]) => role === AntRole.Scout || !n);
-    return { mode: 'order', text: onlyScouts ? text.orderScouts : text.order, selection };
+    const workers = ((roles as Partial<Record<AntRole, number>>)[AntRole.Worker] ?? 0) > 0;
+    return { mode: 'order', text: onlyScouts ? text.orderScouts : workers ? text.orderWorkers : text.order, selection };
   }
   if (sel) {
     if (sel.human?.own) return { mode: 'info', text: OWN_BUILDING, selection };
+    if (sel.owned) return { mode: 'info', text: OWN_CRYSTAL, selection };
     if (ENEMY_TYPES.has(sel.type)) return { mode: 'info', text: text.enemy, selection };
     if (sel.type === 'nest') return { mode: 'info', text: text.nest, selection };
+    if (sel.type === 'mineral') return { mode: 'info', text: text.mineral, selection };
     return { mode: 'info', text: text.food, selection };
   }
   // A Human player picks units, not ants
-  const pick = input.human ? text.pick.replace('una hormiga', 'una unidad') : text.pick;
+  const pick = input.human ? HUMAN_PICK : input.crystal ? text.pick.replace('una hormiga', 'una unidad') : text.pick;
   return { mode: 'pick', text: pick, selection: null };
 }

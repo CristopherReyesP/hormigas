@@ -5,6 +5,7 @@ import {
   COMPONENT,
   Layer,
   type AntComponent,
+  type CrystalUnitComponent,
   type LayerComponent,
   type LayerValue,
   type OwnerComponent,
@@ -22,10 +23,11 @@ import { isPlayerUnit } from './playerOrders';
  * on the chip that is already the selection centers the camera on them.
  *
  * Kinds are keyed by the unit's own kind: an ant's caste for the Swarm
- * ('soldier', 'worker', 'scout'), `human-<type>` for a Human player. A new
+ * ('soldier', 'worker', 'scout'), `human-<type>` for a Human player,
+ * `crystal-<kind>` for a Crystal player. A new
  * playable race adds its kinds to unitKindOf and a kind list here.
  */
-export type QuickSelectKind = 'soldier' | 'worker' | 'scout' | `human-${HumanUnitType}` | 'all';
+export type QuickSelectKind = 'soldier' | 'worker' | 'scout' | `human-${HumanUnitType}` | 'crystal-drone' | 'crystal-sentinel' | 'all';
 
 /** The Swarm's bar: Soldados, Obreras, Exploradoras, Todas */
 export const QUICK_SELECT_KINDS: readonly QuickSelectKind[] = ['soldier', 'worker', 'scout', 'all'];
@@ -35,6 +37,9 @@ export const HUMAN_QUICK_SELECT_KINDS: readonly QuickSelectKind[] = [
   'human-soldier', 'human-marksman', 'human-tank', 'human-builder', 'all',
 ];
 
+/** A Crystal player's bar: Drones, Centinelas, Todas */
+export const CRYSTAL_QUICK_SELECT_KINDS: readonly QuickSelectKind[] = ['crystal-drone', 'crystal-sentinel', 'all'];
+
 /** One chip of the bar: how many units it would pick, and whether they are exactly the selection. */
 export interface QuickSelectInfo {
   kind: QuickSelectKind;
@@ -42,18 +47,20 @@ export interface QuickSelectInfo {
   selected: boolean;
 }
 
-/** The quick-select key of an own unit: its caste or its Human type; null for anything else. */
+/** The quick-select key of an own unit: its caste, its Human type or its Crystal kind; null for anything else. */
 export function unitKindOf(world: World, id: EntityId): string | null {
   const ant = world.getComponent<AntComponent>(id, COMPONENT.ANT);
   if (ant) return ant.role === AntRole.Soldier ? 'soldier' : ant.role === AntRole.Worker ? 'worker' : ant.role === AntRole.Scout ? 'scout' : ant.role;
   const human = world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT);
-  return human ? `human-${human.type}` : null;
+  if (human) return `human-${human.type}`;
+  const crystal = world.getComponent<CrystalUnitComponent>(id, COMPONENT.CRYSTAL_UNIT);
+  return crystal ? `crystal-${crystal.kind}` : null;
 }
 
-/** Every own selectable unit on `layer`: ants and a Human player's units */
+/** Every own selectable unit on `layer`: ants, a Human player's units, a Crystal player's units */
 function ownUnitsOn(world: World, layer: LayerValue): EntityId[] {
   const ids: EntityId[] = [];
-  for (const store of [COMPONENT.ANT, HUMAN_COMPONENT.UNIT]) {
+  for (const store of [COMPONENT.ANT, HUMAN_COMPONENT.UNIT, COMPONENT.CRYSTAL_UNIT]) {
     for (const id of world.query(store, COMPONENT.SELECTABLE, COMPONENT.POSITION)) {
       if (!isPlayerUnit(world, id)) continue;
       const owner = world.getComponent<OwnerComponent>(id, COMPONENT.OWNER);

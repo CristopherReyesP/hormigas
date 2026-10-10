@@ -61,6 +61,8 @@ export class CrystalUnitAISystem implements System {
 
     for (const id of units) {
       if (!this.onSurface(id)) continue;
+      // The player's own Crystal units obey the player (CrystalPlayerUnitSystem), never this AI
+      if (ownerOf(this.world, id) === FactionId.PLAYER) continue;
       const unit = this.world.getComponent<CrystalUnitComponent>(id, COMPONENT.CRYSTAL_UNIT)!;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH)!;
@@ -85,11 +87,11 @@ export class CrystalUnitAISystem implements System {
     }
   }
 
-  /** Surface units (and nest defenses) of every non-wildlife faction; each drone keeps only its enemies */
+  /** Surface units (nest defenses and Crystal structures) of every non-wildlife faction; each drone keeps only its enemies */
   private snapshotPrey(): void {
     this.prey.length = 0;
-    // Human units and buildings too: a Human player's base is what the waves march on
-    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT, STRUCTURE_COMPONENT, HUMAN_COMPONENT.UNIT, HUMAN_COMPONENT.BUILDING]) {
+    // Human units and buildings too: a Human or Crystal player's base is what the waves march on
+    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT, STRUCTURE_COMPONENT, HUMAN_COMPONENT.UNIT, HUMAN_COMPONENT.BUILDING, COMPONENT.CRYSTAL_HIVE, COMPONENT.CRYSTAL_SPIRE]) {
       for (const id of this.world.query(store, COMPONENT.POSITION, COMPONENT.HEALTH)) {
         if (!this.onSurface(id)) continue;
         // Walls are not chased (their tile cannot be walked to): DefenseSystem points units at the ones they bump into
