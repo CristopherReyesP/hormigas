@@ -31,7 +31,10 @@ const DENY_FIELDS: Record<string, readonly string[]> = {
     'renderSystem', 'gameLoop', 'statsCallback', 'statsTicks', 'tickListeners', 'runSetup',
     'activeLayer', 'farmMode', 'throneMode', 'defenseMode', 'digMode', 'incubationMode', 'storageMode',
     'viewportConfigured', 'areaSelect', 'paintStroke', 'armedCommand', 'orderPings',
+    'defenseBuild', 'ghostTile',
   ],
+  // A building being placed and its ghost are a tool in the player's hand, not run state
+  HumanPlayerRun: ['placing', 'ghost'],
   World: ['systems', 'systemsSorted', 'deathEffects', 'hitEffects', 'notifications', 'notificationCooldowns'],
   UndergroundGrid: ['entranceCache', 'entranceCacheVersion', 'chamberRegions', 'chamberCoords', 'layoutVersion'],
   SelectionSystem: ['selected', 'selectionLayer'],
@@ -166,7 +169,8 @@ export function describeRun(gm: GameManager, savedAt = Date.now()): SaveMeta {
     rivalRace: setup.rivalRace,
     day: stats.dayNumber,
     phase: stats.dayPhase,
-    ants: stats.antCount,
+    // The player's army: ants for the Swarm, troops and builders for the Humans
+    ants: stats.human ? Object.values(stats.human.units).reduce((sum, n) => sum + n, 0) : stats.antCount,
     wave: stats.invasion.waveNumber,
     minerals: stats.mineralsStored,
     ticks: internals(gm).gameLoop.getTickCount(),

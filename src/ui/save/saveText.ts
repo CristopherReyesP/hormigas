@@ -19,11 +19,16 @@ export function formatSavedAt(ms: number): string {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function unitNoun(race: SaveMeta['playerRace'], n: number): string {
+  if (race === 'swarm') return n === 1 ? 'hormiga' : 'hormigas';
+  return n === 1 ? 'unidad' : 'unidades';
+}
+
 export function describeSave(meta: SaveMeta): { matchup: string; detail: string; date: string } {
   const ants = Number(meta.ants) || 0;
   return {
     matchup: `${raceName(meta.playerRace)} vs ${rivalName(meta.rivalRace)}`,
-    detail: `Día ${meta.day} (${meta.phase === 'night' ? 'noche' : 'día'}) · ${ants} ${ants === 1 ? 'hormiga' : 'hormigas'}`,
+    detail: `Día ${meta.day} (${meta.phase === 'night' ? 'noche' : 'día'}) · ${ants} ${unitNoun(meta.playerRace, ants)}`,
     date: formatSavedAt(meta.savedAt),
   };
 }

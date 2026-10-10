@@ -19,6 +19,7 @@ export interface SaveMeta {
   rivalRace: RivalId;
   day: number;
   phase: 'day' | 'night';
+  /** The player's units: ants for the Swarm, troops and builders for the Humans */
   ants: number;
   wave: number;
   minerals: number;

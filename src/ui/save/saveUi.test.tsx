@@ -33,6 +33,12 @@ describe('save text', () => {
     expect(d.detail).toContain('12 hormigas');
   });
 
+  it('counts a Humans run in units, not ants', () => {
+    const d = describeSave({ ...META, playerRace: 'human', rivalRace: 'crystal', ants: 6 });
+    expect(d.matchup).toBe('Humanos vs Colmena de Cristal');
+    expect(d.detail).toContain('6 unidades');
+  });
+
   it('formats the date in Spanish, day first', () => {
     expect(formatSavedAt(META.savedAt)).toMatch(/^10\/10\/2026 14:05$/);
   });
