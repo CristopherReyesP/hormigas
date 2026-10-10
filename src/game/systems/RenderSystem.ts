@@ -41,7 +41,7 @@ import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 import { MeteorIntro } from '../render/MeteorIntro';
-import type { Vec2 } from '../render/introTimeline';
+import type { IntroClock, Vec2 } from '../render/introTimeline';
 import type { TilePos } from '../run/craterSite';
 
 // === Food pile rendering (nest stockpile + underground pantry) ===
@@ -347,14 +347,14 @@ export class RenderSystem {
     this.getDayPhase = fn;
   }
 
-  /** Stage the run's opening: the meteor strikes `impactTile` and leaves its crater there. */
-  startMeteorIntro(impactTile: TilePos, nestTile: TilePos): void {
+  /** Stage the run's opening: the meteor strikes `impactTile` and leaves its crater there. GameManager advances `clock`. */
+  startMeteorIntro(impactTile: TilePos, nestTile: TilePos, clock: IntroClock): void {
     // The Hive's corruption: crystal shards on the ground around the impact
     const shards = crystalShardsAround(impactTile, DECOR_SEED, (x, y) => {
       const tile = this.grid.getTile(x, y);
       return tile !== null && tile.terrain !== TerrainType.Water;
     });
-    this.intro = new MeteorIntro(impactTile, nestTile, shards);
+    this.intro = new MeteorIntro(impactTile, nestTile, clock, shards);
     this.craterTile = { x: impactTile.x, y: impactTile.y };
   }
 
@@ -604,7 +604,7 @@ export class RenderSystem {
     }
     this.postProcessor.advance(dt);
     this.ambientParticles.update(dt);
-    this.intro?.advance(dt);
+    this.intro?.frame(); // GameManager already advanced the shared intro clock
     // The impact shakes whichever layer the player is watching
     const shake = this.intro?.getShake() ?? NO_SHAKE;
 

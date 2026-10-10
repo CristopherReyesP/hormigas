@@ -1,22 +1,22 @@
 import type { Camera } from '../../engine/camera/Camera';
 import { TILE_SIZE } from '../../shared/constants';
-import { IntroClock, introCameraFocus, introCameraZoom, introLitAreas, type Vec2 } from './introTimeline';
+import { introCameraFocus, introCameraZoom, introLitAreas, type IntroClock, type Vec2 } from './introTimeline';
 
 /** Lights a ground circle for this frame: tile center, radius in tiles. */
 export type GroundLight = (tileX: number, tileY: number, radius: number) => void;
 
 /**
- * The intro's camera operator. Each rendered frame it advances its own
- * IntroClock, frames the shot from introTimeline (colony → chase the meteor
- * → crater close-up → glide home) and lights the ground the fireball is over,
- * so the chase crosses lit terrain instead of black fog.
+ * The intro's camera operator. Each rendered frame it reads the intro clock,
+ * frames the shot from introTimeline (colony → chase the meteor → crater
+ * close-up → glide home) and lights the ground the fireball is over, so the
+ * chase crosses lit terrain instead of black fog.
  *
- * RenderSystem owns the MeteorIntro that draws; GameManager feeds this
- * director the same render `dt` right before the frame is drawn, so both
- * clocks read the same intro time and the camera stays locked to the art.
+ * GameManager owns the one IntroClock and advances it right before the frame
+ * is drawn; this director and the MeteorIntro that draws (inside RenderSystem)
+ * only read it, so the camera stays locked to the art.
  */
 export class IntroDirector {
-  private readonly clock = new IntroClock();
+  private readonly clock: IntroClock;
   private active = true;
   private readonly camera: Camera;
   /** World px of the nest and the impact */
@@ -24,17 +24,17 @@ export class IntroDirector {
   private readonly impact: Vec2;
   private readonly light: GroundLight;
 
-  constructor(camera: Camera, nest: Vec2, impact: Vec2, light: GroundLight) {
+  constructor(camera: Camera, clock: IntroClock, nest: Vec2, impact: Vec2, light: GroundLight) {
     this.camera = camera;
+    this.clock = clock;
     this.nest = nest;
     this.impact = impact;
     this.light = light;
   }
 
-  /** Once per rendered frame, before drawing; `dt` is the render dt (0 while paused). */
-  frame(dt: number): void {
+  /** Once per rendered frame, after the clock advanced and before drawing. */
+  frame(): void {
     if (!this.active) return;
-    this.clock.advance(dt);
     if (!this.clock.isPlaying()) {
       this.finish();
       return;

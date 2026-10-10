@@ -19,7 +19,6 @@ import {
   INTRO_TIMELINE,
   DRONE_COUNT,
   EJECTA_COUNT,
-  IntroClock,
   INTRO_TITLE_LINES,
   SPIRE_COUNT,
   SPORE_COUNT,
@@ -43,6 +42,7 @@ import {
   sporeMote,
   titleAlpha,
   type DroneState,
+  type IntroClock,
   type Vec2,
 } from './introTimeline';
 
@@ -94,8 +94,9 @@ interface PlacedSpire {
 
 /**
  * The run's opening, drawn. Timing lives in introTimeline.ts and the camera
- * work in IntroDirector; this class keeps the clock, the flash frame count
- * and the pre-rendered crater, spire and drone art.
+ * work in IntroDirector; both read the one IntroClock that GameManager owns
+ * and advances. This class keeps the flash frame count and the pre-rendered
+ * crater, spire and drone art.
  *
  * Draw order (wired by RenderSystem): crater and spires with the terrain
  * (under the fog), then after the fog the meteor, ejecta, shockwave, cyan
@@ -104,7 +105,9 @@ interface PlacedSpire {
  * outlive the intro.
  */
 export class MeteorIntro {
-  private readonly clock = new IntroClock();
+  private readonly clock: IntroClock;
+  /** Intro time at the previous frame(), to catch the frame that crosses the impact */
+  private lastT = 0;
   /** Rendered frames since the impact; -1 until it lands */
   private framesSinceImpact = -1;
   private readonly impact: Vec2;
@@ -126,7 +129,8 @@ export class MeteorIntro {
   private shardGlints: OffscreenCanvas | null = null;
   private shardReach = 0;
 
-  constructor(impactTile: TilePos, nestTile: TilePos, shards: readonly CrystalShard[] = []) {
+  constructor(impactTile: TilePos, nestTile: TilePos, clock: IntroClock, shards: readonly CrystalShard[] = []) {
+    this.clock = clock;
     this.shards = shards;
     this.seed = { x: impactTile.x, y: impactTile.y };
     this.impact = { x: impactTile.x * TILE_SIZE + TILE_SIZE / 2, y: impactTile.y * TILE_SIZE + TILE_SIZE / 2 };
@@ -137,12 +141,11 @@ export class MeteorIntro {
     return this.clock.elapsed;
   }
 
-  /** Real frame time (0 while paused); the clock adds the slow motion. The flash counts frames. */
-  advance(dt: number): void {
+  /** Once per rendered frame, after the shared clock advanced: the flash counts frames, not seconds. */
+  frame(): void {
     if (this.framesSinceImpact >= 0 && this.framesSinceImpact < 2) this.framesSinceImpact++;
-    const before = this.t;
-    this.clock.advance(dt);
-    if (before < INTRO_TIMELINE.impact && this.t >= INTRO_TIMELINE.impact) this.framesSinceImpact = 0;
+    if (this.lastT < INTRO_TIMELINE.impact && this.t >= INTRO_TIMELINE.impact) this.framesSinceImpact = 0;
+    this.lastT = this.t;
   }
 
   /** Jump to the end state (crater and spires kept). Returns false while skipping is not allowed yet. */

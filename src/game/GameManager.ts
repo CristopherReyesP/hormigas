@@ -44,6 +44,7 @@ import { resolveRunOutcome, type RunOutcome } from './run/RunOutcome';
 import { DayNightSystem, type DayPhase } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
 import { IntroDirector } from './render/IntroDirector';
+import { IntroClock } from './render/introTimeline';
 import { createAnt, createFood, createNest, createBeetleDen, createQueen } from './entities/factories';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
@@ -278,6 +279,11 @@ export class GameManager {
   private readonly craterSite: TilePos;
   /** Canvas the intro-skip pointer listener is attached to */
   private readonly canvas: HTMLCanvasElement;
+  /**
+   * The opening cinematic's one clock. It is advanced here once per rendered
+   * frame; the IntroDirector (camera) and the MeteorIntro (art) only read it.
+   */
+  private readonly introClock = new IntroClock();
   /** Camera work for the opening cinematic; it owns the surface camera until the intro ends */
   private readonly introDirector: IntroDirector;
   private world: World;
@@ -501,12 +507,13 @@ export class GameManager {
       edgeMargin: CRATER_EDGE_MARGIN,
       farFraction: CRATER_FAR_FRACTION,
     });
-    this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY });
+    this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock);
     const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
     // The fireball lights the ground it flies over and the crater, so the chase
     // crosses lit terrain; what it lit stays explored, a scorched trail to the crater
     this.introDirector = new IntroDirector(
       this.camera,
+      this.introClock,
       tileCenter({ x: nestX, y: nestY }),
       tileCenter(this.craterSite),
       (x, y, r) => this.visibilityGrid.revealCircle(x, y, r),
@@ -517,7 +524,8 @@ export class GameManager {
 
   /** First key or click after the impact skips to the intro's end state (one-shot). */
   private readonly skipIntro = (): void => {
-    if (!this.renderSystem.skipIntro()) return;
+    if (!this.introClock.skip()) return; // refused until the meteor has landed
+    this.renderSystem.skipIntro();
     this.introDirector.finish();
     this.detachIntroSkip();
   };
@@ -771,8 +779,9 @@ export class GameManager {
   }
 
   private render(interpolation: number, dt: number): void {
-    // Same dt as the MeteorIntro inside RenderSystem, so camera and art share one intro time
-    this.introDirector.frame(dt);
+    // One intro clock, advanced once per frame: the camera frames and the art draws the same intro time
+    this.introClock.advance(dt);
+    this.introDirector.frame();
     this.renderSystem.renderInterpolated(interpolation, dt);
   }
 
