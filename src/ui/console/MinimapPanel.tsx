@@ -144,6 +144,8 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, invaders
             <span className="minimap-tab-label">SUPERFICIE</span>
             <TabBadge alert={alerts.surface} />
           </button>
+          {/* The Humans build up, not down: no nest view */}
+          {gameManager?.getRunSetup?.().playerRace !== 'human' && (
           <button
             type="button"
             role="tab"
@@ -157,6 +159,7 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, invaders
             <span className="minimap-tab-label">NIDO</span>
             <TabBadge alert={alerts.underground} />
           </button>
+          )}
           {/* Compact HUD only: fold the map away to these tabs (M does the same) */}
           <button
             type="button"
