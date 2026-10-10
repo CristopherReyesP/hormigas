@@ -82,7 +82,7 @@ describe('dig limit with the real GameManager', () => {
 
   it("each level of the 'dig' upgrade makes room for 5 more marks", () => {
     const { game, ug, excavation } = setup();
-    game['upgradeLevels'].dig = 1;
+    (game['world'] as { upgradeLevels: { dig: number } }).upgradeLevels.dig = 1;
     expect(game.getDigCap()).toBe(25);
     const row = earthRow(ug, 30);
     let accepted = 0;

@@ -48,8 +48,13 @@ import { UndergroundTerrainType, ChamberType, TerrainType } from '../../simulati
 import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
+import { drawIncubationTier, drawQueenCrown } from '../upgrades/upgradeArt';
+import { queenTier } from '../upgrades/upgradeEffects';
 import { MeteorIntro } from '../render/MeteorIntro';
 import { CrystalRivalArt } from '../render/crystalRivalArt';
+import type { CrystalOverlay } from '../races/crystal/CrystalPlayerController';
+import { drawCrystalOverlay, drawGrowingSpire, drawHiveCrown } from '../races/crystal/crystalPlayerArt';
+import { CRYSTAL_PLAYER_COMPONENT, type ConstructionComponent } from '../races/crystal/crystalPlayerComponents';
 import { FungusFarmArt } from '../render/fungusFarmArt';
 import { carriedFoodSprite } from '../render/fungusGrowth';
 import type { ShieldComponent } from '../rival/crystalShield';
@@ -153,6 +158,8 @@ export interface CommandOverlaySource {
   getDragBox(): ScreenBox | null;
   /** Orders given since the last frame */
   drainOrderPings(): OrderPing[];
+  /** A Crystal player's build ghost and rally line (absent or null for the Swarm) */
+  crystalOverlay?(): CrystalOverlay | null;
 }
 
 /** An ant drawn this frame, replayed by the night glow pass (world px). */
@@ -1033,6 +1040,9 @@ export class RenderSystem {
       drawScoutMarks(ctx, overlay, Layer.Surface, this.animationTime);
       drawGhost(ctx, overlay, this.animationTime);
     }
+    // A Crystal player's build ghost and rally line, over the fog too
+    const crystalOverlay = this.commandOverlay?.crystalOverlay?.() ?? null;
+    if (crystalOverlay) drawCrystalOverlay(ctx, crystalOverlay, this.crystalArt, this.animationTime);
     if (this.camera) this.intro?.drawWorldFx(ctx, this.camera);
     ctx.restore();
     this.postProcessor.setLights(dayPhase?.phase === 'night' ? this.collectSurfaceLights() : []);
@@ -1119,6 +1129,9 @@ export class RenderSystem {
 
     const T = TILE_SIZE;
     const texCanvas = this.ugTextureCanvas!;
+    // Mejoras: Cámara de incubación dresses its floor up one detail per level
+    const incubationLevel = this.world.upgradeLevels.incubation;
+    const incubationBlink = Math.floor(frameTime * 0.004) % 2 === 0;
 
     // === PASS 1: Base terrain (textured tiles) ===
     const farmTime = frameTime / 1000;
@@ -1169,6 +1182,9 @@ export class RenderSystem {
 
         // Draw pre-rendered texture tile
         ctx.drawImage(texCanvas, col * T, row * T, T, T, px, py, T, T);
+        if (incubationLevel > 0 && tile.walkable && tile.chamberType === ChamberType.Incubation) {
+          drawIncubationTier(ctx, px, py, T, 2, incubationLevel, incubationBlink);
+        }
 
         // Area identity comes from the FLOOR TEXTURES themselves (rows 2/3/4/8/9)
         // — no overlays, no icons: each chamber type has its own realistic ground
@@ -1514,6 +1530,16 @@ export class RenderSystem {
         cp.rect(ccx - 1, ccy - 2, 2, 3, PAL.swarm.vein[1]); // center spike (taller)
         cp.rect(ccx + 2, ccy - 1, 2, 2, PAL.swarm.vein[1]); // right spike
         cp.px(ccx - 1, ccy - 2, PAL.white); // catch-light
+
+        // Mejoras: the queen wears a crown per tier of queen upgrades, and glows warmer at the top tier
+        const tier = queenTier(this.world.upgradeLevels);
+        if (tier >= 3) {
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          this.drawGlowStamp(ctx, px, py - TILE_SIZE * 0.9, TILE_SIZE * 0.8, 'amber');
+          ctx.restore();
+        }
+        drawQueenCrown(cp, ccx, ccy - 4, tier, Math.floor(frameTime * 0.003) % 2 === 0);
       } else if (render.shape === 'beetle') {
         // Underground invaders — same sprite as surface beetles (NOT a plain circle)
         const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
@@ -2527,6 +2553,10 @@ export class RenderSystem {
     if (combat?.targetEntityId != null && Math.floor(this.animationTime * 8) % 2 === 0) {
       this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.6, 'crystal');
     }
+    // A Crystal player's own unit: the green ground ellipse when selected
+    if (this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE)?.selected) {
+      this.drawSelectionEllipse(ctx, px, py, kind === 'drone' ? AntRole.Worker : AntRole.Soldier);
+    }
     const top = this.crystalArt.drawUnit(ctx, px, py, kind, entityId, this.animationTime);
     const shield = this.world.getComponent<ShieldComponent>(entityId, COMPONENT.SHIELD);
     if (shield) {
@@ -2551,7 +2581,12 @@ export class RenderSystem {
     const spire = this.world.getComponent<CrystalSpireComponent>(entityId, COMPONENT.CRYSTAL_SPIRE);
     if (!spire) return;
     this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.9, 'crystal');
-    const top = this.crystalArt.drawSpire(ctx, px, py, spire.kind, spire.floors);
+    if (this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE)?.selected) {
+      this.drawSelectionEllipse(ctx, px, py, AntRole.Soldier);
+    }
+    // A Crystal player's structure rises out of the ground while it crystallizes
+    const construction = this.world.getComponent<ConstructionComponent>(entityId, CRYSTAL_PLAYER_COMPONENT.CONSTRUCTION);
+    const top = drawGrowingSpire(ctx, this.crystalArt, px, py, spire.kind, spire.floors, construction, this.animationTime);
     this.drawCrystalBars(ctx, entityId, px, top - 6, 1);
   }
 
@@ -2560,6 +2595,11 @@ export class RenderSystem {
     const px = tileX * TILE_SIZE + TILE_SIZE / 2;
     const py = tileY * TILE_SIZE + TILE_SIZE / 2;
     this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.4, 'crystal');
+    if (this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE)?.selected) {
+      this.drawSelectionBrackets(ctx, px, py - TILE_SIZE * 0.8, TILE_SIZE * 2, 'green');
+    }
+    // Without the meteor intro (a Crystal player's run) no crater draws the hives' spires: draw a crown here
+    if (!this.intro) drawHiveCrown(ctx, this.crystalArt, px, py);
     if (Math.floor(this.animationTime * 2) % 2 === 0) this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.8, 'crystal');
     this.drawCrystalBars(ctx, entityId, px, py - TILE_SIZE * 2.4, 2);
   }

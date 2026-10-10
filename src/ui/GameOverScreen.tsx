@@ -1,6 +1,7 @@
 import type { GameOverStats } from '../game/GameManager';
 import { PixelIcon } from './console/PixelIcon';
 import type { IconName } from './console/pixelIcons';
+import { crystalGameOverCopy } from './races/crystal/crystalGameOver';
 import { humanGameOverCopy } from './races/human/gameOverCopy';
 
 interface GameOverScreenProps {
@@ -17,6 +18,8 @@ interface GameOverScreenProps {
  */
 export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenProps) {
   const victory = stats.outcome === 'victory';
+  // A Crystal Hive run has its own words and figures
+  const crystal = stats.playerRace === 'crystal' ? crystalGameOverCopy(stats) : null;
   // A Human player's run ends with the expedition's words, not the queen's
   const human = stats.playerRace === 'human' ? humanGameOverCopy(stats) : null;
   const accent = victory ? 'var(--chrome-accent)' : 'var(--chrome-danger)';
@@ -52,7 +55,7 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
         zIndex: 40,
       }}
     >
-      {victory && <div className="run-banner">{human?.banner ?? 'LA COLMENA PREVALECE'}</div>}
+      {victory && <div className="run-banner">{crystal?.banner ?? human?.banner ?? 'LA COLMENA PREVALECE'}</div>}
       <div
         className="pixel-panel"
         style={{
@@ -80,12 +83,12 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
                 marginBottom: 8,
               }}
             >
-              {human?.defeatTitle ?? 'LA REINA HA MUERTO'}
+              {crystal?.title ?? human?.defeatTitle ?? 'LA REINA HA MUERTO'}
             </div>
           </>
         )}
         <div style={{ color: 'var(--chrome-dim)', marginBottom: 18 }}>
-          {human ? human.line : victory
+          {crystal ? crystal.subtitle : human ? human.line : victory
             ? stats.rivalCoreDestroyed === 'human'
               ? 'La colonia destruyó el Centro de Mando humano.'
               : stats.hiveDestroyed || stats.rivalCoreDestroyed === 'crystal'
@@ -109,6 +112,12 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
               {minutes}:{seconds.toString().padStart(2, '0')}
             </strong>
           </div>
+          {crystal ? crystal.rows.map((row) => (
+            <div key={row.label} style={rowStyle}>
+              {label(row.icon, row.label)}
+              <strong className="pixel-number">{row.value}</strong>
+            </div>
+          )) : <>
           {!human && (
             <div style={rowStyle}>
               {label('ant', 'Hormigas nacidas')}
@@ -129,9 +138,10 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
               <strong className="pixel-number">{stats.tilesExcavated}</strong>
             </div>
           )}
+          </>}
         </div>
 
-        {!human && <div style={{ textAlign: 'left', marginBottom: 22 }}>
+        {!human && !crystal && <div style={{ textAlign: 'left', marginBottom: 22 }}>
           <div className="pixel-heading" style={{ color: 'var(--chrome-dim)', marginBottom: 6 }}>
             Mutaciones
           </div>

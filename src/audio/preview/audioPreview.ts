@@ -112,6 +112,7 @@ for (const id of ['waveAlarm', 'eggQueued', 'eggLaid'] as const) sound(row, id);
 for (const [caste, name] of CASTES) sound(row, 'hatchChime', { caste }, `Nace: ${name}`);
 sound(row, 'dawnSwell');
 sound(row, 'mutationChosen');
+sound(row, 'levelUp', { index: 1 });
 
 row = section('Intro', 'La intro completa dispara cada sonido en su momento de la línea de tiempo, como en el juego.');
 const whoosh = INTRO_CUES.find((c) => c.cue === 'whoosh')!;

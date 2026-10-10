@@ -30,6 +30,9 @@ const CHIP: Record<QuickSelectKind, { label: string; icon: IconName }> = {
   'human-marksman': { label: 'Tiradores', icon: 'target' },
   'human-tank': { label: 'Tanques', icon: 'shield' },
   'human-builder': { label: 'Constructores', icon: 'pick' },
+  // A Crystal player's units
+  'crystal-drone': { label: 'Drones', icon: 'sword' },
+  'crystal-sentinel': { label: 'Centinelas', icon: 'eye' },
   all: { label: 'Todas', icon: 'group' },
 };
 

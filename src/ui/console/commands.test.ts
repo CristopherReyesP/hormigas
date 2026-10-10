@@ -44,10 +44,7 @@ const details: ColonyDetails = {
   farmTile: null,
   eatFirst: 'leaf',
   garrison: { target: 2, current: 1 },
-  upgrades: [
-    { id: 'carry', name: '💪 Obreras fuertes', description: '+25%', level: 0, maxLevel: 3, nextCost: 40 },
-    { id: 'damage', name: 'Soldados feroces', description: '+25%', level: 3, maxLevel: 3, nextCost: null },
-  ],
+  upgrades: [],
   storageTiles: 4,
 };
 
@@ -73,6 +70,7 @@ function context(overrides: Partial<CommandContext> = {}) {
     switchLayer: vi.fn(),
     refresh: vi.fn(),
     notify: vi.fn(),
+    openUpgrades: vi.fn(),
     ...overrides,
   };
   return { gm, ctx };
@@ -86,8 +84,19 @@ describe('surface command card', () => {
     expect(ids).toEqual([
       'gather', 'explore', 'defend', 'retreat', 'descend',
       'breed-worker', 'breed-soldier', 'breed-scout', 'breed-nurse', 'breed-defender',
-      'pause', 'speed', null, 'defenses-page', null,
+      'pause', 'speed', null, 'defenses-page', 'upgrades',
     ]);
+  });
+
+  it('puts Mejoras on the last slot, glowing with the count of upgrades the colony can buy', () => {
+    const { ctx } = context();
+    const idle = buildCommands(ctx)[14]!;
+    expect(idle).toMatchObject({ id: 'upgrades', label: 'Mejoras', glow: false, badge: undefined });
+    ctx.stats = { ...ctx.stats, upgradesAffordable: 3 } as GameStats;
+    const ready = buildCommands(ctx)[14]!;
+    expect(ready).toMatchObject({ glow: true, badge: '3' });
+    ready.run();
+    expect(ctx.openUpgrades).toHaveBeenCalled();
   });
 
   it('opens the Defensas page: Espina, Trampa and Muro priced in minerals, each arming its build tool', () => {
@@ -289,19 +298,19 @@ describe('nest command card', () => {
     expect(ctx.setPage).toHaveBeenCalledWith('colony');
   });
 
-  it('keeps garrison, diet and upgrades on the colony page, without the tools now on the root card', () => {
+  it('keeps garrison, diet and the Mejoras button on the colony page, without the tools now on the root card', () => {
     const { gm, ctx } = nest('colony');
     const commands = buildCommands(ctx);
     expect(commands).toHaveLength(CARD_SLOTS);
     expect(commands.map((c) => c?.id ?? null)).toEqual([
       'garrison-down', 'garrison-up', 'diet-leaf', 'diet-mushroom', 'diet-meat',
-      'upgrade-carry', 'upgrade-damage', null, null, null,
+      'upgrades', null, null, null, null,
       null, 'defenses-page', null, null, 'back',
     ]);
     commands[1]!.run();
     expect(gm.setGarrisonSize).toHaveBeenCalledWith(3);
-    expect(commands[5]).toMatchObject({ id: 'upgrade-carry', label: 'Obreras fuertes', disabled: false });
-    expect(commands[6]).toMatchObject({ id: 'upgrade-damage', disabled: true });
+    commands[5]!.run();
+    expect(ctx.openUpgrades).toHaveBeenCalled();
     commands[3]!.run();
     expect(gm.setConsumptionPriority).toHaveBeenCalledWith('mushroom');
     commands[14]!.run();

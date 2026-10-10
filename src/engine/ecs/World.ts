@@ -1,6 +1,7 @@
 import { FactionRegistry } from '../../game/factions/factions';
 import { RunModifiers } from '../../game/run/RunModifiers';
 import { MineralBank } from '../../game/economy/MineralBank';
+import { emptyRunTally, emptyUpgradeLevels, type RunTally, type UpgradeLevels } from '../../game/upgrades/upgradeLevels';
 import type { ComponentMap, System } from './types';
 import type { EntityId } from '../../shared/types';
 
@@ -48,10 +49,14 @@ export class World {
     wavesRepelled: 0,
   };
 
-  /** Permanent queen upgrades — multipliers read by factories at ant creation */
+  /** Swarm upgrade levels (Mejoras): plain data a save can serialize. Effects derive from them (src/game/upgrades). */
+  upgradeLevels: UpgradeLevels = emptyUpgradeLevels();
+
+  /** Run tallies for the Estadísticas tab (enemies defeated, ants lost, resources gathered) */
+  runTally: RunTally = emptyRunTally();
+
+  /** Colony multipliers the systems read; kept in step with upgradeLevels by syncWorldUpgrades */
   upgrades = {
-    workerCarryMult: 1,
-    soldierDamageMult: 1,
     digSpeedMult: 1,
     porterBonus: 0,
     healRateMult: 1,

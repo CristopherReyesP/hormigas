@@ -19,6 +19,7 @@ import {
 } from '../components/components';
 import { findPath } from '../../simulation/pathfinding/AStar';
 import { WAVE_MARCH_COMPONENT } from '../run/waveMarch';
+import { CRYSTAL_PLAYER_COMPONENT } from '../races/crystal/crystalPlayerComponents';
 import { FactionId, ownerOf } from '../factions/factions';
 import { HUMAN_COMPONENT } from '../rival/humanComponents';
 import { HUMAN_PLAYER_COMPONENT } from '../races/human/humanPlayerComponents';
@@ -76,6 +77,8 @@ export class BeetleAISystem implements System {
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
       if (layer && layer.layer === Layer.Underground) continue;
       if (this.world.getComponent(id, WAVE_MARCH_COMPONENT)) continue;
+      // Night-wave beetles marching on a Crystal player's Hive are driven by CrystalSurfaceWaveSystem
+      if (this.world.getComponent(id, CRYSTAL_PLAYER_COMPONENT.SURFACE_RAIDER) !== undefined) continue;
       // Night-wave beetles at a Human player's base are steered by HumanWaveSystem
       if (this.world.getComponent(id, HUMAN_PLAYER_COMPONENT.WAVE_INVADER)) continue;
 
