@@ -1,4 +1,3 @@
-import { RUN_NIGHTS_TO_WIN } from '../shared/constants';
 import type { GameOverStats } from '../game/GameManager';
 import { PixelIcon } from './console/PixelIcon';
 import type { IconName } from './console/pixelIcons';
@@ -6,10 +5,16 @@ import type { IconName } from './console/pixelIcons';
 interface GameOverScreenProps {
   stats: GameOverStats;
   onRestart: () => void;
+  /** Victory only: close the screen and keep playing the endless run */
+  onContinue?: () => void;
 }
 
-/** Full-canvas end-of-run overlay with shared stats, the mutation build and restart. */
-export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
+/**
+ * Full-canvas end-of-run overlay with shared stats, the night record, the
+ * mutation build and restart. A victory (the rival core destroyed) can also
+ * be continued: the run is endless.
+ */
+export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenProps) {
   const victory = stats.outcome === 'victory';
   const accent = victory ? 'var(--chrome-accent)' : 'var(--chrome-danger)';
   const minutes = Math.floor(stats.survivedTicks / 60 / 60);
@@ -82,11 +87,19 @@ export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
               ? 'La colonia destruyó el Centro de Mando humano.'
               : stats.hiveDestroyed || stats.rivalCoreDestroyed === 'crystal'
                 ? 'La colonia destruyó la Colmena de Cristal.'
-                : `La colonia sobrevivió ${RUN_NIGHTS_TO_WIN} noches.`
+                : 'La colonia venció a su rival.'
             : 'Sin reina no hay colonia.'}
+        </div>
+        <div style={{ color: accent, marginBottom: 18 }}>
+          {stats.newRecord && <div>¡Nuevo récord!</div>}
+          <div>{`Récord: noche ${stats.bestNight}`}</div>
         </div>
 
         <div style={{ textAlign: 'left', marginBottom: 22 }}>
+          <div style={rowStyle}>
+            {label('flag', 'Noches sobrevividas')}
+            <strong className="pixel-number">{stats.nightsSurvived}</strong>
+          </div>
           <div style={rowStyle}>
             {label('hourglass', 'Tiempo sobrevivido')}
             <strong className="pixel-number">
@@ -127,6 +140,22 @@ export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
           )}
         </div>
 
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+        {victory && onContinue && (
+          <button
+            onClick={onContinue}
+            className="pixel-btn"
+            style={{
+              padding: '12px 28px',
+              fontSize: 8,
+              borderColor: 'var(--chrome-accent)',
+              color: 'var(--chrome-text)',
+              background: 'var(--chrome-accent-dim)',
+            }}
+          >
+            SEGUIR JUGANDO
+          </button>
+        )}
         <button
           onClick={onRestart}
           className={victory ? 'pixel-btn' : 'pixel-btn pixel-btn--danger'}
@@ -142,6 +171,7 @@ export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
         >
           {victory ? 'NUEVA PARTIDA' : 'REINTENTAR'}
         </button>
+        </div>
       </div>
     </div>
   );

@@ -7,9 +7,8 @@ describe('dawn pick rule', () => {
     expect(shouldOfferMutation('night', 'day', dayNumber, false)).toBe(true);
   });
 
-  it('does not offer at the final dawn, which is victory', () => {
-    expect(shouldOfferMutation('night', 'day', 8, false)).toBe(false);
-    expect(shouldOfferMutation('night', 'day', 9, false)).toBe(false);
+  it.each([8, 9, 12, 20, 30])('keeps offering past night 7 in the endless run (day %i)', (dayNumber) => {
+    expect(shouldOfferMutation('night', 'day', dayNumber, false)).toBe(true);
   });
 
   it.each([

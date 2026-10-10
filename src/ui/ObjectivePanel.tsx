@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import type { ObjectiveState } from '../game/systems/ObjectiveSystem';
 import { PixelIcon } from './console/PixelIcon';
 import { stripEmoji } from './console/format';
+import { RUN_GOAL_TEXT } from '../game/run/nightMilestones';
 
 interface ObjectivePanelProps {
   objective: ObjectiveState | null;
@@ -62,6 +63,7 @@ export function ObjectivePanelView({ objective, open, onToggle }: ObjectivePanel
           )}
           <span className="hud-dim" aria-hidden="true">{open ? '-' : '+'}</span>
         </button>
+        {open && <div className="hud-dim objective-goal">{RUN_GOAL_TEXT}</div>}
         {open && (objective ? (
           <>
             <div className="objective-title">{stripEmoji(objective.title)}</div>

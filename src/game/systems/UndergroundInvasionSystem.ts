@@ -148,7 +148,7 @@ export interface RaidSource {
   launchBoss?(): EntityId | null;
 }
 
-/** The run's last night also brings the boss: the Crystal Queen, when the rival is the Crystal Hive. */
+/** Night 7 (the first milestone of the endless run) also brings the boss: the Crystal Queen, once, when the rival is the Crystal Hive. */
 export function isBossNight(night: number): boolean {
   return night === INVASION_BOSS_NIGHT;
 }
@@ -517,7 +517,8 @@ export class UndergroundInvasionSystem implements System {
     return amount - left;
   }
 
-  private pay(reward: WaveReward): WaveReward {
+  /** Pay a reward: minerals to the bank, food into the pantry as far as it fits; returns what was paid */
+  pay(reward: WaveReward): WaveReward {
     this.world.minerals.deposit(reward.minerals);
     return { minerals: reward.minerals, food: Math.round(this.stockPantry(reward.food)) };
   }
