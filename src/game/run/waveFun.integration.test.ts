@@ -4,7 +4,7 @@ import type { World } from '../../engine/ecs/World';
 import type { Camera } from '../../engine/camera/Camera';
 import type { TileGrid } from '../../simulation/world/TileGrid';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
-import { COMPONENT, Layer, type LayerComponent, type PositionComponent } from '../components/components';
+import { COMPONENT, Layer, type LayerComponent } from '../components/components';
 import { TILE_SIZE, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
 import { fakeCanvas, finishIntro, CRYSTAL_RIVAL_SETUP } from '../../test/gameManagerMocks';
 import { DEFENSE_STATS } from './defenses';
@@ -13,6 +13,7 @@ import { ELITE_COMPONENT } from './eliteAffixes';
 import { dealDamage } from './waveRuntime';
 import { waveClearReward } from './waveRewards';
 import { waveComposition } from './waveComposition';
+import { WAVE_MARCH_COMPONENT, type WaveMarchComponent } from './waveMarch';
 import { STRUCTURE_COMPONENT, type StructureComponent } from '../systems/DefenseSystem';
 import { HUMAN_COMPONENT, type HumanUnitComponent } from '../rival/humanComponents';
 
@@ -103,12 +104,15 @@ describe('scouting and elite waves in a real run', () => {
     const next = game.getStats().invasion.next!;
     expect(next.wave).toBe(1);
     expect(next.entrance).not.toBeNull();
+    expect(next.hole).not.toBeNull();
     dayNight.phaseTimer = 0.05;
     run(0.2);
-    const beetle = world.query(COMPONENT.BEETLE).find((id) => world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground)!;
-    const pos = world.getComponent<PositionComponent>(beetle, COMPONENT.POSITION)!;
-    expect(Math.floor(pos.x)).toBe(next.entrance!.x);
-    expect(Math.floor(pos.y)).toBe(next.entrance!.y);
+    // The column sets off for the hole of the scouted entrance, and will come out at that entrance below
+    const beetle = world.query(COMPONENT.BEETLE, WAVE_MARCH_COMPONENT)[0];
+    const march = world.getComponent<WaveMarchComponent>(beetle, WAVE_MARCH_COMPONENT)!;
+    expect(march.entrance).toEqual({ x: next.entrance!.x, y: next.entrance!.y });
+    expect(march.hole).toEqual(next.hole);
+    expect(world.getComponent<LayerComponent>(beetle, COMPONENT.LAYER)!.layer).toBe(Layer.Surface);
     game.stop();
   });
 
@@ -152,9 +156,7 @@ describe('scouting and elite waves in a real run', () => {
     run(0.2);
     while (game['invasionSystem']['pendingSpawns'].length > 0) run(DT);
     const minerals = world.minerals.stored;
-    for (const id of world.query(COMPONENT.BEETLE)) {
-      if (world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground) dealDamage(world, id, 1e9);
-    }
+    for (const id of game['invasionSystem']['invaders'] as Set<number>) dealDamage(world, id, 1e9);
     run(0.2);
     const banner = game.getStats().invasion.banner!;
     expect(banner.kind).toBe('cleared');

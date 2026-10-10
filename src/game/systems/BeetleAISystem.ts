@@ -18,6 +18,7 @@ import {
   Layer,
 } from '../components/components';
 import { findPath } from '../../simulation/pathfinding/AStar';
+import { WAVE_MARCH_COMPONENT } from '../run/waveMarch';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
 import {
   BEETLE_STATS,
@@ -67,9 +68,11 @@ export class BeetleAISystem implements System {
     const beetles = this.world.query(COMPONENT.BEETLE, COMPONENT.POSITION, COMPONENT.PATH);
 
     for (const id of beetles) {
-      // Underground invaders are driven by UndergroundInvasionSystem, not surface AI
+      // Night-wave invaders are driven by UndergroundInvasionSystem, not surface AI:
+      // inside the nest, and on their march to it across the surface
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
       if (layer && layer.layer === Layer.Underground) continue;
+      if (this.world.getComponent(id, WAVE_MARCH_COMPONENT)) continue;
 
       const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE)!;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;

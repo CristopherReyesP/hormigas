@@ -12,6 +12,7 @@ import { ELITE_COMPONENT, type EliteComponent } from '../run/eliteAffixes';
 import { BOSS_COMPONENT, type BossComponent } from '../run/miniBoss';
 import { BOSS_REWARD, waveClearReward } from '../run/waveRewards';
 import { dealDamage } from '../run/waveRuntime';
+import { WAVE_MARCH_COMPONENT, type WaveMarchComponent } from '../run/waveMarch';
 import { CombatSystem } from './CombatSystem';
 import { DayNightSystem } from './DayNightSystem';
 import { TransitSystem } from './TransitSystem';
@@ -47,8 +48,10 @@ function openEntrance(ug: UndergroundGrid, x: number): void {
   ug.excavate(x, ENTRANCE_ROW);
 }
 
-const ugBeetles = (world: World) =>
-  world.query(COMPONENT.BEETLE).filter((id) => world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground);
+/** The wave's beetles: on their march across the surface or already inside the nest */
+const waveBeetles = (world: World) =>
+  world.query(COMPONENT.BEETLE).filter((id) =>
+    world.getComponent(id, WAVE_MARCH_COMPONENT) !== undefined || world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground);
 
 const killAll = (world: World, ids: EntityId[]) => {
   for (const id of ids) dealDamage(world, id, 1e9);
@@ -77,8 +80,12 @@ describe('scouting the next wave', () => {
       invasion['waveNumber'] = wave;
       const scouted = invasion.getInfo().next!.entrance!;
       toNightfall();
-      const first = ugBeetles(world)[0];
+      const first = waveBeetles(world)[0];
+      // It marches on that entrance's hole, then breaks in right there
+      expect(world.getComponent<WaveMarchComponent>(first, WAVE_MARCH_COMPONENT)!.entrance).toEqual({ x: scouted.x, y: scouted.y });
+      invasion['breakIn'](first, world.getComponent<WaveMarchComponent>(first, WAVE_MARCH_COMPONENT)!);
       const pos = world.getComponent<PositionComponent>(first, COMPONENT.POSITION)!;
+      expect(world.getComponent<LayerComponent>(first, COMPONENT.LAYER)!.layer).toBe(Layer.Underground);
       expect({ x: Math.floor(pos.x), y: Math.floor(pos.y) }).toEqual({ x: scouted.x, y: scouted.y });
     }
   });
@@ -120,14 +127,14 @@ describe('elites and bosses in a wave', () => {
     invasion['waveNumber'] = 4;
     toNightfall();
     finishEntry();
-    const affixes = ugBeetles(world)
+    const affixes = waveBeetles(world)
       .map((id) => world.getComponent<EliteComponent>(id, ELITE_COMPONENT)?.affix)
       .filter(Boolean)
       .sort();
     expect(affixes).toEqual(['explosive', 'furious', 'healer']);
   });
 
-  it('wildlife wave 3: the Acorazado Colosal breaks in, has a health bar and pays out when killed', () => {
+  it('wildlife wave 3: the Acorazado Colosal marches on the nest, has a health bar and pays out when killed', () => {
     const { world, invasion, toNightfall, finishEntry, step } = setup();
     invasion['waveNumber'] = 2;
     toNightfall();
@@ -175,7 +182,7 @@ describe('clean defense bonus', () => {
     const pantry = ug.getPantryStored().total;
     toNightfall();
     finishEntry();
-    killAll(world, ugBeetles(world));
+    killAll(world, waveBeetles(world));
     step();
     step();
     const reward = waveClearReward(1, true);
@@ -198,7 +205,7 @@ describe('clean defense bonus', () => {
     finishEntry();
     killAll(world, [ants[0]]);
     step();
-    killAll(world, ugBeetles(world));
+    killAll(world, waveBeetles(world));
     step();
     step();
     expect(world.minerals.stored).toBe(waveClearReward(1, false).minerals);

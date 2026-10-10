@@ -591,11 +591,13 @@ export class GameManager {
     this.world.addSystem(porterSystem);
     this.objectiveSystem = new ObjectiveSystem(this.world, this.undergroundGrid);
     this.world.addSystem(this.objectiveSystem);
+    // The night waves cross this surface from the map edge before they break into the nest
     this.invasionSystem = new UndergroundInvasionSystem(
       this.world,
       this.undergroundGrid,
       transitSystem,
-      this.dayNightSystem
+      this.dayNightSystem,
+      this.grid
     );
     this.world.addSystem(this.invasionSystem);
     // Night-wave extras: elite affixes, the mini-bosses' abilities, the nest defenses
@@ -1021,18 +1023,24 @@ export class GameManager {
         ? {
           breach: next.entrance ? { x: next.entrance.x, y: next.entrance.y } : null,
           origin: next.surface ? { x: next.surface.x, y: next.surface.y } : null,
+          wildlife: next.wildlife ? { x: next.wildlife.x, y: next.wildlife.y } : null,
+          hole: next.hole ? { x: next.hole.x, y: next.hole.y } : null,
           nest: nestPos ? { x: nestPos.x, y: nestPos.y } : { x: Math.floor(WORLD_WIDTH / 2), y: Math.floor(WORLD_HEIGHT / 2) },
         }
         : null,
     };
   }
 
-  /** Scouted marks for the minimap: the coming wave's breach (underground) or the raiders' origin (surface) */
+  /** Scouted marks for the minimap: the coming wave's breach (underground), or where it comes from and the hole it marches on (surface) */
   getScoutMarks(layer: 'surface' | 'underground'): Array<{ x: number; y: number }> {
     const next = this.invasionSystem.getInfo().next ?? null;
     if (!next) return [];
     if (layer === 'underground') return next.entrance ? [{ x: next.entrance.x + 0.5, y: next.entrance.y + 0.5 }] : [];
-    return next.surface ? [{ x: next.surface.x, y: next.surface.y }] : [];
+    const marks: Array<{ x: number; y: number }> = [];
+    if (next.wildlife) marks.push({ x: next.wildlife.x, y: next.wildlife.y });
+    if (next.surface) marks.push({ x: next.surface.x, y: next.surface.y });
+    if (next.hole) marks.push({ x: next.hole.x, y: next.hole.y });
+    return marks;
   }
 
   /** The tiles defenses may be built around on a layer: the nest, or the entrances (the breach) */

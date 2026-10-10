@@ -77,9 +77,10 @@ export function NextWaveCard({ invasion, defaultOpen = false }: NextWaveCardProp
                 </div>
               )}
               <div className="next-wave-sub">Por dónde llega</div>
+              {next.wildlife && <div className="next-wave-where">Acorazados: desde el {next.wildlife.direction}, por la superficie</div>}
               {next.entrance && <div className="next-wave-where">Nido: entrada {next.entrance.label}</div>}
-              {next.surface && <div className="next-wave-where">Superficie: desde el {next.surface.direction}</div>}
-              {!next.entrance && !next.surface && <div className="hud-dim">Sin datos</div>}
+              {next.surface && <div className="next-wave-where">Rival: desde el {next.surface.direction}</div>}
+              {!next.entrance && !next.surface && !next.wildlife && <div className="hud-dim">Sin datos</div>}
             </div>
           )}
         </div>
