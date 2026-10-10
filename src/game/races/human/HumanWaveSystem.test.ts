@@ -10,6 +10,7 @@ import { BeetleAISystem } from '../../systems/BeetleAISystem';
 import type { DayPhase } from '../../systems/DayNightSystem';
 import { waveComposition } from '../../run/waveComposition';
 import { HumanWaveSystem } from './HumanWaveSystem';
+import { humanWaveBeetles } from './humanPlayerRules';
 import { BOSS_COMPONENT } from '../../run/miniBoss';
 import { ELITE_COMPONENT } from '../../run/eliteAffixes';
 import { HUMAN_PLAYER_COMPONENT } from './humanPlayerComponents';
@@ -65,9 +66,12 @@ describe('night waves against a Human player', () => {
     const info = waves.getInfo();
     expect(info.active).toBe(true);
     expect(info.waveNumber).toBe(1);
-    expect(info.waveSize).toBe(waveComposition(1).total);
+    // An expedition meets a thinned column: HUMAN_WAVE_BEETLE_SHARE of the Swarm's beetles
+    const size = humanWaveBeetles(waveComposition(1).youngBeetles);
+    expect(size).toBeLessThan(waveComposition(1).total);
+    expect(info.waveSize).toBe(size);
     const invaders = world.query(COMPONENT.BEETLE);
-    expect(invaders.length).toBe(waveComposition(1).total);
+    expect(invaders.length).toBe(size);
     const corePos = world.getComponent<PositionComponent>(core, COMPONENT.POSITION)!;
     for (const id of invaders) {
       expect(world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!.layer).toBe(Layer.Surface);

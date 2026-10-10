@@ -12,6 +12,7 @@ import { createCricket, createCricketDen } from '../entities/factories';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
 import {
   CRICKET_SPAWN_FOOD_THRESHOLD,
+  CRICKET_DEN_GRACE_SECONDS,
   CRICKET_DEN_MIN_NEST_DISTANCE,
   MAX_TOTAL_CRICKETS,
 } from '../../shared/constants';
@@ -24,6 +25,8 @@ export class CricketSpawnSystem implements System {
   private grid: TileGrid;
   private undergroundGrid: UndergroundGrid;
   private modifiers: GlobalModifiers;
+  /** Seconds of run so far: no den during the grace period */
+  private elapsed = 0;
 
   constructor(world: World, grid: TileGrid, undergroundGrid: UndergroundGrid, modifiers: GlobalModifiers) {
     this.world = world;
@@ -33,7 +36,8 @@ export class CricketSpawnSystem implements System {
   }
 
   update(dt: number): void {
-    this.trySpawnDen();
+    this.elapsed += dt;
+    if (this.elapsed >= CRICKET_DEN_GRACE_SECONDS) this.trySpawnDen();
     this.spawnCricketsFromDens(dt);
   }
 
