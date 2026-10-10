@@ -298,6 +298,28 @@ const ICON_ART = {
     '...a..l.',
     '.....lll',
   ],
+  /** Attack order: a blade driven into a red ground mark */
+  attack: [
+    '......ww',
+    '.....wTw',
+    '....wTw.',
+    '.d.wTw..',
+    '..dTw...',
+    '..hd..x.',
+    '.h..dxxx',
+    'h.....x.',
+  ],
+  /** Hold position: a shield barred across, it does not move */
+  hold: [
+    '.nnnnnn.',
+    'nNNNNNNn',
+    'nNNNNNNn',
+    'nwwwwwwn',
+    'nwwwwwwn',
+    '.nNNNNn.',
+    '..nNNn..',
+    '...nn...',
+  ],
   /** Stop order: a red octagon with a white bar */
   stop: [
     '..xxxx..',

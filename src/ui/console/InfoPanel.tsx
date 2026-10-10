@@ -314,7 +314,7 @@ function GroupInfo({ group, gameManager, underground }: { group: SelectedGroupIn
             ? `${group.ordered} en marcha`
             : underground
               ? 'Por ahora las órdenes solo funcionan en la superficie.'
-              : 'Clic derecho en el suelo: mover · S: detener'}
+              : 'Clic derecho: mover o atacar · S: detener'}
         </div>
       </div>
       <button type="button" className="hud-btn info-close" title="Quitar selección (Esc)" onClick={() => gameManager?.clearSelection()}>

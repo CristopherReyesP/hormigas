@@ -46,7 +46,7 @@ describe('group panel (several ants selected)', () => {
 
   it('tells the player orders wait for the surface when the group is below', () => {
     const idle = units.map((u) => ({ ...u, ordered: false }));
-    expect(render(group(idle))).toContain('Clic derecho en el suelo: mover');
+    expect(render(group(idle))).toContain('Clic derecho: mover o atacar');
     const below = render(group(idle), 'underground');
     expect(below).toContain('solo funcionan en la superficie');
     expect(below).not.toContain('S: detener');

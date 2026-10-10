@@ -21,6 +21,7 @@ import {
   BeetleState,
   CricketState,
   Layer,
+  OrderKind,
   type PositionComponent,
   type RenderComponent,
   type FacingComponent,
@@ -45,6 +46,7 @@ import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 import { MeteorIntro } from '../render/MeteorIntro';
 import type { Vec2 } from '../render/introTimeline';
 import type { TilePos } from '../run/craterSite';
+import type { EntityId } from '../../shared/types';
 
 // === Food pile rendering (nest stockpile + underground pantry) ===
 // Max dots drawn per pile (perf cap — flat fills only, deterministic positions)
@@ -89,17 +91,37 @@ const CHROME_ACCENT = PAL.swarm.vein[1];
 /** Own-unit selection green: ellipses, move pings and order lines. */
 const SELECT_GREEN = PAL.healthGreen;
 const SELECT_GREEN_LIGHT = PAL.glowGreen;
+/** Attack orders read red: their pings, their order lines and the flash on the targeted enemy. */
+const ATTACK_RED = PAL.dangerRed;
+const ATTACK_RED_LIGHT = PAL.meteor[1];
 /** Seconds a move ping stays on the ground */
 const ORDER_PING_SECONDS = 0.7;
+/** Seconds the targeted enemy's ellipse flashes red-orange after an attack order */
+const TARGET_FLASH_SECONDS = 0.9;
 /** Up to this many selected ordered ants get a dotted line to their slot; more just mark the slots */
 const ORDER_LINES_MAX = 4;
+/** The target flash ellipse follows the sprite: beetle, den or the big cricket */
+type TargetFlashSize = 'beetle' | 'den' | 'cricket';
+/** How far below the entity center the flash ellipse sits (px), so it reads as the ground under it */
+const TARGET_FLASH_DROP: Record<TargetFlashSize, number> = { beetle: 4, den: 6, cricket: 12 };
 
-/** Live player-command feedback the GameManager owns: the drag box and new move orders. */
+/** A new order for the renderer to acknowledge on the ground. */
+export interface OrderPing {
+  /** Tile the order points at */
+  x: number;
+  y: number;
+  /** Green for a move, red for an attack or attack-move */
+  kind: 'move' | 'attack';
+  /** Attack on one enemy: the ping follows it and its ellipse flashes */
+  targetId?: EntityId;
+}
+
+/** Live player-command feedback the GameManager owns: the drag box and new orders. */
 export interface CommandOverlaySource {
   /** Selection box being dragged (canvas px), or null */
   getDragBox(): ScreenBox | null;
-  /** Move targets ordered since the last frame (tile coords) */
-  drainOrderPings(): Array<{ x: number; y: number }>;
+  /** Orders given since the last frame */
+  drainOrderPings(): OrderPing[];
 }
 
 /** An ant drawn this frame, replayed by the night glow pass (world px). */
@@ -162,8 +184,12 @@ export class RenderSystem {
   private fxGlows = new Map<string, OffscreenCanvas>();
   /** Green selection ellipses under own ants: small castes and big ones */
   private fxSelectEllipse!: { small: OffscreenCanvas; large: OffscreenCanvas };
-  /** Move pings still animating (tile coords, birth in animationTime seconds) */
-  private orderPings: Array<{ x: number; y: number; born: number }> = [];
+  /** Red-orange ellipses that flash under an enemy an attack order just named */
+  private fxTargetEllipse!: Record<TargetFlashSize, OffscreenCanvas>;
+  /** Order pings still animating (birth in animationTime seconds) */
+  private orderPings: Array<OrderPing & { born: number }> = [];
+  /** Enemies named by an attack order, with the animationTime of the order */
+  private targetFlashes = new Map<EntityId, number>();
   private commandOverlay: CommandOverlaySource | null;
   /** Darkness dither tiles indexed by light level 1-3 (0 = solid, 4 = clear) */
   private fxDither: OffscreenCanvas[] = [];
@@ -233,8 +259,9 @@ export class RenderSystem {
       this.fxBrackets.set(key, c);
     }
 
-    // --- Selection ellipses: a 1-art-px green ring with a lit top arc, flattened to the ground ---
-    const makeEllipse = (rx: number, ry: number): OffscreenCanvas => {
+    // --- Selection ellipses: a 1-art-px ring with a lit top arc, flattened to the ground
+    //     (green under own ants, red-orange under an enemy that was just targeted) ---
+    const makeEllipse = (rx: number, ry: number, dark: string = SELECT_GREEN, light: string = SELECT_GREEN_LIGHT): OffscreenCanvas => {
       const w = (rx * 2 + 3) * 2;
       const h = (ry * 2 + 3) * 2;
       const c = new OffscreenCanvas(w, h);
@@ -252,13 +279,18 @@ export class RenderSystem {
           const rim = !inside(ix, iy, rx - 1, ry - 1);
           // The near (lower) half gets a second pixel of lip so the ring reads on any ground
           const lip = iy > 0 && !rim && !inside(ix, iy, rx - 2, ry - 2);
-          if (rim) p.px(cx + ix, cy + iy, iy < 0 ? SELECT_GREEN_LIGHT : SELECT_GREEN);
-          else if (lip) p.px(cx + ix, cy + iy, SELECT_GREEN);
+          if (rim) p.px(cx + ix, cy + iy, iy < 0 ? light : dark);
+          else if (lip) p.px(cx + ix, cy + iy, dark);
         }
       }
       return c;
     };
     this.fxSelectEllipse = { small: makeEllipse(10, 4), large: makeEllipse(12, 5) };
+    this.fxTargetEllipse = {
+      beetle: makeEllipse(12, 5, ATTACK_RED, ATTACK_RED_LIGHT),
+      den: makeEllipse(14, 6, ATTACK_RED, ATTACK_RED_LIGHT),
+      cricket: makeEllipse(26, 10, ATTACK_RED, ATTACK_RED_LIGHT),
+    };
 
     // --- Health bar frame: 1px outline border + dark inner (6 segments of 3×2, 1px gaps) ---
     const hb = new OffscreenCanvas(25, 4);
@@ -373,7 +405,30 @@ export class RenderSystem {
     ctx.drawImage(c, Math.round(px - c.width / 2), Math.round(py + 3 - c.height / 2));
   }
 
-  /** Move pings: a green ring that tightens on the target in 3 steps, blinking, with a center mark. */
+  /**
+   * The flash on an enemy an attack order just named: its ground ellipse turns
+   * red-orange and blinks for TARGET_FLASH_SECONDS. `size` follows the sprite.
+   */
+  private drawTargetFlash(ctx: CanvasRenderingContext2D, id: EntityId, x: number, y: number, size: TargetFlashSize): void {
+    const born = this.targetFlashes.get(id);
+    if (born === undefined) return;
+    const age = this.animationTime - born;
+    if (age >= TARGET_FLASH_SECONDS) {
+      this.targetFlashes.delete(id);
+      return;
+    }
+    if (Math.floor(age * 8) % 2 === 1) return; // blink
+    const c = this.fxTargetEllipse[size];
+    const px = x * TILE_SIZE + TILE_SIZE / 2;
+    const py = y * TILE_SIZE + TILE_SIZE / 2;
+    ctx.drawImage(c, Math.round(px - c.width / 2), Math.round(py + TARGET_FLASH_DROP[size] - c.height / 2));
+  }
+
+  /**
+   * Order pings: a ring that tightens on the target in 3 steps, blinking, with
+   * a center mark. Green for a move, red for an attack; one aimed at an enemy
+   * follows it.
+   */
   private renderOrderPings(ctx: CanvasRenderingContext2D): void {
     if (this.orderPings.length === 0) return;
     this.orderPings = this.orderPings.filter((ping) => this.animationTime - ping.born < ORDER_PING_SECONDS);
@@ -381,58 +436,79 @@ export class RenderSystem {
     for (const ping of this.orderPings) {
       const age = (this.animationTime - ping.born) / ORDER_PING_SECONDS;
       if (age > 0.55 && Math.floor(this.animationTime * 16) % 2 === 1) continue; // blink out
+      const attack = ping.kind === 'attack';
+      const dark = attack ? ATTACK_RED : SELECT_GREEN;
+      const light = attack ? ATTACK_RED_LIGHT : SELECT_GREEN_LIGHT;
+      const at = ping.targetId !== undefined ? this.world.getComponent<PositionComponent>(ping.targetId, COMPONENT.POSITION) : undefined;
       const step = Math.min(2, Math.floor(age * 3));
       const rx = [13, 9, 6][step];
       const ry = Math.max(2, Math.round(rx * 0.45));
-      const cx = Math.round((ping.x * TILE_SIZE + TILE_SIZE / 2) / 2);
-      const cy = Math.round((ping.y * TILE_SIZE + TILE_SIZE / 2) / 2);
+      const cx = Math.round(((at?.x ?? ping.x) * TILE_SIZE + TILE_SIZE / 2) / 2);
+      const cy = Math.round(((at?.y ?? ping.y) * TILE_SIZE + TILE_SIZE / 2) / 2);
       for (let iy = -ry - 1; iy <= ry + 1; iy++) {
         for (let ix = -rx - 1; ix <= rx + 1; ix++) {
           const outer = (ix / (rx + 0.25)) ** 2 + (iy / (ry + 0.25)) ** 2 <= 1;
           const inner = (ix / (rx - 0.75)) ** 2 + (iy / (ry - 0.75)) ** 2 <= 1;
-          if (outer && !inner) p.px(cx + ix, cy + iy, iy < 0 ? SELECT_GREEN_LIGHT : SELECT_GREEN);
+          if (outer && !inner) p.px(cx + ix, cy + iy, iy < 0 ? light : dark);
         }
       }
-      // Center cross
-      p.hline(cx - 1, cy, 3, SELECT_GREEN_LIGHT);
-      p.vline(cx, cy - 1, 3, SELECT_GREEN_LIGHT);
+      // Center mark: a cross for a move, an X for an attack
+      if (attack) {
+        for (let d = -1; d <= 1; d++) {
+          p.px(cx + d, cy + d, light);
+          p.px(cx + d, cy - d, light);
+        }
+      } else {
+        p.hline(cx - 1, cy, 3, light);
+        p.vline(cx, cy - 1, 3, light);
+      }
     }
   }
 
   /**
-   * Selected ants still under a move order. A few get a sparse dotted line to
-   * their slot; a big group would turn that into a spray of dots, so each of
-   * its slots gets a small ground tick instead: the formation it is forming.
+   * Selected ants still under a move or attack order: green for a move, red
+   * for an attack-move or an attack (drawn to the enemy as it moves). A few
+   * get a sparse dotted line; a big group would turn that into a spray of
+   * dots, so each of its slots gets a small ground tick instead: the
+   * formation it is forming. Guard and hold stances draw nothing.
    */
   private renderOrderLines(ctx: CanvasRenderingContext2D, interpolation: number): void {
-    const legs: Array<{ ax: number; ay: number; bx: number; by: number }> = [];
+    const legs: Array<{ ax: number; ay: number; bx: number; by: number; color: string }> = [];
     for (const id of this.world.query(COMPONENT.PLAYER_ORDER, COMPONENT.POSITION)) {
       if (!this.world.getComponent<SelectableComponent>(id, COMPONENT.SELECTABLE)?.selected) continue;
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
       if (layer && layer.layer !== Layer.Surface) continue;
       const order = this.world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER)!;
+      if (order.kind === OrderKind.Guard || order.kind === OrderKind.Hold) continue;
+      let end: { x: number; y: number } = order.target;
+      if (order.kind === OrderKind.Attack && order.targetId !== null) {
+        const enemy = this.world.getComponent<PositionComponent>(order.targetId, COMPONENT.POSITION);
+        if (!enemy) continue;
+        end = { x: enemy.prevX + (enemy.x - enemy.prevX) * interpolation, y: enemy.prevY + (enemy.y - enemy.prevY) * interpolation };
+      }
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
       legs.push({
         ax: (x * TILE_SIZE + TILE_SIZE / 2) / 2,
         ay: (y * TILE_SIZE + TILE_SIZE / 2) / 2,
-        bx: (order.target.x * TILE_SIZE + TILE_SIZE / 2) / 2,
-        by: (order.target.y * TILE_SIZE + TILE_SIZE / 2) / 2,
+        bx: (end.x * TILE_SIZE + TILE_SIZE / 2) / 2,
+        by: (end.y * TILE_SIZE + TILE_SIZE / 2) / 2,
+        color: order.kind === OrderKind.Move ? SELECT_GREEN : ATTACK_RED,
       });
     }
     if (legs.length === 0) return;
     const p = new PixelPainter(ctx, 2);
     if (legs.length > ORDER_LINES_MAX) {
-      for (const { bx, by } of legs) p.hline(Math.round(bx) - 1, Math.round(by), 3, SELECT_GREEN);
+      for (const { bx, by, color } of legs) p.hline(Math.round(bx) - 1, Math.round(by), 3, color);
       return;
     }
-    for (const { ax, ay, bx, by } of legs) {
+    for (const { ax, ay, bx, by, color } of legs) {
       const len = Math.hypot(bx - ax, by - ay);
       // One dot every 6 art px, anchored at the target so the dots stay still as the ant walks
       for (let d = 0; d < len - 4; d += 6) {
         const t = d / len;
-        p.px(Math.round(bx + (ax - bx) * t), Math.round(by + (ay - by) * t), SELECT_GREEN);
+        p.px(Math.round(bx + (ax - bx) * t), Math.round(by + (ay - by) * t), color);
       }
     }
   }
@@ -751,7 +827,8 @@ export class RenderSystem {
     const ctx = this.renderer.getContext();
     this.renderer.clear();
     for (const ping of this.commandOverlay?.drainOrderPings() ?? []) {
-      this.orderPings.push({ x: ping.x, y: ping.y, born: this.animationTime });
+      this.orderPings.push({ ...ping, born: this.animationTime });
+      if (ping.targetId !== undefined) this.targetFlashes.set(ping.targetId, this.animationTime);
     }
 
     // Branch: underground or surface
@@ -1621,6 +1698,7 @@ export class RenderSystem {
       if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
+      this.drawTargetFlash(ctx, id, x, y, 'den');
       this.drawBeetleDen(ctx, x, y, id);
     }
 
@@ -1628,6 +1706,7 @@ export class RenderSystem {
       if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
+      this.drawTargetFlash(ctx, id, x, y, 'den');
       this.drawCricketDen(ctx, x, y, id);
     }
 
@@ -1639,6 +1718,7 @@ export class RenderSystem {
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
       const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE);
       const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
+      this.drawTargetFlash(ctx, id, x, y, 'beetle');
       if (facing) {
         const isAttacking = beetle && beetle.state === BeetleState.Attacking;
         this.drawBeetle(ctx, x, y, facing.angle, facing.legPhase, id, isAttacking);
@@ -1651,6 +1731,7 @@ export class RenderSystem {
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
       const cricket = this.world.getComponent<CricketComponent>(id, COMPONENT.CRICKET);
       const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
+      this.drawTargetFlash(ctx, id, x, y, 'cricket');
       if (facing) {
         const isAttacking = cricket && cricket.state === CricketState.Attacking;
         const isStealing = cricket && cricket.state === CricketState.StealingFood;
@@ -1670,7 +1751,7 @@ export class RenderSystem {
       if (facing && ant) {
         const isCarrying = !!(carrying && carrying.amount > 0);
         const isSelected = !!(selectable && selectable.selected);
-        const isInCombat = ant.state === AntState.AttackingEnemy || ant.state === AntState.AttackingDen;
+        const isInCombat = ant.state === AntState.AttackingEnemy;
         const isFleeing = ant.state === AntState.Fleeing;
         this.drawAnt(ctx, x, y, facing.angle, facing.legPhase, ant.role, isSelected, isCarrying, isInCombat, isFleeing);
         this.recordGlowAnt(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2, facing.angle, ant.role);

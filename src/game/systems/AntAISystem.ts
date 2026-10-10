@@ -10,6 +10,7 @@ import {
   ColonyPriority,
   FoodType,
   Layer,
+  OrderKind,
   type AntComponent,
   type PositionComponent,
   type CarryingComponent,
@@ -26,7 +27,7 @@ import {
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { findPath } from '../../simulation/pathfinding/AStar';
 import { buildAttackerMap, ensureCombatComponent } from './helpers/combatHelpers';
-import { endPlayerOrder } from './helpers/playerOrders';
+import { canFight, completePlayerOrder, endPlayerOrder, isSurfaceEnemy } from './helpers/playerOrders';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { TransitSystem } from './TransitSystem';
 import {
@@ -67,6 +68,9 @@ import {
   ORDER_SETTLE_RADIUS,
   ORDER_MAX_ROUTES,
   ORDER_TIMEOUT_SECONDS,
+  ORDER_CHASE_REPATH_SECONDS,
+  GUARD_LEASH_RADIUS,
+  GUARD_HOME_RADIUS,
 } from '../../shared/constants';
 
 interface ActionCandidate {
@@ -154,8 +158,9 @@ export class AntAISystem implements System {
 
       ant.stateTimer += dt;
 
-      // A player order outranks the colony AI and every safety net below until
-      // the ant arrives; then it goes Idle and this loop picks its job back up.
+      // A player order outranks the colony AI and every safety net below. A
+      // worker's order ends on arrival and this loop picks its job back up; a
+      // warrior's turns into a guard post it keeps.
       if (order) {
         if (order.layer === Layer.Surface && !this.transitSystem?.isInTransit(id)) {
           this.followPlayerOrder(id, ant, pos, path, order, dt);
@@ -194,7 +199,6 @@ export class AntAISystem implements System {
       }
 
       // Stuck safety net: if ant can't progress for too long, retreat to nest
-      // GoingToDen excluded — has its own timeout, soldiers must commit to the mission
       if (ant.stateTimer > 8 && path.waypoints.length === 0) {
         const isMovementState =
           ant.state === AntState.GoingToFood ||
@@ -267,14 +271,6 @@ export class AntAISystem implements System {
           this.handlePatrollingNest(id, ant, pos, path);
           break;
 
-        case AntState.GoingToDen:
-          this.handleGoingToDen(id, ant, pos, path);
-          break;
-
-        case AntState.AttackingDen:
-          this.handleAttackingDen(id, ant, pos, path);
-          break;
-
         case AntState.Healing:
           // Riding the shaft down to eat — UndergroundHealingSystem feeds it
           // below. One still up here without a ride must not stand at the
@@ -289,11 +285,9 @@ export class AntAISystem implements System {
   }
 
   /**
-   * Walk an ordered ant to its formation slot. Routes are rationed per tick
+   * Carry out a player order. Every order route is rationed per tick
    * (orderRoutesLeft), so a big group starts over a few frames instead of
-   * running 40 A* searches at once. The order ends on arrival, when a finished
-   * route left the ant close enough (slot crowded or blocked), or when the slot
-   * proves unreachable; the timeout is the last resort.
+   * running 40 A* searches at once.
    */
   private followPlayerOrder(
     id: EntityId,
@@ -303,12 +297,45 @@ export class AntAISystem implements System {
     order: PlayerOrderComponent,
     dt: number
   ): void {
-    order.elapsed += dt;
-    ant.state = AntState.Moving;
     // Stall detection restarts from here, so the nets cannot fire the moment the order ends
     ant.stuckTimer = 0;
     ant.lastX = pos.x;
     ant.lastY = pos.y;
+
+    switch (order.kind) {
+      case OrderKind.Move:
+        this.walkToSlot(id, ant, pos, path, order, dt);
+        break;
+      case OrderKind.AttackMove:
+        if (!this.fightOnTheWay(id, ant, pos, path, order, dt)) this.walkToSlot(id, ant, pos, path, order, dt);
+        break;
+      case OrderKind.Attack:
+        this.attackTarget(id, ant, pos, path, order, dt);
+        break;
+      case OrderKind.Hold:
+        this.holdPosition(id, ant, pos, path, order);
+        break;
+      case OrderKind.Guard:
+        this.guardPost(id, ant, pos, path, order, dt);
+        break;
+    }
+  }
+
+  /**
+   * Walk to the formation slot. The order is done on arrival, when a finished
+   * route left the ant close enough (slot crowded or blocked), or when the slot
+   * proves unreachable; the timeout is the last resort.
+   */
+  private walkToSlot(
+    id: EntityId,
+    ant: AntComponent,
+    pos: PositionComponent,
+    path: PathComponent,
+    order: PlayerOrderComponent,
+    dt: number
+  ): void {
+    order.elapsed += dt;
+    ant.state = AntState.Moving;
 
     const dist = Math.hypot(order.target.x - pos.x, order.target.y - pos.y);
     const routeDone = path.currentIndex >= path.waypoints.length;
@@ -318,30 +345,235 @@ export class AntAISystem implements System {
       (routeDone && order.routes > 0 && dist <= ORDER_SETTLE_RADIUS) ||
       (routeDone && order.routes >= ORDER_MAX_ROUTES)
     ) {
-      endPlayerOrder(this.world, id);
+      completePlayerOrder(this.world, id);
       return;
     }
-    if (!routeDone || this.orderRoutesLeft <= 0) return;
+    if (routeDone) this.routeOrder(pos, path, order, order.target);
+  }
 
+  /**
+   * Chase the ordered enemy and fight it until it dies; then the order is
+   * done. Only time spent closing in counts toward the timeout, so a long
+   * fight never drops it.
+   */
+  private attackTarget(
+    id: EntityId,
+    ant: AntComponent,
+    pos: PositionComponent,
+    path: PathComponent,
+    order: PlayerOrderComponent,
+    dt: number
+  ): void {
+    const enemy = order.targetId !== null ? this.enemyPosition(order.targetId) : null;
+    if (!enemy || order.targetId === null) {
+      completePlayerOrder(this.world, id);
+      return;
+    }
+    order.target = { x: enemy.x, y: enemy.y };
+    if (Math.hypot(enemy.x - pos.x, enemy.y - pos.y) >= SOLDIER_ATTACK_RANGE) {
+      order.elapsed += dt;
+      if (order.elapsed > ORDER_TIMEOUT_SECONDS) {
+        completePlayerOrder(this.world, id);
+        return;
+      }
+    }
+    this.fightStep(id, ant, pos, path, order, order.targetId, enemy, dt);
+  }
+
+  /**
+   * Attack-move: engage whatever comes into view on the way (the same target
+   * policy free soldiers use), chase it while it stays in chase range, then
+   * pick the route back up. True while a fight holds the ant.
+   */
+  private fightOnTheWay(
+    id: EntityId,
+    ant: AntComponent,
+    pos: PositionComponent,
+    path: PathComponent,
+    order: PlayerOrderComponent,
+    dt: number
+  ): boolean {
+    if (!canFight(this.world, id)) return false;
+    let enemy = order.targetId !== null ? this.enemyPosition(order.targetId) : null;
+    if (enemy && Math.hypot(enemy.x - pos.x, enemy.y - pos.y) > SOLDIER_CHASE_RANGE) enemy = null;
+    if (!enemy) {
+      if (order.targetId !== null) {
+        // The fight is over: back to the walk, on a fresh route to the slot
+        this.dropOrderTarget(id, path, order);
+        order.routes = 0;
+      }
+      const vision = this.visionOf(id);
+      const seen = this.selectSoldierTarget(pos, vision, { x: pos.x, y: pos.y, radius: vision });
+      if (!seen) return false;
+      enemy = this.engageOrderTarget(path, order, seen.entityId);
+      if (!enemy) return false;
+    }
+    this.fightStep(id, ant, pos, path, order, order.targetId!, enemy, dt);
+    return true;
+  }
+
+  /** Mantener posición: never a step; bite what stands in reach, let go of what backs off. */
+  private holdPosition(
+    id: EntityId,
+    ant: AntComponent,
+    pos: PositionComponent,
+    path: PathComponent,
+    order: PlayerOrderComponent
+  ): void {
+    path.waypoints = [];
+    path.currentIndex = 0;
+    let enemy = order.targetId !== null ? this.enemyPosition(order.targetId) : null;
+    if (enemy && Math.hypot(enemy.x - pos.x, enemy.y - pos.y) >= SOLDIER_ATTACK_RANGE) enemy = null;
+    if (!enemy && canFight(this.world, id)) {
+      const inReach = this.selectSoldierTarget(pos, SOLDIER_ATTACK_RANGE, { x: pos.x, y: pos.y, radius: SOLDIER_ATTACK_RANGE });
+      if (inReach) enemy = this.engageOrderTarget(path, order, inReach.entityId);
+    }
+    if (!enemy || order.targetId === null) {
+      if (order.targetId !== null) this.dropOrderTarget(id, path, order);
+      if (this.releasedByHunger(id)) return;
+      ant.state = AntState.Holding;
+      return;
+    }
+    ensureCombatComponent(this.world, id, order.targetId);
+    ant.state = AntState.AttackingEnemy;
+  }
+
+  /**
+   * A warrior's post after an order: fight enemies that come within
+   * GUARD_LEASH_RADIUS of it, never farther, then walk back. It never wanders
+   * off to forage or patrol; only hunger, the horn or the player release it.
+   */
+  private guardPost(
+    id: EntityId,
+    ant: AntComponent,
+    pos: PositionComponent,
+    path: PathComponent,
+    order: PlayerOrderComponent,
+    dt: number
+  ): void {
+    const post = order.target;
+    let enemy = order.targetId !== null ? this.enemyPosition(order.targetId) : null;
+    if (enemy && Math.hypot(enemy.x - post.x, enemy.y - post.y) > GUARD_LEASH_RADIUS) enemy = null;
+    if (!enemy && canFight(this.world, id)) {
+      if (order.targetId !== null) this.dropOrderTarget(id, path, order);
+      const seen = this.selectSoldierTarget(pos, this.visionOf(id), { x: post.x, y: post.y, radius: GUARD_LEASH_RADIUS });
+      if (seen) enemy = this.engageOrderTarget(path, order, seen.entityId);
+    }
+    if (enemy && order.targetId !== null) {
+      this.fightStep(id, ant, pos, path, order, order.targetId, enemy, dt);
+      return;
+    }
+    if (order.targetId !== null) this.dropOrderTarget(id, path, order);
+
+    if (Math.hypot(post.x - pos.x, post.y - pos.y) > GUARD_HOME_RADIUS) {
+      ant.state = AntState.Moving;
+      order.repath -= dt;
+      if (path.currentIndex >= path.waypoints.length && order.repath <= 0 && this.routeOrder(pos, path, order, post)) {
+        order.repath = ORDER_CHASE_REPATH_SECONDS;
+      }
+      return;
+    }
+    path.waypoints = [];
+    path.currentIndex = 0;
+    if (this.releasedByHunger(id)) return;
+    ant.state = AntState.Guarding;
+  }
+
+  /**
+   * One step of an ordered fight: bite when in reach, otherwise close in on a
+   * route refreshed every ORDER_CHASE_REPATH_SECONDS (the quarry moves). The
+   * claim on the enemy is set right away, so sisters see it for focus fire.
+   */
+  private fightStep(
+    id: EntityId,
+    ant: AntComponent,
+    pos: PositionComponent,
+    path: PathComponent,
+    order: PlayerOrderComponent,
+    enemyId: EntityId,
+    enemy: { x: number; y: number },
+    dt: number
+  ): void {
+    ensureCombatComponent(this.world, id, enemyId);
+    if (Math.hypot(enemy.x - pos.x, enemy.y - pos.y) < SOLDIER_ATTACK_RANGE) {
+      ant.state = AntState.AttackingEnemy;
+      path.waypoints = [];
+      path.currentIndex = 0;
+      order.repath = 0;
+      return;
+    }
+    ant.state = AntState.ChasingEnemy;
+    order.repath -= dt;
+    const routeDone = path.currentIndex >= path.waypoints.length;
+    if ((routeDone || order.repath <= 0) && this.routeOrder(pos, path, order, enemy)) {
+      order.repath = ORDER_CHASE_REPATH_SECONDS;
+    }
+  }
+
+  /** Take `enemyId` as the order's current fight; returns where it stands, or null if it is no enemy. */
+  private engageOrderTarget(path: PathComponent, order: PlayerOrderComponent, enemyId: EntityId): PositionComponent | null {
+    const enemy = this.enemyPosition(enemyId);
+    if (!enemy) return null;
+    order.targetId = enemyId;
+    order.repath = 0;
+    path.waypoints = [];
+    path.currentIndex = 0;
+    return enemy;
+  }
+
+  /** The order's fight is over: forget the enemy, the claim on it and the chase route. */
+  private dropOrderTarget(id: EntityId, path: PathComponent, order: PlayerOrderComponent): void {
+    order.targetId = null;
+    order.repath = 0;
+    const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
+    if (combat) combat.targetEntityId = null;
+    path.waypoints = [];
+    path.currentIndex = 0;
+  }
+
+  /** A post is no reason to starve: a hungry ant leaves it to go eat, when there is food below. */
+  private releasedByHunger(id: EntityId): boolean {
+    if (!this.undergroundFoodAvailable || !this.isHungry(id)) return false;
+    endPlayerOrder(this.world, id);
+    return true;
+  }
+
+  /** Where a surface enemy stands now; null once it is dead or gone below. */
+  private enemyPosition(enemyId: EntityId): PositionComponent | null {
+    if (!isSurfaceEnemy(this.world, enemyId)) return null;
+    return this.world.getComponent<PositionComponent>(enemyId, COMPONENT.POSITION) ?? null;
+  }
+
+  private visionOf(id: EntityId): number {
+    return this.world.getComponent<RoleStatsComponent>(id, COMPONENT.ROLE_STATS)?.visionRange ?? 8;
+  }
+
+  /**
+   * Route an ordered ant toward `goal` if this tick's ration allows. With no
+   * A* route (yet) it edges toward the goal and tries again when that step
+   * ends. Returns whether a route was requested.
+   */
+  private routeOrder(pos: PositionComponent, path: PathComponent, order: PlayerOrderComponent, goal: { x: number; y: number }): boolean {
+    if (this.orderRoutesLeft <= 0) return false;
     this.orderRoutesLeft--;
     order.routes++;
     const route = findPath(
       this.grid,
       { x: Math.round(pos.x), y: Math.round(pos.y) },
-      order.target,
+      { x: Math.round(goal.x), y: Math.round(goal.y) },
       ORDER_PATH_MAX_STEPS
     );
     if (route && route.length > 0) {
       path.waypoints = route;
       path.currentIndex = 0;
-      return;
+      return true;
     }
-    // No route (yet): edge toward the slot and try again when this step ends
-    const step = this.fallbackMoveToward(pos, order.target);
+    const step = this.fallbackMoveToward(pos, goal);
     if (step) {
       path.waypoints = [step];
       path.currentIndex = 0;
     }
+    return true;
   }
 
   /** One pass over predators and surface food — every ant reads these arrays instead of re-querying */
@@ -944,93 +1176,6 @@ export class AntAISystem implements System {
     }
   }
 
-  private handleGoingToDen(
-    id: EntityId,
-    ant: AntComponent,
-    pos: PositionComponent,
-    path: PathComponent
-  ): void {
-    // Must have a valid command target — soldiers only go to dens via manual dispatch
-    if (!ant.commandTargetId || !this.world.hasEntity(ant.commandTargetId)) {
-      ant.commandTargetId = null;
-      ant.state = AntState.Searching;
-      ant.stateTimer = 0;
-      return;
-    }
-
-    const denId = ant.commandTargetId;
-
-    const denPos = this.world.getComponent<PositionComponent>(denId, COMPONENT.POSITION);
-    if (!denPos) {
-      ant.commandTargetId = null;
-      ant.state = AntState.Searching;
-      ant.stateTimer = 0;
-      return;
-    }
-
-    const dist = this.distance(pos, denPos);
-    if (dist < SOLDIER_ATTACK_RANGE) {
-      ant.state = AntState.AttackingDen;
-      ant.stateTimer = 0;
-      ensureCombatComponent(this.world, id, denId);
-      path.waypoints = [];
-      path.currentIndex = 0;
-      return;
-    }
-
-    // Repath if needed
-    if (path.currentIndex >= path.waypoints.length) {
-      this.pathToEntity(pos, denId, path);
-    }
-
-    // Timeout — generous for large maps (120×90), soldiers must have time to cross it
-    if (ant.stateTimer > 120) {
-      ant.commandTargetId = null;
-      ant.state = AntState.Searching;
-      ant.stateTimer = 0;
-    }
-  }
-
-  private handleAttackingDen(
-    id: EntityId,
-    ant: AntComponent,
-    pos: PositionComponent,
-    path: PathComponent
-  ): void {
-    const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
-    if (!combat || combat.targetEntityId === null) {
-      ant.commandTargetId = null;
-      ant.state = AntState.Searching;
-      ant.stateTimer = 0;
-      return;
-    }
-
-    // Check target still exists (den destroyed)
-    if (!this.world.hasEntity(combat.targetEntityId)) {
-      combat.targetEntityId = null;
-      ant.commandTargetId = null;
-      ant.state = AntState.Searching;
-      ant.stateTimer = 0;
-      return;
-    }
-
-    // Check for nearby beetles — defend self first (but commanded soldiers are more focused)
-    if (!ant.commandTargetId) {
-      const nearbyBeetle = this.findNearestBeetle(pos);
-      if (nearbyBeetle && nearbyBeetle.dist < SOLDIER_ATTACK_RANGE * 2) {
-        combat.targetEntityId = null;
-        ant.state = AntState.ChasingEnemy;
-        ant.stateTimer = 0;
-        this.pathToEntity(pos, nearbyBeetle.entityId, path);
-        return;
-      }
-    }
-
-    // Stay still while attacking den
-    path.waypoints = [];
-    path.currentIndex = 0;
-  }
-
   private isHungry(id: EntityId): boolean {
     const hunger = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
     return hunger !== undefined && hunger.current < hunger.max * HUNGER_EAT_THRESHOLD;
@@ -1128,15 +1273,20 @@ export class AntAISystem implements System {
    * 3. FOCUS FIRE: every sister already biting a target makes it more
    *    attractive. CombatSystem grants a flanking damage bonus for swarming,
    *    so converging is strictly better than each soldier picking its own bug.
+   *
+   * `within` keeps only enemies inside that circle (a player order's bounds).
    */
   private selectSoldierTarget(
     pos: PositionComponent,
-    visionRange: number
+    visionRange: number,
+    within?: { x: number; y: number; radius: number }
   ): { entityId: EntityId; dist: number; x: number; y: number; score: number } | null {
     const selfNestDist = this.distToNest(pos);
     let best: { entityId: EntityId; dist: number; x: number; y: number; score: number } | null = null;
 
     for (const e of this.enemySnapshot) {
+      // Player orders bound the search: an attack-move to its vision, a guard post to its leash
+      if (within && Math.hypot(e.x - within.x, e.y - within.y) > within.radius) continue;
       const dist = Math.hypot(e.x - pos.x, e.y - pos.y);
       const enemyNestDist = this.distToNestXY(e.x, e.y);
       const alarm = enemyNestDist < NEST_THREAT_RADIUS && selfNestDist < NEST_THREAT_RADIUS * 2;

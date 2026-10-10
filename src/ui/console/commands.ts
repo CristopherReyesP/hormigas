@@ -176,7 +176,7 @@ function attackDen(ctx: CommandContext): CommandDef {
     id: 'attack-den',
     label: 'Atacar guarida',
     icon: 'sword',
-    description: 'Envía soldados libres contra la guarida seleccionada. Ajusta cuántos en el panel central.',
+    description: 'Ordena a los soldados libres más cercanos atacar la guarida seleccionada hasta destruirla. Ajusta cuántos en el panel central.',
     badge: ready ? String(count) : undefined,
     tone: 'danger',
     disabled: !ready,
@@ -203,9 +203,11 @@ function buildTool(ctx: CommandContext, mode: BuildMode, label: string, icon: Ic
 
 /** Hint above the console while a card order waits for its target click. */
 export function commandTargetHint(target: GameStats['commandTarget']): string | null {
-  return target === 'move'
-    ? 'MOVER: haz clic en el destino · el clic derecho también mueve · Esc cancela'
-    : null;
+  if (target === 'move') return 'MOVER: haz clic en el destino · el clic derecho también mueve · Esc cancela';
+  if (target === 'attack') {
+    return 'ATACAR: haz clic en un enemigo para atacarlo, o en el suelo para avanzar peleando · Esc cancela';
+  }
+  return null;
 }
 
 /** Own ants are selected on the surface: the StarCraft unit card. */
@@ -214,7 +216,10 @@ function hasUnitSelection(stats: GameStats): boolean {
   return Boolean(stats.selectedGroup) || stats.selectedEntity?.type === 'ant';
 }
 
-/** Unit card: Mover (Q), Detener (S), time controls (Z, X) and Quitar selección (B). Attack orders take A with P3b. */
+/**
+ * Unit card: Mover (Q), Atacar (A), Detener (S), Mantener posición (D), time
+ * controls (Z, X) and Quitar selección (B).
+ */
 function unitPage(ctx: CommandContext): Slot[] {
   const count = ctx.stats.selectedGroup?.count ?? 1;
   const ants = count === 1 ? 'la hormiga seleccionada' : `las ${count} hormigas seleccionadas`;
@@ -223,7 +228,7 @@ function unitPage(ctx: CommandContext): Slot[] {
       id: 'move',
       label: 'Mover',
       icon: 'move',
-      description: `Haz clic derecho en el suelo para mover a ${ants}. También puedes pulsar Mover y luego hacer clic en el destino. Cada una ocupa su lugar en la formación y, al llegar, vuelve a su trabajo.`,
+      description: `Haz clic derecho en el suelo para mover a ${ants}. También puedes pulsar Mover y luego hacer clic en el destino. Cada una ocupa su lugar en la formación. Al llegar, las obreras vuelven a su trabajo y las guerreras montan guardia allí.`,
       altKeys: 'clic derecho en el suelo',
       active: ctx.stats.commandTarget === 'move',
       run: act(ctx, () => ctx.gm.armMoveTarget()),
@@ -232,18 +237,36 @@ function unitPage(ctx: CommandContext): Slot[] {
     null,
     null,
     null,
-    null,
+    {
+      id: 'attack',
+      label: 'Atacar',
+      icon: 'attack',
+      description: `Pulsa Atacar y haz clic. Sobre un enemigo, ${ants} lo persiguen hasta matarlo. En el suelo, avanzan y pelean con cada enemigo que ven en el camino. Las guerreras se quedan de guardia al terminar.`,
+      altKeys: 'clic derecho en un enemigo',
+      tone: 'danger',
+      active: ctx.stats.commandTarget === 'attack',
+      run: act(ctx, () => ctx.gm.armAttackTarget()),
+    },
     {
       id: 'stop',
       label: 'Detener',
       icon: 'stop',
-      description: 'Cancela las órdenes que diste a la selección (mover, atacar guarida). Las hormigas vuelven a su trabajo.',
+      description: 'Cancela las órdenes que diste a la selección: mover, atacar, mantener posición y la guardia. Las hormigas vuelven a su trabajo.',
       run: act(ctx, () => {
         const stopped = ctx.gm.stopSelectedAnts();
         ctx.notify(stopped > 0 ? `${stopped} ${stopped === 1 ? 'hormiga se detiene' : 'hormigas se detienen'}` : 'No hay órdenes que cancelar.');
       }),
     },
-    null,
+    {
+      id: 'hold',
+      label: 'Mantener posición',
+      icon: 'hold',
+      description: `${count === 1 ? 'La hormiga se queda quieta' : 'Las hormigas se quedan quietas'} y solo pelea${count === 1 ? '' : 'n'} con los enemigos a su alcance. No persiguen a nadie.`,
+      run: act(ctx, () => {
+        const held = ctx.gm.holdSelectedAnts();
+        ctx.notify(held === 1 ? 'La hormiga mantiene su posición' : `${held} hormigas mantienen su posición`);
+      }),
+    },
     null,
     null,
     ...timeCommands(ctx),

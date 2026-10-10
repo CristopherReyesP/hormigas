@@ -37,6 +37,8 @@ const GROUP: SelectedGroupInfo = {
 function context(stats: Partial<GameStats>) {
   const gm = {
     armMoveTarget: vi.fn(),
+    armAttackTarget: vi.fn(),
+    holdSelectedAnts: vi.fn(() => 2),
     stopSelectedAnts: vi.fn(() => 2),
     clearSelection: vi.fn(),
     togglePause: vi.fn(),
@@ -69,16 +71,41 @@ function context(stats: Partial<GameStats>) {
 const ids = (ctx: CommandContext) => buildCommands(ctx).map((c) => c?.id ?? null);
 
 describe('unit command card', () => {
-  it('a selected group gets Mover, Detener on S and the time controls', () => {
+  it('a selected group gets Mover, Atacar, Detener, Mantener posición and the time controls', () => {
     const { ctx } = context({ selectedGroup: GROUP });
     const slots = ids(ctx);
     expect(slots).toEqual([
       'move', null, null, null, null,
-      null, 'stop', null, null, null,
+      'attack', 'stop', 'hold', null, null,
       'pause', 'speed', null, null, 'deselect',
     ]);
-    expect(cardHotkeys()[slots.indexOf('stop')]).toBe('S');
-    expect(cardHotkeys()[slots.indexOf('move')]).toBe('Q');
+    const keyOf = (id: string) => cardHotkeys()[slots.indexOf(id)];
+    expect([keyOf('move'), keyOf('attack'), keyOf('stop'), keyOf('hold')]).toEqual(['Q', 'A', 'S', 'D']);
+  });
+
+  it('Atacar arms an attack target; Mantener posición holds the group', () => {
+    const { gm, ctx } = context({ selectedGroup: GROUP });
+    const commands = buildCommands(ctx);
+    const attack = commands[5]!;
+    expect(attack).toMatchObject({ label: 'Atacar', tone: 'danger' });
+    expect(attack.description).toMatch(/enemigo/);
+    attack.run();
+    expect(gm.armAttackTarget).toHaveBeenCalled();
+
+    const hold = commands[7]!;
+    expect(hold.label).toBe('Mantener posición');
+    expect(hold.description).toMatch(/a su alcance/);
+    hold.run();
+    expect(gm.holdSelectedAnts).toHaveBeenCalled();
+    expect(ctx.notify).toHaveBeenCalledWith('2 hormigas mantienen su posición');
+  });
+
+  it('marks Atacar active while it waits for its click, and hints both clicks', () => {
+    const { ctx } = context({ selectedGroup: GROUP, commandTarget: 'attack' });
+    const commands = buildCommands(ctx);
+    expect(commands[5]!.active).toBe(true);
+    expect(commands[0]!.active).toBe(false);
+    expect(commandTargetHint('attack')).toMatch(/^ATACAR: .*en un enemigo.*en el suelo.*Esc cancela$/);
   });
 
   it('Mover explains the right click and arms a target; Detener stops the group', () => {
