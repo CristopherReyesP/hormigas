@@ -4,6 +4,7 @@ import { UNDERGROUND_HEIGHT, UNDERGROUND_WIDTH, WORLD_HEIGHT, WORLD_WIDTH } from
 import { createMinimapCache, drawSurfaceMinimap, drawUndergroundMinimap } from './minimapDraw';
 import { fitMinimap, minimapToTile } from './minimapTransform';
 import { PixelIcon } from './PixelIcon';
+import { tabAlerts, type TabAlert } from '../../game/run/nestAlert';
 
 type LayerName = 'surface' | 'underground';
 
@@ -13,6 +14,16 @@ interface MinimapPanelProps {
   onSwitchLayer: (layer: LayerName) => void;
   /** No NIDO tab: the race has no cave (the Crystal Hive) */
   hideNest?: boolean;
+  /** Hostile units in the nest and wave raiders on the surface: the tabs' red badges */
+  invaders?: { underground: number; surface: number };
+}
+
+const tabClass = (active: boolean, alert: TabAlert | null) =>
+  `minimap-tab${active ? ' minimap-tab--active' : ''}${alert?.pulse ? ' minimap-tab--alert' : ''}`;
+
+function TabBadge({ alert }: { alert: TabAlert | null }) {
+  if (!alert) return null;
+  return <span className="minimap-tab-badge" aria-hidden="true">⚔ {alert.count}</span>;
 }
 
 /** Map box in CSS px (kept in sync with .minimap-box in index.css); phone layouts resize it */
@@ -34,7 +45,8 @@ function loadVisible(): boolean {
  * camera looks at; clicking or dragging on the map moves that camera.
  * M shows or hides the map, as it did for the old nest overlay.
  */
-export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, hideNest = false }: MinimapPanelProps) {
+export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, hideNest = false, invaders }: MinimapPanelProps) {
+  const alerts = tabAlerts(activeLayer, invaders?.underground ?? 0, invaders?.surface ?? 0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [visible, setVisible] = useState(loadVisible);
   /** The map's CSS size: the phone layouts shrink it */
@@ -125,13 +137,14 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, hideNest
             type="button"
             role="tab"
             aria-selected={activeLayer === 'surface'}
-            className={`minimap-tab${activeLayer === 'surface' ? ' minimap-tab--active' : ''}`}
+            className={tabClass(activeLayer === 'surface', alerts.surface)}
             onClick={() => onSwitchLayer('surface')}
             title="Ver la superficie"
-            aria-label="Superficie"
+            aria-label={alerts.surface ? `Superficie: ${alerts.surface.count} enemigos atacando` : 'Superficie'}
           >
             <span className="minimap-tab-icon"><PixelIcon name="sun" /></span>
             <span className="minimap-tab-label">SUPERFICIE</span>
+            <TabBadge alert={alerts.surface} />
           </button>
           {/* The Humans build up and the Crystal Hive grows spires: no nest view */}
           {!hideNest && gameManager?.getRunSetup?.().playerRace !== 'human' && (
@@ -139,13 +152,14 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, hideNest
             type="button"
             role="tab"
             aria-selected={activeLayer === 'underground'}
-            className={`minimap-tab${activeLayer === 'underground' ? ' minimap-tab--active' : ''}`}
+            className={tabClass(activeLayer === 'underground', alerts.underground)}
             onClick={() => onSwitchLayer('underground')}
             title="Ver el hormiguero"
-            aria-label="Nido"
+            aria-label={alerts.underground ? `Nido: ${alerts.underground.count} ${alerts.underground.count === 1 ? 'invasor' : 'invasores'} dentro` : 'Nido'}
           >
             <span className="minimap-tab-icon"><PixelIcon name="den" /></span>
             <span className="minimap-tab-label">NIDO</span>
+            <TabBadge alert={alerts.underground} />
           </button>
           )}
           {/* Compact HUD only: fold the map away to these tabs (M does the same) */}

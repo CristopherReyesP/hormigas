@@ -282,6 +282,17 @@ export class UndergroundInvasionSystem implements System {
     };
   }
 
+  /** Live units of the wave on now on one layer (the view tabs' badges) */
+  invadersOn(layer: 'surface' | 'underground'): number {
+    let n = 0;
+    for (const id of this.invaders) {
+      if (!this.world.hasEntity(id)) continue;
+      const below = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground;
+      if (below === (layer === 'underground')) n++;
+    }
+    return n;
+  }
+
   /** A unit that joined the wave on now (a Prisma Guardián's shard): it counts until it dies */
   addInvader(id: EntityId): void {
     if (!this.world.hasEntity(id)) return;

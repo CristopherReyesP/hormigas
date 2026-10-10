@@ -83,7 +83,8 @@ import { HUMAN_COMPONENT, type HumanBuildingComponent, type HumanUnitComponent }
 import { createHumanBase } from './rival/humanFactories';
 import { humanSelection, type HumanSelection } from './rival/humanInfo';
 import { pickHumanBaseSite } from './rival/humanSite';
-import { FactionId, FactionRegistry, defaultFactions, ownerOf } from './factions/factions';
+import { FactionId, FactionRegistry, defaultFactions, isHostileTo, ownerOf } from './factions/factions';
+import { NestAlertTracker, type NestAlertState, type NestSample } from './run/nestAlert';
 import { HUMAN_GROUP_ROLE, HumanPlayerRun, type HumanPlayerStats } from './races/human/HumanPlayerRun';
 import { drawHumanPlayerOverlay } from './races/human/humanOverlay';
 import type { WaveDirector } from './races/human/HumanWaveSystem';
@@ -389,6 +390,8 @@ export interface GameStats {
   notifications: GameNotification[];
   objective: ObjectiveState | null;
   invasion: InvasionInfo;
+  /** Invaders inside the nest: the view tabs' badges, the alert banner and the "Nido despejado" toast */
+  nestAlert?: NestAlertState;
   gameOver: GameOverStats | null;
   activeEvents: Array<{ icon: string; name: string; remaining: number }>;
   dayPhase: 'day' | 'night';
@@ -428,6 +431,11 @@ export interface BroodSnapshot {
   nurses: number;
   costs: Record<AntRole, number>;
 }
+
+/** An invader this close (tiles) to the queen or an egg is biting it */
+const NEST_BITE_RADIUS = 2;
+/** Seconds of game time between two looks at the nest */
+const NEST_SAMPLE_SECONDS = 0.2;
 
 export class GameManager {
   private readonly runModifiers = new RunModifiers();
@@ -480,6 +488,9 @@ export class GameManager {
   private excavationSystem: ExcavationSystem;
   private objectiveSystem!: ObjectiveSystem;
   private invasionSystem!: UndergroundInvasionSystem;
+  /** Watches the nest for invaders and raises the alerts the player must not miss on the surface */
+  private readonly nestAlert = new NestAlertTracker();
+  private nestAlertClock = 0;
   /** A Humans run (setup.playerRace 'human'): the player's base, its systems and its clicks; null for the Swarm */
   private humanPlayer: HumanPlayerRun | null = null;
   private gameOver: GameOverStats | null = null;
@@ -1143,6 +1154,7 @@ export class GameManager {
     return {
       ghost: this.getPlacementGhost(),
       anchors: this.defenseBuild ? this.defenseSystem.buildAnchors(this.activeLayer) : [],
+      nestAttack: this.activeLayer === 'surface' ? this.nestAlert.getState().nestInvaders : 0,
       scout: next && this.dayNightSystem.getPhase() === 'day'
         ? {
           breach: next.entrance ? { x: next.entrance.x, y: next.entrance.y } : null,
@@ -1433,6 +1445,7 @@ export class GameManager {
       console.error('[GameManager] System update error:', e);
     }
 
+    this.updateNestAlert(dt);
     this.checkGameOver(previousPhase);
     const dayPhase = this.dayNightSystem.getPhase();
     // The dawn mutation pick is the Swarm's: a Human expedition and the Crystal Hive do not mutate
@@ -2460,6 +2473,88 @@ export class GameManager {
     };
   }
 
+  /** Hostile units on one layer: anything inside the nest, the wave's raiders on the surface (roaming wildlife is no attack) */
+  getInvaderCount(layer: 'surface' | 'underground'): number {
+    return layer === 'underground' ? this.nestHostiles().length : this.invasionSystem.invadersOn('surface');
+  }
+
+  /** "Ir al nido": switch to the nest and put the camera on the fight */
+  goToNestFight(): void {
+    if (this.activeLayer !== 'underground') this.enterUnderground();
+    const fight = this.nestAlert.getState().fight ?? this.nestFightCenter(this.nestHostiles());
+    if (fight) this.centerUndergroundOn(fight.x + 0.5, fight.y + 0.5);
+  }
+
+  /** Living hostile units inside the nest, with their positions */
+  private nestHostiles(): PositionComponent[] {
+    const out: PositionComponent[] = [];
+    for (const store of [COMPONENT.BEETLE, COMPONENT.CRICKET, COMPONENT.CRYSTAL_UNIT, HUMAN_COMPONENT.UNIT]) {
+      for (const id of this.world.query(store, COMPONENT.POSITION, COMPONENT.LAYER)) {
+        if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!.layer !== Layer.Underground) continue;
+        const hp = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+        if ((hp && hp.current <= 0) || !isHostileTo(this.world, FactionId.PLAYER, id)) continue;
+        out.push(this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!);
+      }
+    }
+    return out;
+  }
+
+  private nestFightCenter(hostiles: readonly PositionComponent[]): { x: number; y: number } | null {
+    if (hostiles.length === 0) return null;
+    let x = 0;
+    let y = 0;
+    for (const p of hostiles) {
+      x += p.x;
+      y += p.y;
+    }
+    return { x: x / hostiles.length, y: y / hostiles.length };
+  }
+
+  /** What the nest alert sees this tick: who is inside, and whether the queen or the eggs are bitten */
+  private sampleNest(): NestSample {
+    const hostiles = this.nestHostiles();
+    const near = (p: { x: number; y: number }, r: number) => hostiles.some((h) => Math.hypot(h.x - p.x, h.y - p.y) <= r);
+    let queen: NestSample['queen'] = null;
+    const queenId = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.POSITION)[0];
+    if (queenId !== undefined) {
+      const pos = this.world.getComponent<PositionComponent>(queenId, COMPONENT.POSITION)!;
+      const hp = this.world.getComponent<HealthComponent>(queenId, COMPONENT.HEALTH);
+      if (hp) queen = { health: hp.current, max: hp.max, attacked: hostiles.length > 0 && near(pos, NEST_BITE_RADIUS) };
+    }
+    let eggsAttacked = false;
+    if (hostiles.length > 0) {
+      for (const id of this.world.query(COMPONENT.EGG, COMPONENT.POSITION)) {
+        if (near(this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!, NEST_BITE_RADIUS)) {
+          eggsAttacked = true;
+          break;
+        }
+      }
+    }
+    return {
+      invaders: hostiles.length,
+      surfaceInvaders: this.invasionSystem.invadersOn('surface'),
+      fight: this.nestFightCenter(hostiles),
+      queen,
+      eggsAttacked,
+    };
+  }
+
+  /** Feed the nest alert; a new alert sounds the alarm and flashes the screen edge */
+  private updateNestAlert(dt: number): void {
+    // Harnesses that build a bare manager have no invasion system to watch
+    if (!this.invasionSystem || !this.nestAlert || this.humanPlayer || this.crystal) return; // no nest to alert about
+    // A few looks a second is plenty for an alert, and keeps the queries off every tick
+    this.nestAlertClock += dt;
+    if (this.nestAlertClock < NEST_SAMPLE_SECONDS) return;
+    const elapsed = this.nestAlertClock;
+    this.nestAlertClock = 0;
+    const event = this.nestAlert.update(elapsed, this.sampleNest());
+    if (event && event !== 'cleared') {
+      emitAudio({ type: 'nestAlarm' });
+      this.renderSystem.triggerAlarm?.();
+    }
+  }
+
   /** Where the coming or ongoing wave is on one layer — minimap pings */
   getWaveThreats(layer: 'surface' | 'underground'): WaveThreat[] {
     return this.waves().getInfo().threats.filter((t) => t.layer === layer);
@@ -2953,6 +3048,7 @@ export class GameManager {
       notifications: this.getActiveNotifications(),
       objective: this.humanPlayer ? null : this.crystal ? this.crystal.objective() : this.objectiveSystem.getState(),
       invasion: this.waves().getInfo(),
+      nestAlert: this.humanPlayer || this.crystal ? undefined : this.nestAlert.getState(),
       gameOver: this.gameOver,
       activeEvents: this.eventSystem.active.map((e) => ({
         icon: e.definition.icon,

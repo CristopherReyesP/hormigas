@@ -852,6 +852,11 @@ export class RenderSystem {
     computeUndergroundLight(grid, this.ugLightLevel, this.ugLightColor, this.ugLightBright);
   }
 
+  /** Fire the red screen-edge alarm (invaders broke into the nest) */
+  triggerAlarm(): void {
+    this.postProcessor.triggerAlarm();
+  }
+
   invalidateTerrain(): void {
     this.terrainRenderer.invalidate();
     this.foliageOverlay.invalidate();
@@ -1774,11 +1779,13 @@ export class RenderSystem {
       return c && c.state === CricketState.StealingFood;
     });
 
+    const nestAttacked = (this.getWaveOverlay?.()?.nestAttack ?? 0) > 0;
     for (const { id, pos, radius } of nestEntities) {
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
       const nest = this.world.getComponent<NestComponent>(id, COMPONENT.NEST);
       this.drawNest(ctx, x, y, radius, isNestBeingRobbedInterp, nest);
+      if (nestAttacked) this.drawNestUnderAttack(ctx, x, y, radius);
     }
 
     for (const { id, pos } of denEntities) {
@@ -2207,6 +2214,43 @@ export class RenderSystem {
     }
     ctx.globalAlpha = 1;
     ctx.restore();
+  }
+
+  /**
+   * Invaders inside the nest, seen from the surface: the mound throbs red in
+   * stepped pulses and crossed fangs blink over the entrance.
+   */
+  private drawNestUnderAttack(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, radius: number): void {
+    const px = tileX * TILE_SIZE + TILE_SIZE / 2;
+    const py = tileY * TILE_SIZE + TILE_SIZE / 2;
+    const nestR = radius * TILE_SIZE * 1.3;
+    const p = new PixelPainter(ctx, 2);
+    const cx = Math.round(px / 2);
+    const cy = Math.round(py / 2);
+    const rArt = Math.round((nestR * 0.8) / 2);
+
+    // Red wash over the mound, 3 stepped levels (never a smooth fade)
+    const step = Math.floor(((this.animationTime * 1.2) % 1) * 3);
+    ctx.globalAlpha = [0.32, 0.2, 0.1][step];
+    p.ellipse(cx, cy, rArt, Math.round(rArt * 0.6), PAL.nightAlarm);
+    ctx.globalAlpha = ALPHA_STEPS[step];
+    p.ring(cx, cy, rArt + 1 + step * 2, PAL.dangerRed);
+    ctx.globalAlpha = 1;
+
+    // Crossed fangs in a dark plate above the entrance
+    const ix = cx - 5;
+    const iy = Math.round((py - nestR * 1.05) / 2) - 11;
+    const lit = Math.floor(this.animationTime * 3) % 2 === 0;
+    p.rect(ix - 1, iy - 1, 13, 13, '#0e080b');
+    p.outlineRect(ix - 1, iy - 1, 13, 13, lit ? PAL.nightAlarm : PAL.dangerRed);
+    const blade = lit ? '#ffe27a' : '#e8d8dc';
+    p.line(ix + 1, iy + 1, ix + 9, iy + 9, blade);
+    p.line(ix + 9, iy + 1, ix + 1, iy + 9, blade);
+    p.rect(ix, iy + 8, 3, 3, PAL.dangerRed);
+    p.rect(ix + 8, iy + 8, 3, 3, PAL.dangerRed);
+    // A pointer down at the mound
+    p.rect(ix + 4, iy + 12, 3, 1, lit ? PAL.nightAlarm : PAL.dangerRed);
+    p.px(ix + 5, iy + 13, lit ? PAL.nightAlarm : PAL.dangerRed);
   }
 
   private drawBeetle(

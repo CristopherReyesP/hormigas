@@ -9,6 +9,7 @@ import { RacePicker } from './ui/RacePicker';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
 import { CrystalIntroTitle } from './ui/races/crystal/CrystalIntroTitle';
+import { NestAlert } from './ui/NestAlert';
 import { HumanIntroBanner } from './ui/races/human/HumanIntroBanner';
 import { NextWaveCard } from './ui/NextWaveCard';
 import type { GameManager, GameStats } from './game/GameManager';
@@ -106,6 +107,11 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [gameManager]);
 
+  const handleGoToNest = useCallback(() => {
+    gameManagerRef.current?.goToNestFight();
+    refreshStats();
+  }, [refreshStats]);
+
   const handleChooseMutation = useCallback((id: MutationId) => {
     gameManagerRef.current?.chooseMutation(id);
   }, []);
@@ -134,6 +140,10 @@ export default function App() {
       )}
       {/* The Crystal Hive skips the Swarm's meteor intro: a short title instead */}
       {runSetup.playerRace === 'crystal' && !stats.gameOver && <CrystalIntroTitle />}
+      {/* Invaders inside the nest: the banner with "Ir al nido", and the all-clear */}
+      {!stats.introPlaying && stats.nestAlert && (
+        <NestAlert state={stats.nestAlert} activeLayer={stats.activeLayer} onGoToNest={handleGoToNest} />
+      )}
       {/* A Human expedition's landing line (the Swarm opens with the meteor cinematic instead) */}
       {stats.human?.intro && !stats.gameOver && <HumanIntroBanner title={stats.human.intro} />}
       {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
