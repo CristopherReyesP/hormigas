@@ -1,89 +1,94 @@
 # Hormigas
 
-Browser-based ant colony simulation and survival game written in TypeScript, with a custom entity-component-system (ECS) engine rendered on HTML Canvas and a React UI.
+A real-time ant colony simulation that runs in the browser. You run the colony, not the ants: you set priorities, queue new castes and dig the nest, and every ant decides on its own what to do next.
 
-**Play it:** https://cristopherreyesp.github.io/hormigas/
+There is no game engine or game library behind it. The ECS, the fixed-timestep loop, pathfinding and the pixel-art renderer are written from scratch in TypeScript; the only runtime dependencies are `react` and `react-dom`.
 
-## Overview
+**▶ Play it: [cristopherreyesp.github.io/hormigas](https://cristopherreyesp.github.io/hormigas/)** (the in-game UI is in Spanish)
 
-The player manages an ant colony on two layers:
+![The colony on day one: workers gathering leaves around the nest entrance](docs/screenshot.webp)
 
-- **Surface:** ants forage for food along pheromone trails, fight beetles that come from dens, and explore a map covered by fog of war, under a day/night cycle and random events (rain, drought, disease, enemy raids, leaf fall and others).
-- **Underground:** the player digs tunnels and designates chambers (incubation, fungus farm, food storage, throne, defense). The queen lays eggs, nurses raise the brood, porters move food, and defenders guard the nest against invasion waves that strike at night.
+## Quick start
 
-Ants have roles (worker, soldier, scout, nurse, defender), need food, and can starve. The player queues which roles to breed, sets colony priorities, sizes the nest garrison, launches attack waves or sounds a retreat, and buys queen upgrades. The game ends when the queen dies, from starvation or invaders.
+```bash
+npm ci
+npm run dev   # http://localhost:5173/hormigas/
+```
 
-The game runs entirely in the browser: there is no backend and no save system, and the UI text is in Spanish.
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Vite dev server with hot reload |
+| `npm run build` | Type-check (`tsc -b`) and build to `dist/` |
+| `npm test` | Vitest suite |
+| `npm run lint` | ESLint |
+
+## How to play
+
+- **Keep the queen alive.** If she dies, from starvation or from invaders, the colony falls and the game ends.
+- **Feed the colony.** Workers gather leaves, mushrooms and meat from fallen beetles and crickets.
+- **Grow the nest.** Underground, you mark tiles to excavate and assign incubation, fungus farm, food storage and defense post zones.
+- **Survive the night.** A day lasts 150 s and a night 60 s. Invasion waves arm on a timer and strike at nightfall, growing from 1 to 4 beetles.
+- **Steer, don't micromanage.** The Gather, Explore and Defend priorities reweight how every ant scores its options.
+- **Follow the objectives.** Eight goals guide the early game, from hatching your first ant to destroying three enemy dens.
+
+Random events shake things up: rain, drought, disease, raids, leaf fall, resource blooms, panic, and a dead bird that drops a meat feast far from the nest.
+
+### Controls
+
+| Input | Action |
+| --- | --- |
+| Left click | Select |
+| Click the selected nest | Go underground |
+| Right or middle drag | Pan |
+| Mouse wheel | Zoom (0.5×–4×) towards the pointer |
+| `Space` | Pause |
+| `1` `2` `3` | Game speed |
+| `R` / `Home` | Reset the surface camera |
+| `M` | Toggle the underground minimap |
 
 ## Architecture
 
+```mermaid
+flowchart LR
+  UI["React UI<br/>panels and HUD"] -->|commands| GM[GameManager]
+  GM -->|stats every 10 ticks| UI
+  GM --> Loop["GameLoop<br/>fixed 60 Hz"]
+  Loop -->|update| World["ECS World<br/>26 systems"]
+  Loop -->|"render (interpolated)"| Renderer["Canvas 2D<br/>+ SpriteAtlas"]
 ```
+
+| Area | Design |
+| --- | --- |
+| ECS | Numeric entity IDs and one store per component. Queries start from the smallest store, and systems run in priority order. |
+| Game loop | `requestAnimationFrame` feeds an accumulator that steps the simulation at a fixed 60 ticks per second. Rendering interpolates between ticks, and frame time is capped at 250 ms to avoid a spiral of death. |
+| Rendering | Canvas 2D. Every sprite is painted in code and cached on an offscreen canvas, so there are no sprite sheets. |
+| World | Two 32 px tile grids: the surface (120×90) holds terrain and pheromones, the underground (90×60) holds tunnels, chambers and stored food. |
+| Pathfinding | Octile A* with 8 neighbours on the surface; BFS with waypoint simplification underground. |
+| Ant AI | Each ant scores its options by role, weighted by the colony priority. Food and enemy positions are snapshotted once per tick instead of scanned per ant. |
+| React boundary | React owns the canvas and the manager's lifecycle. The simulation pushes stats to React every 10 ticks, so React never re-renders per frame. |
+
+### Project layout
+
+```text
 src/
-├── engine/        Game-agnostic engine
-│   ├── ecs/       World: entities, Map-based component stores, systems ordered by priority
-│   ├── loop/      Fixed-timestep game loop (requestAnimationFrame)
-│   ├── renderer/  Canvas 2D renderer: terrain, fog, post-processing, sprite atlas, pixel-art painter
-│   ├── camera/    Pan and zoom
-│   └── input/     Keyboard and mouse input
-├── simulation/    Tile grids (surface, underground, visibility, walkability) and A* pathfinding
-├── game/          Components, entity factories, systems, random events, GameManager
-├── ui/            React components: HUD, colony and underground panels, build toolbar, minimap, game over screen
-└── shared/        Constants and shared types
-scripts/           Standalone simulation checks, a 450-ant benchmark and sprite previews
+  engine/      ECS, game loop, input, camera and canvas renderer
+  simulation/  tile grids and pathfinding
+  game/        components, entities, systems and global events
+  ui/          React panels, HUD and toolbars
+  shared/      constants and types
+scripts/       headless simulation scenarios and benchmarks
 ```
-
-**How a frame runs**
-
-1. `GameCanvas` (React) creates a `GameManager` bound to the canvas. `GameManager` builds the ECS `World`, registers the systems and starts the `GameLoop`.
-2. The loop accumulates real frame time (scaled by the 1x/2x/3x speed setting) and runs `World.update` in fixed 1/60 s steps, so the simulation does not depend on the display's frame rate. Frame time is capped at 250 ms to avoid a catch-up spiral after a stall.
-3. Rendering happens once per animation frame, interpolating positions between simulation steps.
-4. Every 10 ticks `GameManager` sends a stats snapshot to React through a callback; UI actions (pause, speed, build modes, breeding, upgrades) call `GameManager` methods.
-
-## Tech Stack
-
-- TypeScript ~6.0
-- React ^19.2 (UI only; the game world is drawn on a Canvas 2D context)
-- Vite ^8.0
-- Vitest ^5.0
-- ESLint ^10 with typescript-eslint
-- GitHub Actions + GitHub Pages for deployment
-
-## Key Technical Decisions
-
-- **Custom ECS instead of a game framework.** Entities are numeric IDs, components live in one `Map` per component type, and `World.query` iterates the smallest store to find entities with all requested components. Game behavior is split into systems (ant AI per role, movement, pheromones, combat, hunger, excavation, fog of war and others) that run in priority order.
-- **Fixed timestep with interpolation.** Simulation logic always receives the same `dt`, which keeps behavior consistent across machines and speed settings.
-- **Layered source folders.** `engine/` holds the ECS, loop, rendering, camera and input; `simulation/` holds the grids and pathfinding; `game/` holds the rules. React components render panels and send commands to `GameManager`; the simulation itself runs in the game loop, outside React state.
-- **Procedural pixel art.** Sprites and tiles are drawn in code on offscreen canvases by `PixelPainter` and `SpriteAtlas`, following one palette and fixed shading rules; the game loads no sprite image files.
-- **Throttled work in hot paths.** For example, the pheromone grid is updated every 3 ticks instead of every tick.
-
-## Running Locally
-
-Requirements: Node.js and npm (the deploy workflow uses Node 22).
-
-```bash
-npm install
-npm run dev       # Vite dev server
-npm run build     # type-check (tsc -b) and production build to dist/
-npm run preview   # serve the production build
-npm run lint      # ESLint
-```
-
-No environment variables are used. Vite's `base` is set to `/hormigas/` so assets resolve under the GitHub Pages project path.
 
 ## Testing
 
-```bash
-npm test          # vitest run
-```
-
-The Vitest suite currently has one file, `src/game/systems/MovementSystem.test.ts`, with 4 regression tests for how `MovementSystem` tracks tile occupancy underground.
-
-The `scripts/` folder also contains standalone TypeScript scripts that exercise single systems outside the browser (for example feeding, digging reachability, deadlocks, and a 450-ant performance benchmark). They are not wired into `npm` scripts or CI.
+- `npm test` runs the Vitest suite: regressions for underground movement and tile occupancy.
+- `scripts/` holds about 30 headless scenarios that drive the real simulation without a browser: AI tactics, colony economy, deadlocks, wave timing and lighting. Run one with `npx tsx scripts/test-deadlock.ts`. They print their verdicts and are not wired into CI yet.
+- `scripts/bench-450-ants.ts` runs 450 ants, 12 beetles and 200 food items for 600 ticks and reports the time spent in each system.
 
 ## Deployment
 
-`.github/workflows/deploy.yml` runs on every push to `main` (or manually): it installs dependencies with `npm ci`, runs `npm run build`, and publishes `dist/` to GitHub Pages.
+Every push to `main` builds the game and deploys it to GitHub Pages through `.github/workflows/deploy.yml`. Vite's `base` is set to `/hormigas/` because the site is served from that subpath.
 
-## Project Status
+## Tech stack
 
-Personal project, started in June 2026 and updated through September 2026.
+React 19 · TypeScript 6 · Vite 8 · Vitest
