@@ -109,6 +109,12 @@ const ATTACK_RED = PAL.dangerRed;
 const ATTACK_RED_LIGHT = PAL.meteor[1];
 /** Seconds a move ping stays on the ground */
 const ORDER_PING_SECONDS = 0.7;
+/** A finger order's big marker stays this long */
+const BIG_PING_SECONDS = 1.2;
+/** Its lines from the units fade out over this share of it */
+const BIG_PING_LINE_SHARE = 0.6;
+/** At most this many units get a line: a big group would hide the map */
+const BIG_PING_LINES_MAX = 24;
 /** Seconds the targeted enemy's ellipse flashes red-orange after an attack order */
 const TARGET_FLASH_SECONDS = 0.9;
 /** Up to this many selected ordered ants get a dotted line to their slot; more just mark the slots */
@@ -127,6 +133,14 @@ export interface OrderPing {
   kind: 'move' | 'attack';
   /** Attack on one enemy: the ping follows it and its ellipse flashes */
   targetId?: EntityId;
+  /**
+   * A finger order (phone): a big marker that is hard to miss under a thumb
+   * (a green circle for a move, a red crosshair for an attack), held longer,
+   * with brief lines from `units` to the target.
+   */
+  big?: boolean;
+  /** The ants that took the order, for the big marker's lines */
+  units?: EntityId[];
 }
 
 /** Live player-command feedback the GameManager owns: the drag box and new orders. */
@@ -456,9 +470,15 @@ export class RenderSystem {
    */
   private renderOrderPings(ctx: CanvasRenderingContext2D): void {
     if (this.orderPings.length === 0) return;
-    this.orderPings = this.orderPings.filter((ping) => this.animationTime - ping.born < ORDER_PING_SECONDS);
+    this.orderPings = this.orderPings.filter(
+      (ping) => this.animationTime - ping.born < (ping.big ? BIG_PING_SECONDS : ORDER_PING_SECONDS),
+    );
     const p = new PixelPainter(ctx, 2);
     for (const ping of this.orderPings) {
+      if (ping.big) {
+        this.renderBigPing(ctx, p, ping);
+        continue;
+      }
       const age = (this.animationTime - ping.born) / ORDER_PING_SECONDS;
       if (age > 0.55 && Math.floor(this.animationTime * 16) % 2 === 1) continue; // blink out
       const attack = ping.kind === 'attack';
@@ -486,6 +506,70 @@ export class RenderSystem {
       } else {
         p.hline(cx - 1, cy, 3, light);
         p.vline(cx, cy - 1, 3, light);
+      }
+    }
+  }
+
+  /**
+   * A finger order's marker: brief fading lines from the units to the target,
+   * then a big ring that snaps in and pulses. A move is a green circle with a
+   * center dot; an attack is a red crosshair whose arms reach past the ring.
+   */
+  private renderBigPing(ctx: CanvasRenderingContext2D, p: PixelPainter, ping: OrderPing & { born: number }): void {
+    const age = (this.animationTime - ping.born) / BIG_PING_SECONDS;
+    const attack = ping.kind === 'attack';
+    const dark = attack ? ATTACK_RED : SELECT_GREEN;
+    const light = attack ? ATTACK_RED_LIGHT : SELECT_GREEN_LIGHT;
+    const at = ping.targetId !== undefined ? this.world.getComponent<PositionComponent>(ping.targetId, COMPONENT.POSITION) : undefined;
+    const cx = Math.round(((at?.x ?? ping.x) * TILE_SIZE + TILE_SIZE / 2) / 2);
+    const cy = Math.round(((at?.y ?? ping.y) * TILE_SIZE + TILE_SIZE / 2) / 2);
+
+    if (age < BIG_PING_LINE_SHARE && ping.units) {
+      ctx.save();
+      ctx.globalAlpha = ALPHA_STEPS[age < BIG_PING_LINE_SHARE / 2 ? 0 : 2];
+      for (const id of ping.units.slice(0, BIG_PING_LINES_MAX)) {
+        const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+        if (!pos) continue;
+        const ax = Math.round((pos.x * TILE_SIZE + TILE_SIZE / 2) / 2);
+        const ay = Math.round((pos.y * TILE_SIZE + TILE_SIZE / 2) / 2);
+        p.line(ax, ay, cx, cy, light);
+      }
+      ctx.restore();
+    }
+
+    if (age > 0.75 && Math.floor(this.animationTime * 12) % 2 === 1) return; // blink out
+    // Snap in from wide to the resting size, then breathe a pixel
+    const r = age < 0.2 ? Math.round(30 - (age / 0.2) * 14) : 16 + (Math.floor(this.animationTime * 6) % 2);
+    // A ring on the ground (flattened like the selection ellipses), two art px thick
+    const ry = Math.round(r * 0.55);
+    this.groundRing(p, cx, cy, r, ry, dark, light);
+    if (attack) {
+      // Crosshair: arms from inside the ring to well past it, and an X at the center
+      for (let d = r - 5; d <= r + 6; d++) {
+        p.px(cx + d, cy, light);
+        p.px(cx - d, cy, light);
+      }
+      for (let d = ry - 4; d <= ry + 6; d++) {
+        p.px(cx, cy + d, light);
+        p.px(cx, cy - d, light);
+      }
+      for (let d = -2; d <= 2; d++) {
+        p.px(cx + d, cy + d, dark);
+        p.px(cx + d, cy - d, dark);
+      }
+    } else {
+      this.groundRing(p, cx, cy, Math.max(4, Math.round(r / 2)), Math.max(2, Math.round(ry / 2)), dark, light);
+      p.rect(cx - 1, cy - 1, 3, 3, light);
+    }
+  }
+
+  /** A flattened ring on the ground: the upper half lit, the lower half dark, 2 art px thick. */
+  private groundRing(p: PixelPainter, cx: number, cy: number, rx: number, ry: number, dark: string, light: string): void {
+    for (let iy = -ry - 1; iy <= ry + 1; iy++) {
+      for (let ix = -rx - 1; ix <= rx + 1; ix++) {
+        const outer = (ix / (rx + 0.25)) ** 2 + (iy / (ry + 0.25)) ** 2 <= 1;
+        const inner = (ix / (rx - 1.75)) ** 2 + (iy / Math.max(0.5, ry - 1.75)) ** 2 <= 1;
+        if (outer && !inner) p.px(cx + ix, cy + iy, iy < 0 ? light : dark);
       }
     }
   }

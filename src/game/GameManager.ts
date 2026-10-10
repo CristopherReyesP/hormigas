@@ -34,6 +34,7 @@ import { ControlGroups } from './systems/ControlGroups';
 import {
   dispatchDenAttack,
   findEnemyAt,
+  findStructureAt,
   hasActiveOrder,
   isFreeSoldier,
   isPlayerUnit,
@@ -43,6 +44,17 @@ import {
   soundRetreatHorn,
   stopAnts,
 } from './systems/helpers/playerOrders';
+import {
+  HUMAN_QUICK_SELECT_KINDS,
+  QUICK_SELECT_KINDS,
+  quickSelectIds,
+  quickSelectInfo,
+  sameMembers,
+  type QuickSelectInfo,
+  type QuickSelectKind,
+} from './systems/helpers/quickSelect';
+import { touchPickRadiusTiles } from './systems/helpers/touchPick';
+import { countHumanTypes, countRoles, feedbackTargetOf, type CommandFeedback, type OrderFeedbackKind } from './commandFeedback';
 import { FoodRespawnSystem } from './systems/FoodRespawnSystem';
 import { FogOfWarSystem } from './systems/FogOfWarSystem';
 import { EggIncubationSystem } from './systems/EggIncubationSystem';
@@ -381,6 +393,8 @@ export interface GameStats {
   areaSelect?: boolean;
   /** Bound control groups, by digit */
   controlGroups?: ControlGroupInfo[];
+  /** The phone quick-select bar: ants per caste on the layer in view, and the chip that is the selection */
+  quickSelect?: QuickSelectInfo[];
   notifications: GameNotification[];
   objective: ObjectiveState | null;
   invasion: InvasionInfo;
@@ -505,6 +519,10 @@ export class GameManager {
   private orderPings: OrderPing[] = [];
   /** Ctrl+digit groups of own ants */
   private readonly controlGroups = new ControlGroups();
+  /** A finger tap is being handled: its orders get the big phone marker and count as touch feedback */
+  private touchInput = false;
+  /** HUD listeners for order and long-press feedback (toast, haptics, burst) */
+  private readonly feedbackListeners = new Set<(event: CommandFeedback) => void>();
   /** Nest defenses: placement and the turrets, traps and walls themselves */
   private defenseSystem!: DefenseSystem;
   /** The defense the build tool places, or null */
@@ -854,22 +872,11 @@ export class GameManager {
       else this.commandAt(screenX, screenY);
       return;
     }
+    // A click on the already-selected nest goes down into it
     const tile = this.camera.screenToTile(screenX, screenY);
-    // Check if clicking on already-selected nest → enter underground
-    const currentSelected = this.selectionSystem.getSelectedEntityId();
-    if (currentSelected !== null && !mods.shift && !mods.ctrl) {
-      const nest = this.world.getComponent<NestComponent>(currentSelected, COMPONENT.NEST);
-      if (nest) {
-        const pos = this.world.getComponent<PositionComponent>(currentSelected, COMPONENT.POSITION);
-        if (pos) {
-          const dx = Math.abs(tile.x - Math.round(pos.x));
-          const dy = Math.abs(tile.y - Math.round(pos.y));
-          if (dx <= 2 && dy <= 2) {
-            this.enterUnderground();
-            return;
-          }
-        }
-      }
+    if (!mods.shift && !mods.ctrl && this.tapsSelectedNest(tile)) {
+      this.enterUnderground();
+      return;
     }
     this.clickSelect(screenX, screenY, mods);
   }
@@ -881,6 +888,15 @@ export class GameManager {
    * (select, an armed order's target, or a build tool below).
    */
   private handleTap(screenX: number, screenY: number): void {
+    this.touchInput = true;
+    try {
+      this.tapAt(screenX, screenY);
+    } finally {
+      this.touchInput = false;
+    }
+  }
+
+  private tapAt(screenX: number, screenY: number): void {
     if (this.defenseBuild) {
       // Touch: the first tap shows the ghost there, a second tap on the same tile builds
       const tile = this.screenToBuildTile(screenX, screenY);
@@ -907,14 +923,128 @@ export class GameManager {
       }
       return;
     }
+    if (this.fingerPick(screenX, screenY)) return;
     this.handleClick(screenX, screenY, NO_MODIFIERS);
   }
 
-  /** A finger held on an own ant: it and every ant of its caste on screen (Ctrl+click). */
+  /**
+   * A tap on the surface with no order to give: the own ant nearest the
+   * finger, within a reach that is a fixed size on screen (so a small ant
+   * on a zoomed-out map is still easy to hit). An enemy or a base under
+   * the finger, food or the nest right under it, and a second tap on the
+   * selected nest keep the click behavior. Returns true when it picked.
+   */
+  private fingerPick(screenX: number, screenY: number): boolean {
+    if (this.activeLayer !== 'surface' || this.armedCommand || this.gameOver) return false;
+    const at = this.screenToEntity(screenX, screenY);
+    if (this.enemyAt(at) !== null || findStructureAt(this.world, at) !== null || this.tapsSelectedNest(at)) return false;
+    const reach = touchPickRadiusTiles(this.camera.getZoom(), this.camera.getPixelRatio());
+    const ant = this.selectionSystem.nearestOwnAnt(at.x, at.y, Layer.Surface, reach);
+    if (ant === null) return false;
+    const under = this.selectionSystem.directHitAt(at.x, at.y, Layer.Surface);
+    if (under !== null && under !== ant && !this.world.getComponent(under, COMPONENT.ANT)) return false;
+    this.selectionSystem.selectOnly(ant);
+    this.armedCommand = null;
+    emitAudio(selectionAudio(this.world, [ant]));
+    this.publishStats();
+    return true;
+  }
+
+  /** The nest is the selection and `at` (tile or entity space) is on it: the click or tap that goes down. */
+  private tapsSelectedNest(at: { x: number; y: number }): boolean {
+    const id = this.selectionSystem.getSelectedEntityId();
+    if (id === null || !this.world.getComponent<NestComponent>(id, COMPONENT.NEST)) return false;
+    const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+    if (!pos) return false;
+    return Math.abs(Math.round(at.x) - Math.round(pos.x)) <= 2 && Math.abs(Math.round(at.y) - Math.round(pos.y)) <= 2;
+  }
+
+  /** A finger held on an own ant: it and every ant of its caste on screen (Ctrl+click); the HUD shows what it took. */
   private handleLongPress(screenX: number, screenY: number): void {
     if (this.gameOver) return;
     this.armedCommand = null;
     this.clickSelect(screenX, screenY, { shift: false, ctrl: true });
+    const ants = this.selectionSystem.getSelectedAnts();
+    if (ants.length === 0) return;
+    const pixelRatio = this.activeCamera().getPixelRatio();
+    const humanType = this.world.getComponent<HumanUnitComponent>(ants[0], HUMAN_COMPONENT.UNIT)?.type;
+    const role = humanType ? HUMAN_GROUP_ROLE[humanType] : this.world.getComponent<AntComponent>(ants[0], COMPONENT.ANT)?.role;
+    if (role === undefined) return;
+    this.emitFeedback({ type: 'caste-select', x: screenX, y: screenY, pixelRatio, count: ants.length, role, ...(humanType ? { humanType } : {}) });
+  }
+
+  /** Listen for order and long-press feedback; returns the unsubscribe. */
+  onCommandFeedback(listener: (event: CommandFeedback) => void): () => void {
+    this.feedbackListeners.add(listener);
+    return () => {
+      this.feedbackListeners.delete(listener);
+    };
+  }
+
+  private emitFeedback(event: CommandFeedback): void {
+    for (const listener of this.feedbackListeners) listener(event);
+  }
+
+  private emitOrderFeedback(order: OrderFeedbackKind, ids: readonly EntityId[], targetId: EntityId | null = null): void {
+    this.emitFeedback({
+      type: 'order',
+      order,
+      count: ids.length,
+      byRole: countRoles(this.world, ids),
+      byHuman: countHumanTypes(this.world, ids),
+      target: targetId === null ? null : feedbackTargetOf(this.world, targetId),
+      touch: this.touchInput,
+    });
+  }
+
+  /** Where Volver al nido sends units: the nest, or a Human player's command center */
+  private homePosition(): { x: number; y: number } | null {
+    if (this.humanPlayer) return this.humanPlayer.corePosition();
+    const nest = this.world.query(COMPONENT.NEST, COMPONENT.POSITION)[0];
+    return nest === undefined ? null : this.world.getComponent<PositionComponent>(nest, COMPONENT.POSITION) ?? null;
+  }
+
+  /** The order ping's phone extras: a finger order gets the big marker and lines from its units. */
+  private pingExtras(ids: readonly EntityId[], big = this.touchInput): Pick<OrderPing, 'big' | 'units'> {
+    return big ? { big: true, units: [...ids] } : {};
+  }
+
+  /**
+   * The quick-select bar: every own ant of `kind` on the layer in view,
+   * across the map. When they already are the selection (a second tap on
+   * the chip) the camera centers on them instead. An empty caste changes
+   * nothing.
+   */
+  quickSelect(kind: QuickSelectKind): { selected: number; centered: boolean } {
+    if (this.gameOver) return { selected: 0, centered: false };
+    const layer = this.activeLayerValue();
+    const ids = quickSelectIds(this.world, kind, layer);
+    if (ids.length === 0) return { selected: 0, centered: false };
+    const again = sameMembers(ids, this.selectionSystem.getSelectedAnts());
+    this.selectionSystem.selectAnts(ids, layer);
+    this.armedCommand = null;
+    this.areaSelect = false;
+    if (again) this.centerOnAnts(ids);
+    else emitAudio(selectionAudio(this.world, ids));
+    this.publishStats();
+    return { selected: ids.length, centered: again };
+  }
+
+  /**
+   * Volver al nido (Volver a la base for a Human player): the selected surface
+   * units walk back to the nest entrance, or the command center (a move order there).
+   */
+  returnSelectedToNest(): number {
+    const ants = this.selectedAntsForOrder();
+    const pos = this.homePosition();
+    if (ants.length === 0 || pos === null) return 0;
+    const result = issueMoveOrders(this.world, this.grid, ants, { x: Math.round(pos.x), y: Math.round(pos.y) }, this.transitSystem);
+    if (!result) return 0;
+    this.orderPings.push({ ...result.target, kind: 'move', ...this.pingExtras(result.ordered, true) });
+    emitAudio({ type: 'order', kind: 'move' });
+    this.emitOrderFeedback('rally', result.ordered);
+    this.publishStats();
+    return result.ordered.length;
   }
 
   /** What a one-finger drag does now: paint with a build tool on, a box while Seleccionar área is on, else pan. */
@@ -1659,8 +1789,9 @@ export class GameManager {
     const kind = attack ? OrderKind.AttackMove : OrderKind.Move;
     const result = issueMoveOrders(this.world, this.grid, ants, { x: tileX, y: tileY }, this.transitSystem, kind);
     if (!result) return 0;
-    this.orderPings.push({ ...result.target, kind: attack ? 'attack' : 'move' });
+    this.orderPings.push({ ...result.target, kind: attack ? 'attack' : 'move', ...this.pingExtras(result.ordered) });
     emitAudio({ type: 'order', kind: attack ? 'attack' : 'move' });
+    this.emitOrderFeedback(attack ? 'attack-move' : 'move', result.ordered);
     this.publishStats();
     return result.ordered.length;
   }
@@ -1671,7 +1802,8 @@ export class GameManager {
     if (ants.length === 0) return 0;
     const result = issueAttackOrders(this.world, this.grid, ants, targetId, this.transitSystem);
     if (!result) return 0;
-    this.orderPings.push({ ...result.target, kind: 'attack', targetId });
+    this.orderPings.push({ ...result.target, kind: 'attack', targetId, ...this.pingExtras(result.ordered) });
+    this.emitOrderFeedback('attack', result.ordered, targetId);
     this.publishStats();
     return result.ordered.length;
   }
@@ -2938,6 +3070,12 @@ export class GameManager {
       areaSelect: this.areaSelect,
       defenseBuild: this.defenseBuild,
       controlGroups: this.getControlGroups(),
+      quickSelect: quickSelectInfo(
+        this.world,
+        this.activeLayerValue(),
+        this.selectionSystem.getSelectedAnts(),
+        this.humanPlayer ? HUMAN_QUICK_SELECT_KINDS : QUICK_SELECT_KINDS,
+      ),
       notifications: this.getActiveNotifications(),
       objective: this.humanPlayer ? null : this.objectiveSystem.getState(),
       invasion: this.waves().getInfo(),
@@ -2982,7 +3120,10 @@ export class GameManager {
     if (sent.length > 0 && den) {
       this.orderPings.push({ x: Math.round(den.x), y: Math.round(den.y), kind: 'attack', targetId: targetEntityId });
     }
-    if (sent.length > 0) emitAudio({ type: 'order', kind: 'attack' });
+    if (sent.length > 0) {
+      emitAudio({ type: 'order', kind: 'attack' });
+      this.emitOrderFeedback('attack', sent, targetEntityId);
+    }
     return sent.length;
   }
 }

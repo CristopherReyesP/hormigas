@@ -107,7 +107,22 @@ function areaSelect(ctx: CommandContext): Slot {
   };
 }
 
-/** Mover, Atacar, Detener, Mantener posición; Construir when a builder is selected */
+/** Volver a la base (touch): the selection walks back to the command center */
+function rally(ctx: CommandContext, who: string): CommandDef {
+  return {
+    id: 'rally',
+    label: 'Volver a la base',
+    icon: 'descend',
+    description: `Ordena a ${who} volver al Centro de Mando.`,
+    prominent: true,
+    shortLabel: 'Volver a la base',
+    run: act(ctx, () => {
+      if (ctx.gm.returnSelectedToNest() === 0) ctx.notify('Ninguna unidad elegida puede volver a la base ahora.', 'danger');
+    }),
+  };
+}
+
+/** Mover, Atacar, Detener, Mantener posición; Construir when a builder is selected; Volver a la base on touch */
 function unitPage(ctx: CommandContext, human: HumanPlayerStats): Slot[] {
   const count = human.group?.count ?? 1;
   const who = count === 1 ? 'la unidad seleccionada' : `las ${count} unidades seleccionadas`;
@@ -133,10 +148,12 @@ function unitPage(ctx: CommandContext, human: HumanPlayerStats): Slot[] {
         : `Clic derecho en el suelo para mover a ${who}. Con constructores, clic derecho en un mineral para que lo extraigan.`,
       altKeys: ctx.touch ? 'tocar el suelo' : 'clic derecho en el suelo',
       active: ctx.stats.commandTarget === 'move',
+      prominent: true,
+      shortLabel: 'Mover',
       run: act(ctx, () => armOrCancel('move')),
     },
     build,
-    null,
+    ctx.touch ? rally(ctx, who) : null,
     null,
     null,
     {
@@ -146,6 +163,8 @@ function unitPage(ctx: CommandContext, human: HumanPlayerStats): Slot[] {
       description: `Pulsa Atacar y elige un enemigo, o el suelo para avanzar disparando a todo lo que aparezca en el camino.`,
       altKeys: ctx.touch ? 'tocar un enemigo' : 'clic derecho en un enemigo',
       tone: 'danger',
+      prominent: true,
+      shortLabel: 'Atacar',
       active: ctx.stats.commandTarget === 'attack',
       run: act(ctx, () => armOrCancel('attack')),
     },
