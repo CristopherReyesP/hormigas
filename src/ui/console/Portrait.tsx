@@ -1,11 +1,9 @@
 import { useEffect, useRef } from 'react';
 import type { SelectedEntityInfo } from '../../game/GameManager';
 import { AntRole } from '../../game/components/components';
-import { TILE_SIZE } from '../../shared/constants';
 import { getSpriteAtlas } from '../sharedAtlas';
+import { NEST_PORTRAIT_RADIUS, PORTRAIT_SIZE, portraitPlacement, portraitSprite } from './portraitScale';
 
-/** Portrait canvas size: a 16 art-px ant grid at 4 px per art pixel. */
-export const PORTRAIT_SIZE = 64;
 const FRAME_MS = 160;
 const FACING_UP = -Math.PI / 2;
 
@@ -23,8 +21,10 @@ interface PortraitProps {
 
 /**
  * Animated selection portrait drawn straight from the sprite atlas. Every
- * sprite is scaled so its art pixels land on whole screen pixels (ant 3 → 4,
- * beetle 4 → 4, cricket 6 → 2, den 4 → 3, food 3 → 6), so it stays crisp.
+ * sprite (2 world px per art px) is drawn at the largest whole number of
+ * screen px per art px that fits the 64 px frame, centered on a whole screen
+ * px, so it stays crisp: ant 24 and beetle 28 art px at 2, cricket 48, dens
+ * 40 and nest 40 at 1, food 16 at 4, giant mushroom 32 at 2 (see portraitScale).
  */
 export function Portrait({ kind, role = AntRole.Worker, foodType, carrying = false }: PortraitProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -33,49 +33,39 @@ export function Portrait({ kind, role = AntRole.Worker, foodType, carrying = fal
     const ctx = canvasRef.current?.getContext('2d');
     if (!ctx) return;
     const atlas = getSpriteAtlas();
+    const sprite = portraitSprite(kind, foodType);
+    const { scale, offset, at } = portraitPlacement(sprite);
 
     const draw = (step: number) => {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, PORTRAIT_SIZE, PORTRAIT_SIZE);
       ctx.imageSmoothingEnabled = false;
+      ctx.setTransform(scale, 0, 0, scale, offset, offset);
       // Walk-cycle phase centered in frame (step % 4)
       const phase = ((step % 4) + 0.5) * (Math.PI / 2);
-      const at = (scale: number) => ctx.setTransform(scale, 0, 0, scale, 0, 0);
 
       switch (kind) {
         case 'ant':
-          at(4 / 3); // 48 px atlas frame → 64 px
-          atlas.drawAnt(ctx, 24, 24, FACING_UP, phase, role, carrying);
+          atlas.drawAnt(ctx, at, at, FACING_UP, phase, role, carrying);
           break;
         case 'beetle':
-          at(1);
-          atlas.drawBeetle(ctx, 32, 32, FACING_UP, phase);
+          atlas.drawBeetle(ctx, at, at, FACING_UP, phase);
           break;
         case 'cricket':
-          at(1 / 3);
-          atlas.drawCricket(ctx, 96, 96, FACING_UP, phase);
+          atlas.drawCricket(ctx, at, at, FACING_UP, phase);
           break;
         case 'beetle_den':
-          at(0.75);
-          atlas.drawBeetleDen(ctx, 42.67, 42.67);
+          atlas.drawBeetleDen(ctx, at, at);
           break;
         case 'cricket_den':
-          at(0.75);
-          atlas.drawCricketDen(ctx, 42.67, 42.67);
+          atlas.drawCricketDen(ctx, at, at);
           break;
         case 'nest':
-          // drawNest sizes itself from a radius (sprite = radius × 2.6 tiles); 0.5 keeps 4 → 2 px art pixels
-          at(0.5);
-          atlas.drawNest(ctx, 64, 64, 160 / (TILE_SIZE * 2.6));
+          atlas.drawNest(ctx, at, at, NEST_PORTRAIT_RADIUS);
           break;
         case 'food':
-          if (foodType === 'giant_mushroom') {
-            at(1);
-            atlas.drawGiantMushroom(ctx, 32, 32);
-          } else {
-            at(2);
-            atlas.drawFood(ctx, 16, 16, FOOD_VARIANT[foodType ?? 'leaf'] ?? 0, 4, 0);
-          }
+          if (sprite === 'giantMushroom') atlas.drawGiantMushroom(ctx, at, at);
+          else atlas.drawFood(ctx, at, at, FOOD_VARIANT[foodType ?? 'leaf'] ?? 0, 4, 0);
           break;
       }
     };

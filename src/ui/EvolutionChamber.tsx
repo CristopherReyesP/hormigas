@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getSpriteAtlas } from './sharedAtlas';
+import { crispPlacement } from './console/portraitScale';
 import { AntRole } from '../game/components/components';
+import { SPRITE_GRID } from '../engine/renderer/sprites/spriteScale';
+import { ANT_MARK_IDS, NO_MARKS, marksForRole, type AntMarkId, type AntMarks } from '../engine/renderer/sprites/antMarks';
 import type { MutationOffer, MutationOfferOption } from '../game/run/DawnPick';
 import type { MutationId, MutationTag } from '../game/run/MutationDefinitions';
 
@@ -135,99 +138,51 @@ function StackPips({ stacks, maxStacks }: { stacks: number; maxStacks: number })
 
 // ── Mini ant preview ─────────────────────────────────────────
 
-/** The atlas ant frame is 48 px (16 art px × 3); the preview shows it at 2×. */
-const SPRITE_SIZE = 48;
-const ART_PX = 3;
-const PREVIEW_SCALE = 2;
-const PREVIEW_SIZE = SPRITE_SIZE * PREVIEW_SCALE;
+/** The specimen canvas: the 24-grid atlas ant at 4 screen px per art px. */
+const PREVIEW_SIZE = 96;
+const PREVIEW = crispPlacement(SPRITE_GRID.ant, PREVIEW_SIZE, 'pivot');
 
-const VEIN_DIM = '#5a8a1c';
-const VEIN_GLOW = '#c6ff3d';
-const FLESH = ['#2a0f1f', '#4a1736', '#7a2453', '#b03a72', '#e06a9a'];
-const OUTLINE = '#1a0a12';
-const BONE = '#e8d8dc';
-const MEMBRANE = '#9a8088';
+/** Castes tried, in order, when the card's preferred caste does not wear its mark. */
+const SPECIMEN_CASTES: readonly AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse, AntRole.Defender];
 
-/** One run of art pixels of a mark; `pulse` swaps the color for the glow step. */
-interface MarkRun {
-  pixels: ReadonlyArray<readonly [number, number]>;
-  color: string;
-  pulse?: string;
+/** The card's mark as an atlas mark id (an unknown mark shows a bare ant). */
+function markId(mark: string): AntMarkId | undefined {
+  return ANT_MARK_IDS.find(id => id === mark);
 }
 
 /**
- * Placeholder mark overlays in art-pixel coordinates of the right-facing atlas
- * ant (soldier geometry for Assault/Defense marks, worker otherwise). The full
- * mark layer on the in-game sprites comes in P2.
+ * The specimen of a card: one stack of its mark on a soldier for
+ * Assault/Defense cards and a worker otherwise, or on the first caste that
+ * wears the mark when that one does not (wing stubs are a scout mark).
  */
-const MARKS: Record<string, readonly MarkRun[]> = {
-  chartreuse_jaws: [
-    { pixels: [[14, 6], [14, 7], [14, 9], [14, 10]], color: VEIN_GLOW },
-    { pixels: [[15, 7], [14, 11]], color: VEIN_DIM, pulse: VEIN_GLOW },
-  ],
-  pulsing_vein: [
-    { pixels: [[2, 8], [3, 8], [4, 8], [5, 8], [6, 8], [7, 8], [8, 8], [9, 8], [10, 8]], color: VEIN_DIM, pulse: VEIN_GLOW },
-  ],
-  swollen_pale_gaster: [
-    { pixels: [[2, 5], [3, 5], [4, 5], [5, 5], [2, 11], [3, 11], [4, 11], [5, 11], [0, 7], [0, 8], [0, 9],
-      [1, 6], [1, 10], [6, 6], [6, 10], [7, 7], [7, 9]], color: OUTLINE },
-    { pixels: [[2, 6], [3, 6], [4, 6], [5, 6], [1, 7], [2, 7], [3, 7], [4, 7], [5, 7], [6, 7],
-      [1, 8], [2, 8], [3, 8], [4, 8], [5, 8], [6, 8]], color: BONE },
-    { pixels: [[1, 9], [2, 9], [3, 9], [4, 9], [5, 9], [6, 9], [2, 10], [3, 10], [4, 10], [5, 10]], color: MEMBRANE },
-  ],
-  leg_spurs: [
-    { pixels: [[5, 4], [8, 4], [11, 4], [5, 12], [8, 12], [11, 12]], color: BONE },
-  ],
-  pink_stitches: [
-    { pixels: [[2, 9], [3, 8], [4, 9], [5, 8], [6, 9], [8, 7], [9, 8], [10, 7]], color: FLESH[4] },
-  ],
-  dark_gaster_rings: [
-    { pixels: [[3, 7], [3, 8], [3, 9], [6, 7], [6, 8], [6, 9]], color: FLESH[0] },
-  ],
-  thorax_pustules: [
-    { pixels: [[8, 7], [10, 9]], color: FLESH[3], pulse: FLESH[4] },
-    { pixels: [[9, 5], [7, 11]], color: FLESH[2], pulse: FLESH[4] },
-  ],
-  thick_head_plate: [
-    { pixels: [[9, 7], [9, 9]], color: FLESH[1] },
-    { pixels: [[9, 8], [12, 8]], color: FLESH[3] },
-    { pixels: [[10, 8], [11, 8]], color: FLESH[4] },
-  ],
-  wing_stubs: [
-    { pixels: [[7, 6], [6, 6], [5, 5], [7, 10], [6, 10], [5, 11]], color: BONE },
-    { pixels: [[4, 5], [4, 11]], color: MEMBRANE },
-  ],
-  glowing_antenna_tips: [
-    { pixels: [[15, 4], [15, 5], [15, 11], [15, 12]], color: VEIN_DIM, pulse: VEIN_GLOW },
-  ],
-};
-
-function previewRole(tags: readonly MutationTag[]): AntRole {
-  return tags.includes('Assault') || tags.includes('Defense') ? AntRole.Soldier : AntRole.Worker;
+function specimenOf(tags: readonly MutationTag[], mark: string): { role: AntRole; marks: AntMarks; id?: AntMarkId } {
+  const id = markId(mark);
+  const marks: AntMarks = id ? new Map([[id, 1]]) : NO_MARKS;
+  const preferred = tags.includes('Assault') || tags.includes('Defense') ? AntRole.Soldier : AntRole.Worker;
+  if (!id) return { role: preferred, marks };
+  const role = [preferred, ...SPECIMEN_CASTES].find(caste => marksForRole(marks, caste).size > 0) ?? preferred;
+  return { role, marks, id };
 }
 
-/** Atlas ant walking in place with its mutation mark; static under reduced motion. */
+/** Atlas ant walking in place with its baked mutation mark; static under reduced motion. */
 function AntPreview({ tags, mark }: { tags: readonly MutationTag[]; mark: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // One mark set per card: the atlas indexes its baked sheet by this object
+  const specimen = useMemo(() => specimenOf(tags, mark), [tags, mark]);
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d');
     if (!ctx) return;
-    const role = previewRole(tags);
-    const runs = MARKS[mark] ?? [];
+    const { role, marks } = specimen;
+    const { scale, offset, at } = PREVIEW;
     const draw = (step: number) => {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, PREVIEW_SIZE, PREVIEW_SIZE);
       ctx.imageSmoothingEnabled = false;
-      ctx.setTransform(PREVIEW_SCALE, 0, 0, PREVIEW_SCALE, 0, 0);
+      ctx.setTransform(scale, 0, 0, scale, offset, offset);
       // legPhase centered in frame (step % 4) of the atlas walk cycle
       const legPhase = ((step % 4) + 0.5) * (Math.PI / 2);
-      getSpriteAtlas().drawAnt(ctx, SPRITE_SIZE / 2, SPRITE_SIZE / 2, 0, legPhase, role, false);
-      const glow = Math.floor(step / 3) % 2 === 0;
-      for (const run of runs) {
-        ctx.fillStyle = glow && run.pulse ? run.pulse : run.color;
-        for (const [x, y] of run.pixels) ctx.fillRect(x * ART_PX, y * ART_PX, ART_PX, ART_PX);
-      }
+      getSpriteAtlas().drawAnt(ctx, at, at, 0, legPhase, role, false, false, marks);
     };
 
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -238,9 +193,17 @@ function AntPreview({ tags, mark }: { tags: readonly MutationTag[]; mark: string
     draw(step);
     const timer = window.setInterval(() => draw(++step), 160);
     return () => window.clearInterval(timer);
-  }, [tags, mark]);
+  }, [specimen]);
 
   return (
-    <canvas ref={canvasRef} className="evo-preview" width={PREVIEW_SIZE} height={PREVIEW_SIZE} aria-hidden="true" />
+    <canvas
+      ref={canvasRef}
+      className="evo-preview"
+      width={PREVIEW_SIZE}
+      height={PREVIEW_SIZE}
+      data-mark={specimen.id}
+      data-caste={specimen.role}
+      aria-hidden="true"
+    />
   );
 }

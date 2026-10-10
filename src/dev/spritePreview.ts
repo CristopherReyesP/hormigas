@@ -4,18 +4,20 @@
 import { SpriteAtlas } from '../engine/renderer/SpriteAtlas';
 import { AntRole } from '../game/components/components';
 import { PAL } from '../engine/renderer/pixelart/palette';
+import { ART_PX, SPRITE_GRID } from '../engine/renderer/sprites/spriteScale';
 
 const ROLES: AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse];
 const FRAMES = 4;
-const SPRITE = 48; // ant frame size in px
+const SPRITE = SPRITE_GRID.ant * ART_PX; // ant frame size in px (48)
 const COLS = FRAMES + 1; // 4 walk frames + 1 carrying
 
 const BLOCK_H = 240; // vertical space per role row
 const X1 = 16; // 1× strip left edge
 const X4 = 360; // 4× strip left edge
-const CRICKET = 192; // cricket frame size in px
+const CRICKET = SPRITE_GRID.cricket * ART_PX; // cricket frame size in px (96)
 const CRICKET_BLOCK = CRICKET * 2 + 72; // cricket row: 2× strip + labels
-const W = X4 + COLS * (SPRITE * 4 + 8) + 16;
+const CRICKET_X2 = X1 + FRAMES * (CRICKET + 12) + 32; // 2× strip left edge, right of the 1× strip
+const W = Math.max(X4 + COLS * (SPRITE * 4 + 8), CRICKET_X2 + FRAMES * (CRICKET * 2 + 16)) + 16;
 const H = ROLES.length * BLOCK_H + CRICKET_BLOCK + 56;
 
 const canvas = document.createElement('canvas');
@@ -66,7 +68,7 @@ for (let ri = 0; ri < ROLES.length; ri++) {
   ctx.restore();
 }
 
-// Cricket row — 4 walk frames at 1× and 2× (sprite is already 192 px)
+// Cricket row — 4 walk frames at 1× and 2×
 {
   const top = 40 + ROLES.length * BLOCK_H;
   const cricketPhase = (i: number) => ((i + 0.5) * Math.PI * 2) / 4;
@@ -83,8 +85,8 @@ for (let ri = 0; ri < ROLES.length; ri++) {
   ctx.save();
   ctx.scale(2, 2);
   ctx.imageSmoothingEnabled = false;
-  for (let i = 0; i < 2; i++) {
-    const cx = (X4 + 560 + i * (CRICKET * 2 + 16) + CRICKET) / 2;
+  for (let i = 0; i < 4; i++) {
+    const cx = (CRICKET_X2 + i * (CRICKET * 2 + 16) + CRICKET) / 2;
     atlas.drawCricket(ctx, cx, (top + CRICKET) / 2, 0, cricketPhase(i));
   }
   ctx.restore();
