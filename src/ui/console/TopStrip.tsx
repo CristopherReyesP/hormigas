@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { GameManager, GameStats } from '../../game/GameManager';
 import { PixelIcon } from './PixelIcon';
 import type { IconName } from './pixelIcons';
@@ -38,7 +39,7 @@ function FoodResource({ icon, value, label, active, onSelect }: {
   return (
     <button
       type="button"
-      className={`strip-item strip-food${active ? ' strip-food--active' : ''}`}
+      className={`strip-item strip-food strip-food--${icon}${active ? ' strip-food--active' : ''}`}
       title={title}
       aria-pressed={active}
       onClick={onSelect}
@@ -111,15 +112,20 @@ function WaveStatus({ stats }: { stats: GameStats }) {
   );
 }
 
-/** Thin full-width resource bar: economy left, clock and waves center, time control right. */
+/**
+ * Thin full-width resource bar: economy left, clock and waves center, time
+ * control right. The compact HUD keeps only the key readouts on it and folds
+ * the rest into a drawer that Más datos (strip-more, phones only) opens.
+ */
 export function TopStrip({ stats, gameManager }: TopStripProps) {
   const leaves = Math.max(0, stats.foodStored - stats.mushroomStored - stats.meatStored);
   const night = stats.dayPhase === 'night';
   const eatFirst = gameManager?.getConsumptionPriority();
   const select = (type: FoodType) => (gameManager ? () => gameManager.setConsumptionPriority(type) : undefined);
+  const [open, setOpen] = useState(false);
 
   return (
-    <header className="top-strip">
+    <header className={open ? 'top-strip top-strip--open' : 'top-strip'}>
       <div className="strip-group">
         <FoodResource icon="leaf" value={leaves} label="Hojas" active={eatFirst === 'leaf'} onSelect={select('leaf')} />
         <FoodResource icon="fungus" value={stats.mushroomStored} label="Hongos" active={eatFirst === 'mushroom'} onSelect={select('mushroom')} />
@@ -138,7 +144,7 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
       </div>
 
       <div className="strip-group strip-group--center">
-        <span className={`strip-item ${night ? 'strip-item--night' : 'strip-item--day'}`} title={night ? 'Noche' : 'Día'}>
+        <span className={`strip-item strip-day ${night ? 'strip-item--night' : 'strip-item--day'}`} title={night ? 'Noche' : 'Día'}>
           <PixelIcon name={night ? 'moon' : 'sun'} />
           {night ? 'NOCHE' : 'DÍA'} {stats.dayNumber}
         </span>
@@ -171,6 +177,17 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
         </button>
         <SoundToggle />
       </div>
+      <button
+        type="button"
+        className="strip-more"
+        aria-expanded={open}
+        aria-label="Más datos"
+        title={open ? 'Ocultar los datos de la colonia' : 'Ver todos los datos de la colonia'}
+        onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+        onClick={() => setOpen((o) => !o)}
+      >
+        <PixelIcon name={open ? 'minus' : 'plus'} />
+      </button>
     </header>
   );
 }

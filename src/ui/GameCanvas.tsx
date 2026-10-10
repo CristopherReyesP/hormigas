@@ -3,6 +3,7 @@ import { GameManager } from '../game/GameManager';
 import type { GameStats } from '../game/GameManager';
 import { fitCanvasToWindow, pickDefaultZoom, visibleCanvasRect, type CanvasFit } from './layout/canvasFit';
 import { HUD_FADE_MS, hudInsets, hudLayout, hudScale } from './layout/hudMetrics';
+import { readSafeArea } from './layout/safeArea';
 
 interface GameCanvasProps {
   onStatsUpdate: (stats: GameStats) => void;
@@ -54,11 +55,13 @@ export function GameCanvas({ onStatsUpdate, onGameManager, introPlaying }: GameC
     if (!container) return;
 
     let measured: CanvasFit | null = null;
+    /** Notch and home indicator: the compact HUD's bars grow by them (read on resize, not every fade frame) */
+    let safe = readSafeArea();
     const pushViewport = () => {
       if (!measured) return;
       const scale = hudScale(measured.width, measured.height);
       const layout = hudLayout(measured.width, measured.height);
-      const visible = visibleCanvasRect(measured, hudInsets(hudReveal.current, scale, layout));
+      const visible = visibleCanvasRect(measured, hudInsets(hudReveal.current, scale, layout, safe));
       gameManagerRef.current?.setViewport(visible, pickDefaultZoom(measured.backingWidth, measured.pixelRatio));
     };
     const recompute = () => {
@@ -66,6 +69,7 @@ export function GameCanvas({ onStatsUpdate, onGameManager, introPlaying }: GameC
       const next = fitCanvasToWindow(rect.width, rect.height, window.devicePixelRatio || 1);
       setFit(next);
       measured = next;
+      safe = readSafeArea();
       // The buffer resizes at once (cheap); size-bound render caches rebuild once the size settles
       gameManagerRef.current?.resizeCanvas(next.backingWidth, next.backingHeight, next.pixelRatio);
       pushViewport();

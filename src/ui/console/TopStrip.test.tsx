@@ -67,4 +67,14 @@ describe('top strip', () => {
     expect(html).toMatch(/strip-group--right[\s\S]*strip-sound-toggle/);
     expect(html).toContain('Clic: ');
   });
+
+  it('folds the secondary readouts into a drawer that a tap opens on phones', () => {
+    const html = renderToStaticMarkup(<TopStrip stats={STATS} />);
+    expect(html).toMatch(/<button[^>]*class="strip-more"[^>]*aria-expanded="false"[^>]*aria-label="Más datos"/);
+    // Each readout is tagged, so the compact layout can pick what stays on the thin strip
+    expect(html).toContain('strip-food--leaf');
+    expect(html).toContain('strip-food--fungus');
+    expect(html).toContain('strip-food--meat');
+    expect(html).toContain('strip-day');
+  });
 });

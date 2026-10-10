@@ -126,8 +126,10 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer }: Minima
             className={`minimap-tab${activeLayer === 'surface' ? ' minimap-tab--active' : ''}`}
             onClick={() => onSwitchLayer('surface')}
             title="Ver la superficie"
+            aria-label="Superficie"
           >
-            SUPERFICIE
+            <span className="minimap-tab-icon"><PixelIcon name="sun" /></span>
+            <span className="minimap-tab-label">SUPERFICIE</span>
           </button>
           <button
             type="button"
@@ -136,11 +138,25 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer }: Minima
             className={`minimap-tab${activeLayer === 'underground' ? ' minimap-tab--active' : ''}`}
             onClick={() => onSwitchLayer('underground')}
             title="Ver el hormiguero"
+            aria-label="Nido"
           >
-            NIDO
+            <span className="minimap-tab-icon"><PixelIcon name="den" /></span>
+            <span className="minimap-tab-label">NIDO</span>
+          </button>
+          {/* Compact HUD only: fold the map away to these tabs (M does the same) */}
+          <button
+            type="button"
+            className="minimap-tab minimap-toggle"
+            aria-expanded={visible}
+            aria-label={visible ? 'Ocultar el minimapa' : 'Mostrar el minimapa'}
+            title={visible ? 'Ocultar el minimapa (M)' : 'Mostrar el minimapa (M)'}
+            onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+            onClick={toggle}
+          >
+            <PixelIcon name="map" />
           </button>
         </div>
-        <div className="minimap-box">
+        <div className={visible ? 'minimap-box' : 'minimap-box minimap-box--hidden'}>
           {visible && (
             <button
               type="button"

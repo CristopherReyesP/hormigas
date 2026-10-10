@@ -1730,62 +1730,123 @@ button:focus-visible {
 }
 
 /* ════════════════════════════════════════════════════════════
-   PHONE LAYOUTS — HudLayer adds hud-layer--phone-portrait or
+   COMPACT (PHONE) LAYOUTS — HudLayer adds hud-layer--phone-portrait or
    --phone-landscape when the window cannot hold the 1280×720 console
-   (hudLayout in src/ui/layout/hudMetrics.ts, whose HUD_BARS mirrors
-   --strip-h and --deck-h here), and hud-layer--touch on touch screens.
+   (hudLayout in src/ui/layout/hudMetrics.ts, whose HUD_BARS and
+   COMPACT_* mirror --strip-row, --card-h, --cmd-btn and --info-bar-h
+   here), and hud-layer--touch on touch screens.
+   The map gets most of the screen: a one-row strip with the key
+   readouts (Más datos opens the rest), a command card of icon-only
+   buttons, the info panel folded to a one-line bar, and a small
+   minimap that floats over the map and folds to its tabs. The bars
+   grow by the safe areas (notch, home indicator), as the camera does.
    ════════════════════════════════════════════════════════════ */
 
-.hud-layer--phone-portrait {
-  --strip-h: 52px;
-  --deck-h: 332px;
-}
-
-.hud-layer--phone-landscape {
-  --strip-h: 30px;
-  --deck-h: 112px;
-}
-
-/* Top strip: only what a phone has room for. The castes are in the info panel. */
-.hud-layer--phone .top-strip {
-  gap: 8px;
-  padding: 0 8px;
-}
-
-.hud-layer--phone .strip-group {
-  gap: 8px;
-}
-
-.hud-layer--phone .strip-pop,
-.hud-layer--phone .strip-sep,
-.hud-layer--phone .strip-pantry-label,
-.hud-layer--phone .strip-pantry-incoming,
-.hud-layer--phone .strip-item--event {
+/* Compact-only controls */
+.minimap-tab-icon,
+.minimap-toggle,
+.info-summary,
+.strip-more {
   display: none;
 }
 
-/* Portrait: economy on the first row, clock, waves and time on the second */
-.hud-layer--phone-portrait .top-strip {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: 25px 25px;
-  align-items: center;
-  row-gap: 0;
+.hud-layer--phone {
+  --cmd-btn: 40px;
+  --cmd-gap: 4px;
+  --info-bar-h: 32px;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --strip-h: calc(var(--strip-row) + var(--safe-t));
+  /* Floating panels let the map show through a little */
+  --float-bg: color-mix(in srgb, var(--chrome-panel) 86%, transparent);
 }
 
-.hud-layer--phone-portrait .strip-group:first-child {
-  grid-column: 1 / -1;
-  justify-content: space-between;
+.hud-layer--phone-portrait {
+  --strip-row: 30px;
+  --card-h: 140px;
+  --deck-h: calc(var(--card-h) + var(--info-bar-h) + var(--safe-b));
 }
 
-.hud-layer--phone-portrait .strip-group--center {
+.hud-layer--phone-landscape {
+  --strip-row: 28px;
+  --card-h: 52px;
+  --deck-h: calc(var(--card-h) + var(--safe-b));
+}
+
+/* ── Top strip: one row of key readouts, the rest in a drawer ── */
+.hud-layer--phone .top-strip {
+  justify-content: flex-start;
+  gap: 6px;
+  padding: var(--safe-t) calc(48px + var(--safe-r)) 0 calc(6px + var(--safe-l));
+}
+
+.hud-layer--phone .strip-group {
+  gap: 6px;
+}
+
+.hud-layer--phone .strip-group--center {
+  flex: 1 1 auto;
   justify-content: flex-start;
   overflow: hidden;
 }
 
-/* The wave countdown carries the time on a narrow strip */
-.hud-layer--phone-portrait .strip-phase {
+.hud-layer--phone .strip-more {
+  position: absolute;
+  top: calc(var(--safe-t) + 2px);
+  right: calc(6px + var(--safe-r));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: calc(var(--strip-row) - 4px);
+  padding: 0;
+  color: var(--chrome-text);
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-border);
+  cursor: pointer;
+}
+
+.hud-layer--phone .strip-more[aria-expanded="true"] {
+  border-color: var(--chrome-accent-dim);
+}
+
+/* Closed: the population, sound and events wait in the drawer */
+.hud-layer--phone .top-strip:not(.top-strip--open) :is(
+  .strip-pop, .strip-sep, .strip-pantry-label, .strip-pantry-incoming, .strip-item--event, .strip-sound
+) {
   display: none;
+}
+
+/* Portrait closed: leaves, the pantry and the wave countdown */
+.hud-layer--phone-portrait .top-strip:not(.top-strip--open) :is(
+  .strip-food--fungus, .strip-food--meat, .strip-food-badge, .strip-minerals, .strip-day, .strip-phase, .strip-time
+) {
+  display: none;
+}
+
+/* Open: every readout, wrapped over a few rows that hang over the map */
+.hud-layer--phone .top-strip--open {
+  z-index: 30; /* over the floating minimap */
+  height: auto;
+  min-height: var(--strip-h);
+  flex-wrap: wrap;
+  row-gap: 6px;
+  padding-bottom: 6px;
+  white-space: normal;
+}
+
+.hud-layer--phone .top-strip--open .strip-group {
+  flex: 1 1 100%;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  min-height: calc(var(--strip-row) - 4px);
+}
+
+.hud-layer--phone .top-strip--open .strip-group:first-child {
+  padding-top: 2px;
 }
 
 /* Strip buttons: a finger-sized hit area without growing the strip */
@@ -1796,65 +1857,186 @@ button:focus-visible {
   justify-content: center;
 }
 
-/* The console: portrait stacks minimap + info over a full-width command card */
-.hud-layer--phone-portrait .hive-console {
-  height: var(--deck-h);
-  grid-template-columns: 156px minmax(0, 1fr);
-  grid-template-rows: 150px 160px;
-  grid-template-areas:
-    "map info"
-    "card card";
-  align-items: stretch;
-  gap: 6px;
-  padding: 8px;
-}
-
-.hud-layer--phone-portrait .console-minimap { grid-area: map; height: auto; }
-.hud-layer--phone-portrait .console-info { grid-area: info; height: auto; }
-.hud-layer--phone-portrait .console-card { grid-area: card; height: auto; }
-
-/* Landscape: the desktop row, shorter and narrower */
-.hud-layer--phone-landscape .hive-console {
-  height: 172px;
-  grid-template-columns: 150px minmax(0, 1fr) 262px;
-  gap: 6px;
-  padding: 0 6px 6px;
-}
-
-.hud-layer--phone-landscape .console-minimap,
-.hud-layer--phone-landscape .console-card { height: 166px; }
-.hud-layer--phone-landscape .console-info { height: calc(var(--deck-h) - 6px); }
-
-/* Minimap: the map fills what the tabs leave */
-.hud-layer--phone .console-minimap-inner {
-  padding: 5px 6px;
-}
-
-.hud-layer--phone .minimap-tab {
-  flex: 1 1 auto;
-  height: 30px;
-  padding: 0 4px;
-}
-
-.hud-layer--phone .minimap-box {
-  flex: 1;
-  width: auto;
+/* ── Console: no grid; each plate takes its own place ── */
+.hud-layer--phone .hive-console {
+  inset: 0;
   height: auto;
-  min-height: 0;
+  display: block;
+  padding: 0;
 }
 
-.hud-layer--phone .minimap-canvas {
-  width: 100%;
+.hud-layer--phone .console-deck {
+  height: var(--deck-h);
+}
+
+.hud-layer--phone .console-vein {
+  display: none;
+}
+
+.hud-layer--phone .hive-console > section {
+  position: absolute;
+  height: auto;
+}
+
+/* Command card: icon-only buttons, labels in the long-press tooltip */
+.hud-layer--phone .console-card {
+  left: var(--safe-l);
+  right: var(--safe-r);
+  bottom: var(--safe-b);
+  height: var(--card-h);
+}
+
+.hud-layer--phone .console-card .chrome-plate {
+  --cut: 8px;
+}
+
+.hud-layer--phone .console-card-inner {
+  padding: 4px;
+}
+
+.hud-layer--phone .cmd-grid {
+  gap: var(--cmd-gap);
   height: 100%;
 }
 
-.hud-layer--touch .minimap-center {
-  width: 32px;
-  height: 32px;
+.hud-layer--phone-portrait .cmd-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-rows: repeat(3, var(--cmd-btn));
 }
 
-/* Info panel: one column that scrolls with a finger */
+/* Landscape: one row, as many buttons as the page has */
+.hud-layer--phone-landscape .cmd-grid {
+  grid-template-columns: none;
+  grid-template-rows: var(--cmd-btn);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+
+.hud-layer--phone-landscape .cmd-slot--empty {
+  display: none;
+}
+
+.hud-layer--phone .cmd-slot {
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.hud-layer--phone .cmd-face > svg {
+  width: 24px;
+  height: 24px;
+}
+
+.hud-layer--phone .cmd-face--cost > svg {
+  width: 16px;
+  height: 16px;
+  margin-top: -10px;
+}
+
+.hud-layer--phone .cmd-cost {
+  bottom: 2px;
+}
+
+.hud-layer--phone .cmd-glyph {
+  font-size: 12px;
+}
+
+/* Tooltip: across the screen in portrait, above the card on the right in landscape */
+.hud-layer--phone-portrait .cmd-tooltip {
+  left: 0;
+  right: 0;
+  width: auto;
+  bottom: calc(100% + 6px);
+}
+
+.hud-layer--phone-landscape .cmd-tooltip {
+  width: 300px;
+  bottom: calc(100% + 6px);
+}
+
+/* Info panel: a one-line bar; a tap opens the full panel above it */
+.hud-layer--phone .console-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.hud-layer--phone-portrait .console-info {
+  left: var(--safe-l);
+  right: var(--safe-r);
+  bottom: calc(var(--card-h) + var(--safe-b));
+}
+
+.hud-layer--phone-landscape .console-info {
+  left: calc(6px + var(--safe-l));
+  bottom: calc(var(--deck-h) + 6px);
+  width: min(360px, 46%);
+}
+
+.hud-layer--phone .info-summary {
+  display: flex;
+  gap: 4px;
+  height: var(--info-bar-h);
+  padding: 0 4px;
+}
+
+.hud-layer--phone-landscape .info-summary {
+  padding: 0;
+}
+
+.info-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  font: inherit;
+  color: var(--chrome-text);
+  text-align: left;
+  background: var(--float-bg);
+  border: 2px solid var(--chrome-border);
+  box-shadow: inset 2px 2px 0 var(--chrome-bg);
+  cursor: pointer;
+}
+
+.info-toggle[aria-expanded="true"] {
+  border-color: var(--chrome-accent-dim);
+}
+
+.info-toggle-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-layer--phone .info-summary-close {
+  flex: none;
+  width: 40px;
+  min-width: 40px;
+  height: 100%;
+}
+
+.hud-layer--phone .console-info:not(.console-info--open) > .console-plate {
+  display: none;
+}
+
+.hud-layer--phone .console-info > .console-plate {
+  order: -1;
+  height: auto;
+  margin-bottom: 4px;
+}
+
+.hud-layer--phone .console-info .chrome-plate-inner {
+  background: var(--float-bg);
+}
+
 .hud-layer--phone .console-info-inner {
+  height: auto;
+  max-height: min(50vh, calc(100vh - var(--strip-h) - var(--deck-h) - 60px));
   padding: 8px 10px 6px;
   overflow-y: auto;
   touch-action: pan-y;
@@ -1883,7 +2065,11 @@ button:focus-visible {
 
 .hud-layer--phone .info-name {
   font-size: 8px;
-  padding-right: 36px;
+}
+
+/* The bar carries the deselect button */
+.hud-layer--phone .info-close {
+  display: none;
 }
 
 .hud-layer--phone .group-grid {
@@ -1900,9 +2086,9 @@ button:focus-visible {
   height: 32px;
 }
 
-/* Control group chips: finger-sized */
+/* Control group chips: finger-sized, over the info bar */
 .hud-layer--touch .ctrl-groups {
-  top: -20px;
+  top: -36px;
 }
 
 .hud-layer--touch .ctrl-chip {
@@ -1911,56 +2097,77 @@ button:focus-visible {
   padding: 0 6px;
 }
 
-/* Command card: the grid stretches over the card */
-.hud-layer--phone .console-card-inner {
-  padding: 6px;
+/* Minimap: small, in the top right corner over the map; folds to its tabs */
+.hud-layer--phone .console-minimap {
+  top: calc(var(--strip-h) + 6px);
+  right: calc(6px + var(--safe-r));
+  width: 140px;
 }
 
-.hud-layer--phone .cmd-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  grid-template-rows: repeat(3, minmax(0, 1fr));
+.hud-layer--phone .console-minimap .chrome-plate {
+  --cut: 8px;
+}
+
+.hud-layer--phone .console-minimap-inner {
+  padding: 4px;
+  background: var(--float-bg);
+}
+
+.hud-layer--phone .minimap-tabs {
+  gap: 4px;
+}
+
+.hud-layer--phone .minimap-tab {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0;
+}
+
+.hud-layer--phone .minimap-tab-label {
+  display: none;
+}
+
+.hud-layer--phone .minimap-tab-icon {
+  display: flex;
+}
+
+.hud-layer--phone .minimap-toggle[aria-expanded="false"] {
+  color: var(--chrome-accent);
+  border-color: var(--chrome-accent-dim);
+}
+
+.hud-layer--phone .minimap-box {
+  width: 100%;
+  height: 96px;
+}
+
+.hud-layer--phone .minimap-box--hidden {
+  display: none;
+}
+
+.hud-layer--phone .minimap-canvas {
+  width: 100%;
   height: 100%;
 }
 
-.hud-layer--phone .cmd-slot {
-  width: auto;
-  height: auto;
-  min-width: 0;
-  min-height: 0;
-}
-
-.hud-layer--phone .cmd-face > svg {
-  width: 24px;
-  height: 24px;
-}
-
-.hud-layer--phone .cmd-face--cost > svg {
-  width: 16px;
-  height: 16px;
-}
-
-/* Tooltip: across the screen in portrait, above the card in landscape */
-.hud-layer--phone-portrait .cmd-tooltip {
-  left: 0;
-  width: auto;
-  bottom: calc(100% + 6px);
-}
-
-.hud-layer--phone-landscape .cmd-tooltip {
-  width: 300px;
+.hud-layer--touch .minimap-center {
+  width: 32px;
+  height: 32px;
 }
 
 /* Messages: wrap instead of cutting off, and only the newest two */
 .hud-layer--phone .notif-feed {
-  left: 8px;
-  right: 8px;
+  left: calc(8px + var(--safe-l));
+  right: calc(8px + var(--safe-r));
   bottom: calc(var(--deck-h) + 8px);
 }
 
 .hud-layer--phone-landscape .notif-feed {
-  left: 162px;
-  right: 274px;
-  bottom: calc(var(--deck-h) + 6px);
+  right: calc(8px + var(--safe-r) + 30%);
+  bottom: calc(var(--deck-h) + var(--info-bar-h) + 12px);
 }
 
 .hud-layer--phone .notif-line {
@@ -1974,8 +2181,8 @@ button:focus-visible {
 
 .hud-layer--phone .objective-plate {
   top: calc(var(--strip-h) + 6px);
-  left: 6px;
-  width: 220px;
+  left: calc(6px + var(--safe-l));
+  width: min(200px, calc(100% - 170px));
 }
 
 /* ════════════════════════════════════════════════════════════

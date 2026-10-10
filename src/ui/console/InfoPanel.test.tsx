@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { BroodSnapshot, GameStats } from '../../game/GameManager';
 import { AntRole } from '../../game/components/components';
 import { InfoPanel } from './InfoPanel';
+import { infoSummary } from './infoSummary';
 import type { ColonyDetails } from './useColonyDetails';
 
 const BROOD: BroodSnapshot = {
@@ -142,5 +143,37 @@ describe('the Crystal Hive card', () => {
     expect(html).toContain('1200');
     expect(html).toContain('OLEADA DE ATAQUE');
     expect(html).toContain('Atacar colmena (A)');
+  });
+});
+
+describe('compact info bar (phones)', () => {
+  it('sums the panel up in one line that a tap expands', () => {
+    const html = render();
+    expect(html).toMatch(/<button[^>]*class="info-toggle"[^>]*aria-expanded="false"/);
+    expect(html).toContain('ENJAMBRE · 13 · AMENAZAS · 0');
+  });
+
+  it('sums up a group, a single selection and the nest', () => {
+    const group = {
+      ...STATS,
+      selectedGroup: { count: 7, ordered: 7, byRole: { [AntRole.Worker]: 7 }, units: [] },
+    } as unknown as GameStats;
+    expect(infoSummary(group, DETAILS)).toBe('GRUPO · 7 · 7 EN MARCHA');
+    const leaper = {
+      ...STATS,
+      selectedEntity: { entityId: 9, type: 'cricket', position: { x: 4, y: 4 }, cricketHealth: { current: 300, max: 600 } },
+    } as GameStats;
+    expect(infoSummary(leaper, DETAILS)).toBe('SALTADOR · VIDA 300/600');
+    expect(infoSummary({ ...STATS, activeLayer: 'underground' } as GameStats, DETAILS)).toBe('NIDO · REINA 500/500 · DESPENSA 0');
+    expect(infoSummary({ ...STATS, activeLayer: 'underground' } as GameStats, { ...DETAILS, queen: null })).toBe('NIDO · SIN REINA · DESPENSA 0');
+  });
+
+  it('keeps the deselect button on the bar while something is selected', () => {
+    const html = render({
+      ...STATS,
+      selectedEntity: { entityId: 9, type: 'cricket', position: { x: 4, y: 4 }, cricketHealth: { current: 300, max: 600 } },
+    } as GameStats);
+    expect(html).toMatch(/info-summary[\s\S]*info-summary-close[^>]*aria-label="Quitar selección"/);
+    expect(render()).not.toContain('info-summary-close');
   });
 });
