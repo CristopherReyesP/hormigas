@@ -60,6 +60,12 @@ export class DayNightSystem implements System {
     return Math.max(0, this.phaseTimer);
   }
 
+  /** Seconds until the next day->night flip; during a night that is the next one */
+  getSecondsUntilNightfall(): number {
+    const remaining = this.getPhaseRemaining();
+    return this.phase === 'day' ? remaining : remaining + DAY_DURATION;
+  }
+
   /** 0 → phase just started, 1 → about to flip (drives the night tint ramp) */
   getPhaseProgress(): number {
     const total = this.phase === 'day' ? DAY_DURATION : NIGHT_DURATION;

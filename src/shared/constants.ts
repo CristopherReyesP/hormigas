@@ -111,10 +111,11 @@ export const WORKER_FIGHT_RANGE = 10; // workers fight within 10 tiles of nest
 export const FLANKING_BONUS_PER_ALLY = 0.15;
 export const FLANKING_MAX_ALLIES = 5;
 
-// Underground invasions (survival waves)
-export const INVASION_FIRST_WAVE_TIME = 180; // seconds until first wave
-export const INVASION_WAVE_INTERVAL = 150;   // seconds between waves
-export const INVASION_MAX_INVADERS = 4;      // cap per wave
+// Underground invasions (survival waves). One wave per night, launched at nightfall.
+// Invaders per night, index 0 = night 1: a lone scout, then a rising curve.
+export const INVASION_WAVE_SIZE_BY_NIGHT = [1, 2, 3, 4, 5, 6, 8] as const;
+export const INVASION_BOSS_NIGHT = 7;  // last night of the run (RUN_NIGHTS_TO_WIN): boss slot, not spawned yet
+export const INVASION_ARM_LEAD = 60;   // seconds before nightfall the wave is telegraphed
 export const INVASION_SOLDIER_RESPONDERS = 5; // soldiers auto-deployed to defend
 export const INVASION_CIVILIAN_ATTACK_DAMAGE = 4; // drafted workers/nurses bite at half a soldier's strength
 export const NURSE_DEFENSE_RADIUS = 6; // nurses only fight invaders within this range — they guard, never chase
