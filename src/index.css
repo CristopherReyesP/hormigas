@@ -50,6 +50,9 @@ html, body {
   background: var(--chrome-bg);
   color: var(--chrome-text);
   overflow: hidden;
+  overscroll-behavior: none; /* no pull-to-refresh or rubber band on phones */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
   font-family: var(--font-pixel);
   font-size: 8px;
   line-height: 1.6;
@@ -65,6 +68,7 @@ button {
   font-size: inherit;
   outline: none;
   transition: none; /* state changes are INSTANT */
+  touch-action: manipulation; /* a quick second tap is a tap, not a zoom */
 }
 
 button:focus-visible {
@@ -200,6 +204,7 @@ button:focus-visible {
   display: flex;
   padding: 16px;
   overflow-y: auto;
+  touch-action: pan-y;
   background-color: color-mix(in srgb, var(--chrome-bg) 72%, transparent);
   background-image: repeating-conic-gradient(var(--chrome-bg) 0% 25%, transparent 0% 50%);
   background-size: 4px 4px;
@@ -541,6 +546,12 @@ button:focus-visible {
   inset: 0;
   overflow: hidden;
   background: var(--chrome-bg);
+  /* The game owns every finger: no browser pinch zoom, double-tap zoom, scroll
+     or long-press menu. Scrollable panels opt back in with pan-y. */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* The fixed-resolution canvas covers the window; offsets/size set inline */
@@ -554,6 +565,7 @@ button:focus-visible {
 .game-canvas {
   position: absolute;
   display: block;
+  touch-action: none;
   cursor: crosshair;
   image-rendering: crisp-edges; /* fallback */
   image-rendering: pixelated;
@@ -734,6 +746,21 @@ button:focus-visible {
 .strip-item--day { color: var(--chrome-warn); }
 .strip-item--night { color: #e06a9a; }
 .strip-item--event { color: var(--chrome-info); }
+
+/* Population counts: one run in the strip (a box only so phones can drop them) */
+.strip-pop {
+  display: contents;
+}
+
+/* Pause / speed readout: a button, so a finger can pause */
+.strip-time {
+  font: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 1px 5px;
+  line-height: 1.7;
+  cursor: pointer;
+}
 
 .strip-sep {
   width: 2px;
@@ -992,10 +1019,27 @@ button:focus-visible {
 }
 
 .minimap-box {
+  position: relative;
   width: 174px;
   height: 162px;
   background: #000;
   border: 1px solid var(--chrome-border);
+}
+
+/* Recenter on the nest (the on-screen R): a small button over the map's corner */
+.minimap-center {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 1;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  opacity: 0.85;
 }
 
 .minimap-canvas {
@@ -1522,12 +1566,15 @@ button:focus-visible {
   clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
 }
 
-.cmd-btn:hover:not(.cmd-btn--disabled) {
-  background: var(--chrome-border-light);
-}
+/* A finger leaves :hover stuck on the last button it tapped: hover looks only where a mouse hovers */
+@media (hover: hover) {
+  .cmd-btn:hover:not(.cmd-btn--disabled) {
+    background: var(--chrome-border-light);
+  }
 
-.cmd-btn:hover:not(.cmd-btn--disabled) .cmd-face {
-  background: #301b2b;
+  .cmd-btn:hover:not(.cmd-btn--disabled) .cmd-face {
+    background: #301b2b;
+  }
 }
 
 .cmd-btn--active,
@@ -1680,6 +1727,255 @@ button:focus-visible {
   .notif-line {
     animation: none;
   }
+}
+
+/* ════════════════════════════════════════════════════════════
+   PHONE LAYOUTS — HudLayer adds hud-layer--phone-portrait or
+   --phone-landscape when the window cannot hold the 1280×720 console
+   (hudLayout in src/ui/layout/hudMetrics.ts, whose HUD_BARS mirrors
+   --strip-h and --deck-h here), and hud-layer--touch on touch screens.
+   ════════════════════════════════════════════════════════════ */
+
+.hud-layer--phone-portrait {
+  --strip-h: 52px;
+  --deck-h: 332px;
+}
+
+.hud-layer--phone-landscape {
+  --strip-h: 30px;
+  --deck-h: 112px;
+}
+
+/* Top strip: only what a phone has room for. The castes are in the info panel. */
+.hud-layer--phone .top-strip {
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.hud-layer--phone .strip-group {
+  gap: 8px;
+}
+
+.hud-layer--phone .strip-pop,
+.hud-layer--phone .strip-sep,
+.hud-layer--phone .strip-pantry-label,
+.hud-layer--phone .strip-pantry-incoming,
+.hud-layer--phone .strip-item--event {
+  display: none;
+}
+
+/* Portrait: economy on the first row, clock, waves and time on the second */
+.hud-layer--phone-portrait .top-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 25px 25px;
+  align-items: center;
+  row-gap: 0;
+}
+
+.hud-layer--phone-portrait .strip-group:first-child {
+  grid-column: 1 / -1;
+  justify-content: space-between;
+}
+
+.hud-layer--phone-portrait .strip-group--center {
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+/* The wave countdown carries the time on a narrow strip */
+.hud-layer--phone-portrait .strip-phase {
+  display: none;
+}
+
+/* Strip buttons: a finger-sized hit area without growing the strip */
+.hud-layer--touch .strip-food,
+.hud-layer--touch .strip-time {
+  min-height: 24px;
+  min-width: 40px;
+  justify-content: center;
+}
+
+/* The console: portrait stacks minimap + info over a full-width command card */
+.hud-layer--phone-portrait .hive-console {
+  height: var(--deck-h);
+  grid-template-columns: 156px minmax(0, 1fr);
+  grid-template-rows: 150px 160px;
+  grid-template-areas:
+    "map info"
+    "card card";
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px;
+}
+
+.hud-layer--phone-portrait .console-minimap { grid-area: map; height: auto; }
+.hud-layer--phone-portrait .console-info { grid-area: info; height: auto; }
+.hud-layer--phone-portrait .console-card { grid-area: card; height: auto; }
+
+/* Landscape: the desktop row, shorter and narrower */
+.hud-layer--phone-landscape .hive-console {
+  height: 172px;
+  grid-template-columns: 150px minmax(0, 1fr) 262px;
+  gap: 6px;
+  padding: 0 6px 6px;
+}
+
+.hud-layer--phone-landscape .console-minimap,
+.hud-layer--phone-landscape .console-card { height: 166px; }
+.hud-layer--phone-landscape .console-info { height: calc(var(--deck-h) - 6px); }
+
+/* Minimap: the map fills what the tabs leave */
+.hud-layer--phone .console-minimap-inner {
+  padding: 5px 6px;
+}
+
+.hud-layer--phone .minimap-tab {
+  flex: 1 1 auto;
+  height: 30px;
+  padding: 0 4px;
+}
+
+.hud-layer--phone .minimap-box {
+  flex: 1;
+  width: auto;
+  height: auto;
+  min-height: 0;
+}
+
+.hud-layer--phone .minimap-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.hud-layer--touch .minimap-center {
+  width: 32px;
+  height: 32px;
+}
+
+/* Info panel: one column that scrolls with a finger */
+.hud-layer--phone .console-info-inner {
+  padding: 8px 10px 6px;
+  overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+.hud-layer--phone .info-grid,
+.hud-layer--phone .info-grid--4,
+.hud-layer--phone .info-grid--brood,
+.hud-layer--phone .info-selection,
+.hud-layer--phone .info-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: auto;
+}
+
+.hud-layer--phone .info-col--optional {
+  display: flex;
+}
+
+.hud-layer--phone .info-group,
+.hud-layer--phone .info-selection {
+  align-items: stretch;
+}
+
+.hud-layer--phone .info-name {
+  font-size: 8px;
+  padding-right: 36px;
+}
+
+.hud-layer--phone .group-grid {
+  grid-template-columns: repeat(auto-fill, 30px);
+}
+
+.hud-layer--touch .info-close {
+  min-width: 32px;
+  height: 32px;
+}
+
+.hud-layer--touch .hud-btn {
+  min-width: 36px;
+  height: 32px;
+}
+
+/* Control group chips: finger-sized */
+.hud-layer--touch .ctrl-groups {
+  top: -20px;
+}
+
+.hud-layer--touch .ctrl-chip {
+  height: 32px;
+  min-width: 40px;
+  padding: 0 6px;
+}
+
+/* Command card: the grid stretches over the card */
+.hud-layer--phone .console-card-inner {
+  padding: 6px;
+}
+
+.hud-layer--phone .cmd-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  height: 100%;
+}
+
+.hud-layer--phone .cmd-slot {
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.hud-layer--phone .cmd-face > svg {
+  width: 24px;
+  height: 24px;
+}
+
+.hud-layer--phone .cmd-face--cost > svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Tooltip: across the screen in portrait, above the card in landscape */
+.hud-layer--phone-portrait .cmd-tooltip {
+  left: 0;
+  width: auto;
+  bottom: calc(100% + 6px);
+}
+
+.hud-layer--phone-landscape .cmd-tooltip {
+  width: 300px;
+}
+
+/* Messages: wrap instead of cutting off, and only the newest two */
+.hud-layer--phone .notif-feed {
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--deck-h) + 8px);
+}
+
+.hud-layer--phone-landscape .notif-feed {
+  left: 162px;
+  right: 274px;
+  bottom: calc(var(--deck-h) + 6px);
+}
+
+.hud-layer--phone .notif-line {
+  white-space: normal;
+  padding: 4px 8px 4px 6px;
+}
+
+.hud-layer--phone .notif-line:not(.notif-line--hint):not(.notif-line--refused):nth-last-child(n+3) {
+  display: none;
+}
+
+.hud-layer--phone .objective-plate {
+  top: calc(var(--strip-h) + 6px);
+  left: 6px;
+  width: 220px;
 }
 
 /* ════════════════════════════════════════════════════════════

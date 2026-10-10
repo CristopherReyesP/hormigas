@@ -72,6 +72,28 @@ describe('wheel zoom', () => {
   });
 });
 
+describe('pinch zoom', () => {
+  it('lands on the 0.5 grid and keeps the world point under the fingers in place', () => {
+    const camera = new Camera();
+    camera.zoom = 1;
+    camera.centerOn(2000, 2000);
+    const before = camera.screenToWorld(300, 200);
+    camera.zoomTo(300, 200, 1.8);
+    expect(camera.zoom).toBe(2);
+    const after = camera.screenToWorld(300, 200);
+    expect(after.x).toBeCloseTo(before.x);
+    expect(after.y).toBeCloseTo(before.y);
+  });
+
+  it('does nothing while a cinematic owns the camera', () => {
+    const camera = new Camera();
+    camera.zoom = 1;
+    camera.direct({ x: 2000, y: 2000, zoom: 1 });
+    camera.zoomTo(300, 200, 3);
+    expect(camera.zoom).toBe(1);
+  });
+});
+
 describe('camera viewport', () => {
   const viewport = { x: 0, y: 100, w: 800, h: 300 };
 

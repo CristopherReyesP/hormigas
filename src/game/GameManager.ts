@@ -10,7 +10,7 @@ import type { EntityId } from '../shared/types';
 import { World } from '../engine/ecs/World';
 import { GameLoop } from '../engine/loop/GameLoop';
 import { CanvasRenderer } from '../engine/renderer/CanvasRenderer';
-import { InputManager, type InputModifiers, type KeyPress, type ScreenBox } from '../engine/input/InputManager';
+import { InputManager, type InputModifiers, type KeyPress, type PaintPhase, type ScreenBox, type TouchDragMode } from '../engine/input/InputManager';
 import { Camera, type ViewportRect } from '../engine/camera/Camera';
 import { isTileVisible, type VisibilityReader } from '../engine/renderer/fogVisibility';
 import { TileGrid } from '../simulation/world/TileGrid';
@@ -213,6 +213,19 @@ export interface ControlGroupInfo {
 
 /** Wireframe cells the group panel shows (StarCraft shows 24 too). */
 const GROUP_GRID_MAX = 24;
+
+/** A build tool a finger stroke paints with */
+type PaintTool = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense';
+/** The zone each tool marks; dig marks earth for digging, not a zone */
+const ZONE_OF_TOOL: Record<PaintTool, ChamberType | null> = {
+  dig: null,
+  incubation: ChamberType.Incubation,
+  farm: ChamberType.FungusFarm,
+  storage: ChamberType.FoodStorage,
+  throne: ChamberType.Queen,
+  defense: ChamberType.Defense,
+};
+const NO_MODIFIERS: InputModifiers = { shift: false, ctrl: false };
 const GROUP_ROLE_ORDER: readonly AntRole[] = [AntRole.Soldier, AntRole.Defender, AntRole.Worker, AntRole.Scout, AntRole.Nurse];
 
 export interface GameNotification {
@@ -301,6 +314,8 @@ export interface GameStats {
   selectedGroup?: SelectedGroupInfo | null;
   /** A command card order waiting for its target click: Mover or Atacar was pressed */
   commandTarget?: CommandTarget | null;
+  /** Seleccionar área (touch) is on: the next finger drag draws a selection box */
+  areaSelect?: boolean;
   /** Bound control groups, by digit */
   controlGroups?: ControlGroupInfo[];
   notifications: GameNotification[];
@@ -397,6 +412,10 @@ export class GameManager {
   private storageMode = false;
   private viewportConfigured = false;
   private transitSystem: TransitSystem;
+  /** Seleccionar área is on: the next finger drag draws a selection box instead of panning */
+  private areaSelect = false;
+  /** The finger stroke a build tool is painting, if any */
+  private paintStroke: { tool: PaintTool; erase: boolean; visited: Set<number>; last: { x: number; y: number } } | null = null;
   /** Mover or Atacar was pressed: the next left click on the surface is that order's target */
   private armedCommand: CommandTarget | null = null;
   /** Order pings for the renderer (tile coords), drained every frame */
@@ -417,6 +436,10 @@ export class GameManager {
     this.input = new InputManager(canvas, {
       onSelectBox: (box, mods) => this.selectInScreenBox(box, mods),
       onCommand: (screenX, screenY) => this.commandAt(screenX, screenY),
+      onTap: (screenX, screenY) => this.handleTap(screenX, screenY),
+      onLongPress: (screenX, screenY) => this.handleLongPress(screenX, screenY),
+      onPaint: (screenX, screenY, phase) => this.paintAt(screenX, screenY, phase),
+      touchDragMode: () => this.touchDragMode(),
     });
     this.input.setCamera(this.camera);
 
@@ -541,56 +564,7 @@ export class GameManager {
     this.input.onKeyAction('KeyR', () => this.camera.reset());
 
     // Setup canvas click handler for selection (screen coords → tile coords via camera)
-    this.input.onCanvasClick((screenX, screenY, mods) => {
-      if (this.activeLayer === 'underground') {
-        const tile = this.undergroundCamera.screenToTile(screenX, screenY);
-        if (this.digMode) {
-          this.designateDig(tile.x, tile.y);
-        } else if (this.incubationMode) {
-          this.designateIncubation(tile.x, tile.y);
-        } else if (this.farmMode) {
-          this.designateFarm(tile.x, tile.y);
-        } else if (this.storageMode) {
-          this.designateStorage(tile.x, tile.y);
-        } else if (this.throneMode) {
-          this.designateThrone(tile.x, tile.y);
-        } else if (this.defenseMode) {
-          this.designateDefense(tile.x, tile.y);
-        } else {
-          // Direct command: clicking a throne area (outside build modes) sends
-          // the queen to THAT throne — with several thrones, the player picks.
-          // Clicking the throne she already occupies falls through to selection.
-          if (!this.sendQueenToThroneAt(tile.x, tile.y)) {
-            this.clickSelect(screenX, screenY, mods);
-          }
-        }
-        return;
-      }
-      if (this.armedCommand) {
-        // Mover or Atacar was pressed: this click is the order's target
-        if (this.armedCommand === 'attack') this.attackAt(screenX, screenY);
-        else this.commandAt(screenX, screenY);
-        return;
-      }
-      const tile = this.camera.screenToTile(screenX, screenY);
-      // Check if clicking on already-selected nest → enter underground
-      const currentSelected = this.selectionSystem.getSelectedEntityId();
-      if (currentSelected !== null && !mods.shift && !mods.ctrl) {
-        const nest = this.world.getComponent<NestComponent>(currentSelected, COMPONENT.NEST);
-        if (nest) {
-          const pos = this.world.getComponent<PositionComponent>(currentSelected, COMPONENT.POSITION);
-          if (pos) {
-            const dx = Math.abs(tile.x - Math.round(pos.x));
-            const dy = Math.abs(tile.y - Math.round(pos.y));
-            if (dx <= 2 && dy <= 2) {
-              this.enterUnderground();
-              return;
-            }
-          }
-        }
-      }
-      this.clickSelect(screenX, screenY, mods);
-    });
+    this.input.onCanvasClick((screenX, screenY, mods) => this.handleClick(screenX, screenY, mods));
 
     // Initialize game world
     this.spawnInitialEntities();
@@ -638,6 +612,183 @@ export class GameManager {
     window.addEventListener('keydown', this.skipIntro);
     canvas.addEventListener('pointerdown', this.skipIntro);
     audioRunStarted(() => ({ layer: this.activeLayerValue(), view: this.activeCamera().getViewRectTiles() }));
+  }
+
+  /**
+   * Left click (or a finger tap that is not an order): build tools below,
+   * the armed card order's target above, else select (a second click on the
+   * selected nest goes down into it).
+   */
+  private handleClick(screenX: number, screenY: number, mods: InputModifiers): void {
+    if (this.activeLayer === 'underground') {
+      const tile = this.undergroundCamera.screenToTile(screenX, screenY);
+      if (this.digMode) {
+        this.designateDig(tile.x, tile.y);
+      } else if (this.incubationMode) {
+        this.designateIncubation(tile.x, tile.y);
+      } else if (this.farmMode) {
+        this.designateFarm(tile.x, tile.y);
+      } else if (this.storageMode) {
+        this.designateStorage(tile.x, tile.y);
+      } else if (this.throneMode) {
+        this.designateThrone(tile.x, tile.y);
+      } else if (this.defenseMode) {
+        this.designateDefense(tile.x, tile.y);
+      } else {
+        // Direct command: clicking a throne area (outside build modes) sends
+        // the queen to THAT throne — with several thrones, the player picks.
+        // Clicking the throne she already occupies falls through to selection.
+        if (!this.sendQueenToThroneAt(tile.x, tile.y)) {
+          this.clickSelect(screenX, screenY, mods);
+        }
+      }
+      return;
+    }
+    if (this.armedCommand) {
+      // Mover or Atacar was pressed: this click is the order's target
+      if (this.armedCommand === 'attack') this.attackAt(screenX, screenY);
+      else this.commandAt(screenX, screenY);
+      return;
+    }
+    const tile = this.camera.screenToTile(screenX, screenY);
+    // Check if clicking on already-selected nest → enter underground
+    const currentSelected = this.selectionSystem.getSelectedEntityId();
+    if (currentSelected !== null && !mods.shift && !mods.ctrl) {
+      const nest = this.world.getComponent<NestComponent>(currentSelected, COMPONENT.NEST);
+      if (nest) {
+        const pos = this.world.getComponent<PositionComponent>(currentSelected, COMPONENT.POSITION);
+        if (pos) {
+          const dx = Math.abs(tile.x - Math.round(pos.x));
+          const dy = Math.abs(tile.y - Math.round(pos.y));
+          if (dx <= 2 && dy <= 2) {
+            this.enterUnderground();
+            return;
+          }
+        }
+      }
+    }
+    this.clickSelect(screenX, screenY, mods);
+  }
+
+  /**
+   * A finger tap. With own ants selected on the surface it is the right-click
+   * order: an enemy or a base under the finger is attacked, another own ant
+   * is picked instead, anything else is a move. Otherwise it is a left click
+   * (select, an armed order's target, or a build tool below).
+   */
+  private handleTap(screenX: number, screenY: number): void {
+    if (this.activeLayer === 'surface' && !this.armedCommand && !this.gameOver && this.selectionSystem.getSelectedAnts().length > 0) {
+      const at = this.screenToEntity(screenX, screenY);
+      if (this.enemyAt(at) === null && this.selectionSystem.antAt(at.x, at.y, Layer.Surface) !== null) {
+        this.clickSelect(screenX, screenY, NO_MODIFIERS);
+      } else {
+        this.commandAt(screenX, screenY);
+      }
+      return;
+    }
+    this.handleClick(screenX, screenY, NO_MODIFIERS);
+  }
+
+  /** A finger held on an own ant: it and every ant of its caste on screen (Ctrl+click). */
+  private handleLongPress(screenX: number, screenY: number): void {
+    if (this.gameOver) return;
+    this.armedCommand = null;
+    this.clickSelect(screenX, screenY, { shift: false, ctrl: true });
+  }
+
+  /** What a one-finger drag does now: paint with a build tool on, a box while Seleccionar área is on, else pan. */
+  private touchDragMode(): TouchDragMode {
+    if (this.activeLayer === 'underground' && this.activeBuildMode() !== null) return 'paint';
+    if (this.areaSelect) return 'box';
+    return 'pan';
+  }
+
+  private activeBuildMode(): PaintTool | null {
+    if (this.digMode) return 'dig';
+    if (this.incubationMode) return 'incubation';
+    if (this.farmMode) return 'farm';
+    if (this.storageMode) return 'storage';
+    if (this.throneMode) return 'throne';
+    if (this.defenseMode) return 'defense';
+    return null;
+  }
+
+  /**
+   * A finger stroke with a build tool on. Dig marks every earth tile the
+   * finger crosses. A zone tool paints what the stroke starts on: from a
+   * plain tile it adds the zone, from a zone tile it erases it, so going back
+   * over a tile never flips it twice. Tiles between two reports are filled in.
+   */
+  private paintAt(screenX: number, screenY: number, phase: PaintPhase): void {
+    const tool = this.activeBuildMode();
+    if (this.activeLayer !== 'underground' || tool === null) {
+      this.paintStroke = null;
+      return;
+    }
+    const tile = this.undergroundCamera.screenToTile(screenX, screenY);
+    if (phase === 'start' || !this.paintStroke || this.paintStroke.tool !== tool) {
+      const zone = ZONE_OF_TOOL[tool];
+      const startTile = this.undergroundGrid.getTile(tile.x, tile.y);
+      this.paintStroke = {
+        tool,
+        erase: zone !== null && startTile?.chamberType === zone,
+        visited: new Set(),
+        last: tile,
+      };
+      this.paintTile(tile.x, tile.y);
+    } else {
+      // Walk from the last tile to this one so a quick finger leaves no gaps
+      const { last } = this.paintStroke;
+      const steps = Math.max(Math.abs(tile.x - last.x), Math.abs(tile.y - last.y));
+      for (let i = 1; i <= steps; i++) {
+        this.paintTile(Math.round(last.x + ((tile.x - last.x) * i) / steps), Math.round(last.y + ((tile.y - last.y) * i) / steps));
+      }
+      this.paintStroke.last = tile;
+    }
+    if (phase === 'end') this.paintStroke = null;
+  }
+
+  private paintTile(x: number, y: number): void {
+    const stroke = this.paintStroke;
+    if (!stroke) return;
+    const key = y * UNDERGROUND_WIDTH + x;
+    if (stroke.visited.has(key)) return;
+    stroke.visited.add(key);
+    if (stroke.tool === 'dig') {
+      this.designateDig(x, y);
+      return;
+    }
+    const tile = this.undergroundGrid.getTile(x, y);
+    if (!tile) return;
+    const isZone = tile.chamberType === ZONE_OF_TOOL[stroke.tool];
+    if (isZone !== stroke.erase) return; // already what the stroke paints
+    if (stroke.tool === 'incubation') this.designateIncubation(x, y);
+    else if (stroke.tool === 'farm') this.designateFarm(x, y);
+    else if (stroke.tool === 'storage') this.designateStorage(x, y);
+    else if (stroke.tool === 'throne') this.designateThrone(x, y);
+    else this.designateDefense(x, y);
+  }
+
+  /** Seleccionar área (touch): the next finger drag on the ground draws a selection box. */
+  setAreaSelect(enabled: boolean): void {
+    this.areaSelect = enabled;
+    this.publishStats();
+  }
+
+  isAreaSelect(): boolean {
+    return this.areaSelect;
+  }
+
+  /** Back to the default zoom, centered on the nest of the layer in view (the on-screen R). */
+  recenterCamera(): void {
+    const camera = this.activeCamera();
+    if (camera.isDirected()) return;
+    camera.setZoom(camera.getDefaultZoom());
+    if (this.activeLayer === 'underground') {
+      camera.centerOn(Math.floor(UNDERGROUND_WIDTH / 2) * TILE_SIZE, Math.floor(UNDERGROUND_HEIGHT / 2) * TILE_SIZE);
+    } else {
+      camera.centerOn(Math.floor(WORLD_WIDTH / 2) * TILE_SIZE, Math.floor(WORLD_HEIGHT / 2) * TILE_SIZE);
+    }
   }
 
   /** First key or click after the impact skips to the intro's end state (one-shot). */
@@ -1229,6 +1380,7 @@ export class GameManager {
     this.selectionSystem.selectInBox(area, this.activeLayerValue(), mods.shift);
     emitAudio(selectionAudio(this.world, this.selectionSystem.getSelectedAnts()));
     this.armedCommand = null;
+    this.areaSelect = false; // Seleccionar área is good for one box
     this.publishStats();
   }
 
@@ -2287,6 +2439,7 @@ export class GameManager {
       selectedEntity: this.getSelectedEntity(),
       selectedGroup: this.getSelectedGroup(),
       commandTarget: this.selectionSystem.getSelectedAnts().length > 0 ? this.armedCommand : null,
+      areaSelect: this.areaSelect,
       controlGroups: this.getControlGroups(),
       notifications: this.getActiveNotifications(),
       objective: this.objectiveSystem.getState(),

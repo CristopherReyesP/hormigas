@@ -10,6 +10,7 @@ import { deriveBroodPipeline } from './brood';
 import { BroodReadout } from './BroodReadout';
 import { broodKeys } from './commands';
 import { ControlGroupBar } from './ControlGroupBar';
+import { useTouchUi } from '../layout/touch';
 import {
   ANT_STATE_LABEL, BEETLE_STATE_LABEL, ROLE_BLURB, CARRY_LABEL, CRICKET_STATE_LABEL, FOOD_LABEL, ROLE_ICON, ROLE_LABEL, ROLE_PLURAL, formatClock,
 } from './format';
@@ -280,6 +281,7 @@ function GroupInfo({ group, gameManager, underground }: { group: SelectedGroupIn
   // A full grid gives its last cell to the "+N" counter
   const shown = group.count > GROUP_CELLS ? group.units.slice(0, GROUP_CELLS - 1) : group.units;
   const hidden = group.count - shown.length;
+  const touch = useTouchUi();
   return (
     <div className="info-group">
       <div className="group-grid" aria-label={`${group.count} hormigas seleccionadas`}>
@@ -317,7 +319,9 @@ function GroupInfo({ group, gameManager, underground }: { group: SelectedGroupIn
             ? `${group.ordered} en marcha`
             : underground
               ? 'Por ahora las órdenes solo funcionan en la superficie.'
-              : 'Clic derecho: mover o atacar · S: detener'}
+              : touch
+                ? 'Toca el suelo para mover, o un enemigo para atacar'
+                : 'Clic derecho: mover o atacar · S: detener'}
         </div>
       </div>
       <button type="button" className="hud-btn info-close" title="Quitar selección (Esc)" onClick={() => gameManager?.clearSelection()}>

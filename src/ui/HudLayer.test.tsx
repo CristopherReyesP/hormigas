@@ -43,3 +43,14 @@ describe('HUD scale', () => {
     expect(hud(false, 1).layer).toContain('--hud-scale:1');
   });
 });
+
+describe('HUD layout on phones', () => {
+  it('tags the layer with the compact layout, which the CSS keys on', () => {
+    const portrait = renderToStaticMarkup(<HudLayer introPlaying={false} layout="phone-portrait"><span /></HudLayer>);
+    expect(portrait).toContain('hud-layer--phone hud-layer--phone-portrait');
+    const landscape = renderToStaticMarkup(<HudLayer introPlaying={false} layout="phone-landscape"><span /></HudLayer>);
+    expect(landscape).toContain('hud-layer--phone-landscape');
+    const desktop = renderToStaticMarkup(<HudLayer introPlaying={false} layout="desktop"><span /></HudLayer>);
+    expect(desktop).not.toContain('hud-layer--phone');
+  });
+});

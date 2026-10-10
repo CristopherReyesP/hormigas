@@ -2,7 +2,7 @@ import { useRef, useEffect, useState } from 'react';
 import { GameManager } from '../game/GameManager';
 import type { GameStats } from '../game/GameManager';
 import { fitCanvasToWindow, pickDefaultZoom, visibleCanvasRect, type CanvasFit } from './layout/canvasFit';
-import { HUD_FADE_MS, hudInsets, hudScale } from './layout/hudMetrics';
+import { HUD_FADE_MS, hudInsets, hudLayout, hudScale } from './layout/hudMetrics';
 
 interface GameCanvasProps {
   onStatsUpdate: (stats: GameStats) => void;
@@ -57,7 +57,8 @@ export function GameCanvas({ onStatsUpdate, onGameManager, introPlaying }: GameC
     const pushViewport = () => {
       if (!measured) return;
       const scale = hudScale(measured.width, measured.height);
-      const visible = visibleCanvasRect(measured, hudInsets(hudReveal.current, scale));
+      const layout = hudLayout(measured.width, measured.height);
+      const visible = visibleCanvasRect(measured, hudInsets(hudReveal.current, scale, layout));
       gameManagerRef.current?.setViewport(visible, pickDefaultZoom(measured.backingWidth, measured.pixelRatio));
     };
     const recompute = () => {

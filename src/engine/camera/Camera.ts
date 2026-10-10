@@ -146,6 +146,22 @@ export class Camera {
     this.clamp();
   }
 
+  /**
+   * Pinch zoom: go to `zoom` (snapped to the 0.5 grid) keeping the world
+   * point under (screenX, screenY) where it is. Ignored while a cinematic
+   * owns the camera.
+   */
+  zoomTo(screenX: number, screenY: number, zoom: number): void {
+    if (this.directed) return;
+    const next = snapZoom(zoom, this.limits);
+    if (next === this.zoom) return;
+    const worldBefore = this.screenToWorld(screenX, screenY);
+    this.zoom = next;
+    this.x = worldBefore.x - screenX / this.zoom;
+    this.y = worldBefore.y - screenY / (this.zoom * PERSPECTIVE_Y_SCALE);
+    this.clamp();
+  }
+
   getZoom(): number {
     return this.zoom;
   }

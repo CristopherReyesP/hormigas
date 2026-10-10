@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cardHotkeys, GRID_LETTERS, slotForKey } from './commandCardLayout';
 import type { CommandDef } from './commands';
 import { PixelIcon } from './PixelIcon';
@@ -12,7 +12,12 @@ interface CommandCardProps {
   onEscape: () => void;
   /** A disabled command was pressed: say why (StarCraft's "not enough minerals") */
   onBlocked?: (command: CommandDef) => void;
+  /** Touch screen: a long press shows the tooltip (there is no hover), and the key letters hide */
+  touch?: boolean;
 }
+
+/** A finger held this long on a button shows its tooltip instead of pressing it. */
+export const TOOLTIP_LONG_PRESS_MS = 450;
 
 /** Why a grid letter was swapped for a stand-in — told in the tooltip. */
 const RESERVED_REASON: Record<string, string> = {
@@ -35,10 +40,32 @@ const COST_LABEL: Record<NonNullable<CommandDef['cost']>['resource'], string> = 
 };
 
 /** 3×5 command card with positional hotkeys and a tooltip plate above it. */
-export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked }: CommandCardProps) {
+export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked, touch = false }: CommandCardProps) {
   const hotkeys = useMemo(() => cardHotkeys(), []);
   const [hovered, setHovered] = useState<number | null>(null);
   const [pressed, setPressed] = useState<number | null>(null);
+  /** The last press came from a finger: the mouse events a tap emulates must not open the tooltip */
+  const fingerRef = useRef(false);
+  const holdTimer = useRef<number | null>(null);
+  /** The long press showed the tooltip: the click that ends it must not run the command */
+  const heldRef = useRef(false);
+
+  const clearHold = () => {
+    if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+  };
+
+  // A tooltip opened by a long press closes on the next touch anywhere
+  useEffect(() => {
+    if (hovered === null || !fingerRef.current) return;
+    const close = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse') setHovered(null);
+    };
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [hovered]);
+
+  useEffect(() => () => clearHold(), []);
 
   useEffect(() => {
     if (!hotkeysEnabled) return;
@@ -88,8 +115,26 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked }: C
               <div
                 key={command.id}
                 className="cmd-slot"
-                onMouseEnter={() => setHovered(i)}
-                onMouseLeave={() => setHovered((h) => (h === i ? null : h))}
+                onMouseEnter={() => {
+                  if (!fingerRef.current) setHovered(i);
+                }}
+                onMouseLeave={() => {
+                  if (!fingerRef.current) setHovered((h) => (h === i ? null : h));
+                }}
+                onPointerDown={(e) => {
+                  fingerRef.current = e.pointerType !== 'mouse';
+                  if (!fingerRef.current) return;
+                  heldRef.current = false;
+                  clearHold();
+                  holdTimer.current = window.setTimeout(() => {
+                    heldRef.current = true;
+                    setHovered(i);
+                  }, TOOLTIP_LONG_PRESS_MS);
+                }}
+                onPointerUp={clearHold}
+                onPointerCancel={clearHold}
+                onPointerLeave={clearHold}
+                onContextMenu={(e) => e.preventDefault()}
               >
                 <button
                   type="button"
@@ -100,9 +145,20 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked }: C
                   data-sfx="command"
                   aria-pressed={command.active ?? undefined}
                   onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
-                  onFocus={() => setHovered(i)}
-                  onBlur={() => setHovered((h) => (h === i ? null : h))}
-                  onClick={() => (command.disabled ? onBlocked?.(command) : command.run())}
+                  onFocus={() => {
+                    if (!fingerRef.current) setHovered(i);
+                  }}
+                  onBlur={() => {
+                    if (!fingerRef.current) setHovered((h) => (h === i ? null : h));
+                  }}
+                  onClick={() => {
+                    if (heldRef.current) {
+                      heldRef.current = false; // the long press was for the tooltip
+                      return;
+                    }
+                    if (command.disabled) onBlocked?.(command);
+                    else command.run();
+                  }}
                 >
                   <span className={command.cost ? 'cmd-face cmd-face--cost' : 'cmd-face'}>
                     {command.icon ? (
@@ -110,7 +166,7 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked }: C
                     ) : (
                       <span className="cmd-glyph">{command.glyph}</span>
                     )}
-                    <span className="cmd-key">{key}</span>
+                    {!touch && <span className="cmd-key">{key}</span>}
                     {command.badge && (
                       <span className={command.badgeTone ? `cmd-badge cmd-badge--${command.badgeTone}` : 'cmd-badge'}>{command.badge}</span>
                     )}
@@ -135,7 +191,7 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked }: C
           <div className="chrome-plate-inner cmd-tooltip-inner">
             <div className="cmd-tip-title">
               <span>{tip.label}</span>
-              <span className="cmd-tip-key">[{hotkeys[hovered]}]</span>
+              {!touch && <span className="cmd-tip-key">[{hotkeys[hovered]}]</span>}
             </div>
             {tip.cost && (
               <div className={tip.cost.short ? 'cmd-tip-cost cmd-tip-cost--short' : 'cmd-tip-cost'}>
@@ -145,7 +201,7 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked }: C
             )}
             <div className="cmd-tip-desc">{tip.description}</div>
             {tip.altKeys && <div className="cmd-tip-dim">También: {tip.altKeys}</div>}
-            {hotkeys[hovered] !== GRID_LETTERS[hovered] && (
+            {!touch && hotkeys[hovered] !== GRID_LETTERS[hovered] && (
               <div className="cmd-tip-dim">
                 Tecla {hotkeys[hovered]}: {RESERVED_REASON[GRID_LETTERS[hovered]] ?? 'su letra está reservada'}.
               </div>

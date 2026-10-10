@@ -127,12 +127,14 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
         <PantryStock stored={stats.pantryStored} capacity={stats.pantryCapacity} incoming={stats.entranceFoodStored ?? 0} />
         <MineralStock stored={stats.mineralsStored ?? 0} />
         <span className="strip-sep" aria-hidden="true" />
+        <span className="strip-pop">
         <Resource icon="ant" value={stats.antCount} label="Población total" tone="var(--chrome-text)" />
         <Resource icon="worker" value={stats.workerCount} label="Obreras" />
         <Resource icon="sword" value={stats.soldierCount} label="Soldados" />
         <Resource icon="eye" value={stats.scoutCount} label="Exploradoras" />
         {stats.nurseCount > 0 && <Resource icon="nurse" value={stats.nurseCount} label="Nodrizas" />}
         {stats.defenderCount > 0 && <Resource icon="shield" value={stats.defenderCount} label="Defensoras" />}
+        </span>
       </div>
 
       <div className="strip-group strip-group--center">
@@ -140,7 +142,7 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
           <PixelIcon name={night ? 'moon' : 'sun'} />
           {night ? 'NOCHE' : 'DÍA'} {stats.dayNumber}
         </span>
-        <span className="strip-item" title={night ? 'Tiempo hasta el amanecer' : 'Tiempo hasta el anochecer'}>
+        <span className="strip-item strip-phase" title={night ? 'Tiempo hasta el amanecer' : 'Tiempo hasta el anochecer'}>
           <PixelIcon name="hourglass" />
           {formatClock(stats.phaseRemaining)}
         </span>
@@ -154,17 +156,19 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
             {stripEmoji(event.name).toUpperCase()} {formatClock(event.remaining)}
           </span>
         ))}
-        {stats.paused ? (
-          <span className="strip-item strip-item--danger strip-blink" title="Partida en pausa (Espacio)">
-            <PixelIcon name="pause" />
-            PAUSA
-          </span>
-        ) : (
-          <span className="strip-item strip-item--accent" title="Velocidad (teclas 1-3)">
-            <PixelIcon name="play" />
-            ×{stats.speed}
-          </span>
-        )}
+        <button
+          type="button"
+          className={`strip-item strip-time ${stats.paused ? 'strip-item--danger strip-blink' : 'strip-item--accent'}`}
+          title={stats.paused ? 'Partida en pausa (Espacio). Toca para reanudar.' : 'Velocidad. Toca para pausar (Espacio).'}
+          aria-label={stats.paused ? 'Reanudar la partida' : 'Pausar la partida'}
+          aria-pressed={stats.paused}
+          disabled={!gameManager}
+          onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+          onClick={() => gameManager?.togglePause()}
+        >
+          <PixelIcon name={stats.paused ? 'pause' : 'play'} />
+          {stats.paused ? 'PAUSA' : `×${stats.speed}`}
+        </button>
         <SoundToggle />
       </div>
     </header>

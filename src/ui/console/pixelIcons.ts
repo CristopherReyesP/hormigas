@@ -446,6 +446,39 @@ const ICON_ART = {
     '........',
     '........',
   ],
+  /** Seleccionar área: a dashed selection box around an ant */
+  area: [
+    'aa.aa.aa',
+    'a......a',
+    '...pp...',
+    'a..mm..a',
+    'a..pp..a',
+    '...mm...',
+    'a......a',
+    'aa.aa.aa',
+  ],
+  /** Control group binding: a number tag */
+  group: [
+    'nnnnnn..',
+    'nwwwwwn.',
+    'nwaawwwn',
+    'nwwawwwn',
+    'nwwawwwn',
+    'nwaaawn.',
+    'nnnnnn..',
+    '........',
+  ],
+  /** Recenter the camera: crosshair */
+  target: [
+    '...aa...',
+    '...aa...',
+    '........',
+    'aa.ww.aa',
+    'aa.ww.aa',
+    '........',
+    '...aa...',
+    '...aa...',
+  ],
   map: [
     'nnnnnnnn',
     'nggGGkkn',

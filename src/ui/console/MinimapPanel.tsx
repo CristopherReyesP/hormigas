@@ -13,7 +13,7 @@ interface MinimapPanelProps {
   onSwitchLayer: (layer: LayerName) => void;
 }
 
-/** Map box in CSS px (kept in sync with .minimap-box in index.css) */
+/** Map box in CSS px (kept in sync with .minimap-box in index.css); phone layouts resize it */
 const BOX_W = 172;
 const BOX_H = 160;
 const POLL_MS = 150;
@@ -35,6 +35,22 @@ function loadVisible(): boolean {
 export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer }: MinimapPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [visible, setVisible] = useState(loadVisible);
+  /** The map's CSS size: the phone layouts shrink it */
+  const [box, setBox] = useState({ w: BOX_W, h: BOX_H });
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!visible || !canvas || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const w = Math.round(canvas.clientWidth) || BOX_W;
+      const h = Math.round(canvas.clientHeight) || BOX_H;
+      setBox((current) => (current.w === w && current.h === h ? current : { w, h }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, [visible]);
 
   const toggle = useCallback(() => {
     setVisible((v) => {
@@ -66,8 +82,8 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer }: Minima
     // Backing store at device resolution; markers are sized in whole device pixels
     const dpr = window.devicePixelRatio || 1;
     const unit = Math.max(1, Math.round(dpr));
-    canvas.width = Math.round(BOX_W * dpr);
-    canvas.height = Math.round(BOX_H * dpr);
+    canvas.width = Math.round(box.w * dpr);
+    canvas.height = Math.round(box.h * dpr);
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -81,7 +97,7 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer }: Minima
     draw();
     const interval = window.setInterval(draw, POLL_MS);
     return () => window.clearInterval(interval);
-  }, [gameManager, visible, activeLayer]);
+  }, [gameManager, visible, activeLayer, box]);
 
   const moveCamera = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -125,11 +141,23 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer }: Minima
           </button>
         </div>
         <div className="minimap-box">
+          {visible && (
+            <button
+              type="button"
+              className="minimap-tab minimap-center"
+              onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+              onClick={() => gameManager?.recenterCamera()}
+              title="Centrar la cámara en el nido"
+              aria-label="Centrar la cámara en el nido"
+            >
+              <PixelIcon name="target" size={16} />
+            </button>
+          )}
           {visible ? (
             <canvas
               ref={canvasRef}
               className="minimap-canvas"
-              title="Haz clic o arrastra para mover la cámara · M oculta el mapa"
+              title="Toca, haz clic o arrastra para mover la cámara · M oculta el mapa"
               onPointerDown={(e) => {
                 e.currentTarget.setPointerCapture(e.pointerId);
                 moveCamera(e);
