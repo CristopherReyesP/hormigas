@@ -31,6 +31,8 @@ export type AudioEvent =
   | { type: 'hit'; by: 'ant' | 'wildlife'; at: WorldPoint }
   | { type: 'death'; kind: 'ant' | 'beetle' | 'cricket'; at: WorldPoint }
   | { type: 'wave' }
+  /** Invaders broke into the nest, or are biting the queen or the eggs */
+  | { type: 'nestAlarm' }
   /** Night-wave extras: a boss arrives or falls, an elite blows up, a spine fires, a clean defense */
   | { type: 'waveFx'; kind: 'boss' | 'bossDown' | 'explode' | 'spine' | 'perfect'; at?: WorldPoint }
   | { type: 'phase'; phase: 'day' | 'night' }

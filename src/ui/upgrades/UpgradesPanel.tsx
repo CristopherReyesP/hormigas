@@ -308,7 +308,15 @@ export function UpgradesPanel({ upgrades, report, funds, initialTab, touch, onBu
                       <div className="upg-confirm-name">
                         {selected.name} {selected.cost ? `· nivel ${selected.level + 1}` : '· nivel máximo'}
                       </div>
-                      <div className="upg-confirm-effect">{selected.effects.map(effectText).join(' · ')}</div>
+                      <div className="upg-confirm-effect" aria-label={selected.effects.map(effectText).join(' · ')}>
+                        {selected.effects.map((line, i) => (
+                          <span key={line.label}>
+                            {i > 0 && ' · '}
+                            {line.label}: {line.now}
+                            {line.next !== null && <> <span className="upg-arrow" aria-hidden="true">→</span> {line.next}</>}
+                          </span>
+                        ))}
+                      </div>
                       {(refusal ?? (selected.cost && !selected.affordable ? missingText(selected.missing) : null)) && (
                         <div className="upg-confirm-warn">{refusal ?? missingText(selected.missing)}</div>
                       )}

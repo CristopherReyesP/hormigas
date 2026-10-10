@@ -26,6 +26,7 @@ describe('event → sound mapping', () => {
     [{ type: 'death', kind: 'beetle', at: HERE }, 'deathBeetle'],
     [{ type: 'death', kind: 'cricket', at: HERE }, 'deathCricket'],
     [{ type: 'wave' }, 'waveAlarm'],
+    [{ type: 'nestAlarm' }, 'waveAlarm'],
     [{ type: 'eggQueued' }, 'eggQueued'],
     [{ type: 'eggLaid', at: BELOW }, 'eggLaid'],
     [{ type: 'hatch', caste: 'worker' }, 'hatchChime'],

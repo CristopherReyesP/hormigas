@@ -20,6 +20,7 @@ import {
 import { BROOD_CARE_BOUT, BROOD_CARE_SPEEDUP } from '../../shared/constants';
 import { eggsPerIncubationTile, incubationSpeed } from '../upgrades/upgradeEffects';
 import { eat, isHurt, needsMeal } from './HungerSystem';
+import { tryStartFarmHarvest, updateFarmHarvest, type FarmNav } from './helpers/farmHarvest';
 
 // Sub-tile slots so up to 4 eggs on one incubation tile don't overlap visually
 const EGG_SLOT_OFFSETS = [
@@ -36,9 +37,16 @@ export class NurseAISystem implements System {
   private world: World;
   private grid: UndergroundGrid;
 
+  /** Path helpers handed to the farm harvest job */
+  private readonly farmNav: FarmNav;
+
   constructor(world: World, grid: UndergroundGrid) {
     this.world = world;
     this.grid = grid;
+    this.farmNav = {
+      setPath: (id, pos, x, y) => this.setPath(id, pos, x, y),
+      clearPath: (id) => this.clearPath(id),
+    };
   }
 
   update(dt: number): void {
@@ -75,6 +83,9 @@ export class NurseAISystem implements System {
           break;
         case AntState.Eating:
           this.handleEatingAtStorage(id, ant, pos, dt);
+          break;
+        case AntState.FarmHarvesting:
+          updateFarmHarvest(this.world, this.grid, id, ant, pos, dt, this.farmNav);
           break;
       }
     }
@@ -221,6 +232,10 @@ export class NurseAISystem implements System {
         }
       }
     }
+
+    // Priority 4b: Harvest the fungus farm — a ripe tile gets picked and carried
+    // to the pantry, so the player sees the farm being worked
+    if (tryStartFarmHarvest(this.world, this.grid, id, ant, pos, this.farmNav)) return;
 
     // Priority 5: Brood care — a nurse with nothing else to do attends a growing
     // larva so it hatches sooner. Without this, brood speed was fixed by timers

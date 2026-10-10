@@ -612,3 +612,9 @@
 .info-bonus--down {
   color: var(--chrome-danger);
 }
+
+/* Phones: the message feed rides above the MEJORAS button instead of under it */
+.hud-layer--phone .hive-console:has(.upg-launch) ~ .notif-feed,
+.hud-layer--phone:has(.upg-launch) .notif-feed {
+  bottom: calc(var(--deck-h) + 50px);
+}
