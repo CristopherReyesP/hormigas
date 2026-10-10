@@ -52,6 +52,8 @@ export interface WaveDirector extends System {
   getGarrison(): number;
   /** A unit that joined the wave on now (a Prisma Guardián's shard) */
   addInvader(id: EntityId): void;
+  /** Pay a reward (a night milestone): minerals to the bank, the food share as the race keeps it; returns what was paid */
+  pay(reward: WaveReward): WaveReward;
 }
 
 /** The day/night clock the waves read (DayNightSystem, or a test clock). */
@@ -362,9 +364,10 @@ export class HumanWaveSystem implements WaveDirector {
   }
 
   /** Minerals to the bank; the food share becomes rations */
-  private pay(reward: WaveReward): void {
+  pay(reward: WaveReward): WaveReward {
     this.world.minerals.deposit(reward.minerals);
     this.onFood(reward.food);
+    return { minerals: reward.minerals, food: reward.food };
   }
 
   private payClear(): void {

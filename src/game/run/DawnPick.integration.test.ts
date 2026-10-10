@@ -111,23 +111,17 @@ describe('dawn mutation pick', () => {
     expect(game.getStats()).toMatchObject({ mutationOffer: null, paused: false, speed: 1 });
   });
 
-  it('offers on every dawn of days 2-7 and wins at the dawn of day 8 without an offer', () => {
+  it('offers on every dawn past day 7 too: the endless run never stops at day 8', () => {
     const { game } = manager();
-    for (let day = 2; day <= 7; day++) {
+    for (let day = 2; day <= 10; day++) {
       reachNextDawn(game);
+      expect(game.getStats().gameOver).toBeNull();
       expect(game.getStats().mutationOffer?.dayNumber).toBe(day);
       press('Digit1');
       game.confirmMutation();
       expect(game.getStats().mutationOffer).toBeNull();
     }
-    reachNextDawn(game);
-    const stats = game.getStats();
-    expect(stats.mutationOffer).toBeNull();
-    expect(stats.gameOver?.outcome).toBe('victory');
-    const picks = game.getAppliedMutations();
-    expect(picks).toHaveLength(6);
-    expect(stats.gameOver?.build.reduce((sum, entry) => sum + entry.stacks, 0)).toBe(6);
-    expect(stats.gameOver?.build.map(entry => entry.id)).toEqual([...new Set(picks)]);
+    expect(game.getAppliedMutations()).toHaveLength(9);
   });
 
   it('does not offer once the run is lost', () => {

@@ -619,6 +619,28 @@ button:focus-visible {
   animation: run-banner-in 480ms steps(6) both;
 }
 
+.milestone-banner {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  width: min(560px, calc(100% - 32px));
+  transform: translateX(-50%);
+  z-index: 30;
+  text-align: center;
+  pointer-events: none;
+}
+
+.milestone-reward {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 6px 12px;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  color: var(--chrome-text);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-accent);
+}
+
 @keyframes run-banner-in {
   0% { transform: scaleX(0); }
   100% { transform: none; }
@@ -981,6 +1003,14 @@ button:focus-visible {
 
 .objective-progress {
   text-align: right;
+}
+
+/* The endless run's goal, above the current objective */
+.objective-goal {
+  line-height: 1.7;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--chrome-border);
 }
 
 /* ── Message feed above the console ────────────────────────── */

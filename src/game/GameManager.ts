@@ -69,7 +69,9 @@ import { FungusFarmSystem } from './systems/FungusFarmSystem';
 import { farmGrowthProgress, farmTileStatusLabel, isFarmTileReady } from './render/fungusGrowth';
 import { UndergroundHealingSystem } from './systems/UndergroundHealingSystem';
 import { resolveRunOutcome, type RunOutcome } from './run/RunOutcome';
-import { DayNightSystem, type DayPhase } from './systems/DayNightSystem';
+import { nightMilestone } from './run/nightMilestones';
+import { loadBestNight, recordNight } from './run/nightRecord';
+import { DayNightSystem } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
 import { IntroDirector } from './render/IntroDirector';
 import { IntroClock, introRivalLine, introVariantFor } from './render/introTimeline';
@@ -320,7 +322,27 @@ export interface GameOverStats {
   rivalCoreDestroyed?: 'crystal' | 'human';
   /** The race the player played, when it is not the Swarm (the end screen speaks for it) */
   playerRace?: RaceId;
+  /** Nights the colony lived through (the night on now does not count) */
+  nightsSurvived: number;
+  /** The local record, this run included */
+  bestNight: number;
+  /** This run beat the record the browser had when it started */
+  newRecord: boolean;
 }
+
+/** A night milestone of the endless run, while its banner is up */
+export interface MilestoneInfo {
+  night: number;
+  title: string;
+  /** What it paid */
+  minerals: number;
+  food: number;
+  /** What the food share is called: the Swarm's pantry food, or a Human expedition's rations */
+  foodUnit: 'comida' | 'raciones';
+}
+
+/** Game seconds the milestone banner stays up */
+const MILESTONE_BANNER_SECONDS = 8;
 
 /** One dot on the underground minimap */
 export interface MinimapEntity {
@@ -402,6 +424,8 @@ export interface GameStats {
   /** Invaders inside the nest: the view tabs' badges, the alert banner and the "Nido despejado" toast */
   nestAlert?: NestAlertState;
   gameOver: GameOverStats | null;
+  /** The night milestone just reached (endless run), while its banner is up */
+  milestone?: MilestoneInfo | null;
   activeEvents: Array<{ icon: string; name: string; remaining: number }>;
   dayPhase: 'day' | 'night';
   dayNumber: number;
@@ -460,7 +484,7 @@ export class GameManager {
    * minimap marks it, and the Crystal Hive rises from it (P5).
    */
   private readonly craterSite: TilePos;
-  /** The rival's core (the Crystal Hive, or the Human command center); destroying it wins the run */
+  /** The rival's core (the Crystal Hive, or the Human command center); destroying it is a victory (the run may go on) */
   private rivalCoreId: EntityId | null = null;
   /** The player's race and the rival picked before the run */
   private readonly runSetup: RunSetup;
@@ -502,6 +526,10 @@ export class GameManager {
   /** A Humans run (setup.playerRace 'human'): the player's base, its systems and its clicks; null for the Swarm */
   private humanPlayer: HumanPlayerRun | null = null;
   private gameOver: GameOverStats | null = null;
+  /** The milestone banner up now and the game seconds it has left */
+  private milestone: { info: MilestoneInfo; remaining: number } | null = null;
+  /** The local record when this run started, to tell a new record */
+  private runStartBest = loadBestNight();
   private upgradeLevels: Record<UpgradeId, number> = { carry: 0, damage: 0, storage: 0, dig: 0, porters: 0, heal: 0 };
   private fungusFarmSystem!: FungusFarmSystem;
   private dayNightSystem!: DayNightSystem;
@@ -1496,8 +1524,10 @@ export class GameManager {
     }
 
     this.updateNestAlert(dt);
-    this.checkGameOver(previousPhase);
+    this.checkGameOver();
     const dayPhase = this.dayNightSystem.getPhase();
+    if (this.milestone && (this.milestone.remaining -= dt) <= 0) this.milestone = null;
+    if (!this.gameOver && previousPhase === 'night' && dayPhase === 'day') this.celebrateDawn();
     // The dawn mutation pick is the Swarm's: a Human expedition does not mutate
     if (!this.humanPlayer && shouldOfferMutation(previousPhase, dayPhase, this.dayNightSystem.getDayNumber(), this.gameOver !== null)) {
       this.openMutationOffer();
@@ -1515,8 +1545,56 @@ export class GameManager {
     }
   }
 
-  /** Queen death takes precedence over surviving the final night. */
-  private checkGameOver(previousPhase: DayPhase): void {
+  /** Nights the colony has lived through: the night on now does not count yet */
+  private nightsSurvived(): number {
+    return Math.max(0, this.dayNightSystem.getDayNumber() - 1);
+  }
+
+  /**
+   * A night survived. The run is endless: the record moves on and some dawns
+   * are milestones (night 7, then every 5) that pay a reward and celebrate.
+   */
+  private celebrateDawn(): void {
+    const nights = this.nightsSurvived();
+    recordNight(nights);
+    const milestone = nightMilestone(nights);
+    if (!milestone) return;
+    // The Swarm stocks the food in its pantry; a Human expedition banks it as rations
+    const paid = this.waves().pay(milestone.reward);
+    const foodUnit = this.humanPlayer ? 'raciones' : 'comida';
+    const info: MilestoneInfo = { night: nights, title: milestone.title, minerals: paid.minerals, food: paid.food, foodUnit };
+    this.milestone = { info, remaining: MILESTONE_BANNER_SECONDS };
+    emitAudio({ type: 'waveFx', kind: 'perfect' });
+    this.world.pushNotification(
+      'success',
+      `🏆 ${milestone.title} +${paid.minerals} minerales${paid.food > 0 ? ` · +${paid.food} ${foodUnit}` : ''}`,
+    );
+  }
+
+  /**
+   * "Seguir jugando" after destroying the rival core: the run goes on, endless,
+   * with no rival base. Its units cannot come without the base, so from now on
+   * every wave is the wildlife's (beetles and the Acorazado Colosal).
+   * Only a victory can be continued; returns whether the run resumed.
+   */
+  continueAfterVictory(): boolean {
+    if (this.gameOver?.outcome !== 'victory') return false;
+    this.gameOver = null;
+    this.rivalCoreId = null; // the core is gone: no second victory
+    this.waves().setRaidSource(null);
+    this.world.pushNotification(
+      'success',
+      this.humanPlayer
+        ? '🏆 La expedición sigue creciendo: ahora las oleadas vienen de la fauna salvaje'
+        : '🏆 La colonia sigue creciendo: ahora las oleadas vienen de la fauna salvaje',
+    );
+    this.gameLoop.setPaused(false);
+    this.publishStats();
+    return true;
+  }
+
+  /** Queen death takes precedence over the rival core falling on the same tick. */
+  private checkGameOver(): void {
     if (this.gameOver) return;
 
     const queens = this.world.query(COMPONENT.QUEEN_ENTITY);
@@ -1526,18 +1604,13 @@ export class GameManager {
       if (health && health.current <= 0) queenDead = true;
     }
     const coreDestroyed = this.rivalCoreId != null && !this.world.hasEntity(this.rivalCoreId);
-    // A Human player's life is the command center, not a queen
+    // A Human player's life is the command center, not a queen. Every run is endless:
+    // only losing that life or destroying the rival core ends it
     const alive = this.humanPlayer ? this.humanPlayer.isCoreAlive() : !queenDead;
-    const outcome = resolveRunOutcome(
-      null,
-      alive,
-      // A Human run is endless: surviving the nights never ends it (no dawn edge for the 7-night win)
-      this.humanPlayer ? this.dayNightSystem.getPhase() : previousPhase,
-      this.dayNightSystem.getPhase(),
-      this.dayNightSystem.getDayNumber(),
-      coreDestroyed,
-    );
+    const outcome = resolveRunOutcome(null, alive, coreDestroyed);
     if (!outcome) return;
+
+    const nightsSurvived = this.nightsSurvived();
 
     this.gameOver = {
       outcome,
@@ -1551,7 +1624,11 @@ export class GameManager {
       ...(outcome === 'victory' && coreDestroyed
         ? { rivalCoreDestroyed: this.rivalRace === 'human' ? 'human' as const : 'crystal' as const, ...(this.rivalRace === 'crystal' ? { hiveDestroyed: true as const } : {}) }
         : {}),
+      nightsSurvived,
+      bestNight: recordNight(nightsSurvived),
+      newRecord: nightsSurvived > 0 && nightsSurvived > this.runStartBest,
     };
+    this.milestone = null;
     this.gameLoop.setPaused(true);
 
     // Push final stats immediately so the UI shows the game-over screen without waiting
@@ -3147,6 +3224,7 @@ export class GameManager {
       invasion: this.waves().getInfo(),
       nestAlert: this.humanPlayer ? undefined : this.nestAlert.getState(),
       gameOver: this.gameOver,
+      milestone: this.milestone?.info ?? null,
       activeEvents: this.eventSystem.active.map((e) => ({
         icon: e.definition.icon,
         name: e.definition.name,

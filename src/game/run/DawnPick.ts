@@ -1,4 +1,3 @@
-import { RUN_NIGHTS_TO_WIN } from '../../shared/constants';
 import type { DayPhase } from '../systems/DayNightSystem';
 import { MUTATION_DEFINITIONS, type MutationId, type MutationTag } from './MutationDefinitions';
 
@@ -28,8 +27,9 @@ export interface MutationBuildEntry {
 }
 
 /**
- * The evolution chamber opens at the dawns of days 2 to 7 of a live run.
- * The dawn of day 8 is victory (see `resolveRunOutcome`), so it never offers.
+ * The evolution chamber opens at every dawn of a live run from day 2 on: the
+ * run is endless. Once every mutation is at its max stacks the offer comes
+ * back empty and GameManager skips it.
  */
 export function shouldOfferMutation(
   previousPhase: DayPhase,
@@ -38,7 +38,7 @@ export function shouldOfferMutation(
   runOver: boolean,
 ): boolean {
   if (runOver || previousPhase !== 'night' || phase !== 'day') return false;
-  return dayNumber >= 2 && dayNumber <= RUN_NIGHTS_TO_WIN;
+  return dayNumber >= 2;
 }
 
 export function buildMutationOffer(
