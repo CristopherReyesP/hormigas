@@ -220,7 +220,67 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
     Original scope: Selection and move: drag box (own ants only), right-click move, a `PlayerOrder` component with an AI early-out, a group info panel. Tests: box selects own ants only; a move order beats the AI and the stall nets until arrival; porters and the draft skip ordered units.
   - [ ] P3b Attack-move and attack target, reusing `selectSoldierTarget` (`AntAISystem.ts:1049-1074`); fold `dispatchAttackWave` into orders. Tests: attack-move engages an enemy in range, then resumes; an attack target persists.
   - [ ] P3c Control groups: Ctrl+digit binds, digit recalls; game speed moves to other keys. Tests: bind and recall, dead ids pruned, digits still pick at the dawn offer.
-- [ ] P4 — Factions: ownership component in targeting, damage, vision and economy; faction-filtered fog; remove first-nest assumptions (`src/game/systems/AntAISystem.ts:123-125`). Cost: expensive; foundation for P5.
+- [ ] P4 — Factions: an ownership component used in targeting, damage, vision and economy; a fog per faction; the first-nest assumptions removed. Cost: expensive; it is the foundation for P5, P9 and P10.
+  - Design by a read-only Plan subagent, 2026-10-09, based on c5b0b74. Start P4 only after P3b and the VFX pass merge, because they touch the same hot files. U1 and the pure tables in U5 can start in parallel.
+  - **Ownership**
+    - `OWNER {faction}` holds small int ids (WILDLIFE=0, PLAYER=1, RIVAL=2).
+    - `ownerOf` falls back when the component is missing: ants, nest, queen and eggs → PLAYER; wildlife → WILDLIFE. Old tests and scripts keep working.
+    - A `FactionRegistry` lives on `World`, next to `runModifiers`. Each faction holds race, controller, fog, economy, coreId, modifiers and sites.
+    - `relation(a,b)` returns ally, neutral (exactly one side is wildlife) or enemy.
+  - **Targeting**
+    - One `HostileIndex` is built per tick. It replaces the `[BEETLE, CRICKET]` loops in `combatHelpers.ts:12-47`, `AntAISystem.ts:357`, `DefenderAISystem.ts:58` and P3b's `isSurfaceEnemy`/`findEnemyAt`.
+    - Wildlife stays hostile to everyone.
+  - **Damage**
+    - Allies never take damage.
+    - Modifiers follow the attacker's faction, so the player's mutations don't reach a mirror rival.
+    - `handleDeath` leaves a carcass, goo or shards, by race.
+  - **Fog and selection**
+    - There is one fog per non-wildlife faction, staggered on alternate ticks; RenderSystem and the minimap read only the player's fog.
+    - Selection and orders take only units the player owns; an enemy can be inspected, not commanded.
+  - **Base cores** (`factions/baseCore.ts`)
+    - `baseCoreOf`, `queenOf` and `swarmNestOf` replace about 25 `NEST[0]` / `QUEEN[0]` sites and the map-center hard-codes. The list is in the design report, saved in Engram under `odd/starcraft-hive-wars/p4-design`.
+    - `TransitSystem.ts:191-194` places exiting ants at the map center, not at their nest.
+  - **Interior floors**
+    - `LayerKey` = `'surface' | 'underground' | 's<site>.<floor>'`. `'underground'` stays the player's cave, so the 72 `Layer.*` comparisons need no change.
+    - A `SiteRegistry` replaces `LayerManager`. A site has a kind (cave, spire or building) and floors (`InteriorGrid`, extracted from the UndergroundGrid API). Each floor is also a surface STRUCTURE with health.
+    - Transit runs through portals: entrances, doors, lifts.
+    - The view becomes `activeView` plus a `Map<LayerKey, Camera>`. The tabs come from `views[]`: SUPERFICIE, NIDO, PISO n.
+  - **Per-faction rules**
+    - `FactionEconomy` exposes `stock` / `canAfford` / `trySpend` over multi-resource costs. The Swarm adapter wraps the pantry.
+    - Production: the Swarm keeps its brood. Crystal and Humans share one `FLOOR_PRODUCER` and `FloorProducerSystem`: serial and slow for Crystal, parallel for Humans.
+    - `UNIT_DEFS` is one stats table. P8's `CASTES` is its Swarm slice.
+    - A pure test checks that power per cost stays within ±25% across races.
+    - Tier-1 starting points:
+
+      | Unit | Cost | HP | Shield | Damage | Range |
+      |---|---|---|---|---|---|
+      | Rasgadora | 35 food | 150 | — | 8 per 1.0 s | 1.2 |
+      | Crystal drone | 105 minerals | 220 | 140 | 18 per 1.5 s | — |
+      | Human soldier | 70 rations | 160 | armor 1 | 6 per 0.8 s | 5 |
+  - **AI rival** (`src/game/ai/`)
+    - `RivalDirector` runs at 2 Hz, between DayNight and AntAI.
+    - Data build orders run in a deterministic `BuildOrderRunner`. Tactics are small state machines per race.
+    - The AI sees only through `FactionView` (its own fog), spends only through its economy, and issues the same P3b `issue*` orders with `faction=RIVAL`.
+    - P5 extracts the order driver from AntAISystem into a `UnitOrderSystem`, because Crystal units aren't ants.
+  - **RunSetup**
+    - `new GameManager(canvas, setup = DEFAULT_RUN_SETUP)`.
+    - A pure `run/matchPlan.ts` places the player at the center and the rival at the seeded far-side crater site. Wildlife dens keep their distance from every core.
+    - The intro plays only for a Swarm player.
+    - Seed `TileGrid` from `runSeed`; today it uses Math.random.
+  - **Risks**
+    - Two fogs and two economies cost performance: stagger them and build the index once per tick.
+    - A mirror Swarm needs second instances of the cave systems, and the pheromones are shared. Start the rival with abstract production at its core.
+    - Four integration tests use fixed-list mocks, which throw on any new construction-time call. U1 adds a shared mock with a no-op fallback.
+    - Never keep faction state in a module; it belongs to the World or GameManager instance.
+  - **Work units** (each keeps the single-player Swarm game identical until the AI ships; run tests, lint, build, `check-ai-tactics` and `repro-entrance-jam` against the baseline):
+    - [ ] U1 Faction core and test kit: OWNER, `ownerOf`, `relation`, the registry, factory stamping, and a shared `src/test/gameManagerMocks.ts`.
+    - [ ] U2 Base-core lookups: every NEST and QUEEN site, plus faction constructor args. Test: a rival nest created first must not capture the player's systems.
+    - [ ] U3 Allegiance in targeting and damage, through the HostileIndex.
+    - [ ] U4 Selection, orders and fog by owner.
+    - [ ] U5 Economy and race tables (`economy.ts`, `races.ts`, `UNIT_DEFS`, the power-per-cost band).
+    - [ ] U6a Sites, InteriorGrid and portal transit.
+    - [ ] U6b The view, the camera map and the tabs.
+    - [ ] U7 Match plan and the AI seam (`matchPlan.ts`, the GameManager setup arg, `RivalDirector`, `FactionView`, `BuildOrderRunner`).
 - [ ] P5 — Crystal Hive: rival base on the far side of the map, scripted build order, night waves sourced from it, Crystal Queen boss on night 7, victory on hive destruction. Its base grows upward as crystal spires with interior floors (see Decisions). Cost: expensive.
 - [ ] P9 — Humans (user, 2026-10-09; Terran-like, a third faction added later). Their base is buildings with floors (barracks, bunkers, turrets), raised by a builder anywhere, with no creep. It reuses the P4 interior floors and P5's floor view. Cost: expensive; not planned in detail yet.
 - [ ] P10 — Choose a race at the start (user, 2026-10-09: "elegir al inicio una raza… y contra qué raza"). The pre-run picker works like a StarCraft skirmish: the player picks their own race and the rival race (1v1). Mirror matches are allowed. A free-for-all with all three races can come later. The AI rival runs its race's scripted build order and tactics.
