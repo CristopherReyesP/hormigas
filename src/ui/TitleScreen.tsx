@@ -14,7 +14,7 @@ interface TitleScreenProps {
   savedRun?: ReactNode;
 }
 
-/** The game's front door: the title over the colony facing the Crystal Hive, soldiers marching behind. */
+/** The game's front door: a cinematic aerial shot of the colony's tide breaking on the Crystal Hive's, then the title. */
 export function TitleScreen({ onStart, onTutorial, savedRun }: TitleScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // The first screen: from here on every button ticks and taps, and the first click unlocks audio
@@ -46,7 +46,8 @@ export function TitleScreen({ onStart, onTutorial, savedRun }: TitleScreenProps)
   return (
     <div className="title-screen" role="dialog" aria-modal="true" aria-labelledby="title-screen-name">
       <canvas ref={canvasRef} className="title-scene" aria-hidden="true" />
-      <div className="title-vignette" aria-hidden="true" />
+      <div className="title-bar title-bar--top" aria-hidden="true" />
+      <div className="title-bar title-bar--bottom" aria-hidden="true" />
       <header className="title-head">
         <h1 id="title-screen-name" className="title-name">HORMIGAS</h1>
         <p className="title-tagline">
@@ -72,7 +73,6 @@ export function TitleScreen({ onStart, onTutorial, savedRun }: TitleScreenProps)
 
 // ── The scene ───────────────────────────────────────────────
 
-const RIGHT = 0;
 
 /** Crystal frames baked to canvases once, so the scene blits instead of re-painting runs every frame. */
 const bakedFrames = new Map<UnitFrame, HTMLCanvasElement>();
@@ -112,120 +112,203 @@ function drawAnt(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: numb
   ctx.restore();
 }
 
-/** Where the split crosses height `y`: a diagonal from top-right of center to bottom-left of it. */
-const splitX = (w: number, h: number, y: number) => w * 0.56 - (y / h) * w * 0.12;
+// The establishing shot: an aerial view of the field where the colony's tide
+// meets the Crystal Hive's, the camera drifting in slowly over it.
 
-/** One team's half: its color wash, its rank of fighters in a V behind the leader, the leader in front. */
-function paintHalf(ctx: CanvasRenderingContext2D, w: number, h: number, side: 'left' | 'right', t: number, unit: number) {
-  const left = side === 'left';
-  ctx.save();
-  ctx.beginPath();
-  if (left) {
-    ctx.moveTo(0, 0);
-    ctx.lineTo(splitX(w, h, 0), 0);
-    ctx.lineTo(splitX(w, h, h), h);
-    ctx.lineTo(0, h);
-  } else {
-    ctx.moveTo(splitX(w, h, 0), 0);
-    ctx.lineTo(w, 0);
-    ctx.lineTo(w, h);
-    ctx.lineTo(splitX(w, h, h), h);
+/** The field in world px; the camera crops it to cover the screen. */
+const WORLD_W = 1200;
+const WORLD_H = 675;
+const NEST = { x: 170, y: 360 };
+const SPIRE = { x: 1040, y: 320 };
+/** The front line where both tides break, wavering along the field. */
+const frontX = (y: number, t: number) => 610 + Math.sin(y / 70 + t * 0.8) * 26;
+
+/** Pseudo-random in [0, 1), stable per seed. */
+const rand = (seed: number) => {
+  const v = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
+  return v - Math.floor(v);
+};
+
+let groundCache: HTMLCanvasElement | null = null;
+/** The dirt, painted once: speckles, pebbles, grass tufts, the colony's tint and the crystal blight. */
+function ground(): HTMLCanvasElement {
+  if (groundCache) return groundCache;
+  const c = document.createElement('canvas');
+  c.width = WORLD_W;
+  c.height = WORLD_H;
+  const g = c.getContext('2d');
+  if (!g) return c;
+  g.fillStyle = '#2e2119';
+  g.fillRect(0, 0, WORLD_W, WORLD_H);
+  for (let i = 0; i < 260; i++) {
+    const r = 20 + rand(i) * 70;
+    g.fillStyle = rand(i + 1) > 0.5 ? 'rgba(58, 40, 28, 0.5)' : 'rgba(30, 20, 14, 0.5)';
+    g.beginPath();
+    g.ellipse(rand(i + 2) * WORLD_W, rand(i + 3) * WORLD_H, r, r * 0.6, rand(i + 4) * 3, 0, Math.PI * 2);
+    g.fill();
   }
-  ctx.closePath();
-  ctx.clip();
-
-  // Team wash: deep at the outer edge, burning bright toward the split
-  const wash = ctx.createLinearGradient(left ? 0 : w, 0, w * 0.5, 0);
-  wash.addColorStop(0, left ? '#0b1206' : '#04121a');
-  wash.addColorStop(0.75, left ? '#24400c' : '#0f4a5e');
-  wash.addColorStop(1, left ? '#5a8a1c' : '#1b8fb0');
-  ctx.fillStyle = wash;
-  ctx.fillRect(0, 0, w, h);
-
-  // Speed lines rushing toward the center
-  ctx.fillStyle = left ? 'rgba(198, 255, 61, 0.12)' : 'rgba(95, 227, 255, 0.12)';
-  for (let i = 0; i < 18; i++) {
-    const y = ((i * 97.3) % 1) * h + ((i * 53) % h);
-    const len = (60 + ((i * 31) % 140)) * unit;
-    const run = ((t * 300 + i * 211) % (w * 0.7));
-    const x = left ? run - len : w - run;
-    ctx.fillRect(Math.round(x), Math.round(y % h), Math.round(len), Math.max(2, Math.round(2 * unit)));
+  for (let i = 0; i < 4000; i++) {
+    g.fillStyle = ['#3e2c20', '#241912', '#4a3626', '#1c130e'][i % 4];
+    g.fillRect(Math.floor(rand(i * 3) * WORLD_W), Math.floor(rand(i * 3 + 1) * WORLD_H), 2, 2);
   }
-
-  // The army: ranks fanning back from the leader, smaller as they recede
-  const dir = left ? 1 : -1;
-  const leadX = left ? w * 0.27 : w * 0.73;
-  const leadY = h * 0.6;
-  const charge = Math.sin(t * 3) * 4 * unit;
-  const fighter = (x: number, y: number, zoom: number, seed: number) => {
-    const bob = Math.sin(t * 7 + seed) * 2 * unit;
-    if (left) drawAnt(ctx, x + bob, y, zoom, RIGHT, t * 10 + seed, seed % 3 === 0 ? AntRole.Defender : AntRole.Soldier);
-    else drawCrystal(ctx, seed % 2 ? 'sentinel' : 'drone', x - bob, y + bob, zoom * 0.7, t + seed * 0.13);
-  };
-  for (let r = 4; r >= 1; r--) {
-    const depth = 1 - r * 0.15;
-    const count = 3 + r;
-    for (let k = 0; k < count; k++) {
-      const spread = (k - (count - 1) / 2) * (62 - r * 4) * unit;
-      const x = leadX - dir * (r * 58 * unit + Math.abs(spread) * 0.35) + Math.sin(k * 3.7 + r) * 8 * unit;
-      const y = leadY - r * 34 * unit + spread;
-      fighter(x + charge * depth, y, unit * 1.5 * depth, r * 7 + k);
-    }
+  for (let i = 0; i < 120; i++) {
+    const x = rand(i * 5) * WORLD_W;
+    const y = rand(i * 5 + 1) * WORLD_H;
+    g.fillStyle = '#5a4a3e';
+    g.fillRect(Math.floor(x), Math.floor(y), 6, 4);
+    g.fillStyle = '#7a685a';
+    g.fillRect(Math.floor(x), Math.floor(y), 4, 2);
   }
-  // Two lieutenants flanking the leader
-  fighter(leadX - dir * 30 * unit + charge, leadY - 70 * unit, unit * 1.7, 1);
-  fighter(leadX - dir * 30 * unit + charge, leadY + 66 * unit, unit * 1.7, 2);
-
-  // The leader, front and center of the team
-  const glow = ctx.createRadialGradient(leadX, leadY, 0, leadX, leadY, 120 * unit);
-  glow.addColorStop(0, left ? 'rgba(198, 255, 61, 0.35)' : 'rgba(95, 227, 255, 0.35)');
-  glow.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(leadX - 130 * unit, leadY - 130 * unit, 260 * unit, 260 * unit);
-  if (left) drawAnt(ctx, leadX + charge, leadY, unit * 2.4, RIGHT, t * 4, 'queen');
-  else drawCrystal(ctx, 'queen', leadX - charge, leadY + Math.sin(t * 2) * 4 * unit, unit * 1.9, t);
-
-  ctx.restore();
+  // Grass on the colony's side, dying out toward the blight
+  for (let i = 0; i < 260; i++) {
+    const x = rand(i * 7) * WORLD_W * 0.55;
+    const y = rand(i * 7 + 1) * WORLD_H;
+    g.fillStyle = i % 2 ? '#3d5a1c' : '#56781f';
+    for (let b = 0; b < 4; b++) g.fillRect(Math.floor(x + b * 3), Math.floor(y - (b % 2) * 3), 2, 6);
+  }
+  // The crystal blight: the right of the field has turned to glassy rock
+  const blight = g.createLinearGradient(WORLD_W * 0.55, 0, WORLD_W, 0);
+  blight.addColorStop(0, 'rgba(20, 60, 80, 0)');
+  blight.addColorStop(1, 'rgba(20, 70, 95, 0.75)');
+  g.fillStyle = blight;
+  g.fillRect(0, 0, WORLD_W, WORLD_H);
+  for (let i = 0; i < 70; i++) {
+    const x = WORLD_W * 0.62 + rand(i * 11) * WORLD_W * 0.4;
+    const y = rand(i * 11 + 1) * WORLD_H;
+    crystalCluster(g, x, y, 6 + rand(i * 11 + 2) * 14, i);
+  }
+  groundCache = c;
+  return c;
 }
 
+/** A top-down cluster of hexagonal crystal prisms. */
+function crystalCluster(g: CanvasRenderingContext2D, x: number, y: number, size: number, seed: number) {
+  for (let k = 0; k < 3; k++) {
+    const r = size * (1 - k * 0.25);
+    const cx = x + (rand(seed + k) - 0.5) * size * 1.4;
+    const cy = y + (rand(seed + k + 9) - 0.5) * size;
+    g.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    hexagon(g, cx + r * 0.4, cy + r * 0.5, r);
+    g.fillStyle = '#1b5a73';
+    hexagon(g, cx, cy, r);
+    g.fillStyle = '#5fe3ff';
+    hexagon(g, cx - r * 0.15, cy - r * 0.15, r * 0.6);
+    g.fillStyle = '#e8ffff';
+    g.fillRect(Math.floor(cx - r * 0.3), Math.floor(cy - r * 0.35), 2, 2);
+  }
+}
+
+function hexagon(g: CanvasRenderingContext2D, x: number, y: number, r: number) {
+  g.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+    if (i === 0) g.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    else g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+  }
+  g.closePath();
+  g.fill();
+}
+
+/** Where a fighter of one tide is at time `t`: it leaves home, crosses the field and fights at the front, then a fresh one takes its place. */
+function tidePos(home: { x: number; y: number }, i: number, t: number, period: number, fromLeft: boolean) {
+  const lane = (rand(i * 13) - 0.5) * WORLD_H * 0.95 + WORLD_H / 2;
+  const p = (t / period + rand(i * 13 + 1)) % 1;
+  const march = Math.min(1, p / 0.55);
+  const front = frontX(lane, t) + (fromLeft ? -1 : 1) * (8 + rand(i * 13 + 2) * 40);
+  const sx = home.x + (rand(i * 13 + 3) - 0.5) * 60;
+  const sy = home.y + (rand(i * 13 + 4) - 0.5) * 60;
+  const ease = march * march * (3 - 2 * march);
+  let x = sx + (front - sx) * ease;
+  let y = sy + (lane - sy) * ease;
+  const fighting = p > 0.55;
+  if (fighting) {
+    x += Math.sin(t * 14 + i) * 5;
+    y += Math.cos(t * 11 + i * 2) * 4;
+  }
+  const alpha = Math.min(1, p / 0.06, (1 - p) / 0.06);
+  const angle = fighting ? (fromLeft ? 0 : Math.PI) + Math.sin(t * 9 + i) * 0.5 : Math.atan2(lane - sy, front - sx);
+  return { x, y, alpha, angle, fighting };
+}
+
+const ANT_TIDE = 70;
+const CRYSTAL_TIDE = 44;
+
 function paintScene(ctx: CanvasRenderingContext2D, w: number, h: number, t: number) {
-  const unit = Math.max(0.55, Math.min(w / 760, h / 520));
-  paintHalf(ctx, w, h, 'left', t, unit);
-  paintHalf(ctx, w, h, 'right', t, unit);
-
-  // The split: a crackling white seam with sparks thrown both ways
-  const flicker = 0.7 + 0.3 * Math.sin(t * 17);
-  ctx.strokeStyle = `rgba(255, 255, 255, ${flicker})`;
-  ctx.lineWidth = Math.max(3, Math.round(4 * unit));
-  ctx.beginPath();
-  const segs = 14;
-  for (let i = 0; i <= segs; i++) {
-    const y = (h * i) / segs;
-    const jitter = i === 0 || i === segs ? 0 : Math.sin(Math.floor(t * 10) * 2.3 + i * 5.1) * 6 * unit;
-    const x = splitX(w, h, y) + jitter;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.stroke();
-  for (let i = 0; i < 24; i++) {
-    const life = (t * 1.1 + i / 24) % 1;
-    const y = ((i * 0.618) % 1) * h;
-    const x0 = splitX(w, h, y);
-    const toLeft = i % 2 === 0;
-    const x = x0 + (toLeft ? -1 : 1) * life * 90 * unit;
-    ctx.fillStyle = toLeft ? `rgba(198, 255, 61, ${1 - life})` : `rgba(95, 227, 255, ${1 - life})`;
-    const s = Math.max(2, Math.round(4 * unit * (1 - life)));
-    ctx.fillRect(Math.round(x), Math.round(y - life * 30 * unit), s, s);
-  }
-
-  // Team banners under the leaders
-  ctx.font = `${Math.round(Math.max(10, 14 * unit))}px 'Press Start 2P', monospace`;
-  ctx.textAlign = 'center';
   ctx.fillStyle = '#000';
-  ctx.fillText('LA COLONIA', w * 0.24 + 2, h * 0.6 + 110 * unit + 2);
-  ctx.fillText('LOS CRISTALES', w * 0.76 + 2, h * 0.6 + 110 * unit + 2);
-  ctx.fillStyle = '#c6ff3d';
-  ctx.fillText('LA COLONIA', w * 0.24, h * 0.6 + 110 * unit);
-  ctx.fillStyle = '#5fe3ff';
-  ctx.fillText('LOS CRISTALES', w * 0.76, h * 0.6 + 110 * unit);
+  ctx.fillRect(0, 0, w, h);
+
+  // The camera: covers the screen, then pushes in slowly and drifts across the field
+  const push = 1.04 + 0.08 * (0.5 - 0.5 * Math.cos(t * 0.12));
+  const scale = Math.max(w / WORLD_W, h / WORLD_H) * push;
+  const camX = WORLD_W / 2 + Math.sin(t * 0.09) * 40;
+  const camY = WORLD_H / 2 + Math.cos(t * 0.07) * 18;
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  ctx.scale(scale, scale);
+  ctx.translate(-camX, -camY);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(ground(), 0, 0);
+
+  // Home bases: the colony's mound and the hive's spire
+  getSpriteAtlas().drawNest(ctx, NEST.x, NEST.y, 2); // radius in tiles
+  ctx.save();
+  ctx.globalAlpha = 0.6 + 0.2 * Math.sin(t * 2);
+  const aura = ctx.createRadialGradient(SPIRE.x, SPIRE.y, 0, SPIRE.x, SPIRE.y, 150);
+  aura.addColorStop(0, 'rgba(95, 227, 255, 0.55)');
+  aura.addColorStop(1, 'rgba(95, 227, 255, 0)');
+  ctx.fillStyle = aura;
+  ctx.fillRect(SPIRE.x - 150, SPIRE.y - 150, 300, 300);
+  ctx.restore();
+  crystalCluster(ctx, SPIRE.x, SPIRE.y + 30, 34, 3);
+
+  // Both tides
+  for (let i = 0; i < ANT_TIDE; i++) {
+    const a = tidePos(NEST, i, t, 16, true);
+    ctx.globalAlpha = a.alpha;
+    drawAnt(ctx, a.x, a.y, 1, a.angle, t * 12 + i, i % 5 === 0 ? AntRole.Defender : i % 3 === 0 ? AntRole.Worker : AntRole.Soldier);
+  }
+  for (let i = 0; i < CRYSTAL_TIDE; i++) {
+    const c = tidePos(SPIRE, i + 500, t, 20, false);
+    ctx.globalAlpha = c.alpha;
+    drawCrystal(ctx, i % 3 === 0 ? 'sentinel' : 'drone', c.x, c.y + Math.sin(t * 2 + i) * 3, 0.75, t + i * 0.1);
+  }
+  ctx.globalAlpha = 1;
+
+  // The leaders watching from home
+  drawAnt(ctx, NEST.x + 70, NEST.y + 10, 1.4, 0, t * 2, 'queen');
+  drawCrystal(ctx, 'queen', SPIRE.x - 30, SPIRE.y - 20 + Math.sin(t * 1.5) * 4, 1, t);
+
+  // The clash: flashes and sparks all along the front
+  for (let i = 0; i < 16; i++) {
+    const life = (t * 1.6 + rand(i * 17)) % 1;
+    const y = rand(i * 17 + Math.floor(t * 1.6 + rand(i * 17))) * WORLD_H;
+    const x = frontX(y, t);
+    const r = 10 + life * 34;
+    const flash = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const green = i % 2 === 0;
+    flash.addColorStop(0, `rgba(255, 255, 255, ${0.8 * (1 - life)})`);
+    flash.addColorStop(0.4, green ? `rgba(198, 255, 61, ${0.5 * (1 - life)})` : `rgba(95, 227, 255, ${0.5 * (1 - life)})`);
+    flash.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = flash;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  ctx.restore();
+
+  // Grading: warm green on the colony's side, cold cyan on the hive's, crushed blacks at the edges
+  const grade = ctx.createLinearGradient(0, 0, w, 0);
+  grade.addColorStop(0, 'rgba(120, 160, 20, 0.18)');
+  grade.addColorStop(0.5, 'rgba(0, 0, 0, 0)');
+  grade.addColorStop(1, 'rgba(20, 140, 190, 0.22)');
+  ctx.fillStyle = grade;
+  ctx.fillRect(0, 0, w, h);
+  const vignette = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.75);
+  vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  vignette.addColorStop(1, 'rgba(0, 0, 0, 0.8)');
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, w, h);
+
+  // Film grain
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+  const seed = Math.floor(t * 24);
+  for (let i = 0; i < 220; i++) ctx.fillRect(Math.floor(rand(seed + i * 2) * w), Math.floor(rand(seed + i * 2 + 1) * h), 1, 1);
 }
