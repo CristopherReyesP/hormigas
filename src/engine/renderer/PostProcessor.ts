@@ -1,5 +1,5 @@
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../shared/constants';
 import { PAL, withAlpha } from './pixelart/palette';
+import { screenPixelScale } from './screenScale';
 
 /**
  * Screen-space pass applied after all world rendering (surface layer only —
@@ -22,6 +22,11 @@ import { PAL, withAlpha } from './pixelart/palette';
  * 3. DUSK ALARM. When day turns into night, a red dithered frame beats twice
  *    around the screen. It runs on game time (advance(dt)), so a paused game
  *    holds the pulse instead of playing it out behind the pause.
+ *
+ * Everything follows the real canvas size (read from the context each frame).
+ * The dither overlays are cached at one px per cell and drawn with smoothing
+ * off, so building them is cheap and they stay crisp at any size; after a
+ * resize they rebuild once the new size has held for RESIZE_SETTLE_FRAMES.
  */
 
 /** One light source, in SCREEN pixels (the caller converts via Camera.worldToScreen) */
@@ -70,6 +75,22 @@ export function nightGlowAlpha(phase: 'day' | 'night', progress: number): number
 /** Size of the pre-rendered light mask. Scaled per light at draw time. */
 const MASK_SIZE = 256;
 
+/** Frames a new canvas size must hold before the dither caches rebuild: a window drag resizes every frame. */
+export const RESIZE_SETTLE_FRAMES = 12;
+
+/**
+ * Canvas px per night-layer px. The night sheet is a flat wash with chunky
+ * dithered light pools, so half resolution looks the same (upscaled crisp)
+ * and cuts its per-frame fill to a quarter.
+ */
+const NIGHT_LAYER_SCALE = 2;
+
+/** A dither overlay pre-rendered at one px per cell, drawn `cell`× bigger with smoothing off. */
+interface CellLayer {
+  canvas: OffscreenCanvas;
+  cell: number;
+}
+
 /** Seconds the dusk alarm runs: two beats of equal length. */
 export const DUSK_ALARM_DURATION = 1.6;
 /** Stepped alarm levels; beat one walks the whole ladder, beat two starts one rung down. */
@@ -88,10 +109,10 @@ export function duskAlarmAlpha(t: number): number {
 }
 
 export class PostProcessor {
-  private vignetteCanvas: OffscreenCanvas | null = null;
+  private vignette: CellLayer | null = null;
+  private alarm: CellLayer | null = null;
   private nightCanvas: OffscreenCanvas | null = null;
   private lightMask: OffscreenCanvas | null = null;
-  private alarmCanvas: OffscreenCanvas | null = null;
 
   private sky: SkyStep = DAY_STEPS[2].step;
   private isNight = false;
@@ -100,6 +121,14 @@ export class PostProcessor {
   private lastPhase: 'day' | 'night' | null = null;
   /** Seconds since the dusk alarm fired; negative = idle */
   private alarmTime = -1;
+
+  /** Canvas size seen on the latest frame, and how many frames in a row it has held */
+  private seenW = 0;
+  private seenH = 0;
+  private steadyFrames = 0;
+  /** Size the dither caches are built for: the first size at once, later ones once they settle */
+  private cacheW = 0;
+  private cacheH = 0;
 
   /** Pick the single sky step for this frame (never a blend of two) */
   setDayPhase(phase: 'day' | 'night', progress: number): void {
@@ -142,36 +171,75 @@ export class PostProcessor {
     this.lights = lights;
   }
 
-  /** Build the dither vignette once: 2px black cells, density stepped toward corners. */
-  private buildVignette(): OffscreenCanvas {
-    const canvas = new OffscreenCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
-    const ctx = canvas.getContext('2d')!;
-    const CELL = 2;
-    const cx = CANVAS_WIDTH / 2;
-    const cy = CANVAS_HEIGHT / 2;
-    const maxD = Math.sqrt(cx * cx + cy * cy);
+  /**
+   * Follow the canvas size, once per frame. The first size is adopted at
+   * once; a new one only after it has held for RESIZE_SETTLE_FRAMES, so a
+   * window drag does not rebuild the dither caches every frame.
+   */
+  private trackCanvas(ctx: CanvasRenderingContext2D): { w: number; h: number } {
+    const w = ctx.canvas.width;
+    const h = ctx.canvas.height;
+    if (w !== this.seenW || h !== this.seenH) {
+      this.seenW = w;
+      this.seenH = h;
+      this.steadyFrames = 0;
+    } else {
+      this.steadyFrames++;
+    }
+    const changed = w !== this.cacheW || h !== this.cacheH;
+    if (changed && (this.cacheW === 0 || this.steadyFrames >= RESIZE_SETTLE_FRAMES)) {
+      this.cacheW = w;
+      this.cacheH = h;
+      this.vignette = null; // both rebuilt lazily at the settled size
+      this.alarm = null;
+    }
+    return { w, h };
+  }
 
-    const cols = Math.ceil(CANVAS_WIDTH / CELL);
-    const rowsN = Math.ceil(CANVAS_HEIGHT / CELL);
+  /** Blit a dither layer: whole cells once settled; mid-resize the old layer is stretched over the canvas. */
+  private drawCellLayer(ctx: CanvasRenderingContext2D, layer: CellLayer, w: number, h: number): void {
+    const settled = w === this.cacheW && h === this.cacheH;
+    const smoothing = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
+      layer.canvas,
+      0,
+      0,
+      settled ? layer.canvas.width * layer.cell : w,
+      settled ? layer.canvas.height * layer.cell : h,
+    );
+    ctx.imageSmoothingEnabled = smoothing;
+  }
+
+  /** The dither vignette: black cells (2 overlay px), density stepped toward the corners. */
+  private buildVignette(w: number, h: number): CellLayer {
+    const cell = 2 * screenPixelScale(w, h);
+    const cols = Math.ceil(w / cell);
+    const rowsN = Math.ceil(h / cell);
+    const canvas = new OffscreenCanvas(cols, rowsN);
+    const ctx = canvas.getContext('2d')!;
+    const cx = w / 2;
+    const cy = h / 2;
+    const maxD = Math.sqrt(cx * cx + cy * cy);
 
     // Two quantized bands: outer band sparse dither @0.15, corner band checker @0.3
     for (let band = 0; band < 2; band++) {
       ctx.fillStyle = withAlpha(PAL.black, band === 0 ? 0.15 : 0.3);
       for (let iy = 0; iy < rowsN; iy++) {
         for (let ix = 0; ix < cols; ix++) {
-          const px = ix * CELL + CELL / 2;
-          const py = iy * CELL + CELL / 2;
+          const px = ix * cell + cell / 2;
+          const py = iy * cell + cell / 2;
           const d = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy)) / maxD;
           const inBand = band === 0 ? d >= 0.66 && d < 0.85 : d >= 0.85;
           if (!inBand) continue;
           const on = band === 0
             ? ix % 2 === 0 && iy % 2 === 0 // sparse: 1 of 4 cells
             : (ix + iy) % 2 === 0;          // denser: checkerboard
-          if (on) ctx.fillRect(ix * CELL, iy * CELL, CELL, CELL);
+          if (on) ctx.fillRect(ix, iy, 1, 1);
         }
       }
     }
-    return canvas;
+    return { canvas, cell };
   }
 
   /**
@@ -204,38 +272,46 @@ export class PostProcessor {
   }
 
   /**
-   * Red alarm frame: 4px cells, solid at the screen edge, then checker, then
-   * sparse — the same stepped density language as the vignette.
+   * Red alarm frame: 4-overlay-px cells, solid at the screen edge, then
+   * checker, then sparse — the same stepped density language as the vignette.
    */
-  private buildAlarmVignette(): OffscreenCanvas {
-    const canvas = new OffscreenCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+  private buildAlarmVignette(w: number, h: number): CellLayer {
+    const s = screenPixelScale(w, h);
+    const cell = 4 * s;
+    const cols = Math.ceil(w / cell);
+    const rowsN = Math.ceil(h / cell);
+    const canvas = new OffscreenCanvas(cols, rowsN);
     const ctx = canvas.getContext('2d')!;
-    const CELL = 4;
     ctx.fillStyle = PAL.nightAlarm;
-    for (let iy = 0; iy < CANVAS_HEIGHT / CELL; iy++) {
-      for (let ix = 0; ix < CANVAS_WIDTH / CELL; ix++) {
-        const px = ix * CELL + CELL / 2;
-        const py = iy * CELL + CELL / 2;
-        const edge = Math.min(px, py, CANVAS_WIDTH - px, CANVAS_HEIGHT - py);
+    for (let iy = 0; iy < rowsN; iy++) {
+      for (let ix = 0; ix < cols; ix++) {
+        const px = ix * cell + cell / 2;
+        const py = iy * cell + cell / 2;
+        const edge = Math.min(px, py, w - px, h - py) / s;
         const on =
           edge < 16 ? true :                              // solid rim
           edge < 36 ? (ix + iy) % 2 === 0 :               // checker
           edge < 60 ? ix % 2 === 0 && iy % 2 === 0 :      // sparse
           false;
-        if (on) ctx.fillRect(ix * CELL, iy * CELL, CELL, CELL);
+        if (on) ctx.fillRect(ix, iy, 1, 1);
       }
     }
-    return canvas;
+    return { canvas, cell };
   }
 
-  /** Draw the dusk alarm pulse (screen space). Shared by surface and underground frames. */
+  /** Draw the dusk alarm pulse (screen space). The underground frame calls this alone. */
   applyAlarm(ctx: CanvasRenderingContext2D): void {
+    const { w, h } = this.trackCanvas(ctx);
+    this.drawAlarm(ctx, w, h);
+  }
+
+  private drawAlarm(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     const level = this.getAlarmLevel();
     if (level <= 0) return;
-    if (!this.alarmCanvas) this.alarmCanvas = this.buildAlarmVignette();
+    if (!this.alarm) this.alarm = this.buildAlarmVignette(this.cacheW, this.cacheH);
     const prev = ctx.globalAlpha;
     ctx.globalAlpha = level;
-    ctx.drawImage(this.alarmCanvas, 0, 0);
+    this.drawCellLayer(ctx, this.alarm, w, h);
     ctx.globalAlpha = prev;
   }
 
@@ -244,45 +320,57 @@ export class PostProcessor {
    * Should be called AFTER camera transform is undone (in screen space).
    */
   apply(ctx: CanvasRenderingContext2D): void {
-    if (!this.vignetteCanvas) this.vignetteCanvas = this.buildVignette();
-    ctx.drawImage(this.vignetteCanvas, 0, 0);
-    this.applySky(ctx);
-    this.applyAlarm(ctx);
+    const { w, h } = this.trackCanvas(ctx);
+    if (!this.vignette) this.vignette = this.buildVignette(this.cacheW, this.cacheH);
+    this.drawCellLayer(ctx, this.vignette, w, h);
+    this.applySky(ctx, w, h);
+    this.drawAlarm(ctx, w, h);
   }
 
   /** Time-of-day wash, with light pools punched through it at night. */
-  private applySky(ctx: CanvasRenderingContext2D): void {
+  private applySky(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     const wash = withAlpha(this.sky.color, this.sky.alpha);
 
     // Daylight (and a lightless night) is a flat wash — one fillRect, as before.
     if (!this.isNight || this.lights.length === 0) {
       ctx.fillStyle = wash;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      ctx.fillRect(0, 0, w, h);
       return;
     }
 
     // Night with light sources: build the sheet of darkness, then erase the
     // pools before compositing, so the nest genuinely stays readable.
+    const s = NIGHT_LAYER_SCALE;
+    const nw = Math.ceil(w / s);
+    const nh = Math.ceil(h / s);
     if (!this.lightMask) this.lightMask = this.buildLightMask();
-    if (!this.nightCanvas) this.nightCanvas = new OffscreenCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    if (!this.nightCanvas) {
+      this.nightCanvas = new OffscreenCanvas(nw, nh);
+    } else if (this.nightCanvas.width !== nw || this.nightCanvas.height !== nh) {
+      this.nightCanvas.width = nw; // follows the canvas in place: cheap, and only at night
+      this.nightCanvas.height = nh;
+    }
 
     const nctx = this.nightCanvas.getContext('2d')!;
     nctx.globalCompositeOperation = 'source-over';
-    nctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    nctx.clearRect(0, 0, nw, nh);
     nctx.fillStyle = wash;
-    nctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    nctx.fillRect(0, 0, nw, nh);
 
     nctx.globalCompositeOperation = 'destination-out';
     nctx.imageSmoothingEnabled = false;
     for (const l of this.lights) {
       if (l.radius <= 0) continue;
-      // Cull lights whose pool cannot touch the viewport
-      if (l.x + l.radius < 0 || l.x - l.radius > CANVAS_WIDTH) continue;
-      if (l.y + l.radius < 0 || l.y - l.radius > CANVAS_HEIGHT) continue;
-      nctx.drawImage(this.lightMask, l.x - l.radius, l.y - l.radius, l.radius * 2, l.radius * 2);
+      // Cull lights whose pool cannot touch the canvas
+      if (l.x + l.radius < 0 || l.x - l.radius > w) continue;
+      if (l.y + l.radius < 0 || l.y - l.radius > h) continue;
+      nctx.drawImage(this.lightMask, (l.x - l.radius) / s, (l.y - l.radius) / s, (l.radius * 2) / s, (l.radius * 2) / s);
     }
     nctx.globalCompositeOperation = 'source-over';
 
-    ctx.drawImage(this.nightCanvas, 0, 0);
+    const smoothing = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.nightCanvas, 0, 0, nw * s, nh * s);
+    ctx.imageSmoothingEnabled = smoothing;
   }
 }

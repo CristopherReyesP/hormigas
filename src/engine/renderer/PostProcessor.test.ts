@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { DUSK_ALARM_DURATION, NIGHT_GLOW_MAX, PostProcessor, duskAlarmAlpha, nightGlowAlpha } from './PostProcessor';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  DUSK_ALARM_DURATION,
+  NIGHT_GLOW_MAX,
+  PostProcessor,
+  RESIZE_SETTLE_FRAMES,
+  duskAlarmAlpha,
+  nightGlowAlpha,
+} from './PostProcessor';
 
 /** A post processor that has just watched the day turn into night. */
 function atNightfall(): PostProcessor {
@@ -105,5 +112,127 @@ describe('nightGlowAlpha (post-tint bioluminescence)', () => {
     expect(nightGlowAlpha('night', 0.95)).toBe(edge);
     // Proportional to the tint it has to shine through (0.28 vs 0.5)
     expect(edge / NIGHT_GLOW_MAX).toBeCloseTo(0.28 / 0.5);
+  });
+});
+
+/** A 2D context that accepts every call and records the full-canvas fills and blits. */
+function fakeContext(canvas: { width: number; height: number }) {
+  const ctx = {
+    canvas,
+    fillStyle: '',
+    globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
+    imageSmoothingEnabled: false,
+    fills: [] as number[][],
+    blits: [] as Array<{ source: unknown; args: number[] }>,
+    fillRect(...args: number[]) { ctx.fills.push(args); },
+    clearRect() {},
+    drawImage(source: unknown, ...args: number[]) { ctx.blits.push({ source, args }); },
+  };
+  return ctx;
+}
+
+/** Every OffscreenCanvas the post processor allocates, by size. */
+const allocated: Array<{ width: number; height: number }> = [];
+
+class FakeOffscreenCanvas {
+  width: number;
+  height: number;
+  private readonly ctx: ReturnType<typeof fakeContext>;
+  constructor(width: number, height: number) {
+    this.width = width;
+    this.height = height;
+    this.ctx = fakeContext(this);
+    allocated.push(this);
+  }
+  getContext() {
+    return this.ctx;
+  }
+}
+
+describe('screen-size caches', () => {
+  beforeEach(() => {
+    allocated.length = 0;
+    vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** One surface frame on a canvas of the given size. */
+  const frame = (pp: PostProcessor, canvas: { width: number; height: number }) => {
+    const ctx = fakeContext(canvas);
+    pp.apply(ctx as unknown as CanvasRenderingContext2D);
+    return ctx;
+  };
+
+  it('washes the whole real-size canvas, not an 800×600 corner', () => {
+    const pp = new PostProcessor();
+    pp.setDayPhase('day', 0.5);
+    const ctx = frame(pp, { width: 2560, height: 1440 });
+    expect(ctx.fills).toContainEqual([0, 0, 2560, 1440]);
+  });
+
+  it('builds the vignette once and reuses it on later frames of the same size', () => {
+    const pp = new PostProcessor();
+    const canvas = { width: 1600, height: 900 };
+    frame(pp, canvas);
+    const built = allocated.length;
+    expect(built).toBeGreaterThan(0);
+    for (let i = 0; i < 30; i++) frame(pp, canvas);
+    expect(allocated.length).toBe(built);
+  });
+
+  it('covers the whole canvas with the vignette', () => {
+    const pp = new PostProcessor();
+    const ctx = frame(pp, { width: 1600, height: 900 });
+    const [, , w, h] = ctx.blits[0].args;
+    expect(w).toBeGreaterThanOrEqual(1600);
+    expect(h).toBeGreaterThanOrEqual(900);
+  });
+
+  it('waits for a resize to settle before rebuilding, stretching the old vignette meanwhile', () => {
+    const pp = new PostProcessor();
+    frame(pp, { width: 1600, height: 900 });
+    const built = allocated.length;
+    // A window drag: a new size every frame
+    for (let w = 1610; w < 1700; w += 10) {
+      const ctx = frame(pp, { width: w, height: 900 });
+      expect(ctx.blits[0].args).toEqual([0, 0, w, 900]);
+    }
+    expect(allocated.length).toBe(built);
+    // The size holds: one rebuild once it has settled, then none
+    for (let i = 0; i < RESIZE_SETTLE_FRAMES + 5; i++) frame(pp, { width: 1700, height: 900 });
+    expect(allocated.length).toBe(built + 1);
+    for (let i = 0; i < 30; i++) frame(pp, { width: 1700, height: 900 });
+    expect(allocated.length).toBe(built + 1);
+  });
+
+  it('keeps the night layer at the canvas size, reusing it from frame to frame', () => {
+    const pp = new PostProcessor();
+    pp.setDayPhase('night', 0.5);
+    pp.setLights([{ x: 800, y: 450, radius: 120 }]);
+    const canvas = { width: 3200, height: 1800 };
+    for (let i = 0; i < 10; i++) frame(pp, canvas);
+    const night = allocated.filter((c) => c.width * c.height >= (3200 * 1800) / 4);
+    expect(night).toHaveLength(1);
+    const ctx = frame(pp, canvas);
+    const blit = ctx.blits.find((b) => b.source === night[0])!;
+    expect(blit.args.slice(-2)).toEqual([3200, 1800]);
+    // Resized with the canvas, not reallocated per frame
+    frame(pp, { width: 1600, height: 900 });
+    const after = frame(pp, { width: 1600, height: 900 });
+    const resized = after.blits.find((b) => b.source === night[0])!;
+    expect(resized.args.slice(-2)).toEqual([1600, 900]);
+    expect(allocated.filter((c) => c.width * c.height >= (1600 * 900) / 4)).toHaveLength(1);
+  });
+
+  it('frames the dusk alarm on the real canvas edge', () => {
+    const pp = atNightfall();
+    const ctx = fakeContext({ width: 2560, height: 1440 });
+    pp.applyAlarm(ctx as unknown as CanvasRenderingContext2D);
+    const [, , w, h] = ctx.blits[0].args;
+    expect(w).toBeGreaterThanOrEqual(2560);
+    expect(h).toBeGreaterThanOrEqual(1440);
   });
 });

@@ -1,7 +1,7 @@
 import type { TileGrid } from '../../simulation/world/TileGrid';
 import type { Camera } from '../../engine/camera/Camera';
 import { TerrainType } from '../../simulation/world/types';
-import { TILE_SIZE, WORLD_WIDTH, WORLD_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT } from '../../shared/constants';
+import { TILE_SIZE, WORLD_WIDTH, WORLD_HEIGHT } from '../../shared/constants';
 import { PAL, hash2, pick } from './pixelart/palette';
 import { PixelPainter } from './pixelart/PixelPainter';
 import { DECOR_SEED, floraAt, type FloraProp } from './alienDecor';
@@ -37,6 +37,9 @@ const HUSK_COLORS: ReadonlyArray<readonly [string, string]> = [
  * rocks. Renders once to an offscreen canvas, blitted each frame between
  * terrain and entities. All colors from PAL; placement deterministic via
  * hash2 / alienDecor. Items may overlap tile borders for an organic feel.
+ *
+ * The cache is world-sized, so a window resize never rebuilds it: each frame
+ * blits only the world rect the camera's whole canvas covers.
  */
 export class FoliageOverlay {
   private canvas: HTMLCanvasElement;
@@ -230,12 +233,11 @@ export class FoliageOverlay {
       return;
     }
 
-    const viewW = CANVAS_WIDTH / camera.getZoom();
-    const viewH = CANVAS_HEIGHT / camera.getZoom();
-    const sx = Math.max(0, Math.floor(camera.x));
-    const sy = Math.max(0, Math.floor(camera.y));
-    const sw = Math.min(this.canvas.width - sx, Math.ceil(viewW) + 1);
-    const sh = Math.min(this.canvas.height - sy, Math.ceil(viewH) + 1);
+    const view = camera.getCanvasWorldRect();
+    const sx = Math.max(0, Math.floor(view.x));
+    const sy = Math.max(0, Math.floor(view.y));
+    const sw = Math.min(this.canvas.width - sx, Math.ceil(view.w) + 1);
+    const sh = Math.min(this.canvas.height - sy, Math.ceil(view.h) + 1);
 
     if (sw > 0 && sh > 0) {
       ctx.drawImage(this.canvas, sx, sy, sw, sh, sx, sy, sw, sh);
@@ -248,10 +250,11 @@ export class FoliageOverlay {
    * only those inside the camera view, are drawn.
    */
   drawPodGlow(ctx: CanvasRenderingContext2D, camera: Camera, isShown: (tileX: number, tileY: number) => boolean): void {
-    const minX = camera.x - TILE_SIZE;
-    const minY = camera.y - TILE_SIZE;
-    const maxX = camera.x + CANVAS_WIDTH / camera.getZoom() + TILE_SIZE;
-    const maxY = camera.y + CANVAS_HEIGHT / camera.getZoom() + TILE_SIZE;
+    const view = camera.getCanvasWorldRect();
+    const minX = view.x - TILE_SIZE;
+    const minY = view.y - TILE_SIZE;
+    const maxX = view.x + view.w + TILE_SIZE;
+    const maxY = view.y + view.h + TILE_SIZE;
     const alpha = ctx.globalAlpha;
     for (let i = 0; i < this.pods.length; i += 2) {
       const x = this.pods[i];

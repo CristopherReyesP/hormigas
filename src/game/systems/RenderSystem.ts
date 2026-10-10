@@ -12,6 +12,7 @@ import { SpriteAtlas, antGlowPoints, sharedSpriteAtlas } from '../../engine/rend
 import { snapAngle } from '../../engine/renderer/pixelart/directions';
 import { computeUndergroundLight, UG_LIGHT_RIM, UG_LIGHT_FULL } from './undergroundLight';
 import { FogRenderer } from '../../engine/renderer/FogRenderer';
+import { screenPixelScale } from '../../engine/renderer/screenScale';
 import { isTileVisible } from '../../engine/renderer/fogVisibility';
 import { DECOR_SEED, crystalShardsAround } from '../../engine/renderer/alienDecor';
 import {
@@ -38,7 +39,7 @@ import {
   type NestComponent,
   type PlayerOrderComponent,
 } from '../components/components';
-import { TILE_SIZE, PHEROMONE_MAX, CANVAS_WIDTH, CANVAS_HEIGHT, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
+import { TILE_SIZE, PHEROMONE_MAX, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
 import { UndergroundTerrainType, ChamberType, TerrainType } from '../../simulation/world/types';
 import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
@@ -446,20 +447,23 @@ export class RenderSystem {
     const y0 = Math.round(box.y0);
     const w = Math.max(1, Math.round(box.x1) - x0);
     const h = Math.max(1, Math.round(box.y1) - y0);
+    // Line weight keeps its on-screen size on the real-size canvas
+    const px = screenPixelScale(ctx.canvas.width, ctx.canvas.height);
     ctx.save();
     ctx.globalAlpha = ALPHA_STEPS[2] * 0.5;
     ctx.fillStyle = CHROME_ACCENT;
     ctx.fillRect(x0, y0, w, h);
     ctx.globalAlpha = 1;
-    ctx.fillRect(x0, y0, w, 1);
-    ctx.fillRect(x0, y0 + h - 1, w, 1);
-    ctx.fillRect(x0, y0, 1, h);
-    ctx.fillRect(x0 + w - 1, y0, 1, h);
+    ctx.fillRect(x0, y0, w, px);
+    ctx.fillRect(x0, y0 + h - px, w, px);
+    ctx.fillRect(x0, y0, px, h);
+    ctx.fillRect(x0 + w - px, y0, px, h);
     // Heavier corners, like the console's chrome plates
-    const arm = Math.min(5, Math.floor(w / 2), Math.floor(h / 2));
+    const arm = Math.min(5 * px, Math.floor(w / 2), Math.floor(h / 2));
+    const t = 2 * px;
     for (const [cx, cy, sx, sy] of [[x0, y0, 1, 1], [x0 + w, y0, -1, 1], [x0, y0 + h, 1, -1], [x0 + w, y0 + h, -1, -1]] as const) {
-      ctx.fillRect(sx > 0 ? cx : cx - arm, sy > 0 ? cy : cy - 2, arm, 2);
-      ctx.fillRect(sx > 0 ? cx : cx - 2, sy > 0 ? cy : cy - arm, 2, arm);
+      ctx.fillRect(sx > 0 ? cx : cx - arm, sy > 0 ? cy : cy - t, arm, t);
+      ctx.fillRect(sx > 0 ? cx : cx - t, sy > 0 ? cy : cy - arm, t, arm);
     }
     ctx.restore();
   }
@@ -845,16 +849,14 @@ export class RenderSystem {
 
     // Fill background with black (cave void — palette only)
     ctx.fillStyle = PAL.black;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
     ctx.save();
     ctx.translate(shake.x, shake.y);
     this.ugCamera.applyTransform(ctx);
 
     const grid = this.ugGrid;
-    const zoom = this.ugCamera.getZoom();
-    const viewW = CANVAS_WIDTH / zoom;
-    const viewH = CANVAS_HEIGHT / zoom;
+    const { w: viewW, h: viewH } = this.ugCamera.getCanvasWorldRect();
     const camX = this.ugCamera.x;
     const camY = this.ugCamera.y;
 
@@ -1475,8 +1477,7 @@ export class RenderSystem {
     if (!this.camera) return;
 
     // Viewport culling — only render visible tiles
-    const viewW = CANVAS_WIDTH / this.camera.getZoom();
-    const viewH = CANVAS_HEIGHT / this.camera.getZoom();
+    const { w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
     const startX = Math.max(0, Math.floor(this.camera.x / TILE_SIZE));
     const startY = Math.max(0, Math.floor(this.camera.y / TILE_SIZE));
     const endX = Math.min(this.grid.width, Math.ceil((this.camera.x + viewW) / TILE_SIZE) + 1);
@@ -1520,8 +1521,7 @@ export class RenderSystem {
     const ctx = this.renderer.getContext();
 
     // Get viewport culling bounds (same as pheromone rendering)
-    const viewW = CANVAS_WIDTH / this.camera.getZoom();
-    const viewH = CANVAS_HEIGHT / this.camera.getZoom();
+    const { w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
     const startX = Math.max(0, Math.floor(this.camera.x / TILE_SIZE));
     const startY = Math.max(0, Math.floor(this.camera.y / TILE_SIZE));
     const endX = Math.min(this.grid.width, Math.ceil((this.camera.x + viewW) / TILE_SIZE) + 1);
@@ -1534,8 +1534,7 @@ export class RenderSystem {
   private surfaceCullBounds(): { minX: number; minY: number; maxX: number; maxY: number } {
     if (!this.camera) return { minX: -Infinity, minY: -Infinity, maxX: Infinity, maxY: Infinity };
     const margin = 3;
-    const viewW = CANVAS_WIDTH / this.camera.getZoom();
-    const viewH = CANVAS_HEIGHT / this.camera.getZoom();
+    const { w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
     return {
       minX: this.camera.x / TILE_SIZE - margin,
       minY: this.camera.y / TILE_SIZE - margin,

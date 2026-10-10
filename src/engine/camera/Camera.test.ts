@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Camera, MAX_ZOOM, MIN_ZOOM, ZOOM_STEP, snapZoom, stepZoom } from './Camera';
-import { TILE_SIZE } from '../../shared/constants';
+import { Camera, MAX_ZOOM, MIN_ZOOM, ZOOM_STEP, snapZoom, stepZoom, zoomLimits } from './Camera';
+import { TILE_SIZE, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
 
 describe('zoom steps', () => {
   it('moves in increments of 0.5 between the limits', () => {
@@ -173,5 +173,108 @@ describe('directed camera (cinematics)', () => {
     const x = camera.x;
     camera.pan(100, 0);
     expect(camera.x).toBeCloseTo(x - 100);
+  });
+});
+
+describe('zoom limits follow the canvas', () => {
+  const WORLD_W = WORLD_WIDTH * TILE_SIZE;
+  const WORLD_H = WORLD_HEIGHT * TILE_SIZE;
+
+  it('never zooms out past the whole map, never below the 0.5 grid', () => {
+    expect(zoomLimits(1600, 900, 1, WORLD_W, WORLD_H).min).toBe(0.5);
+    expect(zoomLimits(2560, 1440, 1, WORLD_W, WORLD_H).min).toBe(1);
+    expect(zoomLimits(3200, 1800, 2, WORLD_W, WORLD_H).min).toBe(1);
+    expect(zoomLimits(400, 300, 1, WORLD_W, WORLD_H).min).toBe(MIN_ZOOM);
+  });
+
+  it('allows the same close-up on screen at any device ratio', () => {
+    expect(zoomLimits(1600, 900, 1, WORLD_W, WORLD_H).max).toBe(MAX_ZOOM);
+    expect(zoomLimits(3200, 1800, 2, WORLD_W, WORLD_H).max).toBe(MAX_ZOOM * 2);
+    expect(zoomLimits(2400, 1350, 1.5, WORLD_W, WORLD_H).max).toBe(MAX_ZOOM * 1.5);
+  });
+
+  it('keeps both limits on the 0.5 grid', () => {
+    for (const [w, h, r] of [[1280, 720, 1], [1512, 982, 1.25], [3024, 1964, 2]]) {
+      const { min, max } = zoomLimits(w, h, r, WORLD_W, WORLD_H);
+      expect(Number.isInteger(min / ZOOM_STEP)).toBe(true);
+      expect(Number.isInteger(max / ZOOM_STEP)).toBe(true);
+      expect(min).toBeLessThanOrEqual(max);
+    }
+  });
+
+  it('stops the wheel at the canvas limits', () => {
+    const camera = new Camera();
+    camera.setCanvasSize(3200, 1800, 2);
+    camera.zoom = 1;
+    camera.zoomAt(100, 100, 100);
+    expect(camera.zoom).toBe(1);
+    camera.zoom = 8;
+    camera.zoomAt(100, 100, -100);
+    expect(camera.zoom).toBe(8);
+  });
+
+  it('pulls the zoom and the default zoom into the new limits on a resize', () => {
+    const camera = new Camera();
+    camera.setCanvasSize(1600, 900, 1);
+    camera.setDefaultZoom(0.5);
+    camera.zoom = 0.5;
+    camera.setCanvasSize(2560, 1440, 1);
+    expect(camera.zoom).toBe(1);
+    expect(camera.getDefaultZoom()).toBe(1);
+  });
+});
+
+describe('canvas resize', () => {
+  it('reports the world rect the whole canvas covers, for culling', () => {
+    const camera = new Camera();
+    camera.setCanvasSize(1600, 900, 1);
+    camera.zoom = 2;
+    camera.x = 100;
+    camera.y = 40;
+    expect(camera.getCanvasSize()).toEqual({ width: 1600, height: 900 });
+    expect(camera.getCanvasWorldRect()).toEqual({ x: 100, y: 40, w: 800, h: 450 });
+  });
+
+  it('clamps the view to the map with the new canvas size', () => {
+    const camera = new Camera(120, 90);
+    camera.setCanvasSize(2560, 1440, 1);
+    camera.setViewport({ x: 0, y: 30, w: 2560, h: 1270 });
+    camera.zoom = 1;
+    camera.centerOn(120 * TILE_SIZE, 90 * TILE_SIZE);
+    const bottomRight = camera.screenToWorld(2560, 30 + 1270);
+    expect(bottomRight.x).toBeLessThanOrEqual(120 * TILE_SIZE + 50);
+    expect(bottomRight.x).toBeGreaterThanOrEqual(120 * TILE_SIZE);
+    expect(bottomRight.y).toBeLessThanOrEqual(90 * TILE_SIZE + 50);
+  });
+
+  it('keeps the CSS framing when the device ratio changes (window moved to another display)', () => {
+    const camera = new Camera();
+    camera.setCanvasSize(1600, 900, 1);
+    camera.setViewport({ x: 0, y: 30, w: 1600, h: 730 });
+    camera.zoom = 1;
+    camera.centerOn(1920, 1440);
+    camera.setCanvasSize(3200, 1800, 2);
+    camera.setViewport({ x: 0, y: 60, w: 3200, h: 1460 });
+    expect(camera.zoom).toBe(2);
+    const center = camera.screenToWorld(1600, 60 + 730);
+    expect(center.x).toBeCloseTo(1920);
+    expect(center.y).toBeCloseTo(1440);
+  });
+
+  it('maps the same CSS point to the same tile at DPR 1 and DPR 2', () => {
+    const at = (ratio: number) => {
+      const camera = new Camera();
+      camera.setCanvasSize(1600 * ratio, 900 * ratio, ratio);
+      camera.setViewport({ x: 0, y: 30 * ratio, w: 1600 * ratio, h: 730 * ratio });
+      camera.zoom = ratio;
+      camera.centerOn(1920, 1440);
+      return camera;
+    };
+    const one = at(1);
+    const two = at(2);
+    for (const [cssX, cssY] of [[0, 30], [800, 450], [1599, 759], [37, 611]]) {
+      expect(two.screenToTile(cssX * 2, cssY * 2)).toEqual(one.screenToTile(cssX, cssY));
+    }
+    expect(two.getViewRectTiles()).toEqual(one.getViewRectTiles());
   });
 });
