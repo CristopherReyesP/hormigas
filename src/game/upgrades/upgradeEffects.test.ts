@@ -7,6 +7,7 @@ import {
   MAX_EGGS_PER_TYPE,
   QUEEN_EGG_LAY_TIME,
   QUEEN_MAX_HEALTH,
+  QUEEN_ARMOR,
 } from '../../shared/constants';
 import {
   breedCost,
@@ -37,7 +38,8 @@ describe('queen upgrades', () => {
     expect(eggQueuePerCaste(emptyUpgradeLevels())).toBe(MAX_EGGS_PER_TYPE);
     expect(eggQueuePerCaste(levels)).toBe(MAX_EGGS_PER_TYPE + 4);
     expect(queenMaxHealth(levels)).toBe(QUEEN_MAX_HEALTH + 150);
-    expect(queenArmor(levels)).toBe(2);
+    expect(queenArmor(emptyUpgradeLevels())).toBe(QUEEN_ARMOR);
+    expect(queenArmor(levels)).toBe(QUEEN_ARMOR + 2);
     expect(queenRegen(levels)).toBe(3);
   });
 

@@ -3,6 +3,7 @@ import { PixelIcon } from './console/PixelIcon';
 import type { IconName } from './console/pixelIcons';
 import { crystalGameOverCopy } from './races/crystal/crystalGameOver';
 import { humanGameOverCopy } from './races/human/gameOverCopy';
+import { deathCauseText } from '../game/run/deathCause';
 
 interface GameOverScreenProps {
   stats: GameOverStats;
@@ -23,6 +24,9 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
   // A Human player's run ends with the expedition's words, not the queen's
   const human = stats.playerRace === 'human' ? humanGameOverCopy(stats) : null;
   const accent = victory ? 'var(--chrome-accent)' : 'var(--chrome-danger)';
+  // How the run was lost, and what to try next time
+  const death = !victory && stats.cause ? deathCauseText(stats.cause) : null;
+  const when = stats.diedOn ? `${stats.diedOn.phase === 'night' ? 'Noche' : 'Día'} ${stats.diedOn.day}` : null;
   const minutes = Math.floor(stats.survivedTicks / 60 / 60);
   const seconds = Math.floor(stats.survivedTicks / 60) % 60;
 
@@ -86,6 +90,30 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
               {crystal?.title ?? human?.defeatTitle ?? 'LA REINA HA MUERTO'}
             </div>
           </>
+        )}
+        {death && (
+          <div data-testid="death-cause" style={{ marginBottom: 18 }}>
+            <div style={{ color: 'var(--chrome-text)', fontSize: 10, lineHeight: 1.7 }}>
+              {when && <span style={{ color: accent }}>{when} · </span>}
+              {death.line}
+            </div>
+            <div
+              className="pixel-panel"
+              style={{
+                marginTop: 10,
+                padding: '8px 12px',
+                background: 'var(--chrome-panel-light)',
+                color: 'var(--chrome-text)',
+                textAlign: 'left',
+                display: 'flex',
+                gap: 8,
+                alignItems: 'flex-start',
+              }}
+            >
+              <span style={{ color: 'var(--chrome-accent)', whiteSpace: 'nowrap' }}>Consejo:</span>
+              <span>{death.tip}</span>
+            </div>
+          </div>
         )}
         <div style={{ color: 'var(--chrome-dim)', marginBottom: 18 }}>
           {crystal ? crystal.subtitle : human ? human.line : victory

@@ -53,6 +53,28 @@ describe('game over screen', () => {
     expect(html).not.toContain('sobrevivió 7 noches');
   });
 
+  it('says how the run was lost, on which night, with a tip', () => {
+    const starved = renderToStaticMarkup(
+      <GameOverScreen stats={{ ...DEFEAT, cause: { kind: 'starvation', core: 'queen' }, diedOn: { day: 4, phase: 'night' } }} onRestart={noop} />,
+    );
+    expect(starved).toContain('Noche 4 · </span>La reina murió de hambre');
+    expect(starved).toContain('Mantén comida en la despensa para la reina');
+    const killed = renderToStaticMarkup(
+      <GameOverScreen
+        stats={{ ...DEFEAT, cause: { kind: 'invaders', core: 'queen', attackers: [{ name: 'Acorazado', count: 3 }] }, diedOn: { day: 6, phase: 'day' } }}
+        onRestart={noop}
+      />,
+    );
+    expect(killed).toContain('Día 6 · </span>La reina cayó ante los invasores (Acorazado ×3)');
+    expect(killed).toContain('Construye Espinas en la entrada');
+    const human = renderToStaticMarkup(
+      <GameOverScreen stats={{ ...DEFEAT, playerRace: 'human', cause: { kind: 'unknown', core: 'command_center' } }} onRestart={noop} />,
+    );
+    expect(human).toContain('El Centro de mando fue destruido');
+    // A victory has no cause of death
+    expect(renderToStaticMarkup(<GameOverScreen stats={BASE} onRestart={noop} />)).not.toContain('death-cause');
+  });
+
   it('never offers to keep playing once the queen is dead', () => {
     const html = renderToStaticMarkup(<GameOverScreen stats={DEFEAT} onRestart={noop} onContinue={noop} />);
     expect(html).toContain('LA REINA HA MUERTO');

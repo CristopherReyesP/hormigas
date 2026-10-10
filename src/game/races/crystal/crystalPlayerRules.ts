@@ -24,8 +24,12 @@ export const CRYSTAL_PLAYER_START = {
  * nodes around it into the bank until they run dry.
  */
 export const CRYSTAL_PLAYER_ECONOMY = {
-  /** Minerals per second from the Hive, always */
-  hiveTrickle: 1,
+  /**
+   * Minerals per second from the Hive, always. Balance pass: at 1 a Hive with
+   * two extractors earned ~5/s, could not replace what a raid destroyed and
+   * stalled at 8-9 units by night 6 against the Humans.
+   */
+  hiveTrickle: 2,
   /** Minerals per second each finished extractor drains */
   extractorRate: 2,
   /** Nodes this close to an extractor feed it */
@@ -141,8 +145,12 @@ export function stepQueue(state: QueueState, dt: number, floors: number, supplyF
   return { state: { queue: state.queue.slice(1), progress: 0 }, done: head, blocked: null };
 }
 
-/** Night waves against the Crystal Hive bring this share of the Swarm's beetles: it has fewer, stronger units */
-export const CRYSTAL_WAVE_BEETLE_SHARE = 0.5;
+/**
+ * Night waves against the Crystal Hive bring this share of the Swarm's
+ * beetles: it has fewer, stronger units. Balance pass: was 0.5; a full Hive
+ * (60 supply) still fell by night 11-12 while the Swarm lasted past night 20.
+ */
+export const CRYSTAL_WAVE_BEETLE_SHARE = 0.35;
 
 /** Beetles a wave of `beetles` (young and full) sends against the Crystal Hive: at least one */
 export function crystalWaveBeetles(beetles: number): number {
