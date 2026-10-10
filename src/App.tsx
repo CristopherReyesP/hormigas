@@ -7,6 +7,7 @@ import { GameOverScreen } from './ui/GameOverScreen';
 import { MilestoneBanner } from './ui/MilestoneBanner';
 import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
+import { TitleScreen } from './ui/TitleScreen';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
 import { NestAlert } from './ui/NestAlert';
@@ -86,13 +87,16 @@ export default function App() {
   const [stats, setStats] = useState<GameStats>(DEFAULT_STATS);
   // null while the race picker is up; set by COMENZAR. The GameManager builds its rival from it.
   const [runSetup, setRunSetup] = useState<RunSetup | null>(null);
+  // The title screen opens the game and every return to the menu; INICIAR leads to the race picker
+  const [titleOpen, setTitleOpen] = useState(true);
+  const closeTitle = useCallback(() => setTitleOpen(false), []);
   const gameManagerRef = useRef<GameManager | null>(null);
   const [gameManager, setGameManager] = useState<GameManager | null>(null);
   // Tutorial: the run is the guided one while true; the overlay shows until it is finished or left
   const [tutorial, setTutorial] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
-  // First visit: Hormi's offer waits for COMENZAR, so it never hides the race cards; holds the run it interrupted
-  const [offerTutorial, setOfferTutorial] = useState<RunSetup | null>(null);
+  // First visit: Hormi's offer waits for INICIAR, so it never covers the screen on load
+  const [offerTutorial, setOfferTutorial] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const touch = useTouchUi();
   // Builds a run loaded from a save (undefined for a new run); `runKey` remounts the canvas for each run
@@ -117,7 +121,7 @@ export default function App() {
     firstVisit.remember('done');
     // The tutorial teaches what the touch coach marks point at: they need not show after it either
     markCoachSeen(coachStorage());
-    setOfferTutorial(null);
+    setOfferTutorial(false);
     setHelpOpen(false);
     gameManagerRef.current = null;
     setGameManager(null);
@@ -131,16 +135,15 @@ export default function App() {
 
   const declineTutorial = useCallback(() => {
     firstVisit.remember('skipped');
-    const pending = offerTutorial;
-    setOfferTutorial(null);
-    if (pending) handleStart(pending);
-  }, [offerTutorial, handleStart]);
+    setOfferTutorial(false);
+    closeTitle();
+  }, [closeTitle]);
 
-  /** COMENZAR on a first visit asks about the tutorial first; afterwards it starts right away */
-  const handlePickerStart = useCallback((setup: RunSetup) => {
-    if (firstVisit.shouldOffer()) setOfferTutorial(setup);
-    else handleStart(setup);
-  }, [handleStart]);
+  /** INICIAR on a first visit asks about the tutorial first; afterwards it goes straight to the race picker */
+  const handleTitleStart = useCallback(() => {
+    if (firstVisit.shouldOffer()) setOfferTutorial(true);
+    else closeTitle();
+  }, [closeTitle]);
 
   const closeTutorial = useCallback(() => setTutorialOpen(false), []);
 
@@ -169,6 +172,7 @@ export default function App() {
     setHelpOpen(false);
     setCreateGame(undefined);
     setRunSetup(null);
+    setTitleOpen(true);
   }, []);
 
   const handleLoadSave = useCallback((save: SaveFile) => {
@@ -232,13 +236,12 @@ export default function App() {
     gameManagerRef.current?.confirmMutation();
   }, []);
 
-  if (!runSetup) {
-    // Shown on first load and after every restart, before any simulation runs
+  if (!runSetup && titleOpen) {
+    // Shown on first load and after every restart: saves and the tutorial start right from here
     return (
       <>
-        <RacePicker
-          initialSetup={loadRunSetup()}
-          onStart={handlePickerStart}
+        <TitleScreen
+          onStart={handleTitleStart}
           onTutorial={handleTutorial}
           savedRun={<StartSaves storage={saveStorage} onLoad={handleLoadSave} />}
         />
@@ -246,6 +249,11 @@ export default function App() {
         <SaveToasts />
       </>
     );
+  }
+
+  if (!runSetup) {
+    // INICIAR on the title: pick the races for a new run
+    return <RacePicker initialSetup={loadRunSetup()} onStart={handleStart} />;
   }
 
   return (
