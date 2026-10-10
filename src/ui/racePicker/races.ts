@@ -129,7 +129,7 @@ export const RIVAL_OPTIONS: readonly RivalInfo[] = [
   {
     id: 'crystal',
     name: 'Colmena de Cristal',
-    note: 'Próximamente',
+    note: 'Escudos, agujas y su Reina',
     available: isAvailableRival('crystal'),
     portrait: { source: 'crystal', unit: 'drone', label: 'Dron' },
   },

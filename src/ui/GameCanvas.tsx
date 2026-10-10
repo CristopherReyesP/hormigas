@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { GameManager } from '../game/GameManager';
 import type { GameStats } from '../game/GameManager';
+import type { RunSetup } from '../game/run/RunSetup';
 import { fitCanvasToWindow, pickDefaultZoom, visibleCanvasRect, type CanvasFit } from './layout/canvasFit';
 import { HUD_FADE_MS, hudInsets, hudLayout, hudScale } from './layout/hudMetrics';
 import { readSafeArea } from './layout/safeArea';
@@ -10,6 +11,8 @@ interface GameCanvasProps {
   onGameManager: (gm: GameManager) => void;
   /** True while the opening cinematic plays and the HUD is hidden */
   introPlaying: boolean;
+  /** The race and rival picked before the run; read once, when the run starts */
+  runSetup?: RunSetup;
 }
 
 /**
@@ -21,7 +24,7 @@ interface GameCanvasProps {
  * During the intro the HUD is hidden and that band is the whole window; as
  * the HUD fades in, the band eases back so the camera glides instead of jumping.
  */
-export function GameCanvas({ onStatsUpdate, onGameManager, introPlaying }: GameCanvasProps) {
+export function GameCanvas({ onStatsUpdate, onGameManager, introPlaying, runSetup }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const gameManagerRef = useRef<GameManager | null>(null);
@@ -35,7 +38,7 @@ export function GameCanvas({ onStatsUpdate, onGameManager, introPlaying }: GameC
     if (!canvasRef.current) return;
     if (gameManagerRef.current) return; // prevent double init in strict mode
 
-    const gm = new GameManager(canvasRef.current);
+    const gm = new GameManager(canvasRef.current, runSetup);
     gameManagerRef.current = gm;
 
     gm.onStats(onStatsUpdate);
