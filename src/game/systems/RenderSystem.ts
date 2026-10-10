@@ -41,6 +41,8 @@ import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 import { MeteorIntro } from '../render/MeteorIntro';
+import { combatVfxFor } from '../vfx/CombatVfx';
+import { drawCombatVfx } from '../vfx/drawCombatVfx';
 import type { Vec2 } from '../render/introTimeline';
 import type { TilePos } from '../run/craterSite';
 
@@ -629,7 +631,7 @@ export class RenderSystem {
     this.renderParticles();
     this.renderEntitiesInterpolated(interpolation);
     this.renderDeathEffects(ctx, dt);
-    this.renderHitEffects(ctx, dt);
+    drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Surface, this.visibilityGrid);
     this.fogRenderer.update();
     this.fogRenderer.draw(ctx);
     if (this.camera) this.intro?.drawWorldFx(ctx, this.camera);
@@ -1066,6 +1068,8 @@ export class RenderSystem {
       ctx.globalAlpha = 1;
     }
 
+    drawCombatVfx(ctx, combatVfxFor(this.world), 'ground', Layer.Underground, null);
+
     // === PASS 4: Underground entities ===
     const entities = this.world.query(COMPONENT.POSITION, COMPONENT.RENDER, COMPONENT.LAYER);
     for (const id of entities) {
@@ -1273,6 +1277,7 @@ export class RenderSystem {
       }
     }
 
+    drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Underground, null);
     ctx.restore(); // restore camera transform
 
     // Nightfall reaches the player down here too
@@ -1451,6 +1456,9 @@ export class RenderSystem {
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
       this.drawFood(ctx, x, y, id);
     }
+
+    // Combat decals lie on the food (a carcass covers its meat until it fades), under every unit
+    drawCombatVfx(ctx, combatVfxFor(this.world), 'ground', Layer.Surface, this.visibilityGrid);
 
     // Check if nest is being robbed by any cricket
     const isNestBeingRobbedInterp = cricketEntities.some(({ id }) => {
@@ -1635,52 +1643,6 @@ export class RenderSystem {
       p.line(cx - 2, cy - 2, cx + 2, cy + 2, PAL.white);
       p.line(cx + 2, cy - 2, cx - 2, cy + 2, PAL.white);
 
-      ctx.globalAlpha = 1;
-    }
-  }
-
-  /** Combat hit feedback: red flash on victim + yellow-white slash oriented by attack direction + sparks.
-   *  Same lifecycle as renderDeathEffects (ticks and prunes world.hitEffects). */
-  private renderHitEffects(ctx: CanvasRenderingContext2D, dt: number): void {
-    const effects = this.world.hitEffects;
-    for (let i = effects.length - 1; i >= 0; i--) {
-      const effect = effects[i];
-      effect.timer -= dt;
-
-      if (effect.timer <= 0) {
-        effects.splice(i, 1);
-        continue;
-      }
-
-      const progress = 1 - (effect.timer / effect.maxTime); // 0 → 1
-      const age = effect.maxTime - effect.timer;
-
-      const px = effect.x * TILE_SIZE + TILE_SIZE / 2;
-      const py = effect.y * TILE_SIZE + TILE_SIZE / 2;
-      const p = new PixelPainter(ctx, 2);
-      const cx = Math.round(px / 2);
-      const cy = Math.round(py / 2);
-
-      // 3-frame white impact flash on the victim (~0.05s)
-      if (age < 0.06) {
-        ctx.globalAlpha = 0.75;
-        p.shadow(cx, cy, 5, 5, PAL.white);
-      }
-
-      // Spark squares flying out on straight lines, 1 art px + 1 art px trail.
-      // Distance quantized to 3 discrete steps; alpha to 2.
-      ctx.globalAlpha = progress < 0.5 ? 0.75 : 0.5;
-      const dist = 2 + Math.floor(progress * 3) * 3; // 2 / 5 / 8 art px
-      for (let s = 0; s < 5; s++) {
-        const a = effect.angle + (s - 2) * 0.5;
-        const ca = Math.cos(a);
-        const sa = Math.sin(a);
-        const sx = cx + Math.round(ca * dist);
-        const sy = cy + Math.round(sa * dist);
-        const color = s % 2 === 0 ? PAL.white : PAL.glowAmber;
-        p.px(sx, sy, color);
-        p.px(sx - Math.round(ca * 1.5), sy - Math.round(sa * 1.5), color); // 2px trail
-      }
       ctx.globalAlpha = 1;
     }
   }
