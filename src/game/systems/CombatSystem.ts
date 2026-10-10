@@ -17,6 +17,8 @@ import {
   type CricketDenComponent,
 } from '../components/components';
 import { createFood } from '../entities/factories';
+import { emitAudio } from '../../audio/events';
+import { deathAudio, hitAudio } from '../../audio/gameHooks';
 import {
   BEETLE_MEAT_AMOUNT,
   CRICKET_MEAT_AMOUNT,
@@ -101,6 +103,7 @@ export class CombatSystem implements System {
 
       // Attack direction (attacker → victim) for hit effect orientation
       const attackAngle = Math.atan2(targetPos.y - pos.y, targetPos.x - pos.x);
+      emitAudio(hitAudio(this.world, id, targetPos, attackerLayer?.layer));
 
       // Flanking bonus: ants hit harder when swarming the same target
       let damage = combat.attackDamage;
@@ -183,6 +186,7 @@ export class CombatSystem implements System {
   }
 
   private handleDeath(entityId: EntityId, _toDestroy: EntityId[]): void {
+    emitAudio(deathAudio(this.world, entityId));
     const beetle = this.world.getComponent<BeetleComponent>(entityId, COMPONENT.BEETLE);
     if (beetle) {
       this.handleBeetleDeath(entityId, beetle);

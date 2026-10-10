@@ -9,6 +9,7 @@ import {
   NIGHT_FOOD_SPAWN_MULTIPLIER,
   NIGHT_ENEMY_AGGRESSION_MULTIPLIER,
 } from '../../shared/constants';
+import { emitAudio } from '../../audio/events';
 
 export type DayPhase = 'day' | 'night';
 
@@ -90,12 +91,14 @@ export class DayNightSystem implements System {
       if (this.phase === 'day') {
         this.phase = 'night';
         this.phaseTimer = NIGHT_DURATION;
+        emitAudio({ type: 'phase', phase: 'night' });
         this.world.pushNotification('danger', '🌙 Cayó la noche — la superficie es territorio de depredadores');
       } else {
         this.phase = 'day';
         this.phaseTimer = DAY_DURATION;
         this.dayNumber++;
         this.duskWarned = false;
+        emitAudio({ type: 'phase', phase: 'day' });
         this.world.pushNotification('success', `🌅 Amanece el día ${this.dayNumber} — a forrajear`);
       }
     }

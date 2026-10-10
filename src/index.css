@@ -732,6 +732,61 @@ button:focus-visible {
   animation: hud-blink 1s steps(1) infinite;
 }
 
+/* Speaker toggle (sound on → no music → muted) and its volume sliders */
+.strip-sound {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.strip-sound-toggle,
+.strip-sound-more {
+  font: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+.strip-sound-toggle:hover,
+.strip-sound-more:hover,
+.strip-sound-more[aria-expanded="true"] { border-color: var(--chrome-border-light); }
+.strip-sound-more { color: var(--chrome-dim); align-self: stretch; }
+.strip-sound--on { color: var(--chrome-accent); }
+.strip-sound--noMusic { color: var(--chrome-warn); }
+.strip-sound--muted { color: var(--chrome-danger); }
+
+/* Fixed, so the strip's overflow does not clip it; it hangs under the strip's right end */
+.strip-sound-popover {
+  --cut: 8px;
+  position: fixed;
+  top: calc(var(--strip-h) + 6px);
+  right: 10px;
+  z-index: 30;
+  white-space: normal;
+  filter: drop-shadow(3px 3px 0 #000);
+}
+.strip-sound-popover-inner {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px;
+  min-width: 200px;
+}
+.sound-slider {
+  display: grid;
+  grid-template-columns: 64px 1fr 24px;
+  align-items: center;
+  gap: 8px;
+  color: var(--chrome-text);
+}
+.sound-slider input[type="range"] {
+  width: 100%;
+  accent-color: var(--chrome-accent);
+  cursor: pointer;
+}
+.sound-slider-value {
+  color: var(--chrome-dim);
+  text-align: right;
+}
+
 /* ── Objective tracker ─────────────────────────────────────── */
 .objective-plate {
   position: absolute;

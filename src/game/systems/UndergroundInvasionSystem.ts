@@ -18,6 +18,7 @@ import {
   type CarryingComponent,
 } from '../components/components';
 import { createBeetle } from '../entities/factories';
+import { emitAudio } from '../../audio/events';
 import {
   UNDERGROUND_WIDTH,
   INVASION_WAVE_SIZE_BY_NIGHT,
@@ -245,6 +246,7 @@ export class UndergroundInvasionSystem implements System {
   }
 
   private launchWave(): void {
+    emitAudio({ type: 'wave' });
     this.waveNumber++;
     this.waveActive = true;
     this.waveArmed = false;

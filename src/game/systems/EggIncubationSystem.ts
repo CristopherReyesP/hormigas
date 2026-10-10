@@ -23,6 +23,8 @@ import {
 import { TransitSystem } from './TransitSystem';
 import { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import { ChamberType } from '../../simulation/world/types';
+import { emitAudio } from '../../audio/events';
+import { eggLaidAudio } from '../../audio/gameHooks';
 
 const ROLE_BIRTH_NAMES: Record<string, string> = {
   worker: 'una obrera',
@@ -92,6 +94,7 @@ export class EggIncubationSystem implements System {
         const offsetY = (Math.random() - 0.5) * 1.5;
         const hatchTime = this.getIncubationTime(current.role);
         createEgg(this.world, pos.x + offsetX, pos.y + offsetY, current.role, hatchTime);
+        emitAudio(eggLaidAudio(this.world, id, pos));
         queen.hunger = Math.max(0, queen.hunger - QUEEN_EGG_LAY_HUNGER_COST);
 
         eggQueue.queue.shift();
@@ -147,6 +150,7 @@ export class EggIncubationSystem implements System {
 
           this.world.pushNotification('success', `🐜 ¡Nació ${ROLE_BIRTH_NAMES[egg.role] ?? 'una hormiga'}!`);
           this.world.metrics.antsHatched++;
+          emitAudio({ type: 'hatch', caste: egg.role });
 
           // Destroy egg
           this.world.destroyEntity(id);

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { installAudioUi } from '../audio';
 import { sanitizeRunSetup, withPlayerRace, withRivalRace, type RunSetup } from '../game/run/RunSetup';
 import { RACE_CARDS, RIVAL_OPTIONS, raceName, rivalName, type RaceCardInfo, type RaceStat, type RivalInfo } from './racePicker/races';
 import { SpecimenCanvas } from './racePicker/SpecimenCanvas';
@@ -16,6 +17,8 @@ interface RacePickerProps {
  */
 export function RacePicker({ initialSetup, onStart }: RacePickerProps) {
   const [setup, setSetup] = useState(() => sanitizeRunSetup(initialSetup));
+  // The first screen: from here on every button ticks and taps, and the first click unlocks audio
+  useEffect(() => installAudioUi(), []);
 
   return (
     <div className="race-picker" role="dialog" aria-modal="true" aria-labelledby="race-picker-title">
@@ -61,7 +64,7 @@ export function RacePicker({ initialSetup, onStart }: RacePickerProps) {
             <span className="race-matchup-vs">VS</span>
             <span className="race-matchup-side">{rivalName(setup.rivalRace)}</span>
           </p>
-          <button type="button" className="race-start" data-start="" onClick={() => onStart(setup)}>
+          <button type="button" className="race-start" data-start="" data-sfx="start" onClick={() => onStart(setup)}>
             COMENZAR
           </button>
           <p className="race-launch-hint">Tu elección se recordará en la próxima partida</p>
