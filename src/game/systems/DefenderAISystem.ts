@@ -83,7 +83,7 @@ export class DefenderAISystem implements System {
         this.hintShown = true;
         this.world.pushNotification(
           'info',
-          '🛡️ Sin área de defensa designada — las defensoras custodian a la reina. Marcá 🛡️ Defensa para posicionarlas'
+          '🛡️ Sin área de defensa designada — las defensoras custodian a la reina. Marca casillas con Área de defensa (C) en el nido para posicionarlas'
         );
       }
 
