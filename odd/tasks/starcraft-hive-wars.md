@@ -88,6 +88,12 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
       - Checks: `npm test` 258/258, tsc, lint, build. Frames checked by eye in headless Edge.
     - Decision (writer, creative license): the fireball lights the ground it crosses and the crater (`revealCircle`), so that strip stays explored: a scorched trail on the minimap that points at the crater, where the Hive rises in P5.
     - Open: the camera and art run two `IntroClock`s fed the same dt, because `RenderSystem` (outside this writer's surface) keeps its `MeteorIntro` private. A `RenderSystem.getIntroClock()` would let them share one clock. The HUD stays up during the cinematic, so the letterbox bars sit inside the visible band; hiding the HUD needs `App.tsx`/`index.css`.
+  - [ ] P2.9 Breeding UI clarity (user, 2026-10-09: "mejorar la interfaz de crianza que se entienda más"). Evidence from a headless screenshot:
+    - The breed row (A–G) is five dimmed icons with no label, no visible cost and no reason why they are disabled.
+    - The top strip shows 34 leaves while the pantry reads 0/450.
+    - Egg status shows only when the nest is selected.
+    - The breeding objective uses voseo ("Criá…, encargá…").
+    Scope: a visible brood pipeline (pantry → queen lays → incubation → hatch) with per-stage counts and blocked reasons, cost and state on each breed button, egg progress, and the two food numbers labeled so they read differently. Route: delegated (Claude subagent, main worktree).
   - [ ] P2.4 Mutation marks drawn on ant sprites for applied mutations.
   - [ ] P2.5 Bottom console and UI restyle (`--ui-*` → `--chrome-*`, pixel icons, one font, Spanish only).
   - [ ] P2.6 One art-pixel scale for every unit, 16-direction rotation snapping, zoom steps of 0.5.
