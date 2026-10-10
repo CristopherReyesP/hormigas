@@ -360,7 +360,7 @@ export class CrystalRivalSystem implements System {
     this.sendOut([queen], target, CrystalUnitState.Assaulting);
     this.pulseTimers.set(queen, CRYSTAL_QUEEN_POWERS.pulseCooldown);
     combatVfxFor(this.world).crystalPulse(at.x, at.y, Layer.Surface);
-    this.world.pushNotification('danger', '👑 ¡La Reina de Cristal despierta y marcha hacia tu nido! Su aura recarga los escudos de su escolta');
+    this.world.pushNotification('danger', '👑 ¡La Reina de Cristal despierta y marcha hacia tu base! Su aura recarga los escudos de su escolta');
     return queen;
   }
 

@@ -157,8 +157,8 @@ export class CrystalHiveSystem implements System {
     this.world.pushNotification(
       'danger',
       wave.length === 1
-        ? '💎 Un dron de cristal sale de la Colmena hacia tu nido'
-        : `💎 La Colmena de Cristal lanza una oleada: ${wave.length} drones van hacia tu nido`,
+        ? '💎 Un dron de cristal sale de la Colmena hacia tu base'
+        : `💎 La Colmena de Cristal lanza una oleada: ${wave.length} drones van hacia tu base`,
     );
     return wave;
   }

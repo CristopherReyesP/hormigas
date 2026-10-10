@@ -189,6 +189,21 @@ function spirePage(ctx: CommandContext): Slot[] {
   return [...slots, ...timeCommands(ctx), ctx.touch ? areaSelect(ctx) : null, null, deselect(ctx)];
 }
 
+/** Volver a la colmena (touch): the selection walks back to the Hive */
+function rallyHome(ctx: CommandContext, them: string): CommandDef {
+  return {
+    id: 'rally',
+    label: 'Volver a la colmena',
+    icon: 'descend',
+    description: `Ordena a ${them} volver a la colmena y montar guardia allí.`,
+    prominent: true,
+    shortLabel: 'Volver a la colmena',
+    run: act(ctx, () => {
+      if (ctx.gm.returnSelectedToNest() === 0) ctx.notify('Ninguna unidad elegida puede volver a la colmena ahora.', 'danger');
+    }),
+  };
+}
+
 /** Own units selected: Mover, Atacar, Detener, Mantener posición */
 function unitPage(ctx: CommandContext): Slot[] {
   const count = ctx.stats.selectedGroup?.count ?? 1;
@@ -202,11 +217,16 @@ function unitPage(ctx: CommandContext): Slot[] {
         ? `Toca el suelo para mover a ${them}, o pulsa Mover y toca el destino. Al llegar, montan guardia allí.`
         : `Clic derecho en el suelo para mover a ${them}, o pulsa Mover y haz clic en el destino. Al llegar, montan guardia allí.`,
       altKeys: ctx.touch ? 'tocar el suelo' : 'clic derecho en el suelo',
+      prominent: true,
+      shortLabel: 'Mover',
       active: ctx.stats.commandTarget === 'move',
       run: act(ctx, () => armOrCancel(ctx, 'move')),
     },
     // Building needs no worker: the build row stays at hand with units selected
-    ...BUILDS.map((b) => buildButton(ctx, b)),
+    // (on touch the first slot is Volver a la colmena; the extractor stays on the root card)
+    ctx.touch ? rallyHome(ctx, them) : buildButton(ctx, BUILDS[0]),
+    buildButton(ctx, BUILDS[1]),
+    buildButton(ctx, BUILDS[2]),
     ctx.touch ? groupsButton(ctx) : null,
     {
       id: 'attack',
@@ -214,6 +234,8 @@ function unitPage(ctx: CommandContext): Slot[] {
       icon: 'attack',
       description: `Pulsa Atacar y elige un enemigo: ${them} lo persiguen hasta destruirlo. Sobre el suelo, avanzan peleando con todo lo que ven y atacan la base que haya al llegar.`,
       altKeys: ctx.touch ? 'tocar un enemigo' : 'clic derecho en un enemigo',
+      prominent: true,
+      shortLabel: 'Atacar',
       tone: 'danger',
       active: ctx.stats.commandTarget === 'attack',
       run: act(ctx, () => armOrCancel(ctx, 'attack')),

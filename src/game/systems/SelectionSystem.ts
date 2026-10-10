@@ -136,6 +136,32 @@ export class SelectionSystem implements System {
     return best;
   }
 
+  /**
+   * The own unit (an ant, or a Human player's trooper or builder) on `layer` nearest to (tileX, tileY) within `radius` tiles, or
+   * null: a finger tap's pick (touchPickRadiusTiles). Food, wildlife and
+   * bases never win over an ant here. Ants in `skip` are passed over.
+   */
+  nearestOwnAnt(tileX: number, tileY: number, layer: LayerValue, radius: number, skip?: ReadonlySet<EntityId>): EntityId | null {
+    let best: EntityId | null = null;
+    let bestDist = radius;
+    for (const id of this.ownUnits()) {
+      if (skip?.has(id) || this.layerOf(id) !== layer) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const dist = Math.hypot(pos.x - tileX, pos.y - tileY);
+      if (dist <= bestDist) {
+        bestDist = dist;
+        best = id;
+      }
+    }
+    return best;
+  }
+
+  /** Whatever selectable is drawn right under (tileX, tileY) on `layer` (food, the nest, an ant), or null. */
+  directHitAt(tileX: number, tileY: number, layer: LayerValue): EntityId | null {
+    const nearest = this.nearestPoint(tileX, tileY, layer);
+    return nearest !== null && nearest.dist <= DIRECT_HIT_RANGE ? nearest.id : null;
+  }
+
   /** Select exactly these own ants on `layer` (a control group recall); anything else is left out. */
   selectAnts(ids: readonly EntityId[], layer: LayerValue): number {
     const group = ids.filter((id, i) => ids.indexOf(id) === i && this.isAnt(id) && this.layerOf(id) === layer);

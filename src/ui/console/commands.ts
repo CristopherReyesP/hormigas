@@ -47,6 +47,14 @@ export interface CommandDef {
   /** Why it is disabled, for the tooltip */
   disabledReason?: string;
   tone?: 'danger';
+  /**
+   * A main order of its card (Mover, Atacar, Volver al nido, Atacar guarida):
+   * the compact layout draws it as a big button with its name on it; the
+   * desktop card is unchanged.
+   */
+  prominent?: boolean;
+  /** The name on a prominent button, when the tooltip title is longer */
+  shortLabel?: string;
   run: () => void;
 }
 
@@ -255,6 +263,8 @@ function attackDen(ctx: CommandContext): CommandDef {
   return {
     id: 'attack-den',
     label: hive ? 'Atacar colmena' : spire ? 'Atacar aguja' : human ? 'Atacar edificio' : 'Atacar guarida',
+    shortLabel: hive ? 'Atacar colmena' : spire ? 'Atacar aguja' : human ? 'Atacar edificio' : 'Atacar guarida',
+    prominent: true,
     icon: 'sword',
     description: `Ordena a los soldados libres más cercanos atacar ${base} seleccionada hasta destruirla. Ajusta cuántos en el panel central.`,
     badge: ready ? String(count) : undefined,
@@ -321,9 +331,11 @@ function unitPage(ctx: CommandContext): Slot[] {
         : `Haz clic derecho en el suelo para mover a ${ants}. También puedes pulsar Mover y luego hacer clic en el destino. Cada una ocupa su lugar en la formación. Al llegar, las obreras vuelven a su trabajo y las guerreras montan guardia allí.`,
       altKeys: ctx.touch ? 'tocar el suelo' : 'clic derecho en el suelo',
       active: ctx.stats.commandTarget === 'move',
+      prominent: true,
+      shortLabel: 'Mover',
       run: act(ctx, () => armOrCancel(ctx, 'move')),
     },
-    null,
+    ctx.touch ? rally(ctx, ants) : null,
     null,
     null,
     ctx.touch ? groupsButton(ctx) : null,
@@ -336,6 +348,8 @@ function unitPage(ctx: CommandContext): Slot[] {
         : `Pulsa Atacar y haz clic. Sobre un enemigo, ${ants} lo persiguen hasta matarlo. En el suelo, avanzan, pelean con cada enemigo que ven en el camino y, al llegar, atacan la guarida o la colmena que haya allí. Al terminar, vuelven a su trabajo y defienden el nido si hace falta.`,
       altKeys: ctx.touch ? 'tocar un enemigo' : 'clic derecho en un enemigo',
       tone: 'danger',
+      prominent: true,
+      shortLabel: 'Atacar',
       active: ctx.stats.commandTarget === 'attack',
       run: act(ctx, () => armOrCancel(ctx, 'attack')),
     },
@@ -366,6 +380,21 @@ function unitPage(ctx: CommandContext): Slot[] {
     null,
     deselect(ctx),
   ];
+}
+
+/** Volver al nido (touch): the selection walks back to the nest entrance, a move order there. */
+function rally(ctx: CommandContext, ants: string): CommandDef {
+  return {
+    id: 'rally',
+    label: 'Volver al nido',
+    icon: 'descend',
+    description: `Ordena a ${ants} volver a la entrada del nido. Al llegar, las obreras vuelven a su trabajo y las guerreras montan guardia allí.`,
+    prominent: true,
+    shortLabel: 'Volver al nido',
+    run: act(ctx, () => {
+      if (ctx.gm.returnSelectedToNest() === 0) ctx.notify('Ninguna hormiga elegida puede volver al nido ahora.', 'danger');
+    }),
+  };
 }
 
 /** Mover / Atacar: arm the order; on a touch screen pressing the armed one again cancels it (there is no Esc). */

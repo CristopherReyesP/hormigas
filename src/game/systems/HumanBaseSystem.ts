@@ -421,7 +421,7 @@ export class HumanBaseSystem implements System {
     this.sendOut(wave, core, target, 'assaulting');
     this.world.pushNotification(
       'danger',
-      `🪖 Los humanos lanzan un asalto: ${wave.length} ${wave.length === 1 ? 'tropa va' : 'tropas van'} hacia tu nido`,
+      `🪖 Los humanos lanzan un asalto: ${wave.length} ${wave.length === 1 ? 'tropa va' : 'tropas van'} hacia tu base`,
     );
     return wave;
   }

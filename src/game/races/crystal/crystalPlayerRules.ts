@@ -141,12 +141,6 @@ export function stepQueue(state: QueueState, dt: number, floors: number, supplyF
   return { state: { queue: state.queue.slice(1), progress: 0 }, done: head, blocked: null };
 }
 
-/**
- * The run is endless: surviving this many nights is a milestone, not a win.
- * The Hive gets a mineral reward at that dawn and play goes on.
- */
-export const CRYSTAL_NIGHT_MILESTONE = { night: 7, reward: 300 } as const;
-
 /** Night waves against the Crystal Hive bring this share of the Swarm's beetles: it has fewer, stronger units */
 export const CRYSTAL_WAVE_BEETLE_SHARE = 0.5;
 

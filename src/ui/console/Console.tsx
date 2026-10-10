@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GameManager, GameStats } from '../../game/GameManager';
+import type { QuickSelectKind } from '../../game/systems/helpers/quickSelect';
 import { NotificationStack } from '../NotificationStack';
 import { buildCommands, buildModeHint, commandTargetHint, isDefenseMode, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
 import { CommandCard } from './CommandCard';
@@ -8,6 +9,12 @@ import { MinimapPanel } from './MinimapPanel';
 import { useColonyDetails } from './useColonyDetails';
 import { useTouchUi } from '../layout/touch';
 import { crystalBuildHint } from '../races/crystal/crystalCommands';
+import { useHudLayout } from '../layout/useHudLayout';
+import { TouchCommandBar } from './TouchCommandBar';
+import { touchHint } from './touchHint';
+import { TouchFeedback, type CasteBurst, type OrderToast } from './TouchFeedback';
+import { CoachMarks } from './CoachMarks';
+import { HAPTIC_PATTERN, feedbackText, hapticFor, vibrate } from './feedbackText';
 import { humanHint } from '../races/human/humanCommands';
 
 interface ConsoleProps {
@@ -18,6 +25,9 @@ interface ConsoleProps {
 }
 
 const NOTICE_MS = 3000;
+/** How long an order toast and a long-press burst stay (their CSS animations match) */
+const TOAST_MS = 1600;
+const BURST_MS = 1100;
 
 /** Nest tools only work underground; the defense tools on both layers */
 function applyBuildMode(gm: GameManager | null, mode: BuildMode | null, layer: 'surface' | 'underground'): void {
@@ -40,7 +50,40 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   const [attackCount, setAttackCount] = useState(10);
   const [notice, setNotice] = useState<{ text: string; tone: NoticeTone } | null>(null);
   const [groupAdd, setGroupAdd] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [toast, setToast] = useState<OrderToast | null>(null);
+  const [burst, setBurst] = useState<CasteBurst | null>(null);
+  const feedbackId = useRef(0);
   const touch = useTouchUi();
+  const compact = useHudLayout() !== 'desktop';
+
+  // Phone order feedback: a toast, a buzz, and a burst where a long press took a caste.
+  // The desktop console stays as it was.
+  useEffect(() => {
+    if (!gameManager || !touch) return;
+    return gameManager.onCommandFeedback((event) => {
+      vibrate(typeof navigator !== 'undefined' ? navigator : undefined, hapticFor(event));
+      const id = ++feedbackId.current;
+      const text = feedbackText(event);
+      if (event.type === 'caste-select') {
+        setBurst({ id, x: event.x / event.pixelRatio, y: event.y / event.pixelRatio, text });
+      } else {
+        setToast({ id, text, tone: event.order === 'attack' || event.order === 'attack-move' ? 'attack' : 'move' });
+      }
+    });
+  }, [gameManager, touch]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), TOAST_MS);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  useEffect(() => {
+    if (!burst) return;
+    const timer = window.setTimeout(() => setBurst(null), BURST_MS);
+    return () => window.clearTimeout(timer);
+  }, [burst]);
 
   // Leaving the nest (any route) drops nest-only tools and pages
   const [seenLayer, setSeenLayer] = useState(stats.activeLayer);
@@ -128,11 +171,29 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
     [gameManager, stats, details, page, buildMode, attackCount, toggleBuildMode, switchLayer, refresh, notify, touch, groupAdd],
   );
 
+  const quickSelect = useCallback(
+    (kind: QuickSelectKind) => {
+      if (!gameManager) return;
+      if (gameManager.quickSelect(kind).selected > 0 && touch) {
+        vibrate(typeof navigator !== 'undefined' ? navigator : undefined, HAPTIC_PATTERN.select);
+      }
+      // Picking troops leaves the Defensas page and drops its build tool: the next tap is an order
+      setPage('root');
+      setBuildMode((mode) => (isDefenseMode(mode) ? null : mode));
+      refresh();
+    },
+    [gameManager, touch, refresh],
+  );
+
   const areaHint = touch && stats.areaSelect
     ? `SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus ${stats.crystal || stats.human ? 'unidades' : 'hormigas'}`
     : null;
-  const crystalHint = stats.crystal?.buildMode ? crystalBuildHint(stats.crystal.buildMode, touch) : null;
-  const hint = notice?.text ?? humanHint(stats, touch) ?? commandTargetHint(stats.commandTarget, touch) ?? crystalHint ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint);
+  // A Human player placing a building, or a Crystal player's build mode: its hint first
+  const placingHint = humanHint(stats, touch) ?? (stats.crystal?.buildMode ? crystalBuildHint(stats.crystal.buildMode, touch) : null);
+  // The compact HUD's hint line already says what the mode does: the feed only carries notices there
+  const modeHint = compact ? null : placingHint ?? commandTargetHint(stats.commandTarget, touch) ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint);
+  const hint = notice?.text ?? modeHint;
+  const lineHint = touchHint({ ...stats, buildMode, touch, toolHint: placingHint });
   const overlayOpen = Boolean(stats.mutationOffer || stats.gameOver);
 
   return (
@@ -155,6 +216,23 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
           gameManager={gameManager}
           attackCount={attackCount}
           onAttackCountChange={setAttackCount}
+          open={compact ? infoOpen : undefined}
+          onOpenChange={compact ? setInfoOpen : undefined}
+        />
+        <TouchCommandBar
+          stats={stats}
+          hint={lineHint}
+          infoOpen={infoOpen}
+          onToggleInfo={() => setInfoOpen((o) => !o)}
+          onQuickSelect={quickSelect}
+          onRecallGroup={(slot) => {
+            gameManager?.recallControlGroup(slot);
+            refresh();
+          }}
+          onClearSelection={() => {
+            gameManager?.clearSelection();
+            refresh();
+          }}
         />
         <CommandCard
           commands={commands}
@@ -164,6 +242,8 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
           touch={touch}
         />
       </footer>
+      {touch && <TouchFeedback toast={toast} burst={burst} />}
+      {touch && compact && <CoachMarks active={!stats.introPlaying && !overlayOpen} race={stats.human ? 'human' : 'swarm'} />}
     </>
   );
 }

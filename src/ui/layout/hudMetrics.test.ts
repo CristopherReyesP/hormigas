@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import css from '../../index.css?raw';
 import {
-  COMPACT_BUTTON_PX, COMPACT_INFO_BAR_PX, CONSOLE_DECK_HEIGHT, HUD_BARS, STRIP_HEIGHT, compactCardHeight, hudInsets, hudLayout, hudScale, mapShare,
+  COMPACT_BUTTON_PX, CONSOLE_DECK_HEIGHT, HINT_LINE_PX, HUD_BARS, QUICK_BAR_PX, STRIP_HEIGHT, compactCardHeight, hudInsets, hudLayout, hudScale, mapShare,
 } from './hudMetrics';
 
 describe('HUD insets around the intro', () => {
@@ -94,11 +94,22 @@ describe('compact HUD leaves the map most of the screen', () => {
     expect(mapShare(1280, 720)).toBeCloseTo((720 - 30 - 140) / 720);
   });
 
-  it('still fits finger-sized command buttons: three rows in portrait, one in landscape', () => {
+  it('still fits finger-sized command buttons: two rows under the hint line and the quick-select bar in portrait, one in landscape', () => {
     expect(COMPACT_BUTTON_PX).toBeGreaterThanOrEqual(40);
-    expect(compactCardHeight(3)).toBeGreaterThanOrEqual(3 * COMPACT_BUTTON_PX);
-    expect(HUD_BARS['phone-portrait'].deck).toBe(COMPACT_INFO_BAR_PX + compactCardHeight(3));
+    expect(compactCardHeight(2)).toBeGreaterThanOrEqual(2 * COMPACT_BUTTON_PX);
+    expect(QUICK_BAR_PX).toBeGreaterThanOrEqual(40);
+    expect(HUD_BARS['phone-portrait'].deck).toBe(HINT_LINE_PX + QUICK_BAR_PX + compactCardHeight(2));
+    // Landscape: the hint line and the bar float over the map, like the info bar did
     expect(HUD_BARS['phone-landscape'].deck).toBe(compactCardHeight(1));
+  });
+
+  it('the phone command bars take at most 10% more height than the compact HUD before them', () => {
+    // Before the quick-select bar: a 32 px info bar over a 3-row card (portrait), a 1-row card (landscape)
+    const before = { 'phone-portrait': 30 + 32 + compactCardHeight(3), 'phone-landscape': 28 + compactCardHeight(1) };
+    for (const layout of ['phone-portrait', 'phone-landscape'] as const) {
+      const bars = HUD_BARS[layout].strip + HUD_BARS[layout].deck;
+      expect(bars, layout).toBeLessThanOrEqual(before[layout] * 1.1);
+    }
   });
 
   it('keeps the camera clear of the notch and the home indicator on phones only', () => {
@@ -122,9 +133,10 @@ describe('compact HUD leaves the map most of the screen', () => {
     const px = (block: string, name: string) => Number(block.match(new RegExp(`${name}:\\s*(\\d+)px`))?.[1]);
     const phone = rule('.hud-layer--phone');
     expect(px(phone, '--cmd-btn')).toBe(COMPACT_BUTTON_PX);
-    expect(px(phone, '--info-bar-h')).toBe(COMPACT_INFO_BAR_PX);
+    expect(px(phone, '--hint-h')).toBe(HINT_LINE_PX);
+    expect(px(phone, '--quick-h')).toBe(QUICK_BAR_PX);
     expect(px(rule('.hud-layer--phone-portrait'), '--strip-row')).toBe(HUD_BARS['phone-portrait'].strip);
-    expect(px(rule('.hud-layer--phone-portrait'), '--card-h')).toBe(compactCardHeight(3));
+    expect(px(rule('.hud-layer--phone-portrait'), '--card-h')).toBe(compactCardHeight(2));
     expect(px(rule('.hud-layer--phone-landscape'), '--strip-row')).toBe(HUD_BARS['phone-landscape'].strip);
     expect(px(rule('.hud-layer--phone-landscape'), '--card-h')).toBe(compactCardHeight(1));
   });

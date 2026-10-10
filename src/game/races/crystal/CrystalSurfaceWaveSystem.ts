@@ -25,7 +25,7 @@ import {
 } from '../../run/waveComposition';
 import { ELITE_AFFIXES, makeElite } from '../../run/eliteAffixes';
 import { BOSS_COMPONENT, MINI_BOSSES, makeMiniBoss, markCrystalQueen, type BossComponent } from '../../run/miniBoss';
-import { BOSS_REWARD, waveClearReward } from '../../run/waveRewards';
+import { BOSS_REWARD, waveClearReward, type WaveReward } from '../../run/waveRewards';
 import { waveRuntimeFor } from '../../run/waveRuntime';
 import type { ShieldComponent } from '../../rival/crystalShield';
 import {
@@ -135,6 +135,16 @@ export class CrystalSurfaceWaveSystem implements WaveDirector {
 
   setRaidSource(source: RaidSource | null): void {
     this.raidSource = source;
+  }
+
+  /**
+   * Pay a reward (a night milestone). The Crystal Hive eats nothing: the food
+   * share comes as minerals too, so the whole reward lands in the bank.
+   */
+  pay(reward: WaveReward): WaveReward {
+    const minerals = Math.max(0, reward.minerals) + Math.max(0, reward.food);
+    this.world.minerals.deposit(minerals);
+    return { minerals, food: 0 };
   }
 
   /** No cave, no garrison below: the Swarm's garrison setting does nothing here */

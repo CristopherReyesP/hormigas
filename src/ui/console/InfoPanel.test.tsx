@@ -30,6 +30,7 @@ const DETAILS: ColonyDetails = {
   queen: { health: 500, maxHealth: 500, hunger: 900, maxHunger: 1000, isLaying: false },
   brood: BROOD,
   farm: { tiles: 0, rate: 0, status: 'sin-tiles', stored: 0, capacity: 0 },
+  farmTile: null,
   eatFirst: 'leaf',
   garrison: { target: 2, current: 1 },
   upgrades: [],
@@ -175,5 +176,30 @@ describe('compact info bar (phones)', () => {
     } as GameStats);
     expect(html).toMatch(/info-summary[\s\S]*info-summary-close[^>]*aria-label="Quitar selección"/);
     expect(render()).not.toContain('info-summary-close');
+  });
+});
+
+describe('info panel on a tapped farm tile', () => {
+  const below = { ...STATS, activeLayer: 'underground' } as unknown as GameStats;
+  const farm = { tiles: 6, rate: 0.5, status: 'produciendo', stored: 120, capacity: 300 };
+
+  function renderFarm(farmTile: ColonyDetails['farmTile']): string {
+    return renderToStaticMarkup(
+      <InfoPanel stats={below} details={{ ...DETAILS, farm, farmTile }} gameManager={null} attackCount={10} onAttackCountChange={() => {}} />,
+    );
+  }
+
+  it('shows how far the tile has grown', () => {
+    const html = renderFarm({ x: 3, y: 4, progress: 0.6, ready: false, label: 'Granja de hongos · madurando 60%' });
+    expect(html).toContain('Granja de hongos · madurando 60%');
+  });
+
+  it('says when it is ready to harvest', () => {
+    const html = renderFarm({ x: 3, y: 4, progress: 1, ready: true, label: 'Granja de hongos · lista para cosechar' });
+    expect(html).toContain('lista para cosechar');
+  });
+
+  it('shows nothing extra when no farm tile was tapped', () => {
+    expect(renderFarm(null)).not.toContain('Granja de hongos ·');
   });
 });

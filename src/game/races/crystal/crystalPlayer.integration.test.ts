@@ -13,7 +13,8 @@ import { FactionId, ownerOf } from '../../factions/factions';
 import { fakeCanvas, finishIntro } from '../../../test/gameManagerMocks';
 import { setAudioSink } from '../../../audio/events';
 import type { RunSetup } from '../../run/RunSetup';
-import { CRYSTAL_NIGHT_MILESTONE, CRYSTAL_PLAYER_START, CRYSTAL_STRUCTURES, productionTime } from './crystalPlayerRules';
+import { CRYSTAL_PLAYER_START, CRYSTAL_STRUCTURES, productionTime } from './crystalPlayerRules';
+import { nightMilestone } from '../../run/nightMilestones';
 import { WORLD_HEIGHT, WORLD_WIDTH } from '../../../shared/constants';
 import { createBeetle } from '../../entities/factories';
 
@@ -167,6 +168,29 @@ describe('playing the Crystal Hive against the Humans', () => {
     world.destroyEntity(game['rivalCoreId']!);
     run(DT);
     expect(game.getStats().gameOver).toMatchObject({ outcome: 'victory', rivalCoreDestroyed: 'human', playerRace: 'crystal' });
+    // Seguir jugando: the run goes on, endless, with wildlife waves only
+    expect(game.continueAfterVictory()).toBe(true);
+    expect(game.getStats().gameOver).toBeNull();
+    run(1);
+    expect(game.getStats().gameOver).toBeNull();
+    expect(game.getCrystal()!.hiveAlive()).toBe(true);
+    game.stop();
+  });
+
+  it('quick-select picks the drones and Todas; Volver a la colmena walks them home', () => {
+    const { game, world, ownUnits, run } = setup(VS_HUMANS);
+    const chips = game.getStats().quickSelect!;
+    expect(chips.map((c) => c.kind)).toEqual(['crystal-drone', 'crystal-sentinel', 'all']);
+    expect(chips[0].count).toBe(CRYSTAL_PLAYER_START.drones);
+    expect(game.quickSelect('crystal-drone').selected).toBe(CRYSTAL_PLAYER_START.drones);
+    expect(game.getStats().crystal?.selectedKinds.drones).toBe(CRYSTAL_PLAYER_START.drones);
+    expect(game.orderSelectedMove(CX + 12, CY, true)).toBe(ownUnits().length);
+    run(2);
+    expect(game.returnSelectedToNest()).toBe(ownUnits().length);
+    for (const id of ownUnits()) {
+      const order = world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER)!;
+      expect(Math.hypot(order.target.x - CX, order.target.y - CY)).toBeLessThan(5);
+    }
     game.stop();
   });
 });
@@ -231,7 +255,9 @@ describe('playing the Crystal Hive against the wildlife', () => {
     run(0.2);
     expect(game.getStats().gameOver).toBeNull();
     expect(world.notifications.some((n) => n.message.includes('¡Sobreviviste 7 noches!'))).toBe(true);
-    expect(world.minerals.stored - before).toBeGreaterThanOrEqual(CRYSTAL_NIGHT_MILESTONE.reward);
+    // The shared milestone, paid in minerals: crystals eat nothing, so the food share comes as minerals too
+    const reward = nightMilestone(7)!.reward;
+    expect(world.minerals.stored - before).toBeGreaterThanOrEqual(reward.minerals + reward.food);
     // Only once
     const count = () => world.notifications.filter((n) => n.message.includes('¡Sobreviviste 7 noches!')).length;
     run(1);
@@ -263,6 +289,16 @@ describe('playing the Crystal Hive against the wildlife', () => {
     run(2);
     const combat = world.getComponent<{ targetEntityId: number | null }>(id, COMPONENT.COMBAT)!;
     expect(combat.targetEntityId === beetle || !world.hasEntity(beetle)).toBe(true);
+    game.stop();
+  });
+});
+
+describe('the endless run pays the Crystal Hive in minerals', () => {
+  it('waves().pay banks the whole reward as minerals', () => {
+    const { game, world } = setup(VS_WILDLIFE);
+    const before = world.minerals.stored;
+    expect(game['waves']().pay({ minerals: 100, food: 50 })).toEqual({ minerals: 150, food: 0 });
+    expect(world.minerals.stored - before).toBe(150);
     game.stop();
   });
 });

@@ -4,6 +4,7 @@ import { TopStrip } from './ui/console/TopStrip';
 import { Console } from './ui/console/Console';
 import { ObjectivePanel } from './ui/ObjectivePanel';
 import { GameOverScreen } from './ui/GameOverScreen';
+import { MilestoneBanner } from './ui/MilestoneBanner';
 import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
 import { HudLayer } from './ui/HudLayer';
@@ -52,11 +53,13 @@ const DEFAULT_STATS: GameStats = {
   objective: null,
   invasion: { waveNumber: 0, nextWaveIn: 180, active: false, invadersAlive: 0, armed: false, waveSize: 0, remaining: 0, banner: null, threats: [] },
   gameOver: null,
+  milestone: null,
   activeEvents: [],
   dayPhase: 'day',
   dayNumber: 1,
   phaseRemaining: 0,
   mutationOffer: null,
+  mutationSelection: null,
   lastMutationPick: null,
   introPlaying: true, // every run opens on the meteor intro, so the HUD starts hidden
 };
@@ -83,6 +86,12 @@ export default function App() {
     setGameManager(null);
     setStats(DEFAULT_STATS);
     setRunSetup(null);
+  }, []);
+
+  // "Seguir jugando" after a victory: the endless run goes on without the rival base
+  const handleContinue = useCallback(() => {
+    const gm = gameManagerRef.current;
+    if (gm?.continueAfterVictory()) setStats(gm.getStats());
   }, []);
 
   const handleStatsUpdate = useCallback((newStats: GameStats) => {
@@ -112,8 +121,12 @@ export default function App() {
     refreshStats();
   }, [refreshStats]);
 
-  const handleChooseMutation = useCallback((id: MutationId) => {
-    gameManagerRef.current?.chooseMutation(id);
+  const handleSelectMutation = useCallback((id: MutationId | null) => {
+    gameManagerRef.current?.selectMutation(id);
+  }, []);
+
+  const handleConfirmMutation = useCallback(() => {
+    gameManagerRef.current?.confirmMutation();
   }, []);
 
   if (!runSetup) {
@@ -146,13 +159,16 @@ export default function App() {
       )}
       {/* A Human expedition's landing line (the Swarm opens with the meteor cinematic instead) */}
       {stats.human?.intro && !stats.gameOver && <HumanIntroBanner title={stats.human.intro} />}
-      {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
+      {!stats.introPlaying && !stats.gameOver && <MilestoneBanner milestone={stats.milestone} />}
+      {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} onContinue={handleContinue} />}
 
       {/* Dawn mutation pick: full-screen, above the HUD */}
       <EvolutionChamber
         offer={stats.mutationOffer}
+        selected={stats.mutationSelection}
         lastPick={stats.lastMutationPick}
-        onChoose={handleChooseMutation}
+        onSelect={handleSelectMutation}
+        onConfirm={handleConfirmMutation}
       />
     </div>
   );
