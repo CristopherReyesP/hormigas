@@ -509,6 +509,8 @@ export interface BroodSnapshot {
   incubation: { tiles: number; freeSlots: number };
   /** Nurses below ground: only they carry eggs to incubation and feed larvae and the queen */
   nurses: number;
+  /** Workers alive. With none, a worker egg may be paid with the entrance pile (see queueBreed). */
+  workers?: number;
   costs: Record<AntRole, number>;
 }
 
@@ -2413,8 +2415,13 @@ export class GameManager {
     const countForRole = eggQueue.queue.filter(e => e.role === role).length;
     if (countForRole >= eggQueue.maxPerType) return false;
 
-    // Spend from the pantry tile piles (leaf → mushroom → meat priority)
-    if (!this.deductFromStorage(this.getBreedCost(role))) return false;
+    // Spend from the pantry tile piles (leaf → mushroom → meat priority). A
+    // colony with no workers left may pay a worker egg with the entrance pile:
+    // nobody may be able to carry that food down, and without a worker the
+    // colony could never recover (player report: "me quedé sin obreras").
+    const cost = this.getBreedCost(role);
+    const rescue = role === AntRole.Worker && this.countWorkers() === 0;
+    if (!this.deductFromStorage(cost, rescue)) return false;
 
     // Add to queue
     eggQueue.queue.push({
@@ -2427,11 +2434,44 @@ export class GameManager {
     return true;
   }
 
-  /** Deduct food from the underground pantry tiles (leaf → mushroom → meat). False if insufficient. */
-  private deductFromStorage(cost: number): boolean {
-    if (this.undergroundGrid.getPantryStored().total < cost) return false;
-    this.undergroundGrid.drainFood(cost);
+  /**
+   * Deduct food from the underground pantry tiles (leaf → mushroom → meat).
+   * With `orEntrance`, what the pantry lacks comes off the entrance pile.
+   * False (nothing spent) if insufficient.
+   */
+  private deductFromStorage(cost: number, orEntrance = false): boolean {
+    const pantry = this.undergroundGrid.getPantryStored().total;
+    if (pantry >= cost) {
+      this.undergroundGrid.drainFood(cost);
+      return true;
+    }
+    const nest = orEntrance ? this.getPlayerNest() : undefined;
+    if (!nest || pantry + nest.foodStored < cost) return false;
+    this.undergroundGrid.drainFood(pantry);
+    this.takeFromEntrancePile(nest, cost - pantry);
     return true;
+  }
+
+  /** Take food off the entrance pile, each type in proportion to what lies there */
+  private takeFromEntrancePile(nest: NestComponent, amount: number): void {
+    const share = nest.foodStored > 0 ? Math.min(1, amount / nest.foodStored) : 0;
+    nest.mushroomStored = Math.max(0, nest.mushroomStored * (1 - share));
+    nest.meatStored = Math.max(0, nest.meatStored * (1 - share));
+    nest.foodStored = Math.max(0, nest.foodStored - amount);
+  }
+
+  private getPlayerNest(): NestComponent | undefined {
+    const nestId = this.world.query(COMPONENT.NEST)[0];
+    return nestId !== undefined ? this.world.getComponent<NestComponent>(nestId, COMPONENT.NEST) : undefined;
+  }
+
+  private countWorkers(): number {
+    let workers = 0;
+    for (const id of this.world.query(COMPONENT.ANT)) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      if (ant.role === AntRole.Worker) workers++;
+    }
+    return workers;
   }
 
   /** Food cost to breed one ant of this role, including run mutation surcharges. */
@@ -3322,6 +3362,7 @@ export class GameManager {
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
       if (ant.role === AntRole.Nurse && layer.layer === Layer.Underground) nurses++;
     }
+    const workers = this.countWorkers();
 
     return {
       pantry: {
@@ -3340,6 +3381,7 @@ export class GameManager {
       eggs,
       incubation: { tiles: incubationTiles, freeSlots },
       nurses,
+      workers,
       costs: {
         [AntRole.Worker]: this.getBreedCost(AntRole.Worker),
         [AntRole.Soldier]: this.getBreedCost(AntRole.Soldier),

@@ -103,13 +103,13 @@ describe('mutation read sites', () => {
 
   it('charges the titan_brood soldier surcharge in both production queues', () => {
     const game = manager();
-    const deduct = vi.spyOn(game as unknown as { deductFromStorage(cost: number): boolean }, 'deductFromStorage').mockReturnValue(true);
+    const deduct = vi.spyOn(game as unknown as { deductFromStorage(cost: number, orEntrance?: boolean): boolean }, 'deductFromStorage').mockReturnValue(true);
     game.applyMutation('titan_brood');
     game.applyMutation('titan_brood');
     expect(game.queueBreed(AntRole.Soldier)).toBe(true);
-    expect(deduct).toHaveBeenLastCalledWith(BREED_COST_SOLDIER + 20);
+    expect(deduct).toHaveBeenLastCalledWith(BREED_COST_SOLDIER + 20, false);
     expect(game.queueBreed(AntRole.Worker)).toBe(true);
-    expect(deduct).toHaveBeenLastCalledWith(BREED_COST_WORKER);
+    expect(deduct).toHaveBeenLastCalledWith(BREED_COST_WORKER, false);
     const world = game['world'];
     const nest = get<NestComponent>(world, world.query(COMPONENT.NEST, COMPONENT.QUEEN)[0], COMPONENT.NEST);
     nest.foodStored = 100;
