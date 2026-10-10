@@ -2,7 +2,8 @@ import type { Camera } from '../../engine/camera/Camera';
 import { PAL, hash2 } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 import { drawPixelText, textWidth, GLYPH_H } from '../../engine/renderer/pixelart/PixelFont';
-import { CANVAS_WIDTH, CANVAS_HEIGHT, TILE_SIZE } from '../../shared/constants';
+import { screenPixelScale } from '../../engine/renderer/screenScale';
+import { TILE_SIZE } from '../../shared/constants';
 import type { TilePos } from '../run/craterSite';
 import type { CrystalShard } from '../../engine/renderer/alienDecor';
 import {
@@ -69,11 +70,26 @@ const LETTERBOX_SHARE = 0.11;
 /** Title font pixel = 10 screen px: two lines, each nearly the screen's width */
 const TITLE_SCALE = 10;
 const TITLE_LINE_GAP = 16;
+/** Share of the canvas width the longest title line spans, and the most of its height the glyphs take. */
+const TITLE_WIDTH_SHARE = 0.82;
+const TITLE_HEIGHT_SHARE = 0.36;
 /** Bevel-like stepped shading down the glyph rows: highlight, chartreuse, shade */
 const titleRowColor = (row: number): string =>
   row === 0 ? PAL.white : row >= 5 ? PAL.glowGreen : PAL.swarm.vein[1];
 
 const even = (v: number): number => Math.round(v / 2) * 2;
+
+/**
+ * Canvas px per title font pixel on a w×h canvas: the title keeps the share of
+ * the screen it had on the old 800×600 buffer (10x there), capped by the
+ * height on very wide windows.
+ */
+export function introTitleScale(w: number, h: number): number {
+  const longest = Math.max(...INTRO_TITLE_LINES.map((line) => textWidth(line, 1)));
+  const byWidth = Math.floor((w * TITLE_WIDTH_SHARE) / longest);
+  const byHeight = Math.floor((h * TITLE_HEIGHT_SHARE) / (INTRO_TITLE_LINES.length * GLYPH_H));
+  return Math.max(2, Math.min(byWidth, byHeight));
+}
 
 /** Dithered disc at one quantized alpha — the game's stand-in for a soft glow. */
 function makeHalo(color: string, rArt: number): OffscreenCanvas {
@@ -562,7 +578,9 @@ export class MeteorIntro {
    */
   drawScreenFx(ctx: CanvasRenderingContext2D, camera: Camera | null): void {
     if (!this.isPlaying()) return;
-    const view = camera ? camera.getViewport() : { x: 0, y: 0, w: CANVAS_WIDTH, h: CANVAS_HEIGHT };
+    const W = ctx.canvas.width;
+    const H = ctx.canvas.height;
+    const view = camera ? camera.getViewport() : { x: 0, y: 0, w: W, h: H };
     ctx.save();
 
     // Full white for two frames, then a warm fireball wash steps out
@@ -571,14 +589,14 @@ export class MeteorIntro {
     if (flash > 0 || glow > 0) {
       ctx.globalAlpha = flash > 0 ? flash : glow;
       ctx.fillStyle = flash > 0 ? PAL.white : PAL.meteor[1];
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      ctx.fillRect(0, 0, W, H);
     }
     // A cold cyan blink as the Hive's pulse goes off
     const pulse = crystalPulseProgress(this.t);
     if (pulse !== null && pulse < 0.12) {
       ctx.globalAlpha = pulse < 0.05 ? 0.3 : 0.15;
       ctx.fillStyle = PAL.crystal.shield;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      ctx.fillRect(0, 0, W, H);
     }
     ctx.globalAlpha = 1;
 
@@ -586,28 +604,28 @@ export class MeteorIntro {
     const bar = even(view.h * LETTERBOX_SHARE * letterboxAmount(this.t));
     if (bar > 0) {
       ctx.fillStyle = PAL.black;
-      ctx.fillRect(0, view.y, CANVAS_WIDTH, bar);
-      ctx.fillRect(0, view.y + view.h - bar, CANVAS_WIDTH, bar);
+      ctx.fillRect(0, view.y, W, bar);
+      ctx.fillRect(0, view.y + view.h - bar, W, bar);
     }
 
-    if (camera) this.drawEdgePing(ctx, camera);
+    if (camera) this.drawEdgePing(ctx, camera, ART * screenPixelScale(W, H));
     const title = titleAlpha(this.t);
     if (title > 0) this.drawTitle(ctx, title, view.y + view.h / 2);
     ctx.restore();
   }
 
-  /** A blinking crystal diamond on the view edge, pointing at an off-screen crater. */
-  private drawEdgePing(ctx: CanvasRenderingContext2D, camera: Camera): void {
+  /** A blinking crystal diamond on the view edge, pointing at an off-screen crater; `px` canvas px per art px. */
+  private drawEdgePing(ctx: CanvasRenderingContext2D, camera: Camera, px: number): void {
     if (this.t < INTRO_TIMELINE.impact) return;
     if (Math.floor(this.t * 4) % 2 === 1) return;
     const v = camera.getViewport();
     const s = camera.worldToScreen(this.impact.x, this.impact.y);
     if (s.x >= v.x && s.x <= v.x + v.w && s.y >= v.y && s.y <= v.y + v.h) return;
-    const m = 18;
+    const m = 9 * px;
     const bar = even(v.h * LETTERBOX_SHARE * letterboxAmount(this.t));
-    const x = Math.round(Math.max(v.x + m, Math.min(v.x + v.w - m, s.x)) / ART);
-    const y = Math.round(Math.max(v.y + bar + m, Math.min(v.y + v.h - bar - m, s.y)) / ART);
-    const p = new PixelPainter(ctx, ART);
+    const x = Math.round(Math.max(v.x + m, Math.min(v.x + v.w - m, s.x)) / px);
+    const y = Math.round(Math.max(v.y + bar + m, Math.min(v.y + v.h - bar - m, s.y)) / px);
+    const p = new PixelPainter(ctx, px);
     for (const [dy, half] of [[-3, 0], [-2, 1], [-1, 2], [0, 3], [1, 2], [2, 1], [3, 0]] as const) {
       p.hline(x - half - 1, y + dy, half * 2 + 3, PAL.crystal.outline);
     }
@@ -618,35 +636,39 @@ export class MeteorIntro {
   }
 
   /**
-   * The title card: two lines of the pixel font at 10× on a dark plate with
-   * chartreuse and magenta rules, centered on `centerY`; each glyph gets a
-   * magenta drop, a dark outline and a stepped chartreuse fill so it pops
-   * over day or night.
+   * The title card: two lines of the pixel font (10× on an 800×600 canvas,
+   * scaled with the real one) on a dark plate with chartreuse and magenta
+   * rules, centered on `centerY`; each glyph gets a magenta drop, a dark
+   * outline and a stepped chartreuse fill so it pops over day or night.
    */
   private drawTitle(ctx: CanvasRenderingContext2D, alpha: number, centerY: number): void {
-    const S = TITLE_SCALE;
+    const W = ctx.canvas.width;
+    const S = introTitleScale(W, ctx.canvas.height);
+    /** Plate, rule and outline sizes were drawn for the 10× title */
+    const u = (v: number) => Math.max(1, Math.round((v * S) / TITLE_SCALE));
     const lineH = GLYPH_H * S;
-    const blockH = INTRO_TITLE_LINES.length * lineH + (INTRO_TITLE_LINES.length - 1) * TITLE_LINE_GAP;
+    const blockH = INTRO_TITLE_LINES.length * lineH + (INTRO_TITLE_LINES.length - 1) * u(TITLE_LINE_GAP);
     const top = even(centerY - blockH / 2);
-    const plateY = top - 28;
-    const plateH = blockH + 56;
+    const plateY = top - u(28);
+    const plateH = blockH + 2 * u(28);
 
     ctx.globalAlpha = alpha * 0.78;
     ctx.fillStyle = PAL.swarm.outline;
-    ctx.fillRect(0, plateY, CANVAS_WIDTH, plateH);
+    ctx.fillRect(0, plateY, W, plateH);
     ctx.globalAlpha = alpha;
     ctx.fillStyle = PAL.swarm.vein[1];
-    ctx.fillRect(0, plateY, CANVAS_WIDTH, 4);
-    ctx.fillRect(0, plateY + plateH - 4, CANVAS_WIDTH, 4);
+    ctx.fillRect(0, plateY, W, u(4));
+    ctx.fillRect(0, plateY + plateH - u(4), W, u(4));
     ctx.fillStyle = PAL.swarm.flesh[3];
-    ctx.fillRect(0, plateY + 8, CANVAS_WIDTH, 2);
-    ctx.fillRect(0, plateY + plateH - 10, CANVAS_WIDTH, 2);
+    ctx.fillRect(0, plateY + u(8), W, u(2));
+    ctx.fillRect(0, plateY + plateH - u(10), W, u(2));
 
+    const o = u(4);
     INTRO_TITLE_LINES.forEach((line, i) => {
-      const x = Math.round((CANVAS_WIDTH - textWidth(line, S)) / 2);
-      const y = top + i * (lineH + TITLE_LINE_GAP);
-      drawPixelText(ctx, line, x + 8, y + 8, S, PAL.swarm.flesh[2]);
-      for (const [ox, oy] of [[-4, 0], [4, 0], [0, -4], [0, 4], [-4, -4], [4, -4], [-4, 4], [4, 4]]) {
+      const x = Math.round((W - textWidth(line, S)) / 2);
+      const y = top + i * (lineH + u(TITLE_LINE_GAP));
+      drawPixelText(ctx, line, x + 2 * o, y + 2 * o, S, PAL.swarm.flesh[2]);
+      for (const [ox, oy] of [[-o, 0], [o, 0], [0, -o], [0, o], [-o, -o], [o, -o], [-o, o], [o, o]]) {
         drawPixelText(ctx, line, x + ox, y + oy, S, PAL.swarm.outline);
       }
       drawPixelText(ctx, line, x, y, S, titleRowColor);

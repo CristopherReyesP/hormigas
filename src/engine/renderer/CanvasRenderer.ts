@@ -1,9 +1,12 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, TILE_SIZE } from '../../shared/constants';
 
 export class CanvasRenderer {
+  private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
 
+  /** The buffer starts at the reference size; the UI resizes it to the window before the first frame. */
   constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
     canvas.width = CANVAS_WIDTH;
     canvas.height = CANVAS_HEIGHT;
     const ctx = canvas.getContext('2d');
@@ -12,9 +15,20 @@ export class CanvasRenderer {
     this.ctx.imageSmoothingEnabled = false;
   }
 
+  /** Match the backing store to the window (canvas px). A no-op when unchanged, since resizing clears the canvas. */
+  resize(width: number, height: number): void {
+    const w = Math.max(1, Math.round(width));
+    const h = Math.max(1, Math.round(height));
+    if (this.canvas.width === w && this.canvas.height === h) return;
+    this.canvas.width = w;
+    this.canvas.height = h;
+    // A resize resets the whole context state: pixel art must stay unsmoothed
+    this.ctx.imageSmoothingEnabled = false;
+  }
+
   clear(): void {
     this.ctx.fillStyle = '#1a1205';
-    this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
   fillTile(tileX: number, tileY: number, color: string): void {

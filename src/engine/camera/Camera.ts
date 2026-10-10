@@ -14,20 +14,49 @@ const WHEEL_NOTCH = 50;
 /** World edge slack (world px) the view may show past the map border. */
 const EDGE_PADDING = 50;
 
-function clampZoom(zoom: number): number {
-  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+/** Zoom range of one camera: both ends sit on the 0.5 grid. */
+export interface ZoomLimits {
+  min: number;
+  max: number;
+}
+
+const DEFAULT_LIMITS: ZoomLimits = { min: MIN_ZOOM, max: MAX_ZOOM };
+
+function clampZoom(zoom: number, limits: ZoomLimits): number {
+  return Math.max(limits.min, Math.min(limits.max, zoom));
 }
 
 /** Nearest 0.5 step inside the zoom limits. */
-export function snapZoom(zoom: number): number {
-  return clampZoom(Math.round(zoom / ZOOM_STEP) * ZOOM_STEP);
+export function snapZoom(zoom: number, limits: ZoomLimits = DEFAULT_LIMITS): number {
+  return clampZoom(Math.round(zoom / ZOOM_STEP) * ZOOM_STEP, limits);
 }
 
 /** Next 0.5 step from `current` in `direction` (+1 zooms in, -1 zooms out); off-grid values land on the grid. */
-export function stepZoom(current: number, direction: 1 | -1): number {
+export function stepZoom(current: number, direction: 1 | -1, limits: ZoomLimits = DEFAULT_LIMITS): number {
   const steps = current / ZOOM_STEP;
   const next = direction > 0 ? Math.floor(steps + 1e-9) + 1 : Math.ceil(steps - 1e-9) - 1;
-  return clampZoom(next * ZOOM_STEP);
+  return clampZoom(next * ZOOM_STEP, limits);
+}
+
+/**
+ * Zoom range for a canvas of `canvasW`×`canvasH` canvas px holding
+ * `pixelRatio` canvas px per CSS px. Zoom is canvas px per world px, so the
+ * close-up limit scales with the ratio (MAX_ZOOM is the same close-up on
+ * screen at any DPR), and the far limit stops once the whole canvas would
+ * look past the map. Both ends land on the 0.5 grid.
+ */
+export function zoomLimits(
+  canvasW: number,
+  canvasH: number,
+  pixelRatio: number,
+  worldPxW: number,
+  worldPxH: number,
+): ZoomLimits {
+  const ratio = pixelRatio > 0 ? pixelRatio : 1;
+  const max = Math.max(MIN_ZOOM, Math.floor((MAX_ZOOM * ratio) / ZOOM_STEP + 1e-9) * ZOOM_STEP);
+  const fitsMap = Math.max(canvasW / worldPxW, canvasH / worldPxH);
+  const min = Math.max(MIN_ZOOM, Math.ceil(fitsMap / ZOOM_STEP - 1e-9) * ZOOM_STEP);
+  return { min: Math.min(min, max), max };
 }
 
 /** Screen-space rect (canvas px) the player actually sees; HUD bars cover the rest. */
@@ -52,6 +81,12 @@ export class Camera {
 
   private worldWidth: number;
   private worldHeight: number;
+  /** Whole canvas in canvas px (the backing store); the defaults hold until the UI measures the window */
+  private canvasW = CANVAS_WIDTH;
+  private canvasH = CANVAS_HEIGHT;
+  /** Canvas px per CSS px of the current canvas */
+  private pixelRatio = 1;
+  private limits: ZoomLimits = DEFAULT_LIMITS;
   private viewport: ViewportRect = { x: 0, y: 0, w: CANVAS_WIDTH, h: CANVAS_HEIGHT };
   private defaultZoom = 1;
   private wheelAccum = 0;
@@ -103,7 +138,7 @@ export class Camera {
     this.wheelAccum = 0;
 
     const worldBefore = this.screenToWorld(screenX, screenY);
-    this.zoom = stepZoom(this.zoom, delta > 0 ? -1 : 1);
+    this.zoom = stepZoom(this.zoom, delta > 0 ? -1 : 1, this.limits);
 
     // Keep world point under mouse cursor stationary
     this.x = worldBefore.x - screenX / this.zoom;
@@ -117,7 +152,7 @@ export class Camera {
 
   /** Zoom that suits the current display scale; used at start and by reset(). */
   setDefaultZoom(zoom: number): void {
-    this.defaultZoom = snapZoom(zoom);
+    this.defaultZoom = snapZoom(zoom, this.limits);
   }
 
   getDefaultZoom(): number {
@@ -127,8 +162,44 @@ export class Camera {
   /** Set the zoom directly (snapped to the 0.5 grid), keeping the viewport center fixed. */
   setZoom(zoom: number): void {
     const center = this.viewportCenterWorld();
-    this.zoom = snapZoom(zoom);
+    this.zoom = snapZoom(zoom, this.limits);
     this.centerOn(center.x, center.y);
+  }
+
+  /**
+   * The canvas backing store changed size (window resize or a new
+   * devicePixelRatio). The zoom range follows it; a new pixel ratio rescales
+   * the zoom so the world keeps its size on screen; the view stays centered.
+   */
+  setCanvasSize(width: number, height: number, pixelRatio = 1): void {
+    const center = this.viewportCenterWorld();
+    const ratio = pixelRatio > 0 ? pixelRatio : 1;
+    const zoom = this.zoom * (ratio / this.pixelRatio);
+    this.canvasW = Math.max(1, width);
+    this.canvasH = Math.max(1, height);
+    this.pixelRatio = ratio;
+    this.limits = zoomLimits(this.canvasW, this.canvasH, ratio, this.worldWidth * TILE_SIZE, this.worldHeight * TILE_SIZE);
+    this.zoom = snapZoom(zoom, this.limits);
+    this.defaultZoom = snapZoom(this.defaultZoom, this.limits);
+    this.centerOn(center.x, center.y);
+  }
+
+  getCanvasSize(): { width: number; height: number } {
+    return { width: this.canvasW, height: this.canvasH };
+  }
+
+  getZoomLimits(): ZoomLimits {
+    return { ...this.limits };
+  }
+
+  /** World px rect the WHOLE canvas shows (the HUD bars included): the culling bounds. */
+  getCanvasWorldRect(): { x: number; y: number; w: number; h: number } {
+    return {
+      x: this.x,
+      y: this.y,
+      w: this.canvasW / this.zoom,
+      h: this.canvasH / (this.zoom * PERSPECTIVE_Y_SCALE),
+    };
   }
 
   /**
@@ -212,14 +283,14 @@ export class Camera {
    */
   direct(shot: CameraShot): void {
     this.directed = true;
-    this.zoom = snapZoom(shot.zoom);
+    this.zoom = snapZoom(shot.zoom, this.limits);
     this.centerOn(shot.x, shot.y);
   }
 
   /** Hand the camera back to the player, optionally on a last shot. */
   release(finalShot?: CameraShot): void {
     if (finalShot) {
-      this.zoom = snapZoom(finalShot.zoom);
+      this.zoom = snapZoom(finalShot.zoom, this.limits);
       this.centerOn(finalShot.x, finalShot.y);
     }
     this.directed = false;

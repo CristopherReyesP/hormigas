@@ -965,19 +965,29 @@ export class GameManager {
   }
 
   /**
+   * The window changed size or devicePixelRatio: the canvas backing store
+   * follows it (canvas px), and both cameras learn the new canvas and zoom range.
+   */
+  resizeCanvas(width: number, height: number, pixelRatio = 1): void {
+    this.renderer.resize(width, height);
+    this.camera.setCanvasSize(width, height, pixelRatio);
+    this.undergroundCamera.setCanvasSize(width, height, pixelRatio);
+  }
+
+  /**
    * Screen layout from the UI: the part of the canvas the HUD leaves visible.
-   * The first call with a default zoom also applies that zoom and recenters
-   * both layers (surface on the nest); later calls keep the view centered.
+   * The default zoom (Home/R) follows every layout; the first one also
+   * applies it and recenters both layers (surface on the nest); later calls
+   * keep the view centered.
    */
   setViewport(rect: ViewportRect, defaultZoom?: number): void {
     this.camera.setViewport(rect);
     this.undergroundCamera.setViewport(rect);
-    if (defaultZoom === undefined || this.viewportConfigured) return;
+    if (defaultZoom === undefined) return;
+    for (const camera of [this.camera, this.undergroundCamera]) camera.setDefaultZoom(defaultZoom);
+    if (this.viewportConfigured) return;
     this.viewportConfigured = true;
-    for (const camera of [this.camera, this.undergroundCamera]) {
-      camera.setDefaultZoom(defaultZoom);
-      camera.zoom = camera.getDefaultZoom();
-    }
+    for (const camera of [this.camera, this.undergroundCamera]) camera.zoom = camera.getDefaultZoom();
     this.camera.centerOn(Math.floor(WORLD_WIDTH / 2) * TILE_SIZE, Math.floor(WORLD_HEIGHT / 2) * TILE_SIZE);
     this.undergroundCamera.centerOn(Math.floor(UNDERGROUND_WIDTH / 2) * TILE_SIZE, Math.floor(UNDERGROUND_HEIGHT / 2) * TILE_SIZE);
   }
