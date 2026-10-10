@@ -45,15 +45,15 @@ function setup() {
   const screenOf = (x: number, y: number) => camera.worldToScreen((x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE);
   const orderOf = (id: number) => world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER);
   const spot = snapToWalkable(grid, { x: NX + 9, y: NY + 5 }, 6)!;
-  // The random map's own ants wander; keep the tap spot clear of them so a tap
-  // can only land on the soldiers placed here
+  // The random map's own ants wander, and a tap picks the ant nearest the
+  // finger: park every starting surface ant far from all the spots these
+  // tests tap, so a tap can only land on what each test placed
+  // Ants riding the shaft or below can still be picked, so park them all
   for (const id of world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.LAYER)) {
-    if (world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!.layer !== Layer.Surface) continue;
+    world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!.layer = Layer.Underground;
     const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-    if (Math.hypot(pos.x - spot.x, pos.y - spot.y) < 4) {
-      pos.x = pos.prevX = NX - 20;
-      pos.y = pos.prevY = NY - 20;
-    }
+    pos.x = pos.prevX = NX + 25;
+    pos.y = pos.prevY = NY - 25;
   }
   const soldiers = [0, 1, 2].map((i) => createAnt(world, spot.x + i * 0.4, spot.y, AntRole.Soldier));
   return { game, world, grid, selection, screenOf, orderOf, soldiers, spot };
@@ -119,7 +119,17 @@ describe('tap on the surface', () => {
     const { game, world, selection, grid, screenOf } = setup();
     const nest = world.query(COMPONENT.NEST, COMPONENT.POSITION)[0];
     selection.selectOnly(nest);
-    const ground = snapToWalkable(grid, { x: NX - 14, y: NY + 10 }, 6)!;
+    // Truly empty ground: the random map scatters food, crystals and wildlife
+    // with tap areas of their own, so pick a walkable tile clear of every entity
+    const clear = (x: number, y: number) => world.query(COMPONENT.POSITION).every((id) => {
+      const p = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      return Math.hypot(p.x - x, p.y - y) > 4;
+    });
+    let ground = snapToWalkable(grid, { x: NX - 14, y: NY + 10 }, 6)!;
+    for (let r = 0; r < 20 && !clear(ground.x, ground.y); r++) {
+      ground = snapToWalkable(grid, { x: NX - 14 - r, y: NY + 10 + r }, 6)!;
+    }
+    expect(clear(ground.x, ground.y)).toBe(true);
     const at = screenOf(ground.x, ground.y);
     game['handleTap'](at.x, at.y);
     expect(selection.getSelectedIds()).toEqual([]);
