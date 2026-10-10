@@ -1,6 +1,22 @@
 import type { Camera } from '../../engine/camera/Camera';
 import { TILE_SIZE } from '../../shared/constants';
-import { introCameraFocus, introCameraZoom, introLitAreas, type IntroClock, type IntroVariant, type Vec2 } from './introTimeline';
+import {
+  introCameraFocus,
+  introCameraZoom,
+  introLitAreas,
+  isPlayerArrival,
+  playerIntroCameraFocus,
+  playerIntroLitAreas,
+  type IntroClock,
+  type IntroVariant,
+  type Vec2,
+} from './introTimeline';
+
+/** A player race's own opening: where its arrival comes in from, and the rival base the camera glances toward (world px). */
+export interface PlayerIntroShot {
+  from: Vec2;
+  rival: Vec2 | null;
+}
 
 /** Lights a ground circle for this frame: tile center, radius in tiles. */
 export type GroundLight = (tileX: number, tileY: number, radius: number) => void;
@@ -11,6 +27,8 @@ export type GroundLight = (tileX: number, tileY: number, radius: number) => void
  * dropship → close-up on where it came down → glide home) and lights the
  * ground it is over, so the chase crosses lit terrain instead of black fog.
  * `impact` is the variant's target: the crater, or the Human base site.
+ * A Crystal or Human player's own opening lands at home (`impact` is the
+ * nest tile) and `shot` says where it comes in from and where the rival is.
  *
  * GameManager owns the one IntroClock and advances it right before the frame
  * is drawn; this director and the MeteorIntro that draws (inside RenderSystem)
@@ -25,9 +43,19 @@ export class IntroDirector {
   private readonly impact: Vec2;
   private readonly light: GroundLight;
   private readonly variant: IntroVariant;
+  private readonly shot: PlayerIntroShot | null;
 
-  constructor(camera: Camera, clock: IntroClock, nest: Vec2, impact: Vec2, light: GroundLight, variant: IntroVariant = 'crystal') {
+  constructor(
+    camera: Camera,
+    clock: IntroClock,
+    nest: Vec2,
+    impact: Vec2,
+    light: GroundLight,
+    variant: IntroVariant = 'crystal',
+    shot: PlayerIntroShot | null = null,
+  ) {
     this.camera = camera;
+    this.shot = isPlayerArrival(variant) ? (shot ?? { from: nest, rival: null }) : null;
     this.variant = variant;
     this.clock = clock;
     this.nest = nest;
@@ -43,9 +71,15 @@ export class IntroDirector {
       return;
     }
     const t = this.clock.elapsed;
-    const focus = introCameraFocus(t, this.nest, this.impact, this.variant);
+    const shot = this.shot;
+    const focus = shot
+      ? playerIntroCameraFocus(t, shot.from, this.impact, shot.rival, this.variant)
+      : introCameraFocus(t, this.nest, this.impact, this.variant);
     this.camera.direct({ x: focus.x, y: focus.y, zoom: introCameraZoom(t, this.camera.getDefaultZoom()) });
-    for (const area of introLitAreas(t, this.nest, this.impact, this.variant)) {
+    const lit = shot
+      ? playerIntroLitAreas(t, shot.from, this.impact, shot.rival, this.variant)
+      : introLitAreas(t, this.nest, this.impact, this.variant);
+    for (const area of lit) {
       this.light(Math.floor(area.x / TILE_SIZE), Math.floor(area.y / TILE_SIZE), area.r);
     }
   }

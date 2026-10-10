@@ -52,6 +52,7 @@ import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 import { drawIncubationTier, drawQueenCrown } from '../upgrades/upgradeArt';
 import { queenTier } from '../upgrades/upgradeEffects';
 import { MeteorIntro } from '../render/MeteorIntro';
+import { FactionId, ownerOf } from '../factions/factions';
 import { CrystalRivalArt } from '../render/crystalRivalArt';
 import type { CrystalOverlay } from '../races/crystal/CrystalPlayerController';
 import { drawCrystalOverlay, drawGrowingSpire, drawHiveCrown } from '../races/crystal/crystalPlayerArt';
@@ -65,7 +66,7 @@ import { HumanRenderer } from './HumanRenderer';
 import { drawDefenses, drawGhost, drawScoutMarks, drawWaveFx, drawWaveUnits, type WaveOverlay } from '../render/waveFunArt';
 import { WAVE_MARCH_COMPONENT, type WaveMarchComponent } from '../run/waveMarch';
 import { drawDigOverlay, type DigOverlay } from '../render/digOverlayArt';
-import type { IntroClock, Vec2 } from '../render/introTimeline';
+import { isPlayerArrival, type IntroClock, type Vec2 } from '../render/introTimeline';
 import type { IntroArrival } from '../render/introArrival';
 import { LeapTracker, type LeapDraw } from '../render/leapMotion';
 import type { TilePos } from '../run/craterSite';
@@ -133,6 +134,9 @@ const ORDER_PING_SECONDS = 0.7;
 const BIG_PING_SECONDS = 1.2;
 /** Its lines from the units fade out over this share of it */
 const BIG_PING_LINE_SHARE = 0.6;
+/** The Crystal race's render shapes: a Crystal player's opening hides their own until it ends */
+const CRYSTAL_SHAPES: ReadonlySet<string> = new Set(['crystal_hive', 'crystal_drone', 'crystal_spire']);
+
 /** At most this many units get a line: a big group would hide the map */
 const BIG_PING_LINES_MAX = 24;
 /** Seconds the targeted enemy's ellipse flashes red-orange after an attack order */
@@ -743,13 +747,26 @@ export class RenderSystem {
    * advances `clock`.
    */
   startMeteorIntro(impactTile: TilePos, nestTile: TilePos, clock: IntroClock, arrival?: IntroArrival): void {
-    // The Hive's corruption: crystal shards on the ground around the impact
-    const shards = crystalShardsAround(impactTile, DECOR_SEED, (x, y) => {
-      const tile = this.grid.getTile(x, y);
-      return tile !== null && tile.terrain !== TerrainType.Water;
-    });
+    // The Hive's corruption: crystal shards on the ground around the impact.
+    // A player race's own opening lands at home, where no shard field grows
+    const shards = arrival && isPlayerArrival(arrival.variant)
+      ? []
+      : crystalShardsAround(impactTile, DECOR_SEED, (x, y) => {
+        const tile = this.grid.getTile(x, y);
+        return tile !== null && tile.terrain !== TerrainType.Water;
+      });
     this.intro = new MeteorIntro(impactTile, nestTile, clock, shards, arrival);
     this.craterTile = { x: impactTile.x, y: impactTile.y };
+  }
+
+  /** A Crystal Hive stands on the crater: its rim spires are that Hive's. */
+  private hiveStandsOnCrater(): boolean {
+    const crater = this.craterTile;
+    if (!crater) return false;
+    return this.world.query(COMPONENT.CRYSTAL_HIVE, COMPONENT.POSITION).some((id) => {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      return Math.round(pos.x) === crater.x && Math.round(pos.y) === crater.y;
+    });
   }
 
   /** Any key or click once the title shows: drop the remaining intro effects (the crater stays). */
@@ -1033,7 +1050,7 @@ export class RenderSystem {
     this.foliageOverlay.draw(ctx, this.camera);
     // The crater is ground: under trails and units, hidden by unexplored fog
     // The spires are the Crystal Hive's: once it falls, only the bare crater stays
-    this.intro?.setSpiresStanding(this.world.query(COMPONENT.CRYSTAL_HIVE).length > 0);
+    this.intro?.setSpiresStanding(this.hiveStandsOnCrater());
     this.intro?.drawCrater(ctx, this.animationTime);
     this.renderPheromones();
     this.renderParticles();
@@ -1050,13 +1067,14 @@ export class RenderSystem {
     this.renderWaveMarchOverFog(ctx, interpolation);
     // The player's own command feedback reads over the fog
     this.renderOrderPings(ctx);
-    const overlay = this.getWaveOverlay?.() ?? null;
+    // A Crystal or Human player's opening holds back the base's markers (breach, path) until the base shows
+    const overlay = this.intro?.hidesPlayerBase() ? null : (this.getWaveOverlay?.() ?? null);
     if (overlay) {
       drawScoutMarks(ctx, overlay, Layer.Surface, this.animationTime);
       drawGhost(ctx, overlay, this.animationTime);
     }
     // A Crystal player's build ghost and rally line, over the fog too
-    const crystalOverlay = this.commandOverlay?.crystalOverlay?.() ?? null;
+    const crystalOverlay = this.intro?.hidesPlayerBase() ? null : (this.commandOverlay?.crystalOverlay?.() ?? null);
     if (crystalOverlay) drawCrystalOverlay(ctx, crystalOverlay, this.crystalArt, this.animationTime);
     if (this.camera) this.intro?.drawWorldFx(ctx, this.camera);
     ctx.restore();
@@ -1867,6 +1885,8 @@ export class RenderSystem {
     const spireEntities: Array<{ id: number; pos: PositionComponent }> = [];
 
     const entities = this.world.query(COMPONENT.POSITION, COMPONENT.RENDER);
+    // A Crystal player's own opening draws their Hive and drones rising; the real ones show when it ends
+    const hidePlayerBase = this.intro?.hidesPlayerBase() ?? false;
     for (const id of entities) {
       // Skip underground entities when rendering surface
       const layerComp = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
@@ -1874,6 +1894,7 @@ export class RenderSystem {
 
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const render = this.world.getComponent<RenderComponent>(id, COMPONENT.RENDER)!;
+      if (hidePlayerBase && CRYSTAL_SHAPES.has(render.shape) && ownerOf(this.world, id) === FactionId.PLAYER) continue;
 
       // Cull only the high-count, dependency-free shapes (ants + food piles);
       // crickets stay — the nest "being robbed" check reads them even offscreen
@@ -2021,10 +2042,13 @@ export class RenderSystem {
     }
 
     // The Human rival: buildings on explored ground, troops where the colony sees now, gunfire.
-    // While their arrival plays, the intro draws the base unfolding instead
+    // While their arrival plays, the intro draws the base unfolding instead; a
+    // Human player's own opening likewise holds back the player's base
+    const hidePlayerHumans = this.intro?.hidesPlayerBase() ?? false;
     if (!this.intro?.hidesRivalBase()) this.humanRenderer.draw(ctx, interpolation, this.animationTime, (c, px, py, current, max, always, scale, yOffset) =>
-      this.drawHealthBar(c, px, py, current, max, always, scale, yOffset));
-    this.worldOverlay?.(ctx, interpolation, this.animationTime);
+      this.drawHealthBar(c, px, py, current, max, always, scale, yOffset), hidePlayerHumans ? (id) => ownerOf(this.world, id) === FactionId.PLAYER : undefined);
+    // The Human player's selection rings, ghost and rally line wait for their base too
+    if (!hidePlayerHumans) this.worldOverlay?.(ctx, interpolation, this.animationTime);
 
     for (const { id, pos } of antEntities) {
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
@@ -2643,8 +2667,8 @@ export class RenderSystem {
     if (this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE)?.selected) {
       this.drawSelectionBrackets(ctx, px, py - TILE_SIZE * 0.8, TILE_SIZE * 2, 'green');
     }
-    // Without the meteor intro (a Crystal player's run) no crater draws the hives' spires: draw a crown here
-    if (!this.intro) drawHiveCrown(ctx, this.crystalArt, px, py);
+    // The rival Hive on the Swarm's crater wears the crater's rim spires; every other Hive (a Crystal player's, or a rival's in their run) its crown
+    if (!this.intro?.drawsHiveAt({ x: tileX, y: tileY })) drawHiveCrown(ctx, this.crystalArt, px, py);
     if (Math.floor(this.animationTime * 2) % 2 === 0) this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.8, 'crystal');
     this.drawCrystalBars(ctx, entityId, px, py - TILE_SIZE * 2.4, 2);
   }

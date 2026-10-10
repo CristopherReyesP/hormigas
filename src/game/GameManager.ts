@@ -97,8 +97,8 @@ import { loadBestNight, recordNight } from './run/nightRecord';
 import { DayNightSystem } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
 import { IntroDirector } from './render/IntroDirector';
-import { IntroClock, introRivalLine, introVariantFor } from './render/introTimeline';
-import type { IntroArrival } from './render/introArrival';
+import { IntroClock, introRivalLine, introVariantFor, isPlayerArrival } from './render/introTimeline';
+import { playerLaunchTile, type IntroArrival } from './render/introArrival';
 import { audioIntroFrame, audioRunEnded, audioRunStarted, emitAudio } from '../audio';
 import { selectionAudio } from '../audio/gameHooks';
 import { createAnt, createFood, createMineral, createNest, createBeetleDen, createQueen, createCrystalHive } from './entities/factories';
@@ -836,8 +836,10 @@ export class GameManager {
       edgeMargin: CRATER_EDGE_MARGIN,
       farFraction: CRATER_FAR_FRACTION,
     });
-    // The opening brings in the rival picked before the run (see introArrival.ts)
-    const introVariant = introVariantFor(this.rivalRace);
+    // The Swarm's opening brings in the rival picked before the run; a Crystal
+    // or Human player's brings in their own base at home (see introArrival.ts)
+    const introVariant = introVariantFor(this.rivalRace, setup.playerRace);
+    let rivalSite: TilePos | null = null;
     let arrival: IntroArrival = { variant: introVariant, target: { ...this.craterSite }, rivalLine: introRivalLine(this.rivalRace) };
     if (this.rivalRace === 'human') {
       // The Humans camp on another far clearing, away from the crater: the
@@ -856,17 +858,33 @@ export class GameManager {
       });
       const base = createHumanBase(this.world, this.grid, site, { x: nestX, y: nestY });
       this.rivalCoreId = base.coreId;
+      rivalSite = { x: site.x, y: site.y };
       // Their dropship lands on the command center and the real base unfolds there
       arrival = { ...arrival, target: { x: site.x, y: site.y }, base: this.introHumanBase(base.buildings, [...base.garrison, base.builderId]) };
     } else if (this.rivalRace === 'crystal') {
       // The Crystal Hive rises from the crater: the rival's base, and its core.
       // Against Fauna salvaje the crater stays bare.
       this.rivalCoreId = createCrystalHive(this.world, this.craterSite.x, this.craterSite.y);
+      rivalSite = { ...this.craterSite };
     }
     const rival = this.world.factions.get(FactionId.RIVAL);
     if (rival && this.rivalCoreId !== null) rival.coreId = this.rivalCoreId;
-    // The meteor intro (and the rival's arrival) is the Swarm's; the Crystal Hive opens on its Hive (a title card in the HUD)
-    if (!this.crystal) this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock, arrival);
+    const home = { x: nestX, y: nestY };
+    if (isPlayerArrival(introVariant)) {
+      // A Crystal or Human player's own base arrives at home, coming in from the
+      // far side of the map from the rival; the shot ends glancing at the rival
+      arrival = {
+        variant: introVariant,
+        target: home,
+        rivalLine: arrival.rivalLine,
+        from: playerLaunchTile(home, rivalSite, { width: WORLD_WIDTH, height: WORLD_HEIGHT }),
+        rival: this.rivalRace,
+        rivalBase: rivalSite,
+        ...(this.crystal ? { drones: this.playerCrystalDrones() } : { base: this.playerHumanBase() }),
+      };
+    }
+    // The crater art goes where the meteor strikes: the crater, or (a Crystal player) home under the Hive
+    this.renderSystem.startMeteorIntro(isPlayerArrival(introVariant) ? home : this.craterSite, home, this.introClock, arrival);
     this.spawnMineralFields({ x: nestX, y: nestY });
     const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
     // The fireball (or the dropship) lights the ground it flies over and its
@@ -879,13 +897,30 @@ export class GameManager {
       tileCenter(arrival.target),
       (x, y, r) => this.visibilityGrid.revealCircle(x, y, r),
       introVariant,
+      arrival.from ? { from: tileCenter(arrival.from), rival: rivalSite ? tileCenter(rivalSite) : null } : null,
     );
     window.addEventListener('keydown', this.skipIntro);
     canvas.addEventListener('pointerdown', this.skipIntro);
-    // The meteor cinematic is the Swarm's awakening: a Human expedition lands
-    // straight into the run, under its own banner (HumanPlayerStats.intro); the Crystal Hive wakes under its title
-    if (this.humanPlayer || this.crystal) this.endIntroNow();
     audioRunStarted(() => ({ layer: this.activeLayerValue(), view: this.activeCamera().getViewRectTiles() }), introVariant);
+  }
+
+  /** A Crystal player's starting drones, where they stand (tiles): their opening flies them out there. */
+  private playerCrystalDrones(): Array<{ x: number; y: number }> {
+    return this.world.query(COMPONENT.CRYSTAL_UNIT, COMPONENT.POSITION)
+      .filter((id) => ownerOf(this.world, id) === FactionId.PLAYER)
+      .map((id) => {
+        const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+        return { x: pos.x, y: pos.y };
+      });
+  }
+
+  /** A Human player's starting base as their opening raises it: the Command Center first, then the Cuartel; builders and soldiers. */
+  private playerHumanBase(): NonNullable<IntroArrival['base']> {
+    const mine = (id: EntityId) => ownerOf(this.world, id) === FactionId.PLAYER;
+    const kindOf = (id: EntityId) => this.world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!.kind;
+    const buildings = this.world.query(HUMAN_COMPONENT.BUILDING, COMPONENT.POSITION).filter(mine)
+      .sort((a, b) => Number(kindOf(b) === 'command_center') - Number(kindOf(a) === 'command_center') || a - b);
+    return this.introHumanBase(buildings, this.world.query(HUMAN_COMPONENT.UNIT, COMPONENT.POSITION).filter(mine));
   }
 
   /** The Human base as the opening raises it: building kinds and tiles (command center first), troop posts. */
@@ -1455,14 +1490,6 @@ export class GameManager {
     this.detachIntroSkip();
     this.publishStats(); // the HUD fades in now, not at the next stats tick
   };
-
-  /** Jump the opening cinematic to its end state (a race without the meteor intro) */
-  private endIntroNow(): void {
-    this.introClock.advance(Number.POSITIVE_INFINITY);
-    this.renderSystem.skipIntro();
-    this.introDirector.finish();
-    this.detachIntroSkip();
-  }
 
   private detachIntroSkip(): void {
     window.removeEventListener('keydown', this.skipIntro);
