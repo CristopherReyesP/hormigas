@@ -309,6 +309,12 @@ export interface ControlGroupInfo {
 
 /** Wireframe cells the group panel shows (StarCraft shows 24 too). */
 const GROUP_GRID_MAX = 24;
+/** Pantry share that counts as "plenty" for the idle-queen hint */
+const IDLE_QUEEN_PANTRY_RATIO = 0.75;
+/** Seconds of plenty with no egg ordered before the idle-queen hint */
+const IDLE_QUEEN_HINT_SECONDS = 25;
+/** Extra seconds before the idle-queen hint repeats */
+const IDLE_QUEEN_REPEAT_SECONDS = 60;
 
 /** A build tool a finger stroke paints with */
 type PaintTool = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense';
@@ -578,6 +584,8 @@ export class GameManager {
   /** Watches the nest for invaders and raises the alerts the player must not miss on the surface */
   private readonly nestAlert = new NestAlertTracker();
   private nestAlertClock = 0;
+  /** Seconds the pantry has been plentiful with no egg ordered */
+  private idleQueenSeconds = 0;
   /** The tutorial holds the calm: no wave, no defenses firing, no nest alarm */
   private tutorialCalm = false;
   /** A Humans run (setup.playerRace 'human'): the player's base, its systems and its clicks; null for the Swarm */
@@ -1761,6 +1769,7 @@ export class GameManager {
     }
 
     this.updateNestAlert(dt);
+    this.updateIdleQueenHint(dt);
     this.checkGameOver();
     const dayPhase = this.dayNightSystem.getPhase();
     if (this.milestone && (this.milestone.remaining -= dt) <= 0) this.milestone = null;
@@ -3191,6 +3200,27 @@ export class GameManager {
   }
 
   /** Feed the nest alert; a new alert sounds the alarm and flashes the screen edge */
+  /**
+   * The queen lays only what the player orders: with food piling up and no egg
+   * ordered for a while, say so (player report: a full pantry, no brood all day).
+   */
+  private updateIdleQueenHint(dt: number): void {
+    if (this.humanPlayer || this.crystal || this.tutorialCalm || !this.undergroundGrid) return;
+    const queens = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.EGG_QUEUE);
+    const queue = queens.length > 0 ? this.world.getComponent<EggQueueComponent>(queens[0], COMPONENT.EGG_QUEUE) : undefined;
+    const capacity = this.undergroundGrid.getPantryCapacity();
+    const plenty = capacity > 0 && this.undergroundGrid.getPantryStored().total >= capacity * IDLE_QUEEN_PANTRY_RATIO;
+    if (!queue || queue.queue.length > 0 || !plenty) {
+      this.idleQueenSeconds = 0;
+      return;
+    }
+    this.idleQueenSeconds += dt;
+    if (this.idleQueenSeconds < IDLE_QUEEN_HINT_SECONDS) return;
+    // Game-time throttle (saved with the run), not the wall-clock notification cooldown
+    this.idleQueenSeconds = -IDLE_QUEEN_REPEAT_SECONDS;
+    this.world.pushNotification('warning', '🥚 La despensa rebosa y la reina no tiene huevos encargados: encarga crías en el panel CRÍA');
+  }
+
   private updateNestAlert(dt: number): void {
     // Harnesses that build a bare manager have no invasion system to watch
     if (!this.invasionSystem || !this.nestAlert || this.humanPlayer || this.crystal || this.tutorialCalm) return; // no nest to alert about, or the tutorial's calm
