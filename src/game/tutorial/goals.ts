@@ -1,3 +1,4 @@
+import type { CommandTarget } from '../GameManager';
 /**
  * Tutorial goals: what the player must actually do, judged from two
  * snapshots of the run (when the goal began, and now). Pure, so the step
@@ -33,7 +34,7 @@ export interface TutorialSnapshot {
   selectedAnts: number;
   selectedSoldiers: number;
   /** Mover or Atacar pressed and waiting for its target */
-  commandTarget: 'move' | 'attack' | null;
+  commandTarget: CommandTarget | null;
   /** Own ants walking under a move or attack-move order */
   moveOrders: number;
   /** Own ants ordered to attack the tutorial den */
