@@ -246,7 +246,7 @@ describe('colony systems leave ordered ants alone', () => {
       pos.y = entrance.y + 1.5;
       antOf(id).state = AntState.Idle;
     }
-    invasion['spawnInvader']('adult');
+    invasion['spawnInvader']({ kind: 'adult' });
 
     invasion.update(TICK);
     expect(antOf(free).state).toBe(AntState.AttackingEnemy);

@@ -35,6 +35,9 @@ import { combatVfxFor, type BodyKind, type CombatVfx, type VictimKind } from '..
 import { damageAfterArmor } from './helpers/combatHelpers';
 import { humanShotsFor } from '../rival/humanShots';
 import { applyHumanSplash, fireHumanShot, handleHumanDeath, isHumanEntity } from './HumanCombat';
+import { advanceWaveFx, waveRuntimeFor } from '../run/waveRuntime';
+import { onWaveUnitDeath } from '../run/waveDeaths';
+import { DEFENSE_STATS, STRUCTURE_COMPONENT, type StructureComponent } from '../run/defenses';
 
 export class CombatSystem implements System {
   readonly name = 'CombatSystem';
@@ -55,6 +58,8 @@ export class CombatSystem implements System {
     // VFX age in game time: frozen while paused, faster at 2×/3×
     this.vfx.advance(dt);
     humanShotsFor(this.world).advance(dt);
+    advanceWaveFx(this.world, dt);
+    this.buryWaveKills();
 
     const combatants = this.world.query(COMPONENT.COMBAT, COMPONENT.POSITION);
 
@@ -197,6 +202,21 @@ export class CombatSystem implements System {
     }
   }
 
+  /** Bury what turrets, traps, explosions and boss rams killed since the last tick */
+  private buryWaveKills(): void {
+    const kills = waveRuntimeFor(this.world).kills;
+    if (kills.size === 0) return;
+    const dead = [...kills];
+    kills.clear();
+    const buried: EntityId[] = [];
+    for (const id of dead) {
+      if (!this.world.hasEntity(id)) continue;
+      this.handleDeath(id, buried);
+      buried.push(id);
+    }
+    for (const id of buried) this.world.destroyEntity(id);
+  }
+
   /** The hull's share of a hit: a shield takes what it can, with its cyan arc, and shatters when it breaks */
   private soakWithShield(
     targetId: EntityId,
@@ -251,6 +271,7 @@ export class CombatSystem implements System {
   private victimKind(id: EntityId): VictimKind {
     if (this.isCrystal(id)) return 'crystal';
     if (isHumanEntity(this.world, id)) return 'beetle'; // dark plating chips
+    if (this.world.getComponent(id, STRUCTURE_COMPONENT)) return 'beetle'; // chitin chips off a defense
     return this.bodyKind(id);
   }
 
@@ -267,6 +288,8 @@ export class CombatSystem implements System {
   }
 
   private handleDeath(entityId: EntityId, _toDestroy: EntityId[]): void {
+    onWaveUnitDeath(this.world, entityId);
+    if (this.handleStructureDeath(entityId)) return;
     if (handleHumanDeath(this.world, this.vfx, entityId)) return;
     if (this.isCrystal(entityId)) {
       this.handleCrystalDeath(entityId);
@@ -286,6 +309,16 @@ export class CombatSystem implements System {
     // Ant death — Swarm goo
     const pos = this.world.getComponent<PositionComponent>(entityId, COMPONENT.POSITION);
     if (pos) this.emitDeath(entityId, pos, 'ant');
+  }
+
+  /** A nest defense collapses; DefenseSystem frees its tile */
+  private handleStructureDeath(entityId: EntityId): boolean {
+    const structure = this.world.getComponent<StructureComponent>(entityId, STRUCTURE_COMPONENT);
+    if (!structure) return false;
+    const pos = this.world.getComponent<PositionComponent>(entityId, COMPONENT.POSITION);
+    if (pos) this.vfx.denCollapse(pos.x, pos.y, this.layerOf(entityId), 'beetleDen');
+    this.world.pushNotification('warning', `🧱 Los enemigos destruyeron tu ${DEFENSE_STATS[structure.kind].name.toLowerCase()}`, `defense-lost-${structure.kind}`, 3000);
+    return true;
   }
 
   /** A Crystal unit or the hive shatters: no carcass, only a burst of cyan shards */

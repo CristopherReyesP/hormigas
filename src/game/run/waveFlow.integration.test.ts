@@ -71,7 +71,9 @@ describe('night waves in a real run', () => {
     run(0.1);
     // Right at the launch, before the defenders can kill anyone
     expect(info().waveNumber).toBe(3);
-    expect(assaultingDrones()).toHaveLength(expected.drones);
+    // Wave 3 is a mini-boss wave: the Prisma Guardián marches with the drones
+    expect(expected.boss).toBe('prism');
+    expect(assaultingDrones()).toHaveLength(expected.drones + 1);
     expect(undergroundBeetles().length + game['invasionSystem']['pendingSpawns'].length).toBe(expected.youngBeetles + expected.beetles);
     expect(info().remaining).toBe(expected.total);
     while (game['invasionSystem']['pendingSpawns'].length > 0) run(DT);
