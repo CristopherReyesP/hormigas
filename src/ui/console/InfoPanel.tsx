@@ -159,7 +159,7 @@ function NestSummary({ details }: { details: ColonyDetails }) {
   );
 }
 
-const DEN_KIND = new Set<SelectedEntityInfo['type']>(['beetle_den', 'cricket_den']);
+const DEN_KIND = new Set<SelectedEntityInfo['type']>(['beetle_den', 'cricket_den', 'crystal_hive']);
 
 function selectionTitle(sel: SelectedEntityInfo): { name: string; faction: string } {
   switch (sel.type) {
@@ -169,12 +169,13 @@ function selectionTitle(sel: SelectedEntityInfo): { name: string; faction: strin
     case 'cricket': return { name: LEAPER_NAME.one, faction: 'Fauna salvaje' };
     case 'beetle_den': return { name: 'Guarida de acorazados', faction: 'Fauna salvaje · guarida' };
     case 'cricket_den': return { name: LEAPER_NAME.den, faction: 'Fauna salvaje · guarida' };
+    case 'crystal_hive': return { name: 'Colmena de Cristal', faction: 'Colmena rival · base' };
     case 'food': return { name: FOOD_LABEL[sel.foodType ?? 'leaf'] ?? 'Comida', faction: 'Recurso' };
   }
 }
 
 function SelectionBars({ sel }: { sel: SelectedEntityInfo }) {
-  const health = sel.health ?? sel.beetleHealth ?? sel.cricketHealth ?? sel.denHealth ?? sel.cricketDenHealth;
+  const health = sel.health ?? sel.beetleHealth ?? sel.cricketHealth ?? sel.denHealth ?? sel.cricketDenHealth ?? sel.hiveHealth;
   return (
     <>
       {health && (
@@ -250,7 +251,7 @@ function SelectionInfo({ stats, gameManager, attackCount, onAttackCountChange }:
               <span className="info-stepper-value">{sending}</span>
               <button type="button" className="hud-btn" disabled={sending >= maxAttack} onClick={() => onAttackCountChange(Math.min(30, sending + 5))}>+5</button>
             </div>
-            <div className="info-note">Envíalos con Atacar guarida (A)</div>
+            <div className="info-note">Envíalos con {sel.type === 'crystal_hive' ? 'Atacar colmena' : 'Atacar guarida'} (A)</div>
           </>
         )}
       </div>

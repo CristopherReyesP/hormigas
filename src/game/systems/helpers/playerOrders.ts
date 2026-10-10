@@ -76,6 +76,53 @@ export function isSurfaceEnemy(world: World, id: EntityId): boolean {
   return !layer || layer.layer === Layer.Surface;
 }
 
+/** Tiles a den sprite reaches from its center each way (40 art px at 2 px each: 2.5 tiles across). */
+const DEN_PICK_HALF = 1.3;
+/**
+ * The Crystal Hive as drawn: a crater rim about 1.9 tiles to each side and,
+ * above it, a crown of spires whose tips stand about 3.5 tiles over the core.
+ */
+const HIVE_PICK = { left: 2, right: 2, top: 3.6, bottom: 1.4 } as const;
+
+/**
+ * Whether `at` (entity-position space) lands on the sprite of the structure
+ * `id`. Bases are big: a click anywhere on the drawing counts, not only near
+ * its center.
+ */
+function onStructureSprite(world: World, id: EntityId, at: Vector2): boolean {
+  const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+  if (!pos) return false;
+  const dx = at.x - pos.x;
+  const dy = at.y - pos.y;
+  if (world.getComponent(id, COMPONENT.CRYSTAL_HIVE) !== undefined) {
+    return dx >= -HIVE_PICK.left && dx <= HIVE_PICK.right && dy >= -HIVE_PICK.top && dy <= HIVE_PICK.bottom;
+  }
+  return Math.abs(dx) <= DEN_PICK_HALF && Math.abs(dy) <= DEN_PICK_HALF;
+}
+
+/**
+ * The surface structure (den, hive, any faction's) drawn under `at`, or
+ * null; the closest center wins when sprites overlap. Selection uses it, so
+ * a click on a base's sprite selects the base.
+ */
+export function findStructureAt(world: World, at: Vector2): EntityId | null {
+  let best: EntityId | null = null;
+  let bestDist = Infinity;
+  for (const store of STRUCTURE_STORES) {
+    for (const id of world.query(store, COMPONENT.POSITION)) {
+      const layer = world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+      if (layer && layer.layer !== Layer.Surface) continue;
+      if (!onStructureSprite(world, id, at)) continue;
+      const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const dist = Math.hypot(pos.x - at.x, pos.y - at.y);
+      if (dist >= bestDist) continue;
+      best = id;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
 function isDen(world: World, id: EntityId): boolean {
   for (const store of STRUCTURE_STORES) if (world.getComponent(id, store) !== undefined) return true;
   return false;
@@ -84,9 +131,9 @@ function isDen(world: World, id: EntityId): boolean {
 /**
  * The surface enemy a right-click at `at` (entity-position space) lands on, or
  * null: the nearest one within ENEMY_PICK_RADIUS, or within its own size for
- * a big sprite like the cricket. `canSee` is the fog rule: the renderer draws wildlife only
- * where the colony sees now and dens on explored ground, and only what the
- * player can see can be clicked.
+ * a big sprite like the cricket, and a base anywhere on its sprite. `canSee`
+ * is the fog rule: the renderer draws wildlife only where the colony sees now
+ * and dens on explored ground, and only what the player can see can be clicked.
  */
 export function findEnemyAt(
   world: World,
@@ -100,11 +147,39 @@ export function findEnemyAt(
       if (!isSurfaceEnemy(world, id)) continue;
       const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const den = STRUCTURE_STORES.has(store);
-      // Big sprites (the cricket) are hit anywhere on their body
-      const reach = Math.max(ENEMY_PICK_RADIUS, world.getComponent<RenderComponent>(id, COMPONENT.RENDER)?.radius ?? 0);
       const dist = Math.hypot(pos.x - at.x, pos.y - at.y);
-      if (dist > reach || dist >= bestDist) continue;
+      if (dist >= bestDist) continue;
+      if (den) {
+        // Bases are hit anywhere on their sprite
+        if (!onStructureSprite(world, id, at)) continue;
+      } else {
+        // Big sprites (the cricket) are hit anywhere on their body
+        const reach = Math.max(ENEMY_PICK_RADIUS, world.getComponent<RenderComponent>(id, COMPONENT.RENDER)?.radius ?? 0);
+        if (dist > reach) continue;
+      }
       if (!canSee(Math.round(pos.x), Math.round(pos.y), den)) continue;
+      best = id;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+/**
+ * The closest hostile surface structure (den or hive) whose body comes within
+ * `radius` of `at`, or null: what an attack-move that arrives next to a base
+ * turns on.
+ */
+export function findEnemyStructureNear(world: World, at: Vector2, radius: number): EntityId | null {
+  let best: EntityId | null = null;
+  let bestDist = Infinity;
+  for (const store of STRUCTURE_STORES) {
+    for (const id of world.query(store, COMPONENT.POSITION)) {
+      if (!isSurfaceEnemy(world, id)) continue;
+      const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const size = world.getComponent<RenderComponent>(id, COMPONENT.RENDER)?.radius ?? 0;
+      const dist = Math.hypot(pos.x - at.x, pos.y - at.y);
+      if (dist - size > radius || dist >= bestDist) continue;
       best = id;
       bestDist = dist;
     }
@@ -300,7 +375,7 @@ export function issueHoldOrders(world: World, ids: readonly EntityId[], transit?
 }
 
 /**
- * An order is done (arrived, or the attacked enemy is dead). A warrior keeps
+ * A move order is done (arrived). A warrior keeps
  * the spot as its guard post: it fights what comes near and walks back. Any
  * other caste ends the order and goes back to its job.
  */

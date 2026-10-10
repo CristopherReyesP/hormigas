@@ -30,7 +30,7 @@ import {
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { findPath } from '../../simulation/pathfinding/AStar';
 import { buildAttackerMap, ensureCombatComponent } from './helpers/combatHelpers';
-import { canFight, completePlayerOrder, endPlayerOrder, isSurfaceEnemy } from './helpers/playerOrders';
+import { canFight, completePlayerOrder, endPlayerOrder, findEnemyStructureNear, isSurfaceEnemy } from './helpers/playerOrders';
 import { FactionId, isHostileTo } from '../factions/factions';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { TransitSystem } from './TransitSystem';
@@ -364,10 +364,36 @@ export class AntAISystem implements System {
       (routeDone && order.routes > 0 && dist <= ORDER_SETTLE_RADIUS) ||
       (routeDone && order.routes >= ORDER_MAX_ROUTES)
     ) {
-      completePlayerOrder(this.world, id);
+      if (order.kind === OrderKind.AttackMove) this.finishAttackMove(id, ant, path, order, pos);
+      else completePlayerOrder(this.world, id);
       return;
     }
     if (routeDone) this.routeOrder(pos, path, order, order.target);
+  }
+
+  /**
+   * An attack-move arrived with nothing alive in view. A base standing there
+   * (a den or the hive) is what it came for: the order turns into an attack
+   * on it. Otherwise the attack is done and the colony AI takes the soldier
+   * back, so it goes to defend the nest when the nest needs it.
+   */
+  private finishAttackMove(
+    id: EntityId,
+    ant: AntComponent,
+    path: PathComponent,
+    order: PlayerOrderComponent,
+    pos: PositionComponent
+  ): void {
+    const base = canFight(this.world, id) ? findEnemyStructureNear(this.world, pos, this.visionOf(id)) : null;
+    if (base === null) {
+      endPlayerOrder(this.world, id);
+      return;
+    }
+    order.kind = OrderKind.Attack;
+    order.elapsed = 0;
+    order.routes = 0;
+    this.engageOrderTarget(path, order, base);
+    ant.state = AntState.ChasingEnemy;
   }
 
   /**
@@ -383,16 +409,19 @@ export class AntAISystem implements System {
     order: PlayerOrderComponent,
     dt: number
   ): void {
+    // Target dead (or out of reach for too long): the attack is done. No
+    // guard post out there: the colony AI takes the soldier back, so it goes
+    // to defend the nest when the nest needs it.
     const enemy = order.targetId !== null ? this.enemyPosition(order.targetId) : null;
     if (!enemy || order.targetId === null) {
-      completePlayerOrder(this.world, id);
+      endPlayerOrder(this.world, id);
       return;
     }
     order.target = { x: enemy.x, y: enemy.y };
     if (Math.hypot(enemy.x - pos.x, enemy.y - pos.y) >= SOLDIER_ATTACK_RANGE) {
       order.elapsed += dt;
       if (order.elapsed > ORDER_TIMEOUT_SECONDS) {
-        completePlayerOrder(this.world, id);
+        endPlayerOrder(this.world, id);
         return;
       }
     }
@@ -786,7 +815,8 @@ export class AntAISystem implements System {
       // (den hunting is MANUAL only — via attack wave dispatch)
       if (this.colonyPriority === ColonyPriority.Defend) {
         ant.state = AntState.PatrollingNest;
-        ant.stateTimer = 0;
+        // A soldier that just gave up a chase keeps its grace period on patrol
+        ant.stateTimer = Math.min(0, ant.stateTimer);
         this.pathToPatrolPoint(pos, path);
         return;
       }
@@ -1337,8 +1367,11 @@ export class AntAISystem implements System {
       return;
     }
 
-    // Check danger pheromone — follow multi-tile trail
-    const dangerLevel = this.sampleDangerPheromone(pos, 3);
+    // Check danger pheromone — follow multi-tile trail. Same grace period as
+    // Searching: a soldier that just followed a cold trail back from an old
+    // fight otherwise turned around on the spot, flip-flopping between the
+    // patrol and the trail forever instead of coming home to defend.
+    const dangerLevel = ant.stateTimer > 1 ? this.sampleDangerPheromone(pos, 3) : 0;
     if (dangerLevel > SOLDIER_DANGER_CHASE_THRESHOLD) {
       const dangerTrail = this.generateScoredPath(pos, ant, 'danger');
       if (dangerTrail.length > 0) {
