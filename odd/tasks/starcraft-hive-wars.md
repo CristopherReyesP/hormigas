@@ -10,9 +10,9 @@ Today the colony is steered only through priorities, every enemy is a beetle or 
 The user wants the StarCraft fantasy, "even if we have to change sprites", as long as the creatures still read as ants: mutant, even alien. Sprites are procedural canvas drawings (`src/engine/renderer/SpriteAtlas.ts:96-143`, palette in `src/engine/renderer/pixelart/palette.ts:14-41`), so a re-skin is code, not art assets.
 
 ## Concept
-- Premise: a meteorite falls into the garden; its spores mutate the player's colony, and a second, alien colony crawls out of the crater.
+- Premise: a meteorite falls into the garden. Its spores mutate the player's colony, and a crystalline alien intelligence grows out of the crater.
 - The Swarm (player, Zerg-like): fleshy mutant ants, magenta with glowing green veins. The queen lays larvae that mutate into castes (soldier → Slasher, scout → Winged, defender → Armored).
-- The Crystal Hive (rival, Protoss-like): crystalline alien ants in cyan and gold, fewer but stronger, with a regenerating shell (shields). The Crystal Queen leads the night-7 assault.
+- The Crystal Hive (rival, Protoss-like): NOT insects. They are alien crystalline beings in cyan and gold, fewer but stronger, with a regenerating shell (shields). The user decided on 2026-10-09: "que parezca menos insecto, porque los insectos son el enjambre". The Crystal Queen leads the night-7 assault.
 - Beetles and crickets stay as neutral wildlife.
 - Mapping: minerals → leaves, vespene → fungus (the fungus farm is the extractor), supply → brood chambers, creep → mycelium carpet that heals and speeds up, evolution chamber → the dawn mutation pick.
 
@@ -60,7 +60,12 @@ Current incoherences to fix in P2: four art-pixel scales on screen (ants 3, beet
 
 Rules:
 - One art pixel = 2 screen px at zoom 1. Bigger units get bigger grids, never bigger scale (ant 24×24, beetle 28×28, cricket 48×48). Rotation snaps to 16 directions; zoom steps of 0.5.
-- Every unit keeps the ant body plan (gaster, waist, thorax, head, 6 legs, 2 antennae). Factions differ by color, silhouette and glow at once. Swarm: curved, bulbous gaster, scythe mandibles, 1 px spine bumps, glowing vein. Crystal Hive: faceted, diamond/hex gaster, straight gold pincers, crystal-tipped antennae, cyan glow, hex ring while shielded. Wildlife: beetle dome, cricket Z-legs, no glow. Roles inside a faction differ by shape. Selection ellipses: green own, red enemy, yellow neutral.
+- Only the Swarm keeps the ant body plan (gaster, waist, thorax, head, 6 legs, 2 antennae). Factions differ by color, silhouette and glow at once.
+  - Swarm: curved, bulbous gaster, scythe mandibles, 1 px spine bumps, glowing vein.
+  - Crystal Hive: no legs, antennae, mandibles or segmented body. Units are hovering geometric crystal forms (prisms, octahedra, obelisks) around a glowing cyan energy core, with orbiting shards and gold filigree. They glide and bob above a soft ground shadow and leave a faint light trail. A hex ring shows while shielded. Tiers:
+    - Drone: a small floating prism with one orbiting shard.
+    - Sentinel: a tall hovering obelisk with a shield ring.
+    - Crystal Queen: a large floating crystal crown ringed by orbiting crystals. Wildlife: beetle dome, cricket Z-legs, no glow. Roles inside a faction differ by shape. Selection ellipses: green own, red enemy, yellow neutral.
 
 Palette tokens (dark → light):
 
@@ -124,6 +129,7 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
     - Egg status shows only when the nest is selected.
     - The breeding objective uses voseo ("Criá…, encargá…").
     Scope: a visible brood pipeline (pantry → queen lays → incubation → hatch) with per-stage counts and blocked reasons, cost and state on each breed button, egg progress, and the two food numbers labeled so they read differently. Route: delegated (Claude subagent, main worktree).
+  - [ ] P2.10 Crystal Hive less insect, more alien (user, 2026-10-09). The intro drones in `src/game/render/crystalDeployArt.ts` "unfold and crawl", which reads as an insect. Redraw them as hovering crystal drones that rise out of the crater, unfold their orbiting shards and glide toward the colony, following the new Crystal Hive art rules. Route: delegated after P2.9.
   - [ ] P2.4 Mutation marks drawn on ant sprites for applied mutations.
   - [ ] P2.5 Bottom console and UI restyle (`--ui-*` → `--chrome-*`, pixel icons, one font, Spanish only).
   - [ ] P2.6 One art-pixel scale for every unit, 16-direction rotation snapping, zoom steps of 0.5.
@@ -216,7 +222,7 @@ When the user says this in a new session, run this plan in order. Each item is o
    - The terrain build takes ~55 ms and runs twice at startup.
 2. Done: P2.8 cinematic intro v2 (27fe59d), the hive mound and minimap colors (19c6123), and the objectives toggle (3a36ebc).
 3. Next, gameplay first (user, 2026-10-09). The parent's order:
-   1. Finish P2.9 breeding UI and the Velocidad / Área de defensa / Trono command card change.
+   1. Finish P2.9 breeding UI and the Velocidad / Área de defensa / Trono command card change, then P2.10 (small and visible).
    2. P3a → P3b → P3c (control comes first, so everything after it plays like StarCraft).
    3. P7.1 → P7.4 (surface base).
    4. P8 R1 → R3 (warriors that cost minerals).
