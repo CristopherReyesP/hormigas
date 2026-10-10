@@ -7,7 +7,7 @@
 import type { World } from '../../../engine/ecs/World';
 import type { EntityId, Vector2 } from '../../../shared/types';
 import type { PathGrid } from '../../../simulation/pathfinding/AStar';
-import { AntRole, COMPONENT, type HealthComponent, type PositionComponent } from '../../components/components';
+import { AntRole, COMPONENT, Layer, type HealthComponent, type PositionComponent } from '../../components/components';
 import { FactionId } from '../../factions/factions';
 import { HUMAN_BUILDING_STATS, HUMAN_UNIT_STATS, type HumanBuildingKind, type HumanUnitType } from '../../rival/humanBase';
 import { HUMAN_COMPONENT, type HumanBuildingComponent, type HumanUnitComponent } from '../../rival/humanComponents';
@@ -57,6 +57,8 @@ const NODE_PICK = 0.9;
 export interface SelectionReader {
   getSelectedAnts(): EntityId[];
   getSelectedEntityId(): EntityId | null;
+  selectAnts(ids: readonly EntityId[], layer: typeof Layer.Surface): number;
+  selectOnly(id: EntityId): void;
 }
 
 export interface HumanTrainOption {
@@ -113,6 +115,8 @@ export interface HumanPlayerStats {
   idleBuilders: number;
   /** Own builders in the selection: Construir shows when there is one */
   selectedBuilders: number;
+  /** Own units in the selection (troops and builders): the unit card shows when there is one */
+  selectedUnits: number;
   placing: HumanPlacement | null;
   selected: HumanSelectedBuilding | null;
   group: HumanGroupInfo | null;
@@ -314,6 +318,26 @@ export class HumanPlayerRun {
     return this.world.getComponent(id, HUMAN_PLAYER_COMPONENT.PRODUCER) ? id : null;
   }
 
+  /** Constructores ociosos: select the builders standing by; returns how many */
+  selectIdleBuilders(): number {
+    const idle = playerUnits(this.world, 'builder').filter((id) => {
+      const worker = this.world.getComponent<HumanWorkerComponent>(id, HUMAN_PLAYER_COMPONENT.WORKER);
+      return worker?.task === 'idle' && !hasActiveOrder(this.world, id);
+    });
+    if (idle.length === 0) return 0;
+    this.cancelPlacement();
+    return this.selection.selectAnts(idle, Layer.Surface);
+  }
+
+  /** Select the command center; false once it is gone */
+  selectCore(): boolean {
+    const core = this.liveCore();
+    if (core === null) return false;
+    this.cancelPlacement();
+    this.selection.selectOnly(core);
+    return true;
+  }
+
   // ── Production ──
 
   /** Queue `type` at the selected building; returns why it cannot, or null */
@@ -356,6 +380,7 @@ export class HumanPlayerRun {
       units,
       idleBuilders,
       selectedBuilders: this.selectedBuilders().length,
+      selectedUnits: this.selection.getSelectedAnts().filter((id) => this.world.getComponent(id, HUMAN_COMPONENT.UNIT)).length,
       placing: this.placementInfo(),
       selected: this.selectedInfo(),
       group: this.groupInfo(),

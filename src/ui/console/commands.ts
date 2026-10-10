@@ -5,6 +5,7 @@ import { CARD_SLOTS, cardHotkeys } from './commandCardLayout';
 import type { IconName } from './pixelIcons';
 import type { ColonyDetails } from './useColonyDetails';
 import { ROLE_BLURB, ROLE_LABEL, stripEmoji } from './format';
+import { humanCommands } from '../races/human/humanCommands';
 
 /**
  * Command card contents per context. Every button maps an action the game
@@ -13,8 +14,8 @@ import { ROLE_BLURB, ROLE_LABEL, stripEmoji } from './format';
  */
 
 export type BuildMode = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense';
-/** 'groups' is the touch stand-in for Ctrl/Shift+digit: bind the selection to a control group */
-export type CardPage = 'root' | 'colony' | 'groups';
+/** 'groups' is the touch stand-in for Ctrl/Shift+digit: bind the selection to a control group; 'build' is a Human builder's Construir menu */
+export type CardPage = 'root' | 'colony' | 'groups' | 'build';
 
 export interface CommandDef {
   id: string;
@@ -25,7 +26,7 @@ export interface CommandDef {
   glyph?: string;
   description: string;
   /** Price printed on the button face; `short` paints it red when the stock cannot pay it */
-  cost?: { amount: number; resource: 'comida' | 'hongos'; short?: boolean };
+  cost?: { amount: number; resource: 'comida' | 'hongos' | 'raciones' | 'minerales'; short?: boolean };
   /** Small corner text: queue size, tile count, upgrade level */
   badge?: string;
   badgeTone?: 'warn';
@@ -597,8 +598,10 @@ function colonyPage(ctx: CommandContext): Slot[] {
 
 /** The 15 slots of the card for the current layer and page (null = empty slot). */
 export function buildCommands(ctx: CommandContext): Slot[] {
-  const slots =
-    ctx.stats.activeLayer === 'underground'
+  // A Human player has a card of their own (units, Construir, production)
+  const slots = ctx.stats.human
+    ? humanCommands(ctx, ctx.stats.human)
+    : ctx.stats.activeLayer === 'underground'
       ? ctx.page === 'colony' ? colonyPage(ctx) : nestRoot(ctx)
       : hasUnitSelection(ctx.stats) ? ctx.page === 'groups' ? groupsPage(ctx) : unitPage(ctx)
       : isDenSelected(ctx.stats) ? denPage(ctx)
