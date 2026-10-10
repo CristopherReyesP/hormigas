@@ -63,7 +63,7 @@ Rules:
 - Only the Swarm keeps the ant body plan (gaster, waist, thorax, head, 6 legs, 2 antennae). Factions differ by color, silhouette and glow at once.
   - Swarm: curved, bulbous gaster, scythe mandibles, 1 px spine bumps, glowing vein.
   - Crystal Hive: no legs, antennae, mandibles or segmented body. Units are hovering geometric crystal forms (prisms, octahedra, obelisks) around a glowing cyan energy core, with orbiting shards and gold filigree. They glide and bob above a soft ground shadow and leave a faint light trail. A hex ring shows while shielded. Tiers:
-    - Drone: a small floating prism with one orbiting shard.
+    - Drone: a small floating octahedron with one or two orbiting shards (the intro drones use two, e86c1c3).
     - Sentinel: a tall hovering obelisk with a shield ring.
     - Crystal Queen: a large floating crystal crown ringed by orbiting crystals. Wildlife: beetle dome, cricket Z-legs, no glow. Roles inside a faction differ by shape. Selection ellipses: green own, red enemy, yellow neutral.
 
