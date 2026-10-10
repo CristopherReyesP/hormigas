@@ -16,7 +16,7 @@ import { isTileVisible, type VisibilityReader } from '../engine/renderer/fogVisi
 import { TileGrid } from '../simulation/world/TileGrid';
 import { VisibilityGrid } from '../simulation/world/VisibilityGrid';
 import { UndergroundGrid } from '../simulation/world/UndergroundGrid';
-import { TerrainType, ChamberType } from '../simulation/world/types';
+import { TerrainType, ChamberType, UndergroundTerrainType } from '../simulation/world/types';
 import { RenderSystem, type OrderPing } from './systems/RenderSystem';
 import { MovementSystem } from './systems/MovementSystem';
 import { PheromoneSystem } from './systems/PheromoneSystem';
@@ -74,6 +74,8 @@ import { EliteSystem } from './systems/EliteSystem';
 import { WaveBossSystem } from './systems/WaveBossSystem';
 import { DEFENSE_STATS, type DefenseKind, type DefenseLayer } from './run/defenses';
 import type { WaveOverlay } from './render/waveFunArt';
+import type { DigOverlay } from './render/digOverlayArt';
+import { buildDigClassMap, digJobCap, digLimitMessage, digStatus, previewDigTile, type DigStatus, type DigTileClass } from './dig/digStatus';
 import { DEFAULT_RUN_SETUP, type RaceId, type RivalId, type RunSetup } from './run/RunSetup';
 import { HumanBaseSystem } from './systems/HumanBaseSystem';
 import { HumanUnitAISystem } from './systems/HumanUnitAISystem';
@@ -267,6 +269,8 @@ const ZONE_OF_TOOL: Record<PaintTool, ChamberType | null> = {
   throne: ChamberType.Queen,
   defense: ChamberType.Defense,
 };
+/** How long a dig stroke's green/red preview stays after the finger lifts */
+const DIG_PREVIEW_MS = 1200;
 const NO_MODIFIERS: InputModifiers = { shift: false, ctrl: false };
 const GROUP_ROLE_ORDER: readonly AntRole[] = [AntRole.Soldier, AntRole.Defender, AntRole.Worker, AntRole.Scout, AntRole.Nurse];
 
@@ -378,6 +382,8 @@ export interface GameStats {
   commandTarget?: CommandTarget | null;
   /** Seleccionar área (touch) is on: the next finger drag draws a selection box */
   areaSelect?: boolean;
+  /** The dig queue below (counter, crew, estimate); null on the surface */
+  dig?: DigStatus | null;
   /** Bound control groups, by digit */
   controlGroups?: ControlGroupInfo[];
   notifications: GameNotification[];
@@ -488,6 +494,14 @@ export class GameManager {
   private areaSelect = false;
   /** The finger stroke a build tool is painting, if any */
   private paintStroke: { tool: PaintTool; erase: boolean; visited: Set<number>; last: { x: number; y: number } } | null = null;
+  /** Dig overlay class map, rebuilt only when the nest layout changes */
+  private digClassCache: { version: number; map: Uint8Array } | null = null;
+  /** Tiles the last dig stroke or click tried to mark: green taken, red over the limit */
+  private digPreview: Array<{ x: number; y: number; state: 'ok' | 'over'; at: number }> = [];
+  /** The tile under the mouse while the dig tool is on (desktop) */
+  private digHover: { x: number; y: number } | null = null;
+  /** When the limit refusal was last announced (one message per burst, not per tile) */
+  private digLimitNotifiedAt = Number.NEGATIVE_INFINITY;
   /** Mover or Atacar was pressed: the next left click on the surface is that order's target */
   private armedCommand: CommandTarget | null = null;
   /** Order pings for the renderer (tile coords), drained every frame */
@@ -523,7 +537,10 @@ export class GameManager {
       onLongPress: (screenX, screenY) => this.handleLongPress(screenX, screenY),
       onPaint: (screenX, screenY, phase) => this.paintAt(screenX, screenY, phase),
       touchDragMode: () => this.touchDragMode(),
-      onHover: (screenX, screenY) => this.humanPlayer?.hover(this.screenToEntity(screenX, screenY)),
+      onHover: (screenX, screenY) => {
+        this.humanPlayer?.hover(this.screenToEntity(screenX, screenY));
+        this.digHover = this.digMode && this.activeLayer === 'underground' ? this.undergroundCamera.screenToTile(screenX, screenY) : null;
+      },
     });
     this.input.setCamera(this.camera);
 
@@ -596,6 +613,7 @@ export class GameManager {
     const nurseAISystem = new NurseAISystem(this.world, this.undergroundGrid);
     this.world.addSystem(nurseAISystem);
     this.excavationSystem = new ExcavationSystem(this.world, this.undergroundGrid, transitSystem);
+    this.excavationSystem.setJobCap(() => this.getDigCap());
     this.world.addSystem(this.excavationSystem);
     this.world.addSystem(this.selectionSystem);
     this.world.addSystem(foodRespawnSystem);
@@ -645,6 +663,8 @@ export class GameManager {
     this.humanPlayer?.install();
     // The defense build ghost and the scouted breach, drawn in the world
     this.renderSystem.setWaveOverlayProvider(() => this.waveOverlay());
+    // The diggable area, queue order and stroke preview while Excavar is on
+    this.renderSystem.setDigOverlayProvider(() => this.getDigOverlay());
 
     // Create game loop
     this.gameLoop = new GameLoop(
@@ -811,7 +831,7 @@ export class GameManager {
     if (this.activeLayer === 'underground') {
       const tile = this.undergroundCamera.screenToTile(screenX, screenY);
       if (this.digMode) {
-        this.designateDig(tile.x, tile.y);
+        this.toggleDigAt(tile.x, tile.y);
       } else if (this.incubationMode) {
         this.designateIncubation(tile.x, tile.y);
       } else if (this.farmMode) {
@@ -940,9 +960,11 @@ export class GameManager {
     if (phase === 'start' || !this.paintStroke || this.paintStroke.tool !== tool) {
       const zone = ZONE_OF_TOOL[tool];
       const startTile = this.undergroundGrid.getTile(tile.x, tile.y);
+      if (tool === 'dig') this.digPreview = [];
       this.paintStroke = {
         tool,
-        erase: zone !== null && startTile?.chamberType === zone,
+        // A dig stroke that starts on a mark takes marks off, like a zone stroke
+        erase: zone !== null ? startTile?.chamberType === zone : Boolean(startTile?.designated),
         visited: new Set(),
         last: tile,
       };
@@ -966,7 +988,8 @@ export class GameManager {
     if (stroke.visited.has(key)) return;
     stroke.visited.add(key);
     if (stroke.tool === 'dig') {
-      this.designateDig(x, y);
+      if (stroke.erase) this.cancelDig(x, y);
+      else this.designateDig(x, y);
       return;
     }
     const tile = this.undergroundGrid.getTile(x, y);
@@ -2035,6 +2058,10 @@ export class GameManager {
   setDigMode(enabled: boolean): void {
     if (enabled) this.clearBuildModes();
     this.digMode = enabled;
+    if (!enabled) {
+      this.digHover = null;
+      this.digPreview = [];
+    }
   }
 
   isDigMode(): boolean {
@@ -2275,8 +2302,95 @@ export class GameManager {
     return true;
   }
 
+  /**
+   * Mark an earth tile for digging. A mark refused only because the queue is
+   * full is said out loud (once per burst) and previewed red.
+   */
   designateDig(tileX: number, tileY: number): boolean {
-    return this.excavationSystem.designateTile(tileX, tileY);
+    if (this.excavationSystem.designateTile(tileX, tileY)) {
+      this.noteDigPreview(tileX, tileY, 'ok');
+      return true;
+    }
+    const tile = this.undergroundGrid.getTile(tileX, tileY);
+    if (tile && !tile.designated && tile.terrain === UndergroundTerrainType.Earth && this.excavationSystem.isFull()) {
+      this.noteDigPreview(tileX, tileY, 'over');
+      const now = Date.now();
+      if (now - this.digLimitNotifiedAt > 2000) {
+        this.digLimitNotifiedAt = now;
+        emitAudio({ type: 'ui', sound: 'error' });
+        this.world.pushNotification('warning', `⛏️ ${digLimitMessage(this.getDigCap())}`);
+        this.publishStats();
+      }
+    }
+    return false;
+  }
+
+  /** A click with Excavar: marks earth, or takes the mark off a marked tile */
+  toggleDigAt(tileX: number, tileY: number): void {
+    if (this.undergroundGrid.getTile(tileX, tileY)?.designated) {
+      this.cancelDig(tileX, tileY);
+      this.digPreview = [];
+    } else {
+      if (!this.paintStroke) this.digPreview = this.digPreview.filter((p) => Date.now() - p.at < DIG_PREVIEW_MS);
+      this.designateDig(tileX, tileY);
+    }
+    this.publishStats();
+  }
+
+  private noteDigPreview(x: number, y: number, state: 'ok' | 'over'): void {
+    this.digPreview.push({ x, y, state, at: Date.now() });
+    if (this.digPreview.length > 256) this.digPreview.shift();
+  }
+
+  /** Pending dig marks the colony may queue at once: the base cap plus 5 per level of Excavación rápida */
+  getDigCap(): number {
+    return digJobCap(this.upgradeLevels.dig);
+  }
+
+  /** The dig counter: marks over the cap, the crew on them and the time left */
+  getDigStatus(): DigStatus {
+    return digStatus({
+      pending: this.excavationSystem.getPendingJobCount(),
+      cap: this.getDigCap(),
+      diggers: this.excavationSystem.getActiveDiggerCount(),
+      secondsPerTile: this.excavationSystem.getSecondsPerTile(),
+    });
+  }
+
+  /**
+   * What the renderer draws while Excavar is on below: the cached diggable
+   * map (rebuilt only when the layout changes), the queue and the preview.
+   */
+  getDigOverlay(): DigOverlay | null {
+    if (!this.digMode || this.activeLayer !== 'underground') return null;
+    const grid = this.undergroundGrid;
+    const version = grid.getLayoutVersion();
+    if (!this.digClassCache || this.digClassCache.version !== version) {
+      this.digClassCache = { version, map: buildDigClassMap(grid) };
+    }
+    const classes = this.digClassCache.map;
+    const now = Date.now();
+    const preview = this.paintStroke
+      ? this.digPreview
+      : this.digPreview.filter((p) => now - p.at < DIG_PREVIEW_MS);
+    const hoverAt = this.digHover;
+    let hover: DigOverlay['hover'] = null;
+    if (hoverAt && hoverAt.x >= 0 && hoverAt.y >= 0 && hoverAt.x < grid.width && hoverAt.y < grid.height) {
+      const tile = grid.getTile(hoverAt.x, hoverAt.y);
+      const cls = classes[hoverAt.y * grid.width + hoverAt.x] as DigTileClass;
+      hover = {
+        x: hoverAt.x,
+        y: hoverAt.y,
+        state: previewDigTile(cls, Boolean(tile?.designated), this.excavationSystem.getPendingJobCount(), this.getDigCap()),
+      };
+    }
+    return {
+      classes,
+      width: grid.width,
+      jobs: this.excavationSystem.getJobProgress(),
+      preview: preview.map(({ x, y, state }) => ({ x, y, state })),
+      hover,
+    };
   }
 
   designateIncubation(tileX: number, tileY: number): boolean {
@@ -2841,6 +2955,7 @@ export class GameManager {
       selectedGroup: this.getSelectedGroup(),
       commandTarget: this.selectionSystem.getSelectedAnts().length > 0 ? this.armedCommand : null,
       areaSelect: this.areaSelect,
+      dig: this.activeLayer === 'underground' ? this.getDigStatus() : null,
       defenseBuild: this.defenseBuild,
       controlGroups: this.getControlGroups(),
       notifications: this.getActiveNotifications(),

@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GameManager, GameStats } from '../../game/GameManager';
 import { NotificationStack } from '../NotificationStack';
-import { buildCommands, buildModeHint, commandTargetHint, isDefenseMode, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
+import { buildCommands, buildModeHint, commandTargetHint, digHint, isDefenseMode, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
 import { CommandCard } from './CommandCard';
 import { InfoPanel } from './InfoPanel';
 import { MinimapPanel } from './MinimapPanel';
 import { useColonyDetails } from './useColonyDetails';
 import { useTouchUi } from '../layout/touch';
 import { humanHint } from '../races/human/humanCommands';
+import { DigMeter } from './DigMeter';
 
 interface ConsoleProps {
   stats: GameStats;
@@ -124,12 +125,18 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   );
 
   const areaHint = touch && stats.areaSelect ? 'SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus hormigas' : null;
-  const hint = notice?.text ?? humanHint(stats, touch) ?? commandTargetHint(stats.commandTarget, touch) ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint);
+  // Excavar: its counter rides in the tool hint; at the limit the hint turns into the refusal
+  const digging = buildMode === 'dig' && stats.activeLayer === 'underground' && stats.dig ? stats.dig : null;
+  const digLimit = digging ? digHint(digging) : null;
+  const toolHint = buildMode ? (digLimit?.text ?? buildModeHint(buildMode, touch)) : areaHint;
+  const hint = notice?.text ?? humanHint(stats, touch) ?? commandTargetHint(stats.commandTarget, touch) ?? toolHint;
+  const hintTone = notice?.tone ?? (digLimit && hint === digLimit.text ? digLimit.tone : undefined);
+  const hintExtra = digging && hint === toolHint ? <DigMeter status={digging} /> : null;
   const overlayOpen = Boolean(stats.mutationOffer || stats.gameOver);
 
   return (
     <>
-      <NotificationStack notifications={stats.notifications} hint={hint} hintTone={notice?.tone} />
+      <NotificationStack notifications={stats.notifications} hint={hint} hintTone={hintTone} hintExtra={hintExtra} />
       <footer className="hive-console">
         <div className="console-deck" aria-hidden="true">
           <div className="console-vein" />

@@ -920,6 +920,44 @@ button:focus-visible {
   background: #2c0f18;
 }
 
+/* Excavar's counter, under the tool hint: marks over the cap, a bar, the time left */
+.notif-line--meter {
+  white-space: normal;
+}
+.dig-meter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 3px;
+  color: var(--chrome-text);
+}
+.dig-meter-label {
+  white-space: nowrap;
+}
+.dig-meter-bar {
+  position: relative;
+  display: inline-block;
+  width: 84px;
+  height: 8px;
+  background: #000;
+  border: 1px solid var(--chrome-border-light);
+}
+.dig-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--chrome-accent);
+}
+.dig-meter-eta {
+  white-space: nowrap;
+  opacity: 0.85;
+}
+.dig-meter--near .dig-meter-label { color: var(--chrome-warn); }
+.dig-meter--near .dig-meter-fill { background: var(--chrome-warn); }
+.dig-meter--full .dig-meter-label,
+.dig-meter--full .dig-meter-eta { color: var(--chrome-danger); }
+.dig-meter--full .dig-meter-fill { background: var(--chrome-danger); }
+
 /* ── Bottom console ────────────────────────────────────────── */
 .hive-console {
   position: absolute;
@@ -1634,6 +1672,10 @@ button:focus-visible {
 
 .cmd-badge--warn {
   color: var(--chrome-warn);
+}
+
+.cmd-badge--danger {
+  color: var(--chrome-danger);
 }
 
 /* Buttons with a price: smaller icon nudged up, the price along the bottom */

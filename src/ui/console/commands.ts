@@ -7,6 +7,7 @@ import type { ColonyDetails } from './useColonyDetails';
 import { ROLE_BLURB, ROLE_LABEL, stripEmoji } from './format';
 import { humanCommands } from '../races/human/humanCommands';
 import { DEFENSE_STATS, type DefenseKind } from '../../game/run/defenses';
+import { digLimitMessage, type DigStatus } from '../../game/dig/digStatus';
 
 /**
  * Command card contents per context. Every button maps an action the game
@@ -38,7 +39,7 @@ export interface CommandDef {
   cost?: { amount: number; resource: 'comida' | 'hongos' | 'raciones' | 'minerales'; short?: boolean };
   /** Small corner text: queue size, tile count, upgrade level */
   badge?: string;
-  badgeTone?: 'warn';
+  badgeTone?: 'warn' | 'danger';
   /** Extra keys that also trigger this action, for the tooltip */
   altKeys?: string;
   active?: boolean;
@@ -106,8 +107,8 @@ interface BuildToolDef {
 const BUILD_TOOLS: ReadonlyArray<BuildToolDef> = [
   {
     mode: 'dig', label: 'Excavar', icon: 'pick',
-    description: 'Haz clic en casillas de tierra para marcarlas. Las obreras cavan túneles allí.',
-    touch: 'Toca casillas de tierra o pasa el dedo sobre ellas para marcarlas. Las obreras cavan túneles allí.',
+    description: 'Haz clic en casillas de tierra para marcarlas; otro clic quita la marca. Las obreras cavan túneles allí.',
+    touch: 'Toca casillas de tierra o pasa el dedo sobre ellas para marcarlas; toca una marca para quitarla. Las obreras cavan túneles allí.',
   },
   {
     mode: 'incubation', label: 'Incubación', icon: 'egg',
@@ -142,7 +143,7 @@ const AREA_TOOLS: ReadonlyArray<BuildToolDef> = [
 
 /** Hint shown above the console while a build tool is armed. */
 export const BUILD_MODE_HINT: Record<BuildMode, string> = {
-  dig: 'EXCAVAR: haz clic en casillas de tierra para marcar túneles · Esc cancela',
+  dig: 'EXCAVAR: haz clic en la tierra para marcar túneles; clic en una marca la quita · Esc cancela',
   incubation: 'INCUBACIÓN: haz clic en casillas excavadas · Esc cancela',
   farm: 'GRANJA: haz clic en casillas excavadas para sembrar hongos · Esc cancela',
   storage: 'ALMACÉN: haz clic en casillas excavadas para ampliar la despensa · Esc cancela',
@@ -155,7 +156,7 @@ export const BUILD_MODE_HINT: Record<BuildMode, string> = {
 
 /** BUILD_MODE_HINT for touch screens: tap or paint with a finger (two fingers still move the camera); the tool's button turns it off. */
 export const BUILD_MODE_TOUCH_HINT: Record<BuildMode, string> = {
-  dig: 'EXCAVAR: toca o arrastra el dedo sobre la tierra · toca Excavar para salir',
+  dig: 'EXCAVAR: toca o arrastra sobre la tierra; toca una marca para quitarla',
   incubation: 'INCUBACIÓN: toca o pinta casillas excavadas',
   farm: 'GRANJA: toca o pinta casillas excavadas',
   storage: 'ALMACÉN: toca o pinta casillas excavadas',
@@ -169,6 +170,19 @@ export const BUILD_MODE_TOUCH_HINT: Record<BuildMode, string> = {
 /** Hint above the console while a build tool is armed. */
 export function buildModeHint(mode: BuildMode, touch = false): string {
   return (touch ? BUILD_MODE_TOUCH_HINT : BUILD_MODE_HINT)[mode];
+}
+
+/** At the dig limit the tool's hint becomes the refusal, in red; null under it. */
+export function digHint(status: DigStatus): { text: string; tone: NoticeTone } | null {
+  return status.level === 'full' ? { text: digLimitMessage(status.cap), tone: 'danger' } : null;
+}
+
+/** Excavar's badge: marks over the cap, amber near the limit and red at it */
+function digBadge(ctx: CommandContext): Pick<CommandDef, 'badge' | 'badgeTone'> {
+  const dig = ctx.stats.dig;
+  if (!dig || (dig.pending === 0 && ctx.buildMode !== 'dig')) return {};
+  const tone = dig.level === 'full' ? 'danger' : dig.level === 'near' ? 'warn' : undefined;
+  return { badge: `${dig.pending}/${dig.cap}`, badgeTone: tone };
 }
 
 function act(ctx: CommandContext, action: () => void): () => void {
@@ -278,6 +292,7 @@ function buildTool(ctx: CommandContext, tool: BuildToolDef, badge?: number): Com
     icon,
     description: ctx.touch ? tool.touch : tool.description,
     badge: badge ? String(badge) : undefined,
+    ...(mode === 'dig' ? digBadge(ctx) : {}),
     active: ctx.buildMode === mode,
     run: act(ctx, () => ctx.toggleBuildMode(mode)),
   };
