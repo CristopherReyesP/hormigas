@@ -17,6 +17,7 @@ import { FactionId, ownerOf, relation } from '../factions/factions';
 import { CRYSTAL_DRONE_STATS, CRYSTAL_HIVE_STATS } from '../rival/crystalHive';
 import { CRYSTAL_ECONOMY } from '../rival/crystalRival';
 import { ORDER_PATH_MAX_STEPS } from '../../shared/constants';
+import { HUMAN_COMPONENT } from '../rival/humanComponents';
 import { STRUCTURE_COMPONENT, type StructureComponent } from '../run/defenses';
 
 /** Seconds between two route requests while chasing a moving enemy */
@@ -87,7 +88,8 @@ export class CrystalUnitAISystem implements System {
   /** Surface units (and nest defenses) of every non-wildlife faction; each drone keeps only its enemies */
   private snapshotPrey(): void {
     this.prey.length = 0;
-    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT, STRUCTURE_COMPONENT]) {
+    // Human units and buildings too: a Human player's base is what the waves march on
+    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT, STRUCTURE_COMPONENT, HUMAN_COMPONENT.UNIT, HUMAN_COMPONENT.BUILDING]) {
       for (const id of this.world.query(store, COMPONENT.POSITION, COMPONENT.HEALTH)) {
         if (!this.onSurface(id)) continue;
         // Walls are not chased (their tile cannot be walked to): DefenseSystem points units at the ones they bump into

@@ -1,6 +1,7 @@
 import type { GameOverStats } from '../game/GameManager';
 import { PixelIcon } from './console/PixelIcon';
 import type { IconName } from './console/pixelIcons';
+import { humanGameOverCopy } from './races/human/gameOverCopy';
 
 interface GameOverScreenProps {
   stats: GameOverStats;
@@ -16,6 +17,8 @@ interface GameOverScreenProps {
  */
 export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenProps) {
   const victory = stats.outcome === 'victory';
+  // A Human player's run ends with the expedition's words, not the queen's
+  const human = stats.playerRace === 'human' ? humanGameOverCopy(stats) : null;
   const accent = victory ? 'var(--chrome-accent)' : 'var(--chrome-danger)';
   const minutes = Math.floor(stats.survivedTicks / 60 / 60);
   const seconds = Math.floor(stats.survivedTicks / 60) % 60;
@@ -49,7 +52,7 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
         zIndex: 40,
       }}
     >
-      {victory && <div className="run-banner">LA COLMENA PREVALECE</div>}
+      {victory && <div className="run-banner">{human?.banner ?? 'LA COLMENA PREVALECE'}</div>}
       <div
         className="pixel-panel"
         style={{
@@ -77,12 +80,12 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
                 marginBottom: 8,
               }}
             >
-              LA REINA HA MUERTO
+              {human?.defeatTitle ?? 'LA REINA HA MUERTO'}
             </div>
           </>
         )}
         <div style={{ color: 'var(--chrome-dim)', marginBottom: 18 }}>
-          {victory
+          {human ? human.line : victory
             ? stats.rivalCoreDestroyed === 'human'
               ? 'La colonia destruyó el Centro de Mando humano.'
               : stats.hiveDestroyed || stats.rivalCoreDestroyed === 'crystal'
@@ -106,10 +109,12 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
               {minutes}:{seconds.toString().padStart(2, '0')}
             </strong>
           </div>
-          <div style={rowStyle}>
-            {label('ant', 'Hormigas nacidas')}
-            <strong className="pixel-number">{stats.antsHatched}</strong>
-          </div>
+          {!human && (
+            <div style={rowStyle}>
+              {label('ant', 'Hormigas nacidas')}
+              <strong className="pixel-number">{stats.antsHatched}</strong>
+            </div>
+          )}
           <div style={rowStyle}>
             {label('shield', 'Oleadas repelidas')}
             <strong className="pixel-number">{stats.wavesRepelled}</strong>
@@ -118,13 +123,15 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
             {label('den', 'Guaridas destruidas')}
             <strong className="pixel-number">{stats.densDestroyed}</strong>
           </div>
-          <div style={{ ...rowStyle, borderBottom: 'none' }}>
-            {label('pick', 'Casillas excavadas')}
-            <strong className="pixel-number">{stats.tilesExcavated}</strong>
-          </div>
+          {!human && (
+            <div style={{ ...rowStyle, borderBottom: 'none' }}>
+              {label('pick', 'Casillas excavadas')}
+              <strong className="pixel-number">{stats.tilesExcavated}</strong>
+            </div>
+          )}
         </div>
 
-        <div style={{ textAlign: 'left', marginBottom: 22 }}>
+        {!human && <div style={{ textAlign: 'left', marginBottom: 22 }}>
           <div className="pixel-heading" style={{ color: 'var(--chrome-dim)', marginBottom: 6 }}>
             Mutaciones
           </div>
@@ -138,7 +145,7 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
               </div>
             ))
           )}
-        </div>
+        </div>}
 
         <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
         {victory && onContinue && (

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { installAudioUi } from '../audio';
 import { sanitizeRunSetup, withPlayerRace, withRivalRace, type RunSetup } from '../game/run/RunSetup';
-import { RACE_CARDS, RIVAL_OPTIONS, raceName, rivalName, type RaceCardInfo, type RaceStat, type RivalInfo } from './racePicker/races';
+import { RACE_CARDS, raceName, rivalName, rivalOptionsFor, type RaceCardInfo, type RaceStat, type RivalInfo } from './racePicker/races';
 import { SpecimenCanvas } from './racePicker/SpecimenCanvas';
-import { RUN_GOAL_TEXT } from '../game/run/nightMilestones';
+import { runGoalText } from '../game/run/nightMilestones';
 
 interface RacePickerProps {
   /** The last choice (or the default); anything not available yet falls back to the default. */
@@ -47,7 +47,7 @@ export function RacePicker({ initialSetup, onStart }: RacePickerProps) {
         <section aria-labelledby="race-picker-rival">
           <h2 id="race-picker-rival" className="race-picker-section">RIVAL</h2>
           <div className="rival-options">
-            {RIVAL_OPTIONS.map((rival) => (
+            {rivalOptionsFor(setup.playerRace).map((rival) => (
               <RivalOption
                 key={rival.id}
                 rival={rival}
@@ -68,7 +68,7 @@ export function RacePicker({ initialSetup, onStart }: RacePickerProps) {
           <button type="button" className="race-start" data-start="" data-sfx="start" onClick={() => onStart(setup)}>
             COMENZAR
           </button>
-          <p className="race-launch-hint">{RUN_GOAL_TEXT}</p>
+          <p className="race-launch-hint">{runGoalText(setup.playerRace)}</p>
           <p className="race-launch-hint">Tu elección se recordará en la próxima partida</p>
         </div>
       </div>

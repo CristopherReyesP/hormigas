@@ -34,13 +34,29 @@ describe('RunSetup defaults', () => {
     expect(DEFAULT_RUN_SETUP).toEqual({ playerRace: 'swarm', rivalRace: 'wildlife' });
   });
 
-  it('only the Swarm is playable; the wildlife, the Crystal Hive and the Humans are rivals', () => {
+  it('the Swarm and the Humans are playable; the wildlife, the Crystal Hive and the Humans are rivals', () => {
     expect(isPlayableRace('swarm')).toBe(true);
     expect(isPlayableRace('crystal')).toBe(false);
-    expect(isPlayableRace('human')).toBe(false);
+    expect(isPlayableRace('human')).toBe(true);
     expect(isAvailableRival('wildlife')).toBe(true);
     expect(isAvailableRival('crystal')).toBe(true);
     expect(isAvailableRival('human')).toBe(true);
+  });
+
+  it('a Human player fights the wildlife, the Crystal Hive or a mirror Human base, but no Swarm AI yet', () => {
+    expect(isAvailableRival('wildlife', 'human')).toBe(true);
+    expect(isAvailableRival('crystal', 'human')).toBe(true);
+    expect(isAvailableRival('human', 'human')).toBe(true);
+    expect(isAvailableRival('swarm', 'human')).toBe(false);
+    expect(isAvailableRival('swarm', 'swarm')).toBe(false);
+  });
+
+  it('picks the Humans as the player race, keeping a rival they can fight', () => {
+    const humans = withPlayerRace({ playerRace: 'swarm', rivalRace: 'crystal' }, 'human');
+    expect(humans).toEqual({ playerRace: 'human', rivalRace: 'crystal' });
+    expect(withRivalRace(humans, 'swarm')).toBe(humans);
+    expect(withRivalRace(humans, 'human')).toEqual({ playerRace: 'human', rivalRace: 'human' });
+    expect(withPlayerRace(humans, 'swarm')).toEqual({ playerRace: 'swarm', rivalRace: 'crystal' });
   });
 
   it('picks the Crystal Hive as the rival', () => {
@@ -49,7 +65,6 @@ describe('RunSetup defaults', () => {
 
   it('ignores picks of races that are not available yet', () => {
     expect(withPlayerRace(DEFAULT_RUN_SETUP, 'crystal')).toBe(DEFAULT_RUN_SETUP);
-    expect(withPlayerRace(DEFAULT_RUN_SETUP, 'human')).toBe(DEFAULT_RUN_SETUP);
     expect(withRivalRace(DEFAULT_RUN_SETUP, 'human')).toEqual({ playerRace: 'swarm', rivalRace: 'human' });
     expect(withPlayerRace(DEFAULT_RUN_SETUP, 'swarm')).toEqual(DEFAULT_RUN_SETUP);
     expect(withRivalRace(DEFAULT_RUN_SETUP, 'wildlife')).toEqual(DEFAULT_RUN_SETUP);
@@ -79,6 +94,8 @@ describe('RunSetup persistence', () => {
     expect(loadRunSetup(stored({ playerRace: 'swarm', rivalRace: 'robots' }))).toEqual(DEFAULT_RUN_SETUP);
     expect(loadRunSetup(stored({ playerRace: 'swarm' }))).toEqual(DEFAULT_RUN_SETUP);
     expect(loadRunSetup(stored({ playerRace: 'swarm', rivalRace: 'human' }))).toEqual({ playerRace: 'swarm', rivalRace: 'human' });
+    expect(loadRunSetup(stored({ playerRace: 'human', rivalRace: 'crystal' }))).toEqual({ playerRace: 'human', rivalRace: 'crystal' });
+    expect(loadRunSetup(stored({ playerRace: 'human', rivalRace: 'swarm' }))).toEqual({ playerRace: 'human', rivalRace: 'wildlife' });
   });
 
   it('never throws when storage is blocked or full', () => {

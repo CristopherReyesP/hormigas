@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FIRST_NIGHT_MILESTONE, NIGHT_MILESTONE_EVERY, RUN_GOAL_TEXT, nightMilestone } from './nightMilestones';
+import { FIRST_NIGHT_MILESTONE, HUMAN_RUN_GOAL_TEXT, NIGHT_MILESTONE_EVERY, RUN_GOAL_TEXT, nightMilestone, runGoalText } from './nightMilestones';
 
 describe('night milestones', () => {
   it('celebrates the seventh night with a reward', () => {
@@ -31,5 +31,11 @@ describe('night milestones', () => {
 
   it('states the endless goal in neutral Spanish', () => {
     expect(RUN_GOAL_TEXT).toBe('Haz crecer la colonia y sobrevive el mayor número de noches. Si muere la reina, pierdes.');
+  });
+
+  it('states the goal for a Human expedition: the command center is its life', () => {
+    expect(runGoalText('swarm')).toBe(RUN_GOAL_TEXT);
+    expect(runGoalText('human')).toBe(HUMAN_RUN_GOAL_TEXT);
+    expect(HUMAN_RUN_GOAL_TEXT).toContain('Centro de Mando');
   });
 });

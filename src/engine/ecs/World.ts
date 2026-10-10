@@ -156,6 +156,13 @@ export class World {
     this.systemsSorted = false;
   }
 
+  /** Drop the system called `name` (a race that does without it); false when there is none. */
+  removeSystem(name: string): boolean {
+    const before = this.systems.length;
+    this.systems = this.systems.filter((system) => system.name !== name);
+    return this.systems.length !== before;
+  }
+
   update(dt: number): void {
     if (!this.systemsSorted) {
       this.systems.sort((a, b) => a.priority - b.priority);

@@ -1,7 +1,8 @@
 // The skirmish setup chosen before a run: the player's race and the rival's.
-// Only the Swarm is playable. The rival is the wildlife alone, the Crystal
-// Hive as an AI rival (P5) or the Humans as an AI base (P9). The last choice
-// is remembered per browser, best effort.
+// The Swarm and the Humans are playable. The rival is the wildlife alone, the
+// Crystal Hive as an AI rival (P5) or the Humans as an AI base (P9), a mirror
+// match for a Human player. There is no Swarm AI yet. The last choice is
+// remembered per browser, best effort.
 
 export type RaceId = 'swarm' | 'crystal' | 'human';
 
@@ -16,26 +17,36 @@ export interface RunSetup {
 /** The Swarm against the beetles and crickets alone: no Crystal Hive at the crater. */
 export const DEFAULT_RUN_SETUP: RunSetup = { playerRace: 'swarm', rivalRace: 'wildlife' };
 
-const PLAYABLE_RACES: ReadonlySet<string> = new Set<RaceId>(['swarm']);
-const AVAILABLE_RIVALS: ReadonlySet<string> = new Set<RivalId>(['wildlife', 'crystal', 'human']);
+const PLAYABLE_RACES: ReadonlySet<string> = new Set<RaceId>(['swarm', 'human']);
+/** Rivals each playable race can face. No Swarm AI exists yet, so nobody fights a Swarm rival. */
+const RIVALS_FOR: Readonly<Record<RaceId, ReadonlySet<string>>> = {
+  swarm: new Set<RivalId>(['wildlife', 'crystal', 'human']),
+  human: new Set<RivalId>(['wildlife', 'crystal', 'human']),
+  crystal: new Set<RivalId>(),
+};
 
 export function isPlayableRace(race: string): race is RaceId {
   return PLAYABLE_RACES.has(race);
 }
 
-export function isAvailableRival(rival: string): rival is RivalId {
-  return AVAILABLE_RIVALS.has(rival);
+/** Whether `player` can be matched against `rival` (the Swarm player by default). */
+export function isAvailableRival(rival: string, player: RaceId = 'swarm'): rival is RivalId {
+  return RIVALS_FOR[player]?.has(rival) ?? false;
 }
 
-/** Picks the player's race; a race that is not playable yet leaves the setup unchanged. */
+/**
+ * Picks the player's race; a race that is not playable yet leaves the setup
+ * unchanged. A rival the new race cannot face falls back to the wildlife.
+ */
 export function withPlayerRace(setup: RunSetup, race: RaceId): RunSetup {
   if (!isPlayableRace(race) || race === setup.playerRace) return setup;
-  return { ...setup, playerRace: race };
+  const rivalRace = isAvailableRival(setup.rivalRace, race) ? setup.rivalRace : DEFAULT_RUN_SETUP.rivalRace;
+  return { playerRace: race, rivalRace };
 }
 
-/** Picks the rival; a rival that is not available yet leaves the setup unchanged. */
+/** Picks the rival; a rival the player's race cannot face yet leaves the setup unchanged. */
 export function withRivalRace(setup: RunSetup, rival: RivalId): RunSetup {
-  if (!isAvailableRival(rival) || rival === setup.rivalRace) return setup;
+  if (!isAvailableRival(rival, setup.playerRace) || rival === setup.rivalRace) return setup;
   return { ...setup, rivalRace: rival };
 }
 
@@ -44,9 +55,10 @@ export function sanitizeRunSetup(value: unknown): RunSetup {
   const record = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
   const player = record.playerRace;
   const rival = record.rivalRace;
+  const playerRace = typeof player === 'string' && isPlayableRace(player) ? player : DEFAULT_RUN_SETUP.playerRace;
   return {
-    playerRace: typeof player === 'string' && isPlayableRace(player) ? player : DEFAULT_RUN_SETUP.playerRace,
-    rivalRace: typeof rival === 'string' && isAvailableRival(rival) ? rival : DEFAULT_RUN_SETUP.rivalRace,
+    playerRace,
+    rivalRace: typeof rival === 'string' && isAvailableRival(rival, playerRace) ? rival : DEFAULT_RUN_SETUP.rivalRace,
   };
 }
 
