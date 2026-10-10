@@ -115,7 +115,7 @@ export default function App() {
   return (
     <div className="hive-screen">
       {/* The world fills the window; every HUD element floats above it */}
-      <GameCanvas onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} introPlaying={stats.introPlaying} runSetup={runSetup} />
+      <GameCanvas setup={runSetup} onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} introPlaying={stats.introPlaying} />
       {/* Hidden during the opening cinematic, then it fades in */}
       <HudLayer introPlaying={stats.introPlaying}>
         <TopStrip stats={stats} gameManager={gameManager} />

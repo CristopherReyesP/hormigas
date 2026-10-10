@@ -18,12 +18,15 @@ export function selectionTitle(sel: SelectedEntityInfo): { name: string; faction
     case 'crystal_unit': return { name: CRYSTAL_UNIT_NAME[sel.crystalKind ?? 'drone'], faction: 'Colmena de Cristal' };
     case 'crystal_spire': return { name: SPIRE_NAME[sel.spireKind ?? 'forge'], faction: 'Colmena de Cristal · aguja' };
     case 'food': return { name: FOOD_LABEL[sel.foodType ?? 'leaf'] ?? 'Comida', faction: 'Recurso' };
+    case 'human_unit':
+    case 'human_building':
+      return { name: sel.human?.name ?? 'Humano', faction: sel.human?.faction ?? 'Humanos' };
   }
 }
 
 /** The health bar a selected entity shows, whatever kind it is. */
 export function selectionHealth(sel: SelectedEntityInfo): { current: number; max: number } | undefined {
-  return sel.health ?? sel.beetleHealth ?? sel.cricketHealth ?? sel.denHealth ?? sel.cricketDenHealth ?? sel.hiveHealth;
+  return sel.health ?? sel.beetleHealth ?? sel.cricketHealth ?? sel.denHealth ?? sel.cricketDenHealth ?? sel.hiveHealth ?? sel.human?.health;
 }
 
 /**

@@ -20,7 +20,7 @@ import {
 } from '../components/components';
 import { createBeetle } from '../entities/factories';
 import { emitAudio } from '../../audio/events';
-import { waveComposition, YOUNG_BEETLE_SCALE, type WaveComposition } from '../run/waveComposition';
+import { waveComposition, YOUNG_BEETLE_SCALE, type WaveComposition, type WaveRival } from '../run/waveComposition';
 import {
   UNDERGROUND_WIDTH,
   INVASION_BOSS_NIGHT,
@@ -71,8 +71,12 @@ export interface InvasionInfo {
   threats: WaveThreat[];
 }
 
-/** The Crystal Hive's side of a wave: drones sent at the player's nest on the surface */
+/** The rival base's side of a wave: drones (or troops) sent at the player's nest on the surface */
 export interface RaidSource {
+  /** Whose base it is; it sets the wave mix (default: the Crystal Hive) */
+  rival?: WaveRival;
+  /** How the notification names `count` raiders (default: "drones de cristal") */
+  unitLabel?: (count: number) => string;
   /** Send up to `count` drones; returns the ones actually sent (none when the hive is gone) */
   launch(count: number): EntityId[];
   /** Where the drones leave from, in surface tiles (null when there is no hive) */
@@ -189,7 +193,7 @@ export class UndergroundInvasionSystem implements System {
    * the drones' share is beetles too.
    */
   private nextComposition(): WaveComposition {
-    const base = waveComposition(this.waveNumber + 1);
+    const base = waveComposition(this.waveNumber + 1, this.raidSource?.rival);
     const extra = Math.max(0, this.world.runModifiers.extraInvadersPerWave);
     const drones = this.raidSource ? base.drones : 0;
     return { ...base, drones, beetles: base.beetles + extra + (base.drones - drones), total: base.total + extra };
@@ -452,7 +456,7 @@ export class UndergroundInvasionSystem implements System {
 
     this.showBanner('arrival', this.waveNumber, this.waveSize);
     const parts = drones.length > 0
-      ? ` ${underground} acorazados al nido y ${drones.length} drones de cristal por la superficie`
+      ? ` ${underground} acorazados al nido y ${drones.length} ${this.raidSource?.unitLabel?.(drones.length) ?? 'drones de cristal'} por la superficie`
       : ` Los acorazados están entrando${this.whereLabel()}`;
     this.world.pushNotification('danger', `🪲 ¡OLEADA ${this.waveNumber} · ${this.waveSize} enemigos!${parts}`);
 

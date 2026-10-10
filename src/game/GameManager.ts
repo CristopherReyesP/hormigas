@@ -67,7 +67,13 @@ import { CrystalUnitAISystem } from './systems/CrystalUnitAISystem';
 import { CrystalRivalSystem, type CrystalRivalSnapshot } from './systems/CrystalRivalSystem';
 import type { ShieldComponent } from './rival/crystalShield';
 import { CrystalShieldSystem } from './systems/CrystalShieldSystem';
-import { DEFAULT_RUN_SETUP, type RunSetup } from './run/RunSetup';
+import { DEFAULT_RUN_SETUP, type RivalId, type RunSetup } from './run/RunSetup';
+import { HumanBaseSystem } from './systems/HumanBaseSystem';
+import { HumanUnitAISystem } from './systems/HumanUnitAISystem';
+import { HUMAN_COMPONENT } from './rival/humanComponents';
+import { createHumanBase } from './rival/humanFactories';
+import { humanSelection, type HumanSelection } from './rival/humanInfo';
+import { pickHumanBaseSite } from './rival/humanSite';
 import { FactionId, FactionRegistry, defaultFactions } from './factions/factions';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
@@ -158,13 +164,20 @@ import {
 const CRATER_SEED_SALT = 0x9e3779b9;
 /** Mixed into the run seed so the mineral fields draw from their own stream. */
 const MINERAL_SEED_SALT = 0x85ebca6b;
+/** Mixed into the run seed so the Human base site draws from its own stream. */
+const HUMAN_SITE_SALT = 0xc2b2ae35;
+/** The Human base keeps this far from the crater (tiles) */
+const HUMAN_SITE_CRATER_DISTANCE = 30;
+/** Tiles around the Human command center that must be walkable */
+const HUMAN_SITE_CLEAR_RADIUS = 4;
 
 /** A command card order that waits for a click: Mover (Q) or Atacar (A). */
 export type CommandTarget = 'move' | 'attack';
 
 export interface SelectedEntityInfo {
   entityId: EntityId;
-  type: 'ant' | 'food' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'crystal_hive' | 'crystal_unit' | 'crystal_spire';
+  type: 'ant' | 'food' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'crystal_hive' | 'crystal_unit' | 'crystal_spire'
+    | 'human_unit' | 'human_building';
   position: { x: number; y: number };
   // Ant-specific
   role?: AntRole;
@@ -203,6 +216,8 @@ export interface SelectedEntityInfo {
   spireFloors?: number;
   /** The hive: minerals banked, spires standing, units at home */
   rival?: CrystalRivalSnapshot;
+  // Human unit or building: its whole card
+  human?: HumanSelection;
 }
 
 /** Several own ants selected: what the StarCraft-style group panel shows. */
@@ -277,6 +292,8 @@ export interface GameOverStats {
   build: MutationBuildEntry[];
   /** Set when the run was won by destroying the Crystal Hive */
   hiveDestroyed?: true;
+  /** Set when the run was won by destroying the rival's core: whose it was */
+  rivalCoreDestroyed?: 'crystal' | 'human';
 }
 
 /** One dot on the underground minimap */
@@ -387,10 +404,12 @@ export class GameManager {
    * minimap marks it, and the Crystal Hive rises from it (P5).
    */
   private readonly craterSite: TilePos;
-  /** The rival Crystal Hive at the crater; destroying it wins the run */
-  private rivalHiveId: EntityId | null = null;
+  /** The rival's core (the Crystal Hive, or the Human command center); destroying it wins the run */
+  private rivalCoreId: EntityId | null = null;
   /** The player's race and the rival picked before the run */
   private readonly runSetup: RunSetup;
+  /** Who fights the player besides the wildlife: no base for 'wildlife' */
+  private readonly rivalRace: RivalId;
   /** The full Crystal Hive rival (only when the rival is the Colmena de Cristal) */
   private crystalRival: CrystalRivalSystem | null = null;
   /** Canvas the intro-skip pointer listener is attached to */
@@ -447,10 +466,13 @@ export class GameManager {
   constructor(canvas: HTMLCanvasElement, setup: RunSetup = DEFAULT_RUN_SETUP) {
     this.canvas = canvas;
     this.runSetup = setup;
-    const crystalRival = setup.rivalRace === 'crystal';
+    // One setup path: the picked rival decides which base (if any) the run gets.
+    // Fauna salvaje: wildlife only, no rival faction and no base.
+    this.rivalRace = setup.rivalRace;
+    const rivalBase = this.rivalRace === 'crystal' || this.rivalRace === 'human' ? this.rivalRace : null;
     this.world = new World(this.runModifiers, new FactionRegistry([
       ...defaultFactions(),
-      ...(crystalRival ? [{ id: FactionId.RIVAL, race: 'crystal' as const, controller: 'ai' as const }] : []),
+      ...(rivalBase ? [{ id: FactionId.RIVAL, race: rivalBase, controller: 'ai' as const }] : []),
     ]));
     this.grid = new TileGrid();
     this.visibilityGrid = new VisibilityGrid(WORLD_WIDTH, WORLD_HEIGHT);
@@ -548,7 +570,20 @@ export class GameManager {
       this.dayNightSystem
     );
     this.world.addSystem(this.invasionSystem);
-    if (crystalRival) this.addCrystalRival();
+    // The rival base's night raids are part of each invasion wave, not waves of their own
+    if (this.rivalRace === 'human') {
+      const humanBaseSystem = new HumanBaseSystem(this.world, this.grid, this.dayNightSystem, { autoRaids: false });
+      this.world.addSystem(humanBaseSystem);
+      this.invasionSystem.setRaidSource({
+        rival: 'human',
+        unitLabel: (count) => (count === 1 ? 'tropa humana' : 'tropas humanas'),
+        launch: (count) => humanBaseSystem.launchRaid(count),
+        origin: () => humanBaseSystem.raidOrigin(),
+      });
+      this.world.addSystem(new HumanUnitAISystem(this.world, this.grid));
+    } else if (this.rivalRace === 'crystal') {
+      this.addCrystalRival();
+    }
     // Waves land at nightfall, so the dusk warning doubles as the last call
     this.dayNightSystem.setWaveArmedProvider(() => this.invasionSystem.getInfo().armed);
     this.world.addSystem(new SpoilageSystem(this.world));
@@ -615,13 +650,29 @@ export class GameManager {
       edgeMargin: CRATER_EDGE_MARGIN,
       farFraction: CRATER_FAR_FRACTION,
     });
-    // Rival Colmena de Cristal: the hive rises from the crater, the rival's base and core.
-    // Against Fauna salvaje the crater stays bare.
-    if (crystalRival) {
-      this.rivalHiveId = createCrystalHive(this.world, this.craterSite.x, this.craterSite.y);
-      const rival = this.world.factions.get(FactionId.RIVAL);
-      if (rival) rival.coreId = this.rivalHiveId;
+    if (this.rivalRace === 'human') {
+      // The Humans camp on another far clearing, away from the crater: the
+      // crater's shard field stays between the two bases
+      const site = pickHumanBaseSite({
+        width: WORLD_WIDTH,
+        height: WORLD_HEIGHT,
+        nest: { x: nestX, y: nestY },
+        isWalkable: (x, y) => this.grid.isWalkable(x, y),
+        rng: createSeededRng(this.runSeed ^ HUMAN_SITE_SALT),
+        clearRadius: HUMAN_SITE_CLEAR_RADIUS,
+        edgeMargin: CRATER_EDGE_MARGIN,
+        farFraction: CRATER_FAR_FRACTION,
+        avoid: this.craterSite,
+        avoidDistance: HUMAN_SITE_CRATER_DISTANCE,
+      });
+      this.rivalCoreId = createHumanBase(this.world, this.grid, site, { x: nestX, y: nestY }).coreId;
+    } else if (this.rivalRace === 'crystal') {
+      // The Crystal Hive rises from the crater: the rival's base, and its core.
+      // Against Fauna salvaje the crater stays bare.
+      this.rivalCoreId = createCrystalHive(this.world, this.craterSite.x, this.craterSite.y);
     }
+    const rival = this.world.factions.get(FactionId.RIVAL);
+    if (rival && this.rivalCoreId !== null) rival.coreId = this.rivalCoreId;
     this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock);
     this.spawnMineralFields({ x: nestX, y: nestY });
     const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
@@ -651,6 +702,7 @@ export class GameManager {
     this.world.addSystem(this.crystalRival);
     const rival = this.crystalRival;
     this.invasionSystem.setRaidSource({
+      rival: 'crystal',
       launch: (count) => crystalHiveSystem.launchRaid(count),
       origin: () => crystalHiveSystem.raidOrigin(),
       launchBoss: () => rival.launchQueen(),
@@ -1093,14 +1145,14 @@ export class GameManager {
       const health = this.world.getComponent<HealthComponent>(queens[0], COMPONENT.HEALTH);
       if (health && health.current <= 0) queenDead = true;
     }
-    const hiveDestroyed = this.rivalHiveId != null && !this.world.hasEntity(this.rivalHiveId);
+    const coreDestroyed = this.rivalCoreId != null && !this.world.hasEntity(this.rivalCoreId);
     const outcome = resolveRunOutcome(
       null,
       !queenDead,
       previousPhase,
       this.dayNightSystem.getPhase(),
       this.dayNightSystem.getDayNumber(),
-      hiveDestroyed,
+      coreDestroyed,
     );
     if (!outcome) return;
 
@@ -1112,7 +1164,9 @@ export class GameManager {
       tilesExcavated: this.world.metrics.tilesExcavated,
       wavesRepelled: this.world.metrics.wavesRepelled,
       build: summarizeMutationBuild(this.runModifiers.getAppliedMutations()),
-      ...(outcome === 'victory' && hiveDestroyed ? { hiveDestroyed: true as const } : {}),
+      ...(outcome === 'victory' && coreDestroyed
+        ? { rivalCoreDestroyed: this.rivalRace === 'human' ? 'human' as const : 'crystal' as const, ...(this.rivalRace === 'crystal' ? { hiveDestroyed: true as const } : {}) }
+        : {}),
     };
     this.gameLoop.setPaused(true);
 
@@ -2151,7 +2205,7 @@ export class GameManager {
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'food' });
     }
-    for (const component of [COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN, COMPONENT.CRYSTAL_HIVE, COMPONENT.CRYSTAL_SPIRE]) {
+    for (const component of [COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN, COMPONENT.CRYSTAL_HIVE, COMPONENT.CRYSTAL_SPIRE, HUMAN_COMPONENT.BUILDING]) {
       for (const id of this.world.query(component, COMPONENT.POSITION)) {
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
         if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'den' });
@@ -2162,7 +2216,7 @@ export class GameManager {
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       out.push({ x: pos.x, y: pos.y, kind: 'ant' });
     }
-    for (const component of [COMPONENT.BEETLE, COMPONENT.CRICKET, COMPONENT.CRYSTAL_UNIT]) {
+    for (const component of [COMPONENT.BEETLE, COMPONENT.CRICKET, COMPONENT.CRYSTAL_UNIT, HUMAN_COMPONENT.UNIT]) {
       for (const id of this.world.query(component, COMPONENT.POSITION)) {
         if (!onSurface(id)) continue;
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
@@ -2409,6 +2463,17 @@ export class GameManager {
         shield: shieldOf(),
         ...(crystalUnit ? { crystalKind: crystalUnit.kind, crystalState: crystalUnit.state } : {}),
         ...(spire ? { spireKind: spire.kind, spireFloors: spire.floors } : {}),
+      };
+    }
+
+    // A Human unit or building: its card says what it is and does
+    const human = humanSelection(this.world, selectedId);
+    if (human) {
+      return {
+        entityId: selectedId,
+        type: human.building ? 'human_building' : 'human_unit',
+        position: { x: Math.round(pos.x), y: Math.round(pos.y) },
+        human,
       };
     }
 

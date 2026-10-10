@@ -1,4 +1,5 @@
 import type { System } from '../../engine/ecs/types';
+import { HUMAN_COMPONENT } from '../rival/humanComponents';
 import type { World } from '../../engine/ecs/World';
 import type { TileGrid } from '../../simulation/world/TileGrid';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
@@ -647,8 +648,8 @@ export class AntAISystem implements System {
         this.enemySnapshot.push({ id, x: pos.x, y: pos.y });
       }
     }
-    // Rival faction units (Crystal drones) the colony is at war with
-    for (const id of this.world.query(COMPONENT.CRYSTAL_UNIT, COMPONENT.POSITION)) {
+    // Rival faction units (Crystal drones, Human troops) the colony is at war with
+    for (const id of [...this.world.query(COMPONENT.CRYSTAL_UNIT, COMPONENT.POSITION), ...this.world.query(HUMAN_COMPONENT.UNIT, COMPONENT.POSITION)]) {
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
       if (layer && layer.layer !== Layer.Surface) continue;
       if (!isHostileTo(this.world, FactionId.PLAYER, id)) continue;

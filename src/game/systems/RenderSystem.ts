@@ -53,6 +53,7 @@ import { CrystalRivalArt } from '../render/crystalRivalArt';
 import type { ShieldComponent } from '../rival/crystalShield';
 import { combatVfxFor } from '../vfx/CombatVfx';
 import { drawCombatVfx } from '../vfx/drawCombatVfx';
+import { HumanRenderer } from './HumanRenderer';
 import type { IntroClock, Vec2 } from '../render/introTimeline';
 import { LeapTracker, type LeapDraw } from '../render/leapMotion';
 import type { TilePos } from '../run/craterSite';
@@ -172,6 +173,8 @@ export class RenderSystem {
   private frameDt = 0;
   /** Visual hops of the alien leapers (crickets) over their real positions */
   private leapTracker = new LeapTracker();
+  /** The Human rival's buildings, troops and gunfire */
+  private humanRenderer: HumanRenderer;
   private camera: Camera | null = null;
   private ambientParticles: AmbientParticleSystem;
   private ugGrid: UndergroundGrid | null = null;
@@ -230,6 +233,7 @@ export class RenderSystem {
     this.renderer = renderer;
     this.grid = grid;
     this.visibilityGrid = visibilityGrid;
+    this.humanRenderer = new HumanRenderer(world, visibilityGrid);
     this.terrainRenderer = new TerrainRenderer(grid);
     this.foliageOverlay = new FoliageOverlay(grid);
     this.postProcessor = new PostProcessor();
@@ -1802,6 +1806,10 @@ export class RenderSystem {
       this.drawTargetFlash(ctx, id, x, y, 'beetle');
       this.drawCrystalDrone(ctx, x, y, id);
     }
+
+    // The Human rival: buildings on explored ground, troops where the colony sees now, gunfire
+    this.humanRenderer.draw(ctx, interpolation, this.animationTime, (c, px, py, current, max, always, scale, yOffset) =>
+      this.drawHealthBar(c, px, py, current, max, always, scale, yOffset));
 
     for (const { id, pos } of antEntities) {
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;

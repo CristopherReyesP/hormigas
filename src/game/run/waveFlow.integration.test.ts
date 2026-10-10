@@ -67,13 +67,15 @@ describe('night waves in a real run', () => {
     game['invasionSystem']['waveNumber'] = 2;
     const expected = waveComposition(3);
     expect(expected.drones).toBeGreaterThan(0);
-    nightfallIn(0.5);
-    run(1);
-    while (game['invasionSystem']['pendingSpawns'].length > 0) run(DT);
+    nightfallIn(0.05);
+    run(0.1);
+    // Right at the launch, before the defenders can kill anyone
     expect(info().waveNumber).toBe(3);
     expect(assaultingDrones()).toHaveLength(expected.drones);
-    expect(undergroundBeetles()).toHaveLength(expected.youngBeetles + expected.beetles);
+    expect(undergroundBeetles().length + game['invasionSystem']['pendingSpawns'].length).toBe(expected.youngBeetles + expected.beetles);
     expect(info().remaining).toBe(expected.total);
+    while (game['invasionSystem']['pendingSpawns'].length > 0) run(DT);
+    expect(undergroundBeetles().length).toBeLessThanOrEqual(expected.youngBeetles + expected.beetles);
     game.stop();
   });
 });

@@ -18,6 +18,7 @@ import { setAudioSink } from '../../audio/events';
 import { createAnt } from '../entities/factories';
 import { createCrystalUnit } from './crystalFactories';
 import { CombatSystem } from '../systems/CombatSystem';
+import { ARMOR_COMPONENT, type ArmorComponent } from '../systems/helpers/combatHelpers';
 import { combatVfxFor } from '../vfx/CombatVfx';
 import type { ShieldComponent } from './crystalShield';
 import { CRYSTAL_UNIT_STATS } from './crystalRival';
@@ -191,5 +192,26 @@ describe('shields in combat', () => {
     expect(shield.current).toBe(0);
     combat.update(0.02);
     expect(health.current).toBeLessThan(health.max);
+  });
+
+  it('the shield soaks first; armor then cuts only the part that reaches the hull', () => {
+    const world = new World();
+    const combat = new CombatSystem(world, new TileGrid());
+    const drone = createCrystalUnit(world, 'drone', 20, 20, null, FactionId.RIVAL);
+    world.addComponent<ArmorComponent>(drone, ARMOR_COMPONENT, { armor: 4 });
+    const soldier = createAnt(world, 21, 20, AntRole.Soldier);
+    world.addComponent<CombatComponent>(soldier, COMPONENT.COMBAT, {
+      attackDamage: 30, attackRange: 1.5, attackCooldown: 0.01, attackTimer: 0, targetEntityId: drone,
+    });
+    const attack = world.getComponent<CombatComponent>(soldier, COMPONENT.COMBAT)!;
+    attack.attackDamage = 30;
+    attack.targetEntityId = drone;
+    const shield = world.getComponent<ShieldComponent>(drone, COMPONENT.SHIELD)!;
+    const health = world.getComponent<HealthComponent>(drone, COMPONENT.HEALTH)!;
+    shield.current = 10;
+    combat.update(1 / 60);
+    // 10 on the shield, 20 left, minus 4 armor on the hull
+    expect(shield.current).toBe(0);
+    expect(health.current).toBe(health.max - 16);
   });
 });
