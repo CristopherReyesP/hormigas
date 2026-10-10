@@ -218,7 +218,7 @@ function breedCommands(ctx: CommandContext): CommandDef[] {
       id: `breed-${role}`,
       label: `Criar ${name}`,
       icon,
-      description: `La reina pone un huevo de ${name}. ${ROLE_BLURB[role]} Se paga al encargarlo con comida de la despensa, bajo tierra.`,
+      description: `La reina pone un huevo de ${name}. ${ROLE_BLURB[role]} ${state.note ?? 'Se paga al encargarlo con comida de la despensa, bajo tierra.'}`,
       cost: { amount: state.cost, resource: 'comida' as const, short: !state.affordable },
       badge: state.full ? `${state.queued}/${max}` : state.queued > 0 ? String(state.queued) : undefined,
       badgeTone: state.full ? ('warn' as const) : undefined,

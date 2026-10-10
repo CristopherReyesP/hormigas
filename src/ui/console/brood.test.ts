@@ -238,3 +238,22 @@ describe('breed button state', () => {
     });
   });
 });
+
+describe('a colony with no workers', () => {
+  const empty = { pantry: { stored: 0, capacity: 450, tiles: 9 }, surfaceStock: 120, workers: 0 };
+
+  it('heads the brood status with the missing workers', () => {
+    const pipeline = deriveBroodPipeline(snapshot(empty), KEYS);
+    expect(pipeline.status.text).toBe('¡Sin obreras! Cría obreras para recolectar y llevar comida');
+  });
+
+  it('lets a worker egg be paid with the entrance food, and says so on the button', () => {
+    const worker = breedButtonState(AntRole.Worker, snapshot(empty));
+    expect(worker.disabled).toBe(false);
+    expect(worker.note).toBe('Sin obreras: este huevo se paga con comida de la entrada (120 allí).');
+    // Only the worker: the other castes still need the pantry
+    expect(breedButtonState(AntRole.Soldier, snapshot(empty)).disabled).toBe(true);
+    // With workers alive the entrance pays nothing
+    expect(breedButtonState(AntRole.Worker, snapshot({ ...empty, workers: 3 })).disabled).toBe(true);
+  });
+});

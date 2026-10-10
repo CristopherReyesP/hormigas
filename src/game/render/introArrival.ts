@@ -1,6 +1,7 @@
 import { hash2 } from '../../engine/renderer/pixelart/palette';
 import type { HumanBuildingKind } from '../rival/humanBase';
 import type { TilePos } from '../run/craterSite';
+import type { RivalId } from '../run/RunSetup';
 import { INTRO_TIMELINE as T, meteorAltitude, meteorGround, type IntroVariant, type Vec2 } from './introTimeline';
 
 /**
@@ -19,6 +20,12 @@ import { INTRO_TIMELINE as T, meteorAltitude, meteorGround, type IntroVariant, t
  * the crater (it seeds the run's crystal field), and its impact wakes the
  * wildlife: the ground rumbles at burrows around the rim, then beetles and
  * leapers burst out and scatter away from the crater.
+ *
+ * A Crystal or Human player watches their own base arrive at the map
+ * center instead: the crystal meteor comes in from the far side of the
+ * map, away from the rival, and the Hive's crown crystallizes out of its
+ * crater (hiveCrownGrowth); or the expedition's dropship lands there and
+ * raises the Command Center and the Cuartel, as the Human rival's does.
  */
 
 /** What the opening brings in, as GameManager stages it. */
@@ -30,6 +37,14 @@ export interface IntroArrival {
   rivalLine: string;
   /** Humans only: the real starting base the arrival raises (tile coordinates) */
   base?: IntroHumanBase;
+  /** A player race's own arrival: the tile the meteor or the dropship comes in from (the Swarm's comes from over its nest) */
+  from?: TilePos;
+  /** Who the player is up against; it colors the rival line and the marker toward their base */
+  rival?: RivalId;
+  /** A player race's own arrival: the rival's base, which the camera glances toward at the end; null or absent for the wildlife */
+  rivalBase?: TilePos | null;
+  /** A Crystal player: where the starting drones stand when the run starts (tile coordinates, fractional) */
+  drones?: ReadonlyArray<{ x: number; y: number }>;
 }
 
 export interface IntroHumanBase {
@@ -42,6 +57,54 @@ export interface IntroHumanBase {
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const lerp = (a: Vec2, b: Vec2, f: number): Vec2 => ({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
 const easeOutCubic = (f: number): number => 1 - (1 - f) ** 3;
+
+// ── A player race's own arrival ───────────────────────────────────────
+
+/** Tiles from home to where a player race's arrival comes in from, and how far from the map edge it must stay. */
+const LAUNCH_DISTANCE = 26;
+const LAUNCH_MARGIN = 4;
+/** With no rival base to turn away from, the arrival comes in from the upper left. */
+const DEFAULT_LAUNCH_HEADING = { x: -0.8, y: -0.6 } as const;
+
+/**
+ * Where a player race's meteor or dropship comes in from: a point on the
+ * far side of home from the rival's base, so the camera's chase and the
+ * ground it lights run away from the rival, kept inside the map.
+ */
+export function playerLaunchTile(home: TilePos, rivalBase: TilePos | null, size: { width: number; height: number }): TilePos {
+  let dx: number = DEFAULT_LAUNCH_HEADING.x;
+  let dy: number = DEFAULT_LAUNCH_HEADING.y;
+  if (rivalBase) {
+    const len = Math.hypot(rivalBase.x - home.x, rivalBase.y - home.y);
+    if (len > 0) {
+      dx = (home.x - rivalBase.x) / len;
+      dy = (home.y - rivalBase.y) / len;
+    }
+  }
+  const clampTo = (v: number, max: number) => Math.max(LAUNCH_MARGIN, Math.min(max - 1 - LAUNCH_MARGIN, Math.round(v)));
+  return { x: clampTo(home.x + dx * LAUNCH_DISTANCE, size.width), y: clampTo(home.y + dy * LAUNCH_DISTANCE, size.height) };
+}
+
+/** Intro seconds of a Crystal player's Hive crown crystallizing out of the crater. */
+export const HIVE_RISE = {
+  /** After the shockwave has rolled out past the rim */
+  start: 3.15,
+  stagger: 0.14,
+  grow: 0.7,
+} as const;
+
+/** The central prism (crown piece 2) rises first, then the towers around it. */
+const CROWN_RISE_ORDER = [1, 2, 0, 3, 4] as const;
+
+/** Crown piece `i` of a Crystal player's Hive grown 0..1, in eighths so it pushes up in pixel steps; 1 once up. */
+export function hiveCrownGrowth(i: number, t: number): number {
+  const rank = CROWN_RISE_ORDER[i] ?? i;
+  const start = HIVE_RISE.start + rank * HIVE_RISE.stagger;
+  if (t < start) return 0;
+  const f = (t - start) / HIVE_RISE.grow;
+  if (f >= 1) return 1;
+  return Math.max(1, Math.floor(easeOutCubic(f) * 8)) / 8;
+}
 
 // ── Humans ─────────────────────────────────────────────────────────────
 

@@ -25,7 +25,7 @@ import { Camera, type ViewportRect } from '../engine/camera/Camera';
 import { isTileVisible, type VisibilityReader } from '../engine/renderer/fogVisibility';
 import { TileGrid } from '../simulation/world/TileGrid';
 import { VisibilityGrid } from '../simulation/world/VisibilityGrid';
-import { UndergroundGrid } from '../simulation/world/UndergroundGrid';
+import { UndergroundGrid, type PantryFoodType } from '../simulation/world/UndergroundGrid';
 import { TerrainType, ChamberType, UndergroundTerrainType } from '../simulation/world/types';
 import { RenderSystem, type OrderPing } from './systems/RenderSystem';
 import { MovementSystem } from './systems/MovementSystem';
@@ -98,8 +98,8 @@ import { loadBestNight, recordNight } from './run/nightRecord';
 import { DayNightSystem } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
 import { IntroDirector } from './render/IntroDirector';
-import { IntroClock, introRivalLine, introVariantFor } from './render/introTimeline';
-import type { IntroArrival } from './render/introArrival';
+import { IntroClock, introRivalLine, introVariantFor, isPlayerArrival } from './render/introTimeline';
+import { playerLaunchTile, type IntroArrival } from './render/introArrival';
 import { audioIntroFrame, audioRunEnded, audioRunStarted, emitAudio } from '../audio';
 import { selectionAudio } from '../audio/gameHooks';
 import { createAnt, createFood, createMineral, createNest, createBeetleDen, createQueen, createCrystalHive } from './entities/factories';
@@ -140,6 +140,7 @@ import {
   Layer,
   OrderKind,
   COMPONENT,
+  isOreLoad,
   type NestComponent,
   type QueenComponent,
   type QueenEntityComponent,
@@ -249,8 +250,10 @@ export interface SelectedEntityInfo {
   mineralMax?: number;
   /** Food source or mineral node: workers gathering or mining it now */
   workers?: number;
-  // Nest-specific
+  // Nest-specific: foodStored is the entrance pile, pantry* the underground stock
   foodStored?: number;
+  pantryStored?: number;
+  pantryCapacity?: number;
   mushroomStored?: number;
   meatStored?: number;
   totalAnts?: number;
@@ -308,6 +311,12 @@ export interface ControlGroupInfo {
 
 /** Wireframe cells the group panel shows (StarCraft shows 24 too). */
 const GROUP_GRID_MAX = 24;
+/** Pantry share that counts as "plenty" for the idle-queen hint */
+const IDLE_QUEEN_PANTRY_RATIO = 0.75;
+/** Seconds of plenty with no egg ordered before the idle-queen hint */
+const IDLE_QUEEN_HINT_SECONDS = 25;
+/** Extra seconds before the idle-queen hint repeats */
+const IDLE_QUEEN_REPEAT_SECONDS = 60;
 
 /** A build tool a finger stroke paints with */
 type PaintTool = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense';
@@ -415,6 +424,11 @@ export interface GameStats {
   scoutCount: number;
   nurseCount: number;
   defenderCount: number;
+  /**
+   * Food in the pantry (pantry and farm piles): what pays for eggs. The type
+   * totals split it; leaves are the remainder. Food at the entrance or in the
+   * ants' jaws is not counted here, it is `foodInTransit`.
+   */
   foodStored: number;
   mushroomStored: number;
   meatStored: number;
@@ -422,6 +436,10 @@ export interface GameStats {
   pantryCapacity: number;
   /** Food on the pile at the nest entrance, still waiting for porters to carry it to the pantry */
   entranceFoodStored: number;
+  /** Food on its way to the pantry: the entrance pile plus what workers, soldiers and scouts carry */
+  foodInTransit: number;
+  /** No pantry tile can take the food on its way (or any food at all): more Almacén tiles are needed */
+  pantryFull: boolean;
   /** The minerals bank: what miners delivered, the currency for structures */
   mineralsStored: number;
   /** Workers on the mineral fields and the colony's miner target (Mineras: N) */
@@ -503,6 +521,8 @@ export interface BroodSnapshot {
   incubation: { tiles: number; freeSlots: number };
   /** Nurses below ground: only they carry eggs to incubation and feed larvae and the queen */
   nurses: number;
+  /** Workers alive. With none, a worker egg may be paid with the entrance pile (see queueBreed). */
+  workers?: number;
   costs: Record<AntRole, number>;
 }
 
@@ -572,6 +592,8 @@ export class GameManager {
   /** What is taking the core's health away (hunger, which enemies), for the end screen */
   private coreLedger: CoreDamageLedger | null = null;
   private nestAlertClock = 0;
+  /** Seconds the pantry has been plentiful with no egg ordered */
+  private idleQueenSeconds = 0;
   /** The tutorial holds the calm: no wave, no defenses firing, no nest alarm */
   private tutorialCalm = false;
   /** A Humans run (setup.playerRace 'human'): the player's base, its systems and its clicks; null for the Swarm */
@@ -844,8 +866,10 @@ export class GameManager {
       edgeMargin: CRATER_EDGE_MARGIN,
       farFraction: CRATER_FAR_FRACTION,
     });
-    // The opening brings in the rival picked before the run (see introArrival.ts)
-    const introVariant = introVariantFor(this.rivalRace);
+    // The Swarm's opening brings in the rival picked before the run; a Crystal
+    // or Human player's brings in their own base at home (see introArrival.ts)
+    const introVariant = introVariantFor(this.rivalRace, setup.playerRace);
+    let rivalSite: TilePos | null = null;
     let arrival: IntroArrival = { variant: introVariant, target: { ...this.craterSite }, rivalLine: introRivalLine(this.rivalRace) };
     if (this.rivalRace === 'human') {
       // The Humans camp on another far clearing, away from the crater: the
@@ -864,17 +888,33 @@ export class GameManager {
       });
       const base = createHumanBase(this.world, this.grid, site, { x: nestX, y: nestY });
       this.rivalCoreId = base.coreId;
+      rivalSite = { x: site.x, y: site.y };
       // Their dropship lands on the command center and the real base unfolds there
       arrival = { ...arrival, target: { x: site.x, y: site.y }, base: this.introHumanBase(base.buildings, [...base.garrison, base.builderId]) };
     } else if (this.rivalRace === 'crystal') {
       // The Crystal Hive rises from the crater: the rival's base, and its core.
       // Against Fauna salvaje the crater stays bare.
       this.rivalCoreId = createCrystalHive(this.world, this.craterSite.x, this.craterSite.y);
+      rivalSite = { ...this.craterSite };
     }
     const rival = this.world.factions.get(FactionId.RIVAL);
     if (rival && this.rivalCoreId !== null) rival.coreId = this.rivalCoreId;
-    // The meteor intro (and the rival's arrival) is the Swarm's; the Crystal Hive opens on its Hive (a title card in the HUD)
-    if (!this.crystal) this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock, arrival);
+    const home = { x: nestX, y: nestY };
+    if (isPlayerArrival(introVariant)) {
+      // A Crystal or Human player's own base arrives at home, coming in from the
+      // far side of the map from the rival; the shot ends glancing at the rival
+      arrival = {
+        variant: introVariant,
+        target: home,
+        rivalLine: arrival.rivalLine,
+        from: playerLaunchTile(home, rivalSite, { width: WORLD_WIDTH, height: WORLD_HEIGHT }),
+        rival: this.rivalRace,
+        rivalBase: rivalSite,
+        ...(this.crystal ? { drones: this.playerCrystalDrones() } : { base: this.playerHumanBase() }),
+      };
+    }
+    // The crater art goes where the meteor strikes: the crater, or (a Crystal player) home under the Hive
+    this.renderSystem.startMeteorIntro(isPlayerArrival(introVariant) ? home : this.craterSite, home, this.introClock, arrival);
     this.spawnMineralFields({ x: nestX, y: nestY });
     const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
     // The fireball (or the dropship) lights the ground it flies over and its
@@ -887,13 +927,30 @@ export class GameManager {
       tileCenter(arrival.target),
       (x, y, r) => this.visibilityGrid.revealCircle(x, y, r),
       introVariant,
+      arrival.from ? { from: tileCenter(arrival.from), rival: rivalSite ? tileCenter(rivalSite) : null } : null,
     );
     window.addEventListener('keydown', this.skipIntro);
     canvas.addEventListener('pointerdown', this.skipIntro);
-    // The meteor cinematic is the Swarm's awakening: a Human expedition lands
-    // straight into the run, under its own banner (HumanPlayerStats.intro); the Crystal Hive wakes under its title
-    if (this.humanPlayer || this.crystal) this.endIntroNow();
     audioRunStarted(() => ({ layer: this.activeLayerValue(), view: this.activeCamera().getViewRectTiles() }), introVariant);
+  }
+
+  /** A Crystal player's starting drones, where they stand (tiles): their opening flies them out there. */
+  private playerCrystalDrones(): Array<{ x: number; y: number }> {
+    return this.world.query(COMPONENT.CRYSTAL_UNIT, COMPONENT.POSITION)
+      .filter((id) => ownerOf(this.world, id) === FactionId.PLAYER)
+      .map((id) => {
+        const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+        return { x: pos.x, y: pos.y };
+      });
+  }
+
+  /** A Human player's starting base as their opening raises it: the Command Center first, then the Cuartel; builders and soldiers. */
+  private playerHumanBase(): NonNullable<IntroArrival['base']> {
+    const mine = (id: EntityId) => ownerOf(this.world, id) === FactionId.PLAYER;
+    const kindOf = (id: EntityId) => this.world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!.kind;
+    const buildings = this.world.query(HUMAN_COMPONENT.BUILDING, COMPONENT.POSITION).filter(mine)
+      .sort((a, b) => Number(kindOf(b) === 'command_center') - Number(kindOf(a) === 'command_center') || a - b);
+    return this.introHumanBase(buildings, this.world.query(HUMAN_COMPONENT.UNIT, COMPONENT.POSITION).filter(mine));
   }
 
   /** The Human base as the opening raises it: building kinds and tiles (command center first), troop posts. */
@@ -1464,14 +1521,6 @@ export class GameManager {
     this.publishStats(); // the HUD fades in now, not at the next stats tick
   };
 
-  /** Jump the opening cinematic to its end state (a race without the meteor intro) */
-  private endIntroNow(): void {
-    this.introClock.advance(Number.POSITIVE_INFINITY);
-    this.renderSystem.skipIntro();
-    this.introDirector.finish();
-    this.detachIntroSkip();
-  }
-
   private detachIntroSkip(): void {
     window.removeEventListener('keydown', this.skipIntro);
     this.canvas.removeEventListener('pointerdown', this.skipIntro);
@@ -1731,6 +1780,7 @@ export class GameManager {
 
     ledger?.end(this.world, dt, this.queenStarving(), QUEEN_STARVATION_DAMAGE);
     this.updateNestAlert(dt);
+    this.updateIdleQueenHint(dt);
     this.checkGameOver();
     const dayPhase = this.dayNightSystem.getPhase();
     if (this.milestone && (this.milestone.remaining -= dt) <= 0) this.milestone = null;
@@ -2440,8 +2490,13 @@ export class GameManager {
     const countForRole = eggQueue.queue.filter(e => e.role === role).length;
     if (countForRole >= eggQueue.maxPerType) return false;
 
-    // Spend from the pantry tile piles (leaf → mushroom → meat priority)
-    if (!this.deductFromStorage(this.getBreedCost(role))) return false;
+    // Spend from the pantry tile piles (leaf → mushroom → meat priority). A
+    // colony with no workers left may pay a worker egg with the entrance pile:
+    // nobody may be able to carry that food down, and without a worker the
+    // colony could never recover (player report: "me quedé sin obreras").
+    const cost = this.getBreedCost(role);
+    const rescue = role === AntRole.Worker && this.countWorkers() === 0;
+    if (!this.deductFromStorage(cost, rescue)) return false;
 
     // Add to queue
     eggQueue.queue.push({
@@ -2454,11 +2509,44 @@ export class GameManager {
     return true;
   }
 
-  /** Deduct food from the underground pantry tiles (leaf → mushroom → meat). False if insufficient. */
-  private deductFromStorage(cost: number): boolean {
-    if (this.undergroundGrid.getPantryStored().total < cost) return false;
-    this.undergroundGrid.drainFood(cost);
+  /**
+   * Deduct food from the underground pantry tiles (leaf → mushroom → meat).
+   * With `orEntrance`, what the pantry lacks comes off the entrance pile.
+   * False (nothing spent) if insufficient.
+   */
+  private deductFromStorage(cost: number, orEntrance = false): boolean {
+    const pantry = this.undergroundGrid.getPantryStored().total;
+    if (pantry >= cost) {
+      this.undergroundGrid.drainFood(cost);
+      return true;
+    }
+    const nest = orEntrance ? this.getPlayerNest() : undefined;
+    if (!nest || pantry + nest.foodStored < cost) return false;
+    this.undergroundGrid.drainFood(pantry);
+    this.takeFromEntrancePile(nest, cost - pantry);
     return true;
+  }
+
+  /** Take food off the entrance pile, each type in proportion to what lies there */
+  private takeFromEntrancePile(nest: NestComponent, amount: number): void {
+    const share = nest.foodStored > 0 ? Math.min(1, amount / nest.foodStored) : 0;
+    nest.mushroomStored = Math.max(0, nest.mushroomStored * (1 - share));
+    nest.meatStored = Math.max(0, nest.meatStored * (1 - share));
+    nest.foodStored = Math.max(0, nest.foodStored - amount);
+  }
+
+  private getPlayerNest(): NestComponent | undefined {
+    const nestId = this.world.query(COMPONENT.NEST)[0];
+    return nestId !== undefined ? this.world.getComponent<NestComponent>(nestId, COMPONENT.NEST) : undefined;
+  }
+
+  private countWorkers(): number {
+    let workers = 0;
+    for (const id of this.world.query(COMPONENT.ANT)) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      if (ant.role === AntRole.Worker) workers++;
+    }
+    return workers;
   }
 
   /** Food cost to breed one ant of this role, including run mutation surcharges. */
@@ -3151,6 +3239,27 @@ export class GameManager {
   }
 
   /** Feed the nest alert; a new alert sounds the alarm and flashes the screen edge */
+  /**
+   * The queen lays only what the player orders: with food piling up and no egg
+   * ordered for a while, say so (player report: a full pantry, no brood all day).
+   */
+  private updateIdleQueenHint(dt: number): void {
+    if (this.humanPlayer || this.crystal || this.tutorialCalm || !this.undergroundGrid) return;
+    const queens = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.EGG_QUEUE);
+    const queue = queens.length > 0 ? this.world.getComponent<EggQueueComponent>(queens[0], COMPONENT.EGG_QUEUE) : undefined;
+    const capacity = this.undergroundGrid.getPantryCapacity();
+    const plenty = capacity > 0 && this.undergroundGrid.getPantryStored().total >= capacity * IDLE_QUEEN_PANTRY_RATIO;
+    if (!queue || queue.queue.length > 0 || !plenty) {
+      this.idleQueenSeconds = 0;
+      return;
+    }
+    this.idleQueenSeconds += dt;
+    if (this.idleQueenSeconds < IDLE_QUEEN_HINT_SECONDS) return;
+    // Game-time throttle (saved with the run), not the wall-clock notification cooldown
+    this.idleQueenSeconds = -IDLE_QUEEN_REPEAT_SECONDS;
+    this.world.pushNotification('warning', '🥚 La despensa rebosa y la reina no tiene huevos encargados: encarga crías en el panel CRÍA');
+  }
+
   private updateNestAlert(dt: number): void {
     // Harnesses that build a bare manager have no invasion system to watch
     if (!this.invasionSystem || !this.nestAlert || this.humanPlayer || this.crystal || this.tutorialCalm) return; // no nest to alert about, or the tutorial's calm
@@ -3349,6 +3458,7 @@ export class GameManager {
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
       if (ant.role === AntRole.Nurse && layer.layer === Layer.Underground) nurses++;
     }
+    const workers = this.countWorkers();
 
     return {
       pantry: {
@@ -3367,6 +3477,7 @@ export class GameManager {
       eggs,
       incubation: { tiles: incubationTiles, freeSlots },
       nurses,
+      workers,
       costs: {
         [AntRole.Worker]: this.getBreedCost(AntRole.Worker),
         [AntRole.Soldier]: this.getBreedCost(AntRole.Soldier),
@@ -3573,6 +3684,8 @@ export class GameManager {
         type: 'nest',
         position: { x: Math.round(pos.x), y: Math.round(pos.y) },
         foodStored: nest.foodStored,
+        pantryStored: Math.floor(this.undergroundGrid.getPantryStored().total),
+        pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
         mushroomStored: nest.mushroomStored,
         meatStored: nest.meatStored,
         totalAnts: ants.length,
@@ -3580,6 +3693,33 @@ export class GameManager {
     }
 
     return null;
+  }
+
+  /**
+   * Food headed for the pantry: the entrance pile and the food in the jaws of
+   * workers, soldiers and scouts (nurses carry food already taken out of the
+   * pantry; ore is not food). `types` are the food types among it.
+   */
+  private foodOnItsWay(nests: EntityId[]): { entrance: number; carried: number; types: PantryFoodType[] } {
+    let entrance = 0;
+    const types = new Set<PantryFoodType>();
+    for (const id of nests) {
+      const nest = this.world.getComponent<NestComponent>(id, COMPONENT.NEST);
+      if (!nest) continue;
+      entrance += nest.foodStored;
+      if (nest.mushroomStored >= 1) types.add('mushroom');
+      if (nest.meatStored >= 1) types.add('meat');
+      if (nest.foodStored - nest.mushroomStored - nest.meatStored >= 1) types.add('leaf');
+    }
+    let carried = 0;
+    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.CARRYING)) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      const load = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
+      if (ant.role === AntRole.Nurse || load.amount <= 0 || !load.resourceType || isOreLoad(load.resourceType)) continue;
+      carried += load.amount;
+      types.add(load.resourceType === 'mushroom' || load.resourceType === 'meat' ? load.resourceType : 'leaf');
+    }
+    return { entrance, carried, types: [...types] };
   }
 
   /** Workers taking food from this source now: on a Recolectar order or walking to it on their own. */
@@ -3599,25 +3739,8 @@ export class GameManager {
   getStats(): GameStats {
     const ants = this.world.query(COMPONENT.ANT);
     const nests = this.world.query(COMPONENT.NEST);
-    let foodStored = 0;
-    let mushroomStored = 0;
-    let meatStored = 0;
-    for (const id of nests) {
-      const nest = this.world.getComponent<NestComponent>(id, COMPONENT.NEST);
-      if (nest) {
-        foodStored += nest.foodStored;
-        mushroomStored += nest.mushroomStored;
-        meatStored += nest.meatStored;
-      }
-    }
-
-    const entranceFoodStored = foodStored;
-
-    // Add underground pantry (tile piles are the source of truth) to total
     const pantryStored = this.undergroundGrid.getPantryStored();
-    foodStored += pantryStored.total;
-    mushroomStored += pantryStored.mushroom;
-    meatStored += pantryStored.meat;
+    const transit = this.foodOnItsWay(nests);
 
     // Count ants by role
     let workerCount = 0;
@@ -3662,11 +3785,14 @@ export class GameManager {
       scoutCount,
       nurseCount,
       defenderCount,
-      foodStored: Math.floor(foodStored),
-      mushroomStored: Math.floor(mushroomStored),
-      meatStored: Math.floor(meatStored),
+      // The food totals are the pantry: the only food that pays for eggs
+      foodStored: Math.floor(pantryStored.total),
+      mushroomStored: Math.floor(pantryStored.mushroom),
+      meatStored: Math.floor(pantryStored.meat),
       pantryStored: Math.floor(pantryStored.total),
-      entranceFoodStored: Math.floor(entranceFoodStored),
+      entranceFoodStored: Math.floor(transit.entrance),
+      foodInTransit: Math.floor(transit.entrance + transit.carried),
+      pantryFull: !this.undergroundGrid.hasDepositSpace() || transit.types.some((type) => !this.undergroundGrid.hasDepositSpace([type])),
       pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
       mineralsStored: Math.floor(this.world.minerals.stored),
       miners: this.minerStats(),

@@ -47,6 +47,15 @@ function setup() {
   const screenOf = (x: number, y: number) => camera.worldToScreen((x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE);
   const orderOf = (id: number) => world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER);
   const spot = snapToWalkable(grid, { x: NX + 9, y: NY + 5 }, 6)!;
+  // The random map's own ants wander, and a tap picks the ant nearest the
+  // finger: park every starting surface ant far from the spots these tests tap
+  // Ants riding the shaft or below can still be picked, so park them all
+  for (const id of world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.LAYER)) {
+    world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!.layer = Layer.Underground;
+    const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+    pos.x = pos.prevX = NX + 25;
+    pos.y = pos.prevY = NY - 25;
+  }
   const soldiers = [0, 1, 2].map((i) => createAnt(world, spot.x + i * 0.4, spot.y, AntRole.Soldier));
   // One more soldier far across the map: the bar picks across the map, not just the screen
   const far = snapToWalkable(grid, { x: NX - 30, y: NY - 20 }, 6)!;

@@ -1121,6 +1121,10 @@ export class UndergroundInvasionSystem implements System {
       'warning',
       `🪲 Movimiento en el túnel: la oleada ${this.waveNumber + 1} (${wave.total} enemigos${this.extrasLabel(wave)}) atacará al anochecer`
     );
+    // A soldier egg still hatches before nightfall if ordered now (player report: night 1 cost a third of the workers)
+    if (!this.hasSoldiers()) {
+      this.world.pushNotification('danger', '🗡️ No tienes soldados: las obreras defenderán solas. Encarga soldados en el panel CRÍA');
+    }
   }
 
   /** Half a minute out: the big banner goes up, and the breach point and the hive get marked */
@@ -1137,6 +1141,13 @@ export class UndergroundInvasionSystem implements System {
       'danger',
       `⚠️ ¡Oleada ${this.waveNumber + 1} en ${WAVE_WARNING_LEAD} s! ${wave.total} enemigos${this.extrasLabel(wave)}${this.whereLabel()}${intel.wildlife ? ` · los acorazados llegan desde el ${intel.wildlife.direction}` : ''}`
     );
+  }
+
+  private hasSoldiers(): boolean {
+    for (const id of this.world.query(COMPONENT.ANT)) {
+      if (this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!.role === AntRole.Soldier) return true;
+    }
+    return false;
   }
 
   private launchWave(): void {

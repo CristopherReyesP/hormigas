@@ -198,7 +198,8 @@ export const TRANSIT_DURATION = 1.5;
 export const ENTRANCE_ROW = 1;
 
 // Porter logistics — idle workers physically carry surface stockpile food down to the pantry
-export const PORTER_MAX_COUNT = 4;          // hard cap on concurrent porters
+export const PORTER_MAX_COUNT = 4;          // base cap on concurrent porters
+export const PORTER_PILE_PER_EXTRA = 60;    // one more porter allowed per this much food on the entrance pile
 export const PORTER_ASSIGN_COOLDOWN = 2;    // seconds between porter assignments (prevents recruitment floods)
 export const SCAVENGER_MAX_COUNT = 2;       // hard cap on workers hauling invader meat drops to the pantry
 
@@ -206,6 +207,7 @@ export const SCAVENGER_MAX_COUNT = 2;       // hard cap on workers hauling invad
 export const PANTRY_TILE_CAPACITY = 50;            // food per pantry tile (9 starting tiles ≈ old 500 cap)
 export const PANTRY_FULL_NOTIFY_COOLDOWN_MS = 30000; // throttle for the "pantry full" warning
 export const PANTRY_STORAGE_UPGRADE_PER_TILE = 15; // 'storage' upgrade: +capacity per pantry tile per level
+export const SURFACE_GLUT_PILE = 150;        // pantry full and this much food at the entrance: workers stop foraging on their own (it would only rot)
 export const SURFACE_SPOILAGE_RATE = 0.0015; // fraction of surface nest food lost per second (~9%/min); underground pantry doesn't spoil
 
 // Fungus farming — farm tiles convert stored leaves into mushrooms

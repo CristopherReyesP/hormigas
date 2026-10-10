@@ -106,7 +106,9 @@ describe('the gather order', () => {
     run(2);
     for (const id of team) {
       expect(ant(id).resourceOrder).toBeUndefined();
-      expect([AntState.Searching, AntState.Idle, AntState.ReturningHome, AntState.GoingToFood, AntState.Mining]).toContain(ant(id).state);
+      // Back under the colony AI: any of its own jobs (the random map decides
+      // which), never a state a player order holds it in
+      expect([AntState.Moving, AntState.Guarding, AntState.Holding]).not.toContain(ant(id).state);
     }
     game.stop();
   });

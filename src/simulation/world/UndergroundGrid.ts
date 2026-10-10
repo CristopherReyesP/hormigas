@@ -699,6 +699,41 @@ export class UndergroundGrid implements WalkableGrid {
     return result;
   }
 
+  /**
+   * Each pantry tile holds one food type, so a pantry of half-full mushroom
+   * piles had room for 180 more food yet none for a leaf: the leaves waited
+   * at the entrance until they rotted. When no tile is free, the workers
+   * below gather the smallest partial pile of a type into the other piles of
+   * that type, freeing its tile for whatever comes in next. Food is only
+   * moved, never created or lost. True when a tile was freed.
+   */
+  compactPiles(): boolean {
+    const cap = this.getPantryTileCapacity();
+    const tiles = this.getPantryTiles();
+    if (tiles.some((t) => !t.food || t.food.amount <= FOOD_EPSILON)) return false; // a tile is already free
+
+    for (const type of PANTRY_TYPES) {
+      const partial = tiles
+        .filter((t) => t.food!.type === type && t.food!.amount < cap - FOOD_EPSILON)
+        .sort((a, b) => a.food!.amount - b.food!.amount);
+      if (partial.length < 2) continue;
+      const [smallest, ...others] = partial;
+      const room = others.reduce((sum, t) => sum + (cap - t.food!.amount), 0);
+      if (room < smallest.food!.amount - FOOD_EPSILON) continue;
+
+      let left = smallest.food!.amount;
+      for (const t of others.reverse()) { // fullest first: fewer piles end up touched
+        const poured = Math.min(left, cap - t.food!.amount);
+        t.food!.amount += poured;
+        left -= poured;
+        if (left <= FOOD_EPSILON) break;
+      }
+      this.getTile(smallest.x, smallest.y)!.food = null;
+      return true;
+    }
+    return false;
+  }
+
   /** True if at least one pantry tile can accept a deposit (of any of `types`, or anything when omitted) */
   hasDepositSpace(types?: PantryFoodType[]): boolean {
     const cap = this.getPantryTileCapacity();

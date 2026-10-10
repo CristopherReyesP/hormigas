@@ -7,11 +7,11 @@ import { GameOverScreen } from './ui/GameOverScreen';
 import { MilestoneBanner } from './ui/MilestoneBanner';
 import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
+import { TitleScreen } from './ui/TitleScreen';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
-import { CrystalIntroTitle } from './ui/races/crystal/CrystalIntroTitle';
 import { NestAlert } from './ui/NestAlert';
-import { HumanIntroBanner } from './ui/races/human/HumanIntroBanner';
+import { showLiveAlerts } from './ui/liveAlerts';
 import { NextWaveCard } from './ui/NextWaveCard';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
@@ -44,6 +44,8 @@ const DEFAULT_STATS: GameStats = {
   meatStored: 0,
   pantryStored: 0,
   entranceFoodStored: 0,
+  foodInTransit: 0,
+  pantryFull: false,
   pantryCapacity: 0,
   mineralsStored: 0,
   beetleCount: 0,
@@ -75,7 +77,7 @@ const DEFAULT_STATS: GameStats = {
   mutationOffer: null,
   mutationSelection: null,
   lastMutationPick: null,
-  introPlaying: true, // every run opens on the meteor intro, so the HUD starts hidden
+  introPlaying: true, // every run opens on its race's cinematic, so the HUD starts hidden
 };
 
 /** While paused the simulation stops pushing stats; poll so pause, selection and layer still show. */
@@ -85,12 +87,16 @@ export default function App() {
   const [stats, setStats] = useState<GameStats>(DEFAULT_STATS);
   // null while the race picker is up; set by COMENZAR. The GameManager builds its rival from it.
   const [runSetup, setRunSetup] = useState<RunSetup | null>(null);
+  // The title screen opens the game and every return to the menu; INICIAR leads to the race picker
+  const [titleOpen, setTitleOpen] = useState(true);
+  const closeTitle = useCallback(() => setTitleOpen(false), []);
   const gameManagerRef = useRef<GameManager | null>(null);
   const [gameManager, setGameManager] = useState<GameManager | null>(null);
   // Tutorial: the run is the guided one while true; the overlay shows until it is finished or left
   const [tutorial, setTutorial] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
-  const [offerTutorial, setOfferTutorial] = useState(() => firstVisit.shouldOffer());
+  // First visit: Hormi's offer waits for INICIAR, so it never covers the screen on load
+  const [offerTutorial, setOfferTutorial] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const touch = useTouchUi();
   // Builds a run loaded from a save (undefined for a new run); `runKey` remounts the canvas for each run
@@ -130,7 +136,14 @@ export default function App() {
   const declineTutorial = useCallback(() => {
     firstVisit.remember('skipped');
     setOfferTutorial(false);
-  }, []);
+    closeTitle();
+  }, [closeTitle]);
+
+  /** INICIAR on a first visit asks about the tutorial first; afterwards it goes straight to the race picker */
+  const handleTitleStart = useCallback(() => {
+    if (firstVisit.shouldOffer()) setOfferTutorial(true);
+    else closeTitle();
+  }, [closeTitle]);
 
   const closeTutorial = useCallback(() => setTutorialOpen(false), []);
 
@@ -159,6 +172,7 @@ export default function App() {
     setHelpOpen(false);
     setCreateGame(undefined);
     setRunSetup(null);
+    setTitleOpen(true);
   }, []);
 
   const handleLoadSave = useCallback((save: SaveFile) => {
@@ -222,13 +236,12 @@ export default function App() {
     gameManagerRef.current?.confirmMutation();
   }, []);
 
-  if (!runSetup) {
-    // Shown on first load and after every restart, before any simulation runs
+  if (!runSetup && titleOpen) {
+    // Shown on first load and after every restart: saves and the tutorial start right from here
     return (
       <>
-        <RacePicker
-          initialSetup={loadRunSetup()}
-          onStart={handleStart}
+        <TitleScreen
+          onStart={handleTitleStart}
           onTutorial={handleTutorial}
           savedRun={<StartSaves storage={saveStorage} onLoad={handleLoadSave} />}
         />
@@ -236,6 +249,11 @@ export default function App() {
         <SaveToasts />
       </>
     );
+  }
+
+  if (!runSetup) {
+    // INICIAR on the title: pick the races for a new run
+    return <RacePicker initialSetup={loadRunSetup()} onStart={handleStart} />;
   }
 
   return (
@@ -259,18 +277,14 @@ export default function App() {
         {stats.tickCount > 0 && <NextWaveCard invasion={stats.invasion} />}
         <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} tutorialRunning={tutorialOpen} />
       </HudLayer>
-      {/* Night-wave alerts: outside the scaled HUD, over the whole screen; none during the intro */}
-      {!stats.introPlaying && (
+      {/* Night-wave alerts: outside the scaled HUD, over the whole screen; none during the intro or over the end screen */}
+      {showLiveAlerts(stats) && (
         <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
       )}
-      {/* The Crystal Hive skips the Swarm's meteor intro: a short title instead */}
-      {runSetup.playerRace === 'crystal' && !stats.gameOver && <CrystalIntroTitle />}
       {/* Invaders inside the nest: the banner with "Ir al nido", and the all-clear */}
-      {!stats.introPlaying && stats.nestAlert && (
+      {showLiveAlerts(stats) && stats.nestAlert && (
         <NestAlert state={stats.nestAlert} activeLayer={stats.activeLayer} onGoToNest={handleGoToNest} />
       )}
-      {/* A Human expedition's landing line (the Swarm opens with the meteor cinematic instead) */}
-      {stats.human?.intro && !stats.gameOver && <HumanIntroBanner title={stats.human.intro} />}
       {/* Pause menu: save, load, back to the start screen */}
       {/* Hidden while Hormi teaches: the tutorial has its own Salir, and nothing of it is saved */}
       {!stats.introPlaying && !stats.gameOver && gameManager && !tutorialOpen && (
