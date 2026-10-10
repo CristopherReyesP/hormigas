@@ -72,6 +72,9 @@ export class GameLoop {
     this.lastTime = currentTime;
 
     if (delta > MAX_DELTA) delta = MAX_DELTA;
+    // A frame stamped before start() or an unpause read the clock (rAF stamps
+    // the frame's start): no step back in time, or render time runs negative
+    if (delta < 0) delta = 0;
 
     if (!this.paused) {
       this.accumulator += delta * this.speed;

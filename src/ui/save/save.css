@@ -1,0 +1,269 @@
+/* Save / load UI: pause menu, slot list, confirmations, toasts, Continuar.
+   Chrome tokens from index.css; every button is a 44 px+ touch target. */
+
+.save-menu-btn {
+  /* A tab on the left edge, mid-height: clear of the top strip, the objectives,
+     the minimap and the console on every layout */
+  position: fixed;
+  top: 42%;
+  left: env(safe-area-inset-left, 0px);
+  z-index: 40;
+  min-width: 44px;
+  min-height: 56px;
+  padding: 8px 6px;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  letter-spacing: 1px;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  color: var(--chrome-text);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-border-light);
+  border-left: 0;
+  box-shadow: inset -2px -2px 0 var(--chrome-bg);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.save-menu-btn:active {
+  transform: translate(1px, 1px);
+}
+
+.save-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px));
+  background: rgb(14 8 11 / 0.78);
+  touch-action: manipulation;
+}
+
+.save-overlay--top {
+  z-index: 210;
+}
+
+.save-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-border-light);
+  box-shadow: inset -3px -3px 0 var(--chrome-bg), 0 0 0 2px var(--chrome-bg);
+  color: var(--chrome-text);
+  font-family: var(--font-pixel);
+}
+
+.save-title {
+  margin-bottom: 4px;
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-align: center;
+  color: var(--chrome-accent);
+}
+
+.save-btn {
+  min-height: 44px;
+  padding: 8px 12px;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  color: var(--chrome-text);
+  background: var(--chrome-panel-light);
+  border: 2px solid var(--chrome-border);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.save-btn:hover,
+.save-btn:focus-visible {
+  border-color: var(--chrome-border-light);
+  outline: none;
+}
+
+.save-btn:active {
+  transform: translate(1px, 1px);
+}
+
+.save-btn--wide {
+  width: 100%;
+}
+
+.save-btn--accent {
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+  border-color: var(--chrome-accent-dim);
+}
+
+.save-btn--danger {
+  color: var(--chrome-text);
+  background: #5a1820;
+  border-color: var(--chrome-danger);
+}
+
+.save-row {
+  display: flex;
+  gap: 10px;
+}
+
+.save-row > .save-btn {
+  flex: 1;
+}
+
+.save-confirm-text {
+  font-size: 10px;
+  line-height: 1.8;
+  text-align: center;
+}
+
+.save-slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+}
+
+.save-slot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  background: var(--chrome-bg);
+  border: 2px solid var(--chrome-border);
+}
+
+.save-slot--empty {
+  opacity: 0.85;
+}
+
+.save-slot-text {
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.save-slot-name {
+  font-size: 10px;
+  color: var(--chrome-accent);
+}
+
+.save-slot-matchup,
+.save-slot-detail,
+.save-slot-date {
+  font-size: 8px;
+  color: var(--chrome-dim);
+}
+
+.save-slot-matchup {
+  color: var(--chrome-text);
+}
+
+.save-slot-old {
+  font-size: 8px;
+  color: var(--chrome-warn);
+}
+
+.save-slot-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.save-toasts {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--deck-h) + 12px + env(safe-area-inset-bottom, 0px));
+  z-index: 260;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.save-toast {
+  max-width: min(90vw, 420px);
+  padding: 8px 12px;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--chrome-text);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-info);
+}
+
+.save-toast--success {
+  border-color: var(--chrome-accent);
+}
+
+.save-toast--error {
+  border-color: var(--chrome-danger);
+}
+
+/* Start screen */
+
+.save-continue {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 auto 14px;
+  width: min(560px, 100%);
+}
+
+.save-continue-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px;
+  font-family: var(--font-pixel);
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+  border: 0;
+  box-shadow: inset -4px -4px 0 var(--chrome-accent-dim), inset 4px 4px 0 var(--chrome-text);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.save-continue-btn:active {
+  transform: translate(2px, 2px);
+}
+
+.save-continue-label {
+  font-size: 16px;
+  letter-spacing: 3px;
+}
+
+.save-continue-matchup {
+  font-size: 9px;
+}
+
+.save-continue-detail {
+  font-size: 8px;
+  line-height: 1.8;
+  text-align: center;
+}
+
+.save-continue-old {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  font-size: 10px;
+  color: var(--chrome-warn);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-warn);
+}

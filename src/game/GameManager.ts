@@ -3,6 +3,7 @@ import type { MutationId } from './run/MutationDefinitions';
 import { antSpawnStats } from './run/antStats';
 import { buildMutationOffer, shouldOfferMutation, summarizeMutationBuild, type MutationBuildEntry, type MutationOffer } from './run/DawnPick';
 import { createSeededRng, offerMutations } from './run/MutationOffers';
+import { createStatefulLcg, SimRandom } from './save/rng';
 import { pickCraterSite, type TilePos } from './run/craterSite';
 import { pickMineralFields } from './run/mineralFields';
 import { CRYSTAL_BOWL_RADIUS, CRYSTAL_SHARD_RADIUS } from '../engine/renderer/alienDecor';
@@ -192,6 +193,8 @@ import {
 
 /** Mixed into the run seed so the crater does not share the dawn offers' draws. */
 const CRATER_SEED_SALT = 0x9e3779b9;
+/** Mixed into the run seed so the simulation's Math.random draws from its own stream. */
+const SIM_RANDOM_SALT = 0x27d4eb2f;
 /** Mixed into the run seed so the mineral fields draw from their own stream. */
 const MINERAL_SEED_SALT = 0x85ebca6b;
 /** Mixed into the run seed so the Human base site draws from its own stream. */
@@ -488,7 +491,11 @@ export class GameManager {
   private readonly runModifiers = new RunModifiers();
   /** Chosen once per run; every dawn offer of the run is drawn from it. */
   private readonly runSeed = Math.floor(Math.random() * 0x100000000);
-  private readonly offerRng = createSeededRng(this.runSeed);
+  private readonly offerRng = createStatefulLcg(this.runSeed);
+  /** The simulation's seeded Math.random while the World ticks (saved, so a loaded run continues identically) */
+  private readonly simRandom = new SimRandom(this.runSeed ^ SIM_RANDOM_SALT);
+  /** Called after every simulation tick with its dt (the autosave listens here) */
+  private readonly tickListeners = new Set<(dt: number) => void>();
   private mutationOffer: MutationOffer | null = null;
   private mutationSelection: MutationId | null = null;
   private lastMutationPick: MutationId | null = null;
@@ -1642,7 +1649,9 @@ export class GameManager {
     if (this.introClock.isPlaying()) return;
     const previousPhase = this.dayNightSystem.getPhase();
     try {
-      this.world.update(dt);
+      // Managers stubbed without the stream (tests) tick on the plain Math.random
+      if (this.simRandom) this.simRandom.run(() => this.world.update(dt));
+      else this.world.update(dt);
     } catch (e) {
       console.error('[GameManager] System update error:', e);
     }
@@ -1656,6 +1665,8 @@ export class GameManager {
     if (!this.humanPlayer && !this.crystal && shouldOfferMutation(previousPhase, dayPhase, this.dayNightSystem.getDayNumber(), this.gameOver !== null)) {
       this.openMutationOffer();
     }
+
+    this.tickListeners?.forEach((listener) => listener(dt));
 
     // Send stats to UI (throttled every 10 ticks)
     this.statsTicks++;
@@ -1934,6 +1945,12 @@ export class GameManager {
 
   setSpeed(speed: number): void {
     this.gameLoop.setSpeed(speed);
+  }
+
+  /** Listen to every simulation tick (game time, not frames); returns the unsubscribe */
+  onTick(listener: (dt: number) => void): () => void {
+    this.tickListeners.add(listener);
+    return () => this.tickListeners.delete(listener);
   }
 
   onStats(callback: (stats: GameStats) => void): void {
