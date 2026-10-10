@@ -72,13 +72,22 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
     - The intro skip waits for the title (a8c9f03).
     - The diet toggle moved to the food stocks in the top strip (d31164d).
     - The canvas is still the 800×600 render scaled to cover the window, because RenderSystem, PostProcessor and FoliageOverlay hard-code `CANVAS_WIDTH/HEIGHT`.
-  - [ ] P2.8 Cinematic intro v2 (user, 2026-10-09: "más cinematográfico, que siga hasta donde se estrella y ver una animación donde se ve que se despliega el enemigo"):
+  - [x] P2.8 Cinematic intro v2 (user, 2026-10-09: "más cinematográfico, que siga hasta donde se estrella y ver una animación donde se ve que se despliega el enemigo"):
     - Letterbox bars.
     - The camera follows the meteor from the colony across the map to the impact (eased pan), with a brief slow-motion at impact, flash, shake and shockwave.
     - Then the enemy deploys from the crater: crystal spires grow, a cyan pulse rings out, and the first Crystal drones unfold and crawl out. This is a visual-only foreshadowing of P5 that reuses the crystal palette and silhouette rules.
     - The camera glides back to the colony and "EL ENJAMBRE DESPIERTA" appears.
     - Skippable after the impact, with the crater kept.
     - The intro needs a camera-control hook in GameManager/Camera; today the intro is screen-space with no camera move.
+    - Done as 27fe59d. Route: delegated (Claude subagent, main worktree).
+      - `Camera.direct()/release()`: a scripted shot ignores player pan, wheel zoom and reset; the minimap click is ignored while directed.
+      - `IntroDirector` (driven from `GameManager.render` with the same dt as `MeteorIntro`) chases a world-space meteor with shadow and ground glow, slow motion before the impact, a one-step zoom punch-in on the crater, then glides home.
+      - Deployment: spire clusters (permanent), a cyan pulse, four drones that unfold and crawl toward the colony (visual only, `crystalDeployArt.ts`).
+      - Skip from the impact jumps to the end state.
+      - RED: 22 timeline, 3 camera and the IntroDirector suite failed before GREEN.
+      - Checks: `npm test` 258/258, tsc, lint, build. Frames checked by eye in headless Edge.
+    - Decision (writer, creative license): the fireball lights the ground it crosses and the crater (`revealCircle`), so that strip stays explored: a scorched trail on the minimap that points at the crater, where the Hive rises in P5.
+    - Open: the camera and art run two `IntroClock`s fed the same dt, because `RenderSystem` (outside this writer's surface) keeps its `MeteorIntro` private. A `RenderSystem.getIntroClock()` would let them share one clock. The HUD stays up during the cinematic, so the letterbox bars sit inside the visible band; hiding the HUD needs `App.tsx`/`index.css`.
   - [ ] P2.4 Mutation marks drawn on ant sprites for applied mutations.
   - [ ] P2.5 Bottom console and UI restyle (`--ui-*` → `--chrome-*`, pixel icons, one font, Spanish only).
   - [ ] P2.6 One art-pixel scale for every unit, 16-direction rotation snapping, zoom steps of 0.5.
@@ -120,11 +129,12 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
 ## Next step: "continuemos con la mejora gráfica"
 When the user says this in a new session, run this plan in order. Each item is one work-unit commit on `feat/hive-look`, delegated to one writer with a headless-Edge screenshot check.
 1. Done: P2.7 alien terrain (ae9fa6b, merged in 67bf9c3; 227 tests, tsc, lint and build pass; the worktree and the `feat/hive-intro` branch were removed). Small follow-ups that fit item 2 or 3:
-   - The surface minimap colors in `src/simulation/world/types.ts` (`TERRAIN_COLORS`) are still brown/green; point them at `PAL`.
-   - The nest is still a brown tree stump, the last Earth-like element; reskin it as an alien hive mound.
+   - Done (19c6123): `TERRAIN_COLORS` now take base/fleck shades from the tile ramps and the minimap paints from them. Only sand really changed: it was straw, now ash. The unused `TERRAIN_PALETTES` table is gone. RED: 3 minimap tests.
+   - Done (19c6123): the nest is a Swarm hive mound with banded chitin plates over magenta flesh, a glowing orifice, chartreuse veins and flesh tendrils. It is drawn unsmoothed at a whole number of world px per art px.
+   - Done (3a36ebc, user request): the objectives panel starts folded into an OBJETIVOS toggle, so it no longer covers the intro. RED: 3 markup tests. Checks: `npm test` 264/264, tsc, lint, build.
    - The terrain build takes ~55 ms and runs twice at startup.
-2. P2.8 cinematic intro v2: camera follows the meteor, enemy deployment at the crater, camera returns to the colony.
-3. Real window-size rendering: make `CANVAS_WIDTH/HEIGHT` dynamic and rebuild the PostProcessor and FoliageOverlay caches on resize, so the world is not an upscaled 800×600.
+2. Done: P2.8 cinematic intro v2 (27fe59d), the hive mound and minimap colors (19c6123), and the objectives toggle (3a36ebc).
+3. Next: real window-size rendering: make `CANVAS_WIDTH/HEIGHT` dynamic and rebuild the PostProcessor and FoliageOverlay caches on resize, so the world is not an upscaled 800×600.
 4. P2.4 mutation marks on sprites, and P2.6 single pixel scale with 16-direction rotation snapping.
 5. Combat and death VFX from the art direction: acid droplets, Swarm goo, crystal shards, wildlife carcass.
 Then T4 wave pacing (`odd/tasks/roguelite-run-loop.md`) and the balance follow-ups:
