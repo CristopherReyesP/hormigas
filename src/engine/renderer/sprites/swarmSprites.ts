@@ -7,6 +7,7 @@ import { ArtPen, type ArtPoint } from '../pixelart/ArtPen';
 import { directionAngle } from '../pixelart/directions';
 import { PAL } from '../pixelart/palette';
 import { ART_PX, SPRITE_GRID, spritePivot } from './spriteScale';
+import { NO_MARKS, markStacks, marksForRole, type AntMarkId, type AntMarks } from './antMarks';
 
 // Tripod-gait swing offsets (art px) for the 4-frame walk cycle.
 const GAIT = [1, 0, -1, 0];
@@ -99,6 +100,8 @@ export interface AntSpriteSpec {
   carrying?: boolean;
   /** Dithered ground shadow under the silhouette (off for UI previews that draw their own). */
   shadow?: boolean;
+  /** The colony's mutation marks; only those this caste shows are drawn. */
+  marks?: AntMarks;
 }
 
 /**
@@ -108,11 +111,18 @@ export interface AntSpriteSpec {
  * down the body axis, glowing eyes, pale scythe mandibles and 1-px bone
  * spines. Interior shading is symmetric about the axis; the top-left rim
  * light, the sheen and the shadow are added in screen space after the turn.
+ *
+ * Mutation marks (`marks`) are painted into the same recipe, so they turn
+ * and light with the body and stack in a fixed order: body shape first
+ * (cargo sacs), then surface marks (rings, stitches, vein, pustules, plate),
+ * then appendages (wings, spurs, jaws, antenna tips).
  */
-export function paintAnt({ role, frame, direction, carrying = false, shadow = true }: AntSpriteSpec): ArtGrid {
+export function paintAnt({ role, frame, direction, carrying = false, shadow = true, marks = NO_MARKS }: AntSpriteSpec): ArtGrid {
   const grid = new ArtGrid(SPRITE_GRID.ant);
   const p = new ArtPen(grid, directionAngle(direction));
   const c = SWARM_CASTES[role];
+  const shown = marksForRole(marks, role);
+  const stacks = (id: AntMarkId): number => markStacks(shown, id);
   const F = PAL.swarm.flesh;
   const V = PAL.swarm.vein;
   const O = PAL.swarm.outline;
@@ -120,15 +130,32 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
   const flick = frame % 2;
   const mirror = (y: number): number => 2 * AXIS - y;
   const mirrored = (pts: readonly ArtPoint[]): ArtPoint[] => pts.map(([x, y]) => [x, mirror(y)] as const);
+  const both = (x: number, y: number, color: string): void => {
+    p.px(x, y, color);
+    p.px(x, mirror(y), color);
+  };
+
+  // Cargo sacs: a swollen, pale, stretched gaster (one size step per stack)
+  const sacs = stacks('swollen_pale_gaster');
+  const grx = c.grx; // it swells sideways only: lengthwise it would leave the rotation-safe circle
+  const gry = c.gry + 0.5 * sacs;
+  const skin = sacs > 0 ? 'pale' : c.skin;
+  /** Rows above the axis that the gaster covers in column x (-1 outside it). */
+  const gasterHalf = (x: number): number => {
+    const t = (x - c.gx) / (grx + 0.25);
+    return Math.abs(t) > 1 ? -1 : Math.floor((gry + 0.25) * Math.sqrt(1 - t * t));
+  };
 
   // Gaster finish: [flank, body, ridge]
   const tones =
-    c.skin === 'pale' ? [F[3], F[4], F[4]] :
-    c.skin === 'plated' ? [F[1], F[2], F[3]] :
+    skin === 'pale' ? [F[3], F[4], F[4]] :
+    skin === 'plated' ? [F[1], F[2], F[3]] :
     [F[2], F[3], F[4]];
 
   // Legs (behind the body), tripod gait: front + back of one side move with
   // the middle leg of the other side. Elbowed: femur out, tibia to the foot.
+  const spurs = stacks('leg_spurs');
+  const knees: Array<[number, number, number, number, number]> = []; // hipX, kneeX, kneeY, side, leg index
   for (let side = -1; side <= 1; side += 2) {
     for (let i = 0; i < 3; i++) {
       const groupA = (i + (side === 1 ? 1 : 0)) % 2 === 0;
@@ -136,34 +163,70 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
       const hipX = c.hips[i];
       const footX = hipX + (i - 1) * c.splay + s;
       const kneeX = Math.round(hipX + (footX - hipX) * 0.45);
+      const kneeY = AXIS + side * Math.round(c.reach * 0.7);
       // Dark flesh, not outline black, so the legs read on dark regolith
-      p.polyline([
-        [hipX, AXIS + side],
-        [kneeX, AXIS + side * Math.round(c.reach * 0.7)],
-        [footX, AXIS + side * c.reach],
-      ], F[1]);
+      p.polyline([[hipX, AXIS + side], [kneeX, kneeY], [footX, AXIS + side * c.reach]], F[1]);
+      knees.push([hipX, kneeX, kneeY, side, i]);
     }
+  }
+  // Bone spurs: a pale spike out of every knee, over all the legs (longer at
+  // 2 stacks, plus a femur spike at 3)
+  for (const [hipX, kneeX, kneeY, side, i] of spurs > 0 ? knees : []) {
+    p.px(kneeX, kneeY + side, F[4]);
+    if (spurs > 1) p.px(kneeX + (i - 1), kneeY + side * 2, F[4]);
+    if (spurs > 2) p.px(Math.round((hipX + kneeX) / 2), AXIS + side * Math.round(c.reach * 0.45) + side, F[4]);
   }
 
   // Body silhouette as ONE outlined union so the waist pinch gets a clean,
   // continuous 1-px outline: gaster + petiole + thorax + neck + head.
   p.outlined(pen => {
-    pen.ellipse(c.gx, AXIS, c.grx, c.gry, tones[0]);
+    pen.ellipse(c.gx, AXIS, grx, gry, tones[0]);
     for (const x of c.petiole) pen.px(x, AXIS, F[2]);
-    pen.ellipse(c.thCx, AXIS, c.thRx, c.thRy, c.skin === 'plated' ? F[2] : F[3]);
+    pen.ellipse(c.thCx, AXIS, c.thRx, c.thRy, skin === 'plated' ? F[2] : F[3]);
     if (c.neck !== null) pen.px(c.neck, AXIS, F[2]);
     if (c.shieldHead) pen.rect(c.hX - 2, AXIS - 3, 4, 7, F[2]);
     else pen.disc(c.hX, AXIS, c.hR, F[3]);
   }, O);
 
   // Gaster: body tone inside the flanks, lit ridges on both sides of the vein
-  p.ellipse(c.gx, AXIS, c.grx - 1, c.gry - 1, tones[1]);
+  p.ellipse(c.gx, AXIS, grx - 1, gry - 1, tones[1]);
   p.hline(c.gx - 1, AXIS - 1, 3, tones[2]);
   p.hline(c.gx - 1, mirror(AXIS - 1), 3, tones[2]);
+  // Stretch seams across a swollen sac
+  if (sacs > 0) {
+    for (const sx of sacs > 2 ? [c.gx - 2, c.gx, c.gx + 2] : [c.gx - 2, c.gx + 2]) {
+      const hh = gasterHalf(sx) - 1;
+      if (hh > 0) p.vline(sx, AXIS - hh, hh * 2 + 1, F[2]);
+    }
+  }
+
+  // Carrion gut: dark digestive rings around the gaster (more rings per stack)
+  const rings = stacks('dark_gaster_rings');
+  if (rings > 0) {
+    const cols = [[-1, 1], [-2, 0, 2], [-3, -1, 1, 3]][rings - 1];
+    for (const dx of cols) {
+      const hh = gasterHalf(c.gx + dx);
+      if (hh > 0) p.vline(c.gx + dx, AXIS - hh, hh * 2 + 1, F[0]);
+    }
+  }
+
+  // Regenerative tissue: dark wounds laced shut with a zigzag of pink fibres
+  const stitches = stacks('pink_stitches');
+  const wound = (x0: number, len: number, y: number): void => {
+    p.rect(x0, y, len, 2, F[0]);
+    for (let k = 0; k < len; k++) p.px(x0 + k, y + (k % 2), F[4]);
+  };
+  if (stitches > 0) wound(c.gx - 2, 5, AXIS - 3);
+  if (stitches > 1) wound(c.gx - 1, 4, AXIS + 2);
+  if (stitches > 2) {
+    p.line(c.hX - 1, AXIS - 1, c.hX + 1, AXIS + 1, F[0]);
+    p.px(c.hX - 1, AXIS + 1, F[4]);
+    p.px(c.hX + 1, AXIS - 1, F[4]);
+  }
 
   // The glowing vein: bright core along the body axis, dim tips, thorax node.
   // Plated defenders show it only between their armor plates.
-  if (c.skin === 'plated') {
+  if (skin === 'plated') {
     for (const sx of [c.gx - 2, c.gx + 2]) {
       p.vline(sx, AXIS - 2, 5, F[0]);
       p.px(sx, AXIS - 3, F[3]);
@@ -173,7 +236,7 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
     p.px(c.gx, AXIS, V[1]);
     p.px(c.gx + 1, AXIS, V[0]);
   } else {
-    const half = Math.floor(c.grx - 0.5);
+    const half = Math.floor(grx - 0.5);
     p.hline(c.gx - half, AXIS, half * 2 + 1, V[1]);
     p.px(c.gx - half, AXIS, V[0]);
     p.px(c.gx + half, AXIS, V[0]);
@@ -181,20 +244,83 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
   p.px(c.thCx, AXIS, V[1]);
   p.px(c.thCx - 1, AXIS, V[0]);
 
+  // Hyper metabolism: the vein floods the whole axis, widens, then branches
+  const surge = stacks('pulsing_vein');
+  if (surge > 0) {
+    const half = Math.floor(grx - 0.5);
+    const side = surge > 2 ? V[1] : V[0];
+    p.hline(c.gx - half, AXIS, c.hX - (c.gx - half) + 1, V[1]);
+    p.hline(c.gx - 1, AXIS - 1, 3, side);
+    p.hline(c.gx - 1, mirror(AXIS - 1), 3, side);
+    if (surge > 1) {
+      for (const tx of [c.gx - 2, c.gx + 2]) {
+        if (gasterHalf(tx) >= 2) both(tx, AXIS - 2, side);
+      }
+    }
+  }
+
+  // Spore bloom: blisters bulging out of the thorax, puffing spore motes
+  // between the legs (more motes per stack, gaster blisters at 3)
+  const spores = stacks('thorax_pustules');
+  if (spores > 0) {
+    const top = Math.floor(c.thRy + 0.25);
+    both(c.thCx, AXIS - 1, F[4]);
+    both(c.thCx, AXIS - top - 1, F[3]);
+    both(c.thCx, AXIS - top - 2, F[4]);
+    p.px(c.thCx - 1, AXIS - 5, F[4]);
+    p.px(c.thCx + 1, mirror(AXIS - 5), F[4]);
+  }
+  if (spores > 1) {
+    p.px(c.thCx + 1, AXIS - 6, F[3]);
+    p.px(c.thCx - 2, mirror(AXIS - 6), F[3]);
+  }
+  if (spores > 2) {
+    both(c.gx + 2, AXIS - 1, F[4]);
+    both(c.gx + 2, AXIS - 2, V[0]);
+  }
+
   // Shield head: the lit front plate
   if (c.shieldHead) {
     p.vline(c.hX, AXIS - 2, 5, F[3]);
     p.px(c.hX - 1, AXIS, F[3]);
   }
 
-  // Glowing eyes on the head flanks
-  p.px(c.eye[0], c.eye[1], V[1]);
-  p.px(c.eye[0], mirror(c.eye[1]), V[1]);
+  // Titan brood: a thick, knobbed armor plate over the soldier's head
+  const plate = stacks('thick_head_plate');
+  if (plate > 0 && !c.shieldHead) {
+    p.disc(c.hX, AXIS, c.hR - 0.5, F[1]);
+    p.disc(c.hX, AXIS, c.hR - 1.5, F[3]);
+    both(c.hX - 2, AXIS - 2, F[4]);
+    both(c.hX + 2, AXIS - 2, F[4]);
+    if (plate > 1) both(c.hX - 1, AXIS - Math.ceil(c.hR) - 1, F[4]);
+    if (plate > 2) {
+      p.vline(c.hX - 1, AXIS - 1, 3, F[0]);
+      both(c.hX + 1, AXIS - Math.ceil(c.hR) - 1, F[4]);
+    }
+  }
 
-  // 1-px bone spines on the silhouette edge
+  // Glowing eyes on the head flanks
+  both(c.eye[0], c.eye[1], V[1]);
+
+  // 1-px bone spines on the silhouette edge (riding up on a swollen sac)
   for (const [sx, sy] of c.spines) {
-    p.px(sx, sy, F[3]);
-    p.px(sx, mirror(sy), F[3]);
+    const lift = sx < c.petiole[0] ? Math.round(0.5 * sacs) : 0;
+    both(sx, sy - lift, F[3]);
+  }
+
+  // Wing stubs: atrophied membrane wings on the scout's thorax, longer per stack
+  const wings = stacks('wing_stubs');
+  if (wings > 0) {
+    const len = 2 + wings;
+    for (const side of [-1, 1]) {
+      const base: ArtPoint = [c.thCx - 1, AXIS + side * 2];
+      const tip: ArtPoint = [c.thCx - 1 - len, AXIS + side * (2 + Math.ceil(len * 0.7))];
+      p.outlined(pen => pen.capsule(base[0], base[1], tip[0], tip[1], 0.7, F[4]), O);
+      p.line(base[0], base[1], tip[0], tip[1], F[3]);
+      if (wings > 2) {
+        p.outlined(pen => pen.capsule(c.thCx, AXIS + side * 2, c.thCx - 2, AXIS + side * 4, 0.5, F[4]), O);
+      }
+    }
   }
 
   // Carrying: a leaf chunk held in the mandibles, ahead of the head
@@ -203,23 +329,42 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
     p.vline(c.mouth, AXIS - 1, 3, PAL.leaf[0]);
   }
 
-  // Scythe mandibles (pale bone, unoutlined so the hooks stay 1 px sharp)
+  // Scythe mandibles (pale bone, unoutlined so the hooks stay 1 px sharp).
+  // Acid mandibles turn them chartreuse and drip acid between the jaws.
+  const acid = stacks('chartreuse_jaws');
   for (const jaw of c.jaws) {
-    p.polyline(jaw.points, F[jaw.tone]);
-    p.polyline(mirrored(jaw.points), F[jaw.tone]);
+    const color = acid > 0 ? (jaw.tone >= 4 || acid > 2 ? V[1] : V[0]) : F[jaw.tone];
+    p.polyline(jaw.points, color);
+    p.polyline(mirrored(jaw.points), color);
+  }
+  if (acid > 1) both(c.hX + 5, AXIS - 1, V[0]);
+  if (acid > 2) {
+    both(c.hX + 4, AXIS - 1, V[1]);
+    p.px(c.hX + 6, AXIS, V[1]);
   }
 
   // Elbowed antennae that flick across frames (the scout's are longest)
   // (mirroring the flicked tip flicks the lower antenna the other way)
   const [root, elbow, tip] = c.antenna;
-  const antenna: ArtPoint[] = [root, elbow, [tip[0], tip[1] + flick]];
+  const tipY = tip[1] + flick;
+  const antenna: ArtPoint[] = [root, elbow, [tip[0], tipY]];
   p.polyline(antenna, F[2]);
   p.polyline(mirrored(antenna), F[2]);
+  // Hive mind: glowing antenna tips (the glow climbs toward the elbow per stack)
+  const mind = stacks('glowing_antenna_tips');
+  if (mind > 1) {
+    const bx = Math.round(tip[0] + (elbow[0] - tip[0]) * 0.34);
+    const by = Math.round(tipY + (elbow[1] - tipY) * 0.34);
+    p.line(tip[0], tipY, bx, by, V[0]);
+    p.line(tip[0], mirror(tipY), bx, mirror(by), V[0]);
+  }
+  if (mind > 2) both(elbow[0], elbow[1], V[0]);
+  if (mind > 0) both(tip[0], tipY, V[1]);
 
   // Screen-space light: top-left rim, sheen on the gaster and head, cast shadow
   p.shade([F, PAL.leaf]);
-  p.sheen(c.gx, AXIS, Math.max(1, Math.round(Math.min(c.grx, c.gry) * 0.6)), F[4]);
-  if (!c.shieldHead && c.hR >= 1.8) p.sheen(c.hX, AXIS, 1, F[4]);
+  p.sheen(c.gx, AXIS, Math.max(1, Math.round(Math.min(grx, gry) * 0.6)), F[4]);
+  if (!c.shieldHead && c.hR >= 1.8 && plate === 0) p.sheen(c.hX, AXIS, 1, F[4]);
   if (shadow) p.castShadow(O, 1, 2);
   return grid;
 }

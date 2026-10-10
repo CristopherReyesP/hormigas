@@ -7,6 +7,7 @@ import { ART_PX, SPRITE_GRID, WALK_FRAMES, nestPixelsPerArtPixel, spritePivot, w
 import { paintAnt, paintQueen } from './sprites/swarmSprites';
 import { paintBeetle, paintCricket } from './sprites/wildlifeSprites';
 import { FOOD_SIZE_LEVELS, FOOD_VARIANTS, paintDen, paintFood, paintGiantMushroom } from './sprites/propSprites';
+import { NO_MARKS, antSheetKey, type AntMarks } from './sprites/antMarks';
 
 export { antGlowPoints, type AntGlowPoint } from './sprites/swarmSprites';
 
@@ -17,6 +18,9 @@ const DEN_SPRITE_SIZE = SPRITE_GRID.den * ART_PX;
 const GIANT_MUSHROOM_SPRITE_SIZE = SPRITE_GRID.giantMushroom * ART_PX;
 
 const ANT_ROLES: readonly AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse, AntRole.Defender];
+
+/** Baked ant sheets kept at once (~0.3 MB each): the colony's castes plus a few previews. */
+const MAX_ANT_SHEETS = 24;
 
 /**
  * Every walk frame of one sprite in all 16 directions, baked once at 1 canvas
@@ -71,8 +75,11 @@ class DirectionalSheet {
  * time; unit sheets bake lazily on first use.
  */
 export class SpriteAtlas {
-  // Ant sheets, one per role (+ no-shadow variant): rows 0 = empty-handed, 1 = carrying
+  // Ant sheets, one per caste × shadow × the marks that caste shows: rows 0 = empty-handed, 1 = carrying
   private antSheets = new Map<string, DirectionalSheet>();
+  // Per mark-set object, the sheet of each caste/shadow slot: draws skip key building
+  private antSheetIndex = new WeakMap<AntMarks, DirectionalSheet[]>();
+  private colonyMarks: AntMarks = NO_MARKS;
   private queenSheet: DirectionalSheet | null = null;
   private beetleSheet: DirectionalSheet | null = null;
   private cricketSheet: DirectionalSheet | null = null;
@@ -101,20 +108,41 @@ export class SpriteAtlas {
     return canvas;
   }
 
-  private antSheet(role: AntRole, shadow: boolean): DirectionalSheet {
-    const key = `${role}|${shadow ? 's' : '-'}`;
+  /**
+   * The colony's mutation marks; every ant is drawn with the marks its caste
+   * shows from now on. Pass the same object while nothing changes (compared
+   * by identity); a new set bakes the affected castes once, on first draw.
+   */
+  setColonyMarks(marks: AntMarks): void {
+    this.colonyMarks = marks;
+  }
+
+  private antSheet(role: AntRole, shadow: boolean, marks: AntMarks): DirectionalSheet {
+    let slots = this.antSheetIndex.get(marks);
+    if (!slots) {
+      slots = [];
+      this.antSheetIndex.set(marks, slots);
+    }
+    const slot = ANT_ROLES.indexOf(role) * 2 + (shadow ? 1 : 0);
+    const indexed = slots[slot];
+    if (indexed) return indexed;
+
+    // Castes a pick does not mark keep their key, so they reuse their sheet
+    const key = antSheetKey(role, shadow, marks);
     let sheet = this.antSheets.get(key);
     if (!sheet) {
       sheet = new DirectionalSheet(SPRITE_GRID.ant, WALK_FRAMES, 2, (row, frame, direction) =>
-        paintAnt({ role, frame, direction, carrying: row === 1, shadow }));
+        paintAnt({ role, frame, direction, carrying: row === 1, shadow, marks }));
       this.antSheets.set(key, sheet);
+      if (this.antSheets.size > MAX_ANT_SHEETS) this.antSheets.delete(this.antSheets.keys().next().value!);
     }
+    slots[slot] = sheet;
     return sheet;
   }
 
-  /** Bake every ant sheet now (otherwise each role bakes on its first draw). */
+  /** Bake the colony's ant sheets now (otherwise each caste bakes on its first draw). */
   warmUp(): void {
-    for (const role of ANT_ROLES) this.antSheet(role, true);
+    for (const role of ANT_ROLES) this.antSheet(role, true, this.colonyMarks);
   }
 
   // ─── Nest Sprite ───────────────────────────────────────────
@@ -254,9 +282,10 @@ export class SpriteAtlas {
     legPhase: number,
     role: AntRole,
     isCarrying: boolean,
-    noShadow = false
+    noShadow = false,
+    marks: AntMarks = this.colonyMarks
   ): void {
-    this.antSheet(role, !noShadow).draw(ctx, worldX, worldY, angle, walkFrame(legPhase), isCarrying ? 1 : 0);
+    this.antSheet(role, !noShadow, marks).draw(ctx, worldX, worldY, angle, walkFrame(legPhase), isCarrying ? 1 : 0);
   }
 
   /** The brood queen; `swollen` is the breathing step of her egg sac. */
@@ -356,4 +385,12 @@ export class SpriteAtlas {
   private drawStatic(ctx: CanvasRenderingContext2D, sprite: HTMLCanvasElement, worldX: number, worldY: number): void {
     ctx.drawImage(sprite, Math.round(worldX - sprite.width / 2), Math.round(worldY - sprite.height / 2));
   }
+}
+
+let shared: SpriteAtlas | null = null;
+
+/** The one atlas the game view and the UI previews share (so portraits show the colony's marks); built on first use. */
+export function sharedSpriteAtlas(): SpriteAtlas {
+  shared ??= new SpriteAtlas();
+  return shared;
 }

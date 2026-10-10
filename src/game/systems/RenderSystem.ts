@@ -7,7 +7,7 @@ import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { TerrainRenderer } from '../../engine/renderer/TerrainRenderer';
 import { FoliageOverlay } from '../../engine/renderer/FoliageOverlay';
 import { PostProcessor, nightGlowAlpha, type ScreenLight } from '../../engine/renderer/PostProcessor';
-import { SpriteAtlas, antGlowPoints } from '../../engine/renderer/SpriteAtlas';
+import { SpriteAtlas, antGlowPoints, sharedSpriteAtlas } from '../../engine/renderer/SpriteAtlas';
 import { snapAngle } from '../../engine/renderer/pixelart/directions';
 import { computeUndergroundLight, UG_LIGHT_RIM, UG_LIGHT_FULL } from './undergroundLight';
 import { FogRenderer } from '../../engine/renderer/FogRenderer';
@@ -165,7 +165,7 @@ export class RenderSystem {
     this.terrainRenderer = new TerrainRenderer(grid);
     this.foliageOverlay = new FoliageOverlay(grid);
     this.postProcessor = new PostProcessor();
-    this.spriteAtlas = new SpriteAtlas();
+    this.spriteAtlas = sharedSpriteAtlas();
     this.fogRenderer = new FogRenderer(visibilityGrid);
     this.ambientParticles = new AmbientParticleSystem(grid, world);
     this.initFxCaches();
@@ -595,6 +595,8 @@ export class RenderSystem {
   /** The single render path. `dt` is real frame time (0 while paused). */
   renderInterpolated(interpolation: number, dt: number): void {
     this.animationTime += dt;
+    // Mutation marks are baked into the ant sheets; same object = no work
+    this.spriteAtlas.setColonyMarks(this.world.runModifiers.getColonyMarks());
     this.terrainRenderer.update(dt);
     // Day phase is read on BOTH layers so the dusk alarm fires at the real
     // nightfall even when the player is watching the underground
