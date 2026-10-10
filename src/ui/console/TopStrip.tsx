@@ -123,7 +123,7 @@ function WaveStatus({ stats }: { stats: GameStats }) {
     return (
       <span className="strip-item strip-item--danger strip-blink" title="Oleada en curso">
         <PixelIcon name="beetle" />
-        ¡OLEADA {invasion.waveNumber}! {invasion.invadersAlive} INVASORES
+        ¡OLEADA {invasion.waveNumber}! {invasion.invadersAlive}<span className="strip-wave-words"> INVASORES</span>
       </span>
     );
   }
@@ -135,7 +135,7 @@ function WaveStatus({ stats }: { stats: GameStats }) {
       title={invasion.armed ? 'La oleada llega al anochecer' : 'Próxima oleada'}
     >
       <PixelIcon name="beetle" />
-      OLEADA {invasion.waveNumber + 1} EN {formatClock(invasion.nextWaveIn)}
+      <span className="strip-wave-words">OLEADA {invasion.waveNumber + 1} EN </span>{formatClock(invasion.nextWaveIn)}
     </span>
   );
 }

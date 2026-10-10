@@ -95,7 +95,8 @@ export default function App() {
   // Tutorial: the run is the guided one while true; the overlay shows until it is finished or left
   const [tutorial, setTutorial] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
-  const [offerTutorial, setOfferTutorial] = useState(() => firstVisit.shouldOffer());
+  // First visit: Hormi's offer waits for INICIAR, so it never covers the screen on load
+  const [offerTutorial, setOfferTutorial] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const touch = useTouchUi();
   // Builds a run loaded from a save (undefined for a new run); `runKey` remounts the canvas for each run
@@ -135,7 +136,14 @@ export default function App() {
   const declineTutorial = useCallback(() => {
     firstVisit.remember('skipped');
     setOfferTutorial(false);
-  }, []);
+    closeTitle();
+  }, [closeTitle]);
+
+  /** INICIAR on a first visit asks about the tutorial first; afterwards it goes straight to the race picker */
+  const handleTitleStart = useCallback(() => {
+    if (firstVisit.shouldOffer()) setOfferTutorial(true);
+    else closeTitle();
+  }, [closeTitle]);
 
   const closeTutorial = useCallback(() => setTutorialOpen(false), []);
 
@@ -233,7 +241,7 @@ export default function App() {
     return (
       <>
         <TitleScreen
-          onStart={closeTitle}
+          onStart={handleTitleStart}
           onTutorial={handleTutorial}
           savedRun={<StartSaves storage={saveStorage} onLoad={handleLoadSave} />}
         />

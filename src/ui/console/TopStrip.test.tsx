@@ -70,7 +70,7 @@ describe('top strip', () => {
   it('keeps counting down to the attack once the wave is telegraphed', () => {
     const armed = { ...STATS, invasion: { waveNumber: 0, nextWaveIn: 45, active: false, invadersAlive: 0, armed: true } } as GameStats;
     const html = renderToStaticMarkup(<TopStrip stats={armed} />);
-    expect(html).toContain('OLEADA 1 EN 0:45');
+    expect(html.replace(/<[^>]+>/g, '')).toContain('OLEADA 1 EN 0:45');
     expect(html).toMatch(/strip-item--danger[^>]*title="La oleada llega al anochecer"/);
   });
 
