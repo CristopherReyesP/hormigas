@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GameManager, GameStats } from '../../game/GameManager';
 import { NotificationStack } from '../NotificationStack';
-import { buildCommands, buildModeHint, commandTargetHint, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
+import { buildCommands, buildModeHint, commandTargetHint, isDefenseMode, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
 import { CommandCard } from './CommandCard';
 import { InfoPanel } from './InfoPanel';
 import { MinimapPanel } from './MinimapPanel';
 import { useColonyDetails } from './useColonyDetails';
 import { useTouchUi } from '../layout/touch';
+import { humanHint } from '../races/human/humanCommands';
 
 interface ConsoleProps {
   stats: GameStats;
@@ -17,8 +18,11 @@ interface ConsoleProps {
 
 const NOTICE_MS = 3000;
 
-function applyBuildMode(gm: GameManager | null, mode: BuildMode | null): void {
+/** Nest tools only work underground; the defense tools on both layers */
+function applyBuildMode(gm: GameManager | null, mode: BuildMode | null, layer: 'surface' | 'underground'): void {
   if (!gm) return;
+  gm.setDefenseBuild(isDefenseMode(mode) ? mode : null);
+  if (layer !== 'underground' || isDefenseMode(mode)) mode = null;
   gm.setDigMode(mode === 'dig');
   gm.setIncubationMode(mode === 'incubation');
   gm.setFarmMode(mode === 'farm');
@@ -47,7 +51,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
 
   // Build modes live in the GameManager; keep them in step with the card
   useEffect(() => {
-    applyBuildMode(gameManager, stats.activeLayer === 'underground' ? buildMode : null);
+    applyBuildMode(gameManager, buildMode, stats.activeLayer);
   }, [gameManager, buildMode, stats.activeLayer]);
 
   useEffect(() => {
@@ -85,12 +89,16 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   // The groups page belongs to a selection of own ants: it closes when they are gone
   const hasAnts = stats.activeLayer === 'surface' && Boolean(stats.selectedGroup || stats.selectedEntity?.type === 'ant');
   if (page === 'groups' && !hasAnts) setPage('root');
+  // A Human builder's Construir menu closes when no builder is selected any more
+  if (page === 'build' && !stats.human?.selectedBuilders) setPage('root');
+  const placing = Boolean(stats.human?.placing);
   const onEscape = useCallback(() => {
-    if (stats.commandTarget) gameManager?.cancelCommandTarget();
+    if (placing) gameManager?.getHumanPlayer()?.cancelPlacement();
+    else if (stats.commandTarget) gameManager?.cancelCommandTarget();
     else if (buildMode) setBuildMode(null);
     else if (page !== 'root') setPage('root');
     else if (hasSelection) gameManager?.clearSelection();
-  }, [stats.commandTarget, buildMode, page, hasSelection, gameManager]);
+  }, [placing, stats.commandTarget, buildMode, page, hasSelection, gameManager]);
 
   const commands = useMemo(
     () =>
@@ -116,7 +124,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   );
 
   const areaHint = touch && stats.areaSelect ? 'SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus hormigas' : null;
-  const hint = notice?.text ?? commandTargetHint(stats.commandTarget, touch) ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint);
+  const hint = notice?.text ?? humanHint(stats, touch) ?? commandTargetHint(stats.commandTarget, touch) ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint);
   const overlayOpen = Boolean(stats.mutationOffer || stats.gameOver);
 
   return (

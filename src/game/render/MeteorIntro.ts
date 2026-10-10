@@ -6,6 +6,27 @@ import { screenPixelScale } from '../../engine/renderer/screenScale';
 import { TILE_SIZE } from '../../shared/constants';
 import type { TilePos } from '../run/craterSite';
 import type { CrystalShard } from '../../engine/renderer/alienDecor';
+import { UNIT_ART_PX, drawUnitFrame, type UnitFrame } from '../../engine/renderer/crystalUnits';
+import { bakeHumanUnit } from '../../engine/renderer/humanUnits';
+import { sharedSpriteAtlas } from '../../engine/renderer/SpriteAtlas';
+import { HUMAN_BUILDING_STATS } from '../rival/humanBase';
+import { drawHumanBuilding, humanBuildingArtSize } from '../rival/humanArt';
+import {
+  DIRT_CLODS,
+  WAKE_CRITTERS,
+  burstClod,
+  dropshipState,
+  humanBuildProgress,
+  landingDustProgress,
+  searchlightOn,
+  searchlightSpot,
+  troopState,
+  wakeCritter,
+  type DropshipState,
+  type IntroArrival,
+  type IntroHumanBase,
+} from './introArrival';
+import { DROPSHIP_CENTER_X, DROPSHIP_GROUND_Y, DROPSHIP_NOZZLES, DROPSHIP_REAR_NOZZLE, DROPSHIP_SIZE, paintDropship } from './humanArrivalArt';
 import {
   buildDroneFrames,
   buildShardFrames,
@@ -18,19 +39,20 @@ import {
 } from './crystalDeployArt';
 import {
   INTRO_TIMELINE,
-  DRONE_COUNT,
+  INTRO_VARIANTS,
   EJECTA_COUNT,
   INTRO_TITLE_LINES,
   SPIRE_COUNT,
   SPORE_COUNT,
   canSkipIntro,
   crackPulseStep,
-  crystalPulseProgress,
-  droneState,
   droneTrail,
   ejectaChunk,
-  flashAlpha,
   impactGlowAlpha,
+  introDrones,
+  introFlashAlpha,
+  introPulse,
+  introSpireGrowth,
   letterboxAmount,
   meteorAltitude,
   meteorGround,
@@ -39,11 +61,12 @@ import {
   shakeOffset,
   shardOffset,
   shockwaveProgress,
-  spireGrowth,
   sporeMote,
   titleAlpha,
   type DroneState,
   type IntroClock,
+  type IntroVariant,
+  type IntroVariantTraits,
   type Vec2,
 } from './introTimeline';
 
@@ -79,6 +102,13 @@ const titleRowColor = (row: number): string =>
 
 const even = (v: number): number => Math.round(v / 2) * 2;
 
+/** The rival line under the title, in the rival's accent */
+const RIVAL_LINE_COLOR: Readonly<Record<IntroVariant, string>> = {
+  crystal: PAL.crystal.shield,
+  human: PAL.human.visor,
+  wildlife: PAL.alienFlesh[3],
+};
+
 /**
  * Canvas px per title font pixel on a w×h canvas: the title keeps the share of
  * the screen it had on the old 800×600 buffer (10x there), capped by the
@@ -101,6 +131,31 @@ function makeHalo(color: string, rArt: number): OffscreenCanvas {
   return c;
 }
 
+/** Shake of the dropship's touchdown, as a share of the meteor's */
+const LANDING_SHAKE = 0.45;
+/** World px the dust ring of the touchdown reaches */
+const DUST_REACH = 300;
+/** Below this many world px of altitude the dropship's struts are down and its engines raise dust */
+const GEAR_ALT = 70;
+const DUST_ALT = 110;
+/** Dirt specks that shudder over a burrow before a critter bursts out */
+const RUMBLE_SPECKS = 9;
+
+/** Tile → world px of its center. */
+const tileCenter = (t: TilePos): Vec2 => ({ x: t.x * TILE_SIZE + TILE_SIZE / 2, y: t.y * TILE_SIZE + TILE_SIZE / 2 });
+
+/** Draw `frame` to an OffscreenCanvas at the unit scale, optionally mirrored. */
+function rasterize(frame: UnitFrame, mirror: boolean): OffscreenCanvas {
+  const c = new OffscreenCanvas(frame.width * UNIT_ART_PX, frame.height * UNIT_ART_PX);
+  const g = c.getContext('2d')!;
+  if (mirror) {
+    g.translate(c.width, 0);
+    g.scale(-1, 1);
+  }
+  drawUnitFrame(g, frame, 0, 0);
+  return c;
+}
+
 /** A spire's place on the crater rim: base offset from the impact (world px) and its art. */
 interface PlacedSpire {
   dx: number;
@@ -109,10 +164,16 @@ interface PlacedSpire {
 }
 
 /**
- * The run's opening, drawn. Timing lives in introTimeline.ts and the camera
- * work in IntroDirector; both read the one IntroClock that GameManager owns
- * and advances. This class keeps the flash frame count and the pre-rendered
- * crater, spire and drone art.
+ * The run's opening, drawn. Timing lives in introTimeline.ts (and the
+ * rival-specific choreography in introArrival.ts), the camera work in
+ * IntroDirector; all read the one IntroClock that GameManager owns and
+ * advances. This class keeps the flash frame count and the pre-rendered
+ * crater, spire, drone and dropship art.
+ *
+ * What arrives follows the rival (IntroArrival): the Crystal Hive's meteor,
+ * spires and drones on the crater; the Humans' dropship and base on their
+ * site (the crater is then an old scar, there from the start); or, against
+ * the wildlife, the meteor on the crater waking the beetles and leapers.
  *
  * Draw order (wired by RenderSystem): crater and spires with the terrain
  * (under the fog), then after the fog the meteor, ejecta, shockwave, cyan
@@ -126,9 +187,22 @@ export class MeteorIntro {
   private lastT = 0;
   /** Rendered frames since the impact; -1 until it lands */
   private framesSinceImpact = -1;
+  /** World px where the meteor strikes or the dropship lands: the variant's target */
   private readonly impact: Vec2;
+  /** World px of the crater's center (the target too, except against the Humans) */
+  private readonly crater: Vec2;
   private readonly nest: Vec2;
+  /** The crater's tile: it seeds the crater art */
   private readonly seed: TilePos;
+  private readonly variant: IntroVariant;
+  private readonly traits: IntroVariantTraits;
+  private readonly rivalLine: string;
+  private readonly humanBase: IntroHumanBase | null;
+  /** The dropship's frames: [gear up, gear down], each facing right and left */
+  private dropshipFrames: { right: OffscreenCanvas[]; left: OffscreenCanvas[] } | null = null;
+  private soldierFrames: { right: OffscreenCanvas[]; left: OffscreenCanvas[] } | null = null;
+  private searchHalo: OffscreenCanvas | null = null;
+  private thrustHalo: OffscreenCanvas | null = null;
   private craterBase: OffscreenCanvas | null = null;
   private crackLayers: OffscreenCanvas[] = [];
   private meteorHalo: OffscreenCanvas | null = null;
@@ -147,12 +221,46 @@ export class MeteorIntro {
   private shardGlints: OffscreenCanvas | null = null;
   private shardReach = 0;
 
-  constructor(impactTile: TilePos, nestTile: TilePos, clock: IntroClock, shards: readonly CrystalShard[] = []) {
+  /**
+   * `craterTile`: where the crater and its shard field sit. `arrival`: what
+   * the opening brings in and where; without one, the Crystal Hive's meteor
+   * strikes the crater.
+   */
+  constructor(
+    craterTile: TilePos,
+    nestTile: TilePos,
+    clock: IntroClock,
+    shards: readonly CrystalShard[] = [],
+    arrival: IntroArrival = { variant: 'crystal', target: craterTile, rivalLine: '' },
+  ) {
     this.clock = clock;
     this.shards = shards;
-    this.seed = { x: impactTile.x, y: impactTile.y };
-    this.impact = { x: impactTile.x * TILE_SIZE + TILE_SIZE / 2, y: impactTile.y * TILE_SIZE + TILE_SIZE / 2 };
-    this.nest = { x: nestTile.x * TILE_SIZE + TILE_SIZE / 2, y: nestTile.y * TILE_SIZE + TILE_SIZE / 2 };
+    this.seed = { x: craterTile.x, y: craterTile.y };
+    this.crater = tileCenter(craterTile);
+    this.impact = tileCenter(arrival.target);
+    this.nest = tileCenter(nestTile);
+    this.variant = arrival.variant;
+    this.traits = INTRO_VARIANTS[arrival.variant];
+    this.rivalLine = arrival.rivalLine;
+    this.humanBase = this.traits.humanDeploy ? (arrival.base ?? { buildings: [], troops: [] }) : null;
+  }
+
+  getVariant(): IntroVariant {
+    return this.variant;
+  }
+
+  /** World px where the meteor strikes or the dropship lands. */
+  getTarget(): Vec2 {
+    return { ...this.impact };
+  }
+
+  getCraterCenter(): Vec2 {
+    return { ...this.crater };
+  }
+
+  /** The Humans' real base stays hidden while their arrival raises it. */
+  hidesRivalBase(): boolean {
+    return this.humanBase !== null && this.isPlaying();
   }
 
   private get t(): number {
@@ -183,34 +291,46 @@ export class MeteorIntro {
     return this.clock.isPlaying();
   }
 
-  hasCrater(): boolean {
+  /** The meteor has struck or the dropship has touched down. */
+  hasLanded(): boolean {
     return this.t >= INTRO_TIMELINE.impact;
   }
 
+  /** The crater is on the ground: once the meteor struck it, or from the start when no meteor comes (the Humans). */
+  hasCrater(): boolean {
+    return this.traits.arrival !== 'meteor' || this.hasLanded();
+  }
+
   getShake(): Vec2 {
-    return this.isPlaying() ? shakeOffset(this.t) : NO_SHAKE;
+    if (!this.isPlaying()) return NO_SHAKE;
+    return shakeOffset(this.t, this.traits.arrival === 'meteor' ? 1 : LANDING_SHAKE);
   }
 
   /** World space, right after the terrain: the decal with its pulsing cracks and the Hive's spires. */
   drawCrater(ctx: CanvasRenderingContext2D, time: number): void {
     if (!this.hasCrater()) return;
     this.ensureCraterArt();
-    const x = Math.round(this.impact.x) - CR_CX * ART;
-    const y = Math.round(this.impact.y) - CR_CY * ART;
+    const x = Math.round(this.crater.x) - CR_CX * ART;
+    const y = Math.round(this.crater.y) - CR_CY * ART;
     ctx.drawImage(this.craterBase!, x, y);
     // The cracks flare white-hot cyan while the pulse rings out
-    const step = crystalPulseProgress(this.t) !== null ? 2 : crackPulseStep(time);
+    const step = introPulse(this.variant, this.t) !== null ? 2 : crackPulseStep(time);
     ctx.drawImage(this.crackLayers[step], x, y);
     if (this.shardLayer) ctx.drawImage(this.shardLayer, this.shardOrigin().x, this.shardOrigin().y);
-    if (this.spiresStanding) this.spires.forEach((s, i) => this.drawSpire(ctx, s, spireGrowth(i, this.t), s.art.body));
+    if (this.spiresStanding) this.spires.forEach((s, i) => this.drawSpire(ctx, s, this.spireHeight(i), s.art.body));
+  }
+
+  /** Spire `i`'s growth: grown in this opening (the Hive's), or standing once the intro is over. */
+  private spireHeight(i: number): number {
+    return this.isPlaying() ? introSpireGrowth(this.variant, i, this.t) : 1;
   }
 
   /** The top `growth` of a spire, seated on its base: it pushes up out of the ground tip first. */
   private drawSpire(ctx: CanvasRenderingContext2D, s: PlacedSpire, growth: number, layer: OffscreenCanvas): void {
     if (growth <= 0) return;
     const shown = Math.max(ART, even(layer.height * growth));
-    const bx = Math.round(this.impact.x + s.dx) - s.art.baseX;
-    const by = Math.round(this.impact.y + s.dy);
+    const bx = Math.round(this.crater.x + s.dx) - s.art.baseX;
+    const by = Math.round(this.crater.y + s.dy);
     ctx.drawImage(layer, 0, 0, layer.width, shown, bx, by - shown + s.art.baseBelow, layer.width, shown);
   }
 
@@ -225,13 +345,13 @@ export class MeteorIntro {
   /** World space, post-tint, additive: the cracks and spire tips shine through the night. */
   drawCrackGlow(ctx: CanvasRenderingContext2D, time: number): void {
     if (!this.hasCrater() || !this.crystalHalo) return;
-    const x = Math.round(this.impact.x) - CR_CX * ART;
-    const y = Math.round(this.impact.y) - CR_CY * ART;
+    const x = Math.round(this.crater.x) - CR_CX * ART;
+    const y = Math.round(this.crater.y) - CR_CY * ART;
     ctx.drawImage(this.crackLayers[crackPulseStep(time)], x, y);
     if (this.shardGlints) ctx.drawImage(this.shardGlints, this.shardOrigin().x, this.shardOrigin().y);
-    if (this.spiresStanding) this.spires.forEach((s, i) => this.drawSpire(ctx, s, spireGrowth(i, this.t), s.art.glint));
+    if (this.spiresStanding) this.spires.forEach((s, i) => this.drawSpire(ctx, s, this.spireHeight(i), s.art.glint));
     const h = this.crystalHalo.width / 2;
-    ctx.drawImage(this.crystalHalo, Math.round(this.impact.x - h), Math.round(this.impact.y - h));
+    ctx.drawImage(this.crystalHalo, Math.round(this.crater.x - h), Math.round(this.crater.y - h));
   }
 
   /** World space, after the fog: everything that moves. */
@@ -246,13 +366,21 @@ export class MeteorIntro {
     };
     const inView = (x: number, y: number) => x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY;
 
-    if (meteorProgress(this.t) !== null) {
-      // Start the fireball well above the top of the view, so it streaks in from the sky
-      this.drawMeteor(ctx, view.h * TILE_SIZE * 0.55);
+    // Start the fireball (or the dropship) well above the top of the view, so it comes in from the sky
+    const alt0 = view.h * TILE_SIZE * 0.55;
+    if (this.traits.arrival === 'meteor') {
+      if (meteorProgress(this.t) !== null) this.drawMeteor(ctx, alt0);
+      this.drawEjecta(ctx);
+      this.drawShockwave(ctx, inView);
+    } else {
+      this.drawLandingDust(ctx, inView);
     }
-    this.drawEjecta(ctx);
-    this.drawShockwave(ctx, inView);
-    this.drawDeployment(ctx, inView);
+    if (this.traits.crystalDeploy) this.drawDeployment(ctx, inView);
+    if (this.traits.wildlifeWake) this.drawWildlifeWake(ctx, inView);
+    if (this.humanBase) {
+      this.drawHumanBase(ctx, this.humanBase, inView);
+      this.drawDropship(ctx, alt0);
+    }
     this.drawSpores(ctx, inView);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
@@ -420,7 +548,7 @@ export class MeteorIntro {
 
     // Rubble chips hop off each spire while it pushes up
     this.spires.forEach((s, i) => {
-      const g = spireGrowth(i, t);
+      const g = introSpireGrowth(this.variant, i, t);
       if (g <= 0 || g >= 1) return;
       const bx = (this.impact.x + s.dx) / ART;
       const by = (this.impact.y + s.dy) / ART;
@@ -435,7 +563,7 @@ export class MeteorIntro {
     ctx.globalCompositeOperation = 'lighter';
     const cx = Math.round(this.impact.x) - CR_CX * ART;
     const cy = Math.round(this.impact.y) - CR_CY * ART;
-    const pulse = crystalPulseProgress(t);
+    const pulse = introPulse(this.variant, t);
     ctx.globalAlpha = pulse !== null ? 1 : 0.55;
     ctx.drawImage(this.crackLayers[2], cx, cy);
     const h = this.crystalHalo!.width / 2;
@@ -455,11 +583,7 @@ export class MeteorIntro {
     ctx.globalAlpha = 1;
 
     // Drones, back to front
-    const drones: Array<[number, DroneState]> = [];
-    for (let i = 0; i < DRONE_COUNT; i++) {
-      const d = droneState(i, t, this.impact, this.nest);
-      if (d) drones.push([i, d]);
-    }
+    const drones = introDrones(this.variant, t, this.impact, this.nest);
     drones.sort((a, b) => a[1].y - b[1].y);
     for (const [i, d] of drones) this.drawDrone(ctx, p, i, d);
   }
@@ -579,6 +703,292 @@ export class MeteorIntro {
     ctx.globalAlpha = 1;
   }
 
+  // ── The Humans' arrival ──────────────────────────────────────────────
+
+  /** The ring of dust the dropship's touchdown blows out across the ground. */
+  private drawLandingDust(ctx: CanvasRenderingContext2D, inView: (x: number, y: number) => boolean): void {
+    const wave = landingDustProgress(this.t);
+    if (wave === null) return;
+    const r = 40 + DUST_REACH * (1 - (1 - wave) ** 2);
+    const a = wave < 0.25 ? 0.9 : wave < 0.5 ? 0.65 : wave < 0.75 ? 0.4 : 0.2;
+    this.drawRing(ctx, inView, r, a, [
+      [0, PAL.soil[4], 8, 1],
+      [10, PAL.stone[3], 6, 0.8],
+      [22, PAL.soil[3], 6, 0.6],
+      [36, PAL.soil[2], 4, 0.45],
+    ]);
+  }
+
+  private ensureHumanArt(): void {
+    if (this.dropshipFrames) return;
+    const ship = [paintDropship(false), paintDropship(true)];
+    this.dropshipFrames = { right: ship.map((f) => rasterize(f, false)), left: ship.map((f) => rasterize(f, true)) };
+    const soldier = bakeHumanUnit('soldier').frames;
+    this.soldierFrames = { right: soldier.map((f) => rasterize(f, false)), left: soldier.map((f) => rasterize(f, true)) };
+    // The searchlight's pool: a dithered rim around a solid core, drawn additively
+    const pool = new OffscreenCanvas(46 * ART, 26 * ART);
+    const g = pool.getContext('2d')!;
+    const pp = new PixelPainter(g, ART);
+    g.globalAlpha = 0.5;
+    pp.shadow(23, 13, 22, 12, PAL.meteor[0]);
+    g.globalAlpha = 0.35;
+    pp.ellipse(23, 13, 13, 7, PAL.meteor[0]);
+    this.searchHalo = pool;
+    this.thrustHalo = makeHalo(PAL.meteor[1], 12);
+  }
+
+  /** World px of a Human building's footprint center (x) and ground line (y), as HumanRenderer places it. */
+  private buildingAnchor(b: IntroHumanBase['buildings'][number]): Vec2 {
+    const c = tileCenter(b);
+    return { x: c.x, y: c.y + HUMAN_BUILDING_STATS[b.kind].halfWidth * TILE_SIZE * 0.5 };
+  }
+
+  /**
+   * The base unfolding where the dropship set down: each building's corners
+   * staked out in hazard amber, then scaffolding rising floor by floor into
+   * the finished building; soldiers marching out of the command center's
+   * blast doors to their posts; and the searchlight on its roof sweeping the
+   * approach from the colony.
+   */
+  private drawHumanBase(ctx: CanvasRenderingContext2D, base: IntroHumanBase, inView: (x: number, y: number) => boolean): void {
+    const T = INTRO_TIMELINE;
+    const t = this.t;
+    if (t < T.impact || base.buildings.length === 0) return;
+    this.ensureHumanArt();
+    const p = new PixelPainter(ctx, ART);
+    const placed = base.buildings.map((b, i) => ({ b, i, at: this.buildingAnchor(b) }));
+    for (const { b, i, at } of [...placed].sort((a, c) => a.at.y - c.at.y)) {
+      if (!inView(at.x, at.y)) continue;
+      const progress = humanBuildProgress(i, t);
+      const w = humanBuildingArtSize(b.kind).width;
+      if (progress <= 0) {
+        // Staked out: amber corner brackets around the footprint
+        const lx = Math.round(at.x / ART - w / 2);
+        const rx = lx + w - 1;
+        const gy = Math.round(at.y / ART);
+        const ty = gy - Math.round(w * 0.35);
+        if (Math.floor(t * 6) % 2 === 0 || t > T.impact + 0.3) {
+          for (const [x, dx] of [[lx, 1], [rx, -1]] as const) {
+            for (const [y, dy] of [[ty, 1], [gy, -1]] as const) {
+              p.hline(Math.min(x, x + dx * 2), y, 3, PAL.human.visor);
+              p.vline(x, Math.min(y, y + dy * 2), 3, PAL.human.visor);
+            }
+          }
+        }
+        continue;
+      }
+      drawHumanBuilding(ctx, b.kind, at.x, at.y, UNIT_ART_PX, { progress, time: t, faceLeft: this.nest.x < at.x });
+      if (progress < 1) {
+        // Welding sparks up on the frame, dust kicked up at its foot
+        const art = humanBuildingArtSize(b.kind);
+        const topY = at.y - Math.round(HUMAN_BUILDING_STATS[b.kind].floors * 10 * progress) * ART;
+        for (let k = 0; k < 4; k++) {
+          if ((Math.floor(t * 14) + k + i) % 3 === 0) continue;
+          const sx = at.x + (hash2(k, i + Math.floor(t * 10)) - 0.5) * art.width * ART;
+          ctx.fillStyle = k % 2 ? PAL.healthYellow : PAL.white;
+          ctx.fillRect(even(sx), even(topY - 6 - hash2(k + 9, i) * 8), ART, ART);
+        }
+        ctx.globalAlpha = 0.6;
+        for (let k = 0; k < 8; k++) {
+          const dx = (hash2(k, i + 31) - 0.5) * (art.width + 16) * ART;
+          const hop = (Math.floor(t * 12) + k) % 3;
+          p.px(Math.round((at.x + dx) / ART), Math.round(at.y / ART) - hop, k % 2 ? PAL.soil[4] : PAL.stone[3]);
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Troops, out of the blast doors (their feet on the command center's ground line)
+    const cc = placed[0].at;
+    const door = { x: cc.x, y: cc.y - TILE_SIZE * 0.35 };
+    base.troops.forEach((post, k) => {
+      const s = troopState(k, t, door, tileCenter(post));
+      if (!s || !inView(s.x, s.y)) return;
+      const set = s.facingLeft ? this.soldierFrames!.left : this.soldierFrames!.right;
+      const frame = set[Math.floor(t * (s.marching ? 10 : 5) + k) % set.length];
+      const scale = post.builder ? 0.75 : 1;
+      const w = Math.round(frame.width * scale);
+      const h = Math.round(frame.height * scale);
+      const dx = Math.round(s.x - w / 2);
+      const dy = Math.round(s.y - h + TILE_SIZE * 0.35) - s.step * ART;
+      ctx.drawImage(frame, dx, dy, w, h);
+      if (post.builder) {
+        ctx.fillStyle = PAL.human.visor; // hard hat
+        ctx.fillRect(dx + Math.round(w * 0.3), dy + Math.round(h * 0.08), Math.round(w * 0.4), 4);
+      }
+    });
+
+    // The searchlight, once the command center stands
+    if (humanBuildProgress(0, t) < 1) return;
+    const ccKind = base.buildings[0].kind;
+    const lamp = { x: cc.x, y: cc.y - (HUMAN_BUILDING_STATS[ccKind].floors * 10 + 6) * ART };
+    p.rect(Math.round(lamp.x / ART) - 2, Math.round(lamp.y / ART), 4, 2, PAL.human.steel[0]);
+    const spot = searchlightSpot(t, lamp, this.nest);
+    if (!spot || !searchlightOn(t)) return;
+    p.rect(Math.round(lamp.x / ART) - 1, Math.round(lamp.y / ART), 2, 1, PAL.white);
+    const ground = { x: spot.x, y: spot.y + (cc.y - lamp.y) };
+    ctx.globalCompositeOperation = 'lighter';
+    const steps = 22;
+    for (let k = 1; k <= steps; k++) {
+      const f = k / steps;
+      const x = lamp.x + (ground.x - lamp.x) * f;
+      const y = lamp.y + (ground.y - lamp.y) * f;
+      const w = even(4 + 36 * f);
+      ctx.globalAlpha = (spot.level ? 0.1 : 0.06) * (f < 0.2 ? 1.6 : 1);
+      ctx.fillStyle = PAL.meteor[0];
+      ctx.fillRect(even(x - w / 2), even(y - w / 4), w, even(w / 2) + 2);
+    }
+    ctx.globalAlpha = spot.level ? 0.9 : 0.5;
+    const halo = this.searchHalo!;
+    ctx.drawImage(halo, even(ground.x - halo.width / 2), even(ground.y - halo.height / 2));
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * The dropship: a shadow that sharpens as it comes down, dust its engines
+   * raise near the ground, flames from the rear engine while it cruises and
+   * from the belly nozzles while it brakes or lifts off, and the hull,
+   * struts down for the landing.
+   */
+  private drawDropship(ctx: CanvasRenderingContext2D, alt0: number): void {
+    const d: DropshipState | null = dropshipState(this.t, this.nest, this.impact, alt0);
+    if (!d) return;
+    this.ensureHumanArt();
+    const p = new PixelPainter(ctx, ART);
+    // It sets down on the command center's footprint, whose ground line sits below the site tile's center
+    const cc = this.humanBase?.buildings[0];
+    const drop = cc ? HUMAN_BUILDING_STATS[cc.kind].halfWidth * TILE_SIZE * 0.5 : 0;
+    const gx = even(d.x);
+    const gy = even(d.y + drop);
+    const near = Math.max(0, Math.min(1, 1 - d.alt / alt0));
+    const flicker = Math.floor(this.t * 24);
+
+    ctx.globalAlpha = 0.25 + 0.4 * near;
+    p.shadow(gx / ART, gy / ART + 1, Math.round(12 + 12 * near), Math.round(3 + 2 * near), PAL.outline);
+    ctx.globalAlpha = 1;
+
+    // Engine wash: the ground under it glows and dust spirals out
+    if (d.thrust === 2 && d.alt < DUST_ALT * 1.6) {
+      const k = 1 - d.alt / (DUST_ALT * 1.6);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.25 + 0.35 * k;
+      const h = this.thrustHalo!.width / 2;
+      ctx.drawImage(this.thrustHalo!, gx - h, gy - h);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
+    if (d.thrust > 0 && d.alt < DUST_ALT) {
+      const k = 1 - d.alt / DUST_ALT;
+      for (let i = 0; i < 26; i++) {
+        const a = hash2(i, 401) * Math.PI * 2 + this.t * (i % 2 ? 1.4 : -1.1);
+        const r = (18 + hash2(i, 409) * 60 + ((this.t * 90 + i * 13) % 40)) * (0.5 + k);
+        ctx.globalAlpha = (i % 3 === 0 ? 0.8 : 0.55) * k;
+        p.px(Math.round((gx + Math.cos(a) * r) / ART), Math.round((gy + Math.sin(a) * r * 0.55) / ART), i % 2 ? PAL.soil[4] : PAL.stone[3]);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    const set = d.facingLeft ? this.dropshipFrames!.left : this.dropshipFrames!.right;
+    const img = set[d.landed || d.alt < GEAR_ALT ? 1 : 0];
+    const W = DROPSHIP_SIZE.width;
+    const ax = (x: number) => (d.facingLeft ? W - 1 - x : x); // art column, mirrored for a left-facing ship
+    // Bob a pixel while it hovers in on its engines
+    const bob = !d.landed && d.alt < GEAR_ALT && d.alt > 0 && flicker % 6 < 3 ? ART : 0;
+    const left = gx - ax(DROPSHIP_CENTER_X) * ART;
+    const top = even(gy - d.alt) - DROPSHIP_GROUND_Y * ART - bob;
+
+    const flame = (x: number, y: number, dx: number, dy: number, len: number) => {
+      // A tapering pixel flame: white-hot at the nozzle, orange, then dark red at the tip
+      for (let k = 0; k < len; k++) {
+        const f = k / len;
+        const w = f < 0.35 ? 3 : f < 0.7 ? 2 : 1;
+        ctx.fillStyle = f < 0.3 ? PAL.meteor[0] : f < 0.65 ? PAL.meteor[1] : PAL.meteor[2];
+        const cx = x + dx * k;
+        const cy = y + dy * k;
+        ctx.fillRect(left + (cx - (dy ? (w - 1) / 2 : 0)) * ART, top + (cy - (dx ? (w - 1) / 2 : 0)) * ART, (dy ? w : 1) * ART, (dx ? w : 1) * ART);
+      }
+    };
+    if (d.thrust === 1) {
+      const len = 6 + (flicker % 3);
+      flame(ax(DROPSHIP_REAR_NOZZLE.x) + (d.facingLeft ? 1 : -1), DROPSHIP_REAR_NOZZLE.y - 1, d.facingLeft ? 1 : -1, 0, len);
+    }
+    if (d.thrust === 2) {
+      const len = (d.landed ? 0 : 7) + (flicker % 3) + (d.alt < GEAR_ALT ? 0 : 3);
+      for (const n of DROPSHIP_NOZZLES) flame(ax(n.x) - 1, n.y + 1, 0, 1, len);
+    }
+    ctx.drawImage(img, left, top);
+  }
+
+  // ── The wildlife wakes ───────────────────────────────────────────────
+
+  /**
+   * After the impact the ground rumbles at burrows around the crater, then
+   * beetles and leapers burst out in a spray of dirt and scatter. Drawn with
+   * the game's own wildlife sprites.
+   */
+  private drawWildlifeWake(ctx: CanvasRenderingContext2D, inView: (x: number, y: number) => boolean): void {
+    const t = this.t;
+    const p = new PixelPainter(ctx, ART);
+    const atlas = sharedSpriteAtlas();
+    const critters = WAKE_CRITTERS.map((_, i) => [i, wakeCritter(i, t, this.impact, this.nest)] as const)
+      .filter((c): c is readonly [number, NonNullable<ReturnType<typeof wakeCritter>>] => c[1] !== null)
+      .sort((a, b) => a[1].y - b[1].y);
+    for (const [i, c] of critters) {
+      const b = c.burrow;
+      const bx = Math.round(b.x / ART);
+      const by = Math.round(b.y / ART);
+      if (c.emerge === 0) {
+        if (!inView(b.x, b.y)) continue;
+        // The ground shudders: a mound of dirt heaves, specks jitter over it, a crack opens
+        const jolt = Math.floor(t * 30);
+        const heave = jolt % 2;
+        p.ellipse(bx, by + 1, 8, 4, PAL.outline);
+        p.ellipse(bx, by - heave, 7, 3, PAL.soil[3]);
+        p.ellipse(bx - 1, by - 1 - heave, 4, 1, PAL.soil[4]);
+        for (let k = 0; k < RUMBLE_SPECKS; k++) {
+          const ox = Math.round((hash2(k, i + 5) - 0.5) * 22) + ((jolt + k) % 2 ? 1 : 0);
+          const oy = Math.round((hash2(k + 3, i) - 0.5) * 10) - ((jolt + k) % 3 === 0 ? 2 : 0);
+          p.px(bx + ox, by + oy, k % 2 ? PAL.soil[4] : PAL.stone[2]);
+        }
+        p.line(bx - 3, by, bx + 3, by + (jolt % 2), PAL.crater[0]);
+        continue;
+      }
+      // The burrow it broke out of
+      if (inView(b.x, b.y)) {
+        p.ellipse(bx, by, 5, 3, PAL.outline);
+        p.ellipse(bx, by, 4, 2, PAL.crater[0]);
+        for (let k = 0; k < 10; k++) {
+          const a = (k / 10) * Math.PI * 2;
+          p.px(bx + Math.round(Math.cos(a) * 7), by + Math.round(Math.sin(a) * 4), k % 2 ? PAL.soil[3] : PAL.stone[2]);
+        }
+      }
+      for (let k = 0; k < DIRT_CLODS; k++) {
+        const clod = burstClod(i, k, t, this.impact);
+        if (clod) p.rect(Math.round(clod.x / ART), Math.round((clod.y - clod.alt) / ART), 2, 2, k % 2 ? PAL.soil[4] : PAL.stone[2]);
+      }
+      if (!inView(c.x, c.y)) continue;
+      const big = c.kind === 'leaper';
+      const size = big ? 56 : 28;
+      if (c.emerge < 1) {
+        // Pushing up out of the dirt: everything below the ground line is cut off
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(c.x - size * 1.5, c.y - size * 2, size * 3, size * 2 + 4);
+        ctx.clip();
+      } else {
+        ctx.globalAlpha = 0.5;
+        const shrink = c.lift > 0 ? 0.8 : 1;
+        p.shadow(Math.round(c.x / ART) + 1, Math.round(c.y / ART) + 2, Math.round((big ? 12 : 7) * shrink), Math.round((big ? 5 : 3) * shrink), PAL.outline);
+        ctx.globalAlpha = 1;
+      }
+      const sink = even((1 - c.emerge) * size);
+      if (big) atlas.drawCricket(ctx, c.x, c.y - c.lift + sink, c.angle, c.legPhase, c.pose);
+      else atlas.drawBeetle(ctx, c.x, c.y + sink, c.angle, c.legPhase);
+      if (c.emerge < 1) ctx.restore();
+    }
+  }
+
   /**
    * Screen space, after the sky tint. `camera` is null on the underground
    * layer, which only gets the flash, the bars and the title card.
@@ -591,15 +1001,15 @@ export class MeteorIntro {
     ctx.save();
 
     // Full white for two frames, then a warm fireball wash steps out
-    const flash = flashAlpha(this.framesSinceImpact);
-    const glow = impactGlowAlpha(this.t);
+    const flash = introFlashAlpha(this.variant, this.framesSinceImpact);
+    const glow = this.traits.arrival === 'meteor' ? impactGlowAlpha(this.t) : 0;
     if (flash > 0 || glow > 0) {
       ctx.globalAlpha = flash > 0 ? flash : glow;
       ctx.fillStyle = flash > 0 ? PAL.white : PAL.meteor[1];
       ctx.fillRect(0, 0, W, H);
     }
     // A cold cyan blink as the Hive's pulse goes off
-    const pulse = crystalPulseProgress(this.t);
+    const pulse = introPulse(this.variant, this.t);
     if (pulse !== null && pulse < 0.12) {
       ctx.globalAlpha = pulse < 0.05 ? 0.3 : 0.15;
       ctx.fillStyle = PAL.crystal.shield;
@@ -617,11 +1027,15 @@ export class MeteorIntro {
 
     if (camera) this.drawEdgePing(ctx, camera, ART * screenPixelScale(W, H));
     const title = titleAlpha(this.t);
-    if (title > 0) this.drawTitle(ctx, title, view.y + view.h / 2);
+    if (title > 0) this.drawTitle(ctx, title, view.y + view.h / 2, this.rivalLine);
     ctx.restore();
   }
 
-  /** A blinking crystal diamond on the view edge, pointing at an off-screen crater; `px` canvas px per art px. */
+  /**
+   * A blinking diamond on the view edge, pointing at the off-screen target
+   * (the crater, or the Human base); `px` canvas px per art px. It wears the
+   * arrival's colors: crystal, Human steel and amber, or the meteor's embers.
+   */
   private drawEdgePing(ctx: CanvasRenderingContext2D, camera: Camera, px: number): void {
     if (this.t < INTRO_TIMELINE.impact) return;
     if (Math.floor(this.t * 4) % 2 === 1) return;
@@ -633,13 +1047,18 @@ export class MeteorIntro {
     const x = Math.round(Math.max(v.x + m, Math.min(v.x + v.w - m, s.x)) / px);
     const y = Math.round(Math.max(v.y + bar + m, Math.min(v.y + v.h - bar - m, s.y)) / px);
     const p = new PixelPainter(ctx, px);
+    const [rim, fill, core] = this.variant === 'crystal'
+      ? [PAL.crystal.outline, PAL.crystal.shield, PAL.crystal.shell[4]]
+      : this.variant === 'human'
+        ? [PAL.human.outline, PAL.human.visor, PAL.white]
+        : [PAL.outline, PAL.meteor[1], PAL.meteor[0]];
     for (const [dy, half] of [[-3, 0], [-2, 1], [-1, 2], [0, 3], [1, 2], [2, 1], [3, 0]] as const) {
-      p.hline(x - half - 1, y + dy, half * 2 + 3, PAL.crystal.outline);
+      p.hline(x - half - 1, y + dy, half * 2 + 3, rim);
     }
     for (const [dy, half] of [[-2, 0], [-1, 1], [0, 2], [1, 1], [2, 0]] as const) {
-      p.hline(x - half, y + dy, half * 2 + 1, PAL.crystal.shield);
+      p.hline(x - half, y + dy, half * 2 + 1, fill);
     }
-    p.px(x, y, PAL.crystal.shell[4]);
+    p.px(x, y, core);
   }
 
   /**
@@ -647,8 +1066,10 @@ export class MeteorIntro {
    * scaled with the real one) on a dark plate with chartreuse and magenta
    * rules, centered on `centerY`; each glyph gets a magenta drop, a dark
    * outline and a stepped chartreuse fill so it pops over day or night.
+   * `rivalLine` (who the colony is up against) sits under the title on the
+   * plate, a third of the size, in the rival's accent.
    */
-  private drawTitle(ctx: CanvasRenderingContext2D, alpha: number, centerY: number): void {
+  private drawTitle(ctx: CanvasRenderingContext2D, alpha: number, centerY: number, rivalLine: string): void {
     const W = ctx.canvas.width;
     const S = introTitleScale(W, ctx.canvas.height);
     /** Plate, rule and outline sizes were drawn for the 10× title */
@@ -657,7 +1078,10 @@ export class MeteorIntro {
     const blockH = INTRO_TITLE_LINES.length * lineH + (INTRO_TITLE_LINES.length - 1) * u(TITLE_LINE_GAP);
     const top = even(centerY - blockH / 2);
     const plateY = top - u(28);
-    const plateH = blockH + 2 * u(28);
+    // The rival line hangs under the title, inside the plate
+    const R = Math.max(2, Math.round(S / 3));
+    const rivalH = rivalLine ? u(18) + GLYPH_H * R : 0;
+    const plateH = blockH + rivalH + 2 * u(28);
 
     ctx.globalAlpha = alpha * 0.78;
     ctx.fillStyle = PAL.swarm.outline;
@@ -680,6 +1104,14 @@ export class MeteorIntro {
       }
       drawPixelText(ctx, line, x, y, S, titleRowColor);
     });
+    if (rivalLine) {
+      const x = Math.round((W - textWidth(rivalLine, R)) / 2);
+      const y = top + blockH + u(18);
+      for (const [ox, oy] of [[-R, 0], [R, 0], [0, -R], [0, R], [R, R]]) {
+        drawPixelText(ctx, rivalLine, x + ox, y + oy, R, PAL.swarm.outline);
+      }
+      drawPixelText(ctx, rivalLine, x, y, R, RIVAL_LINE_COLOR[this.variant]);
+    }
   }
 
   /** Pre-render the crater once: debris skirt, rim, bowl, meteorite core, crack layers, spires and drones. */

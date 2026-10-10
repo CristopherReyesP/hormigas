@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DEFAULT_RUN_SETUP } from '../game/run/RunSetup';
 import { RacePicker } from './RacePicker';
-import { RACE_CARDS, RIVAL_OPTIONS } from './racePicker/races';
+import { RACE_CARDS, RIVAL_OPTIONS, rivalOptionsFor } from './racePicker/races';
 
 const noop = () => {};
 
@@ -38,14 +38,28 @@ describe('race picker', () => {
     expect(swarm).toContain('aria-pressed="true"');
   });
 
-  it('shows the Crystal Hive and the Humans as disabled "Próximamente" cards', () => {
-    for (const id of ['crystal', 'human']) {
-      const tag = buttonTag(html, `data-race="${id}"`);
-      expect(tag).toContain('disabled=""');
-      expect(tag).toContain('aria-pressed="false"');
-      expect(cardHtml(html, `data-race="${id}"`)).toContain('Próximamente');
-    }
+  it('shows the Crystal Hive as a disabled "Próximamente" card, and the Humans as playable', () => {
+    const crystal = buttonTag(html, 'data-race="crystal"');
+    expect(crystal).toContain('disabled=""');
+    expect(crystal).toContain('aria-pressed="false"');
+    expect(cardHtml(html, 'data-race="crystal"')).toContain('Próximamente');
+    const human = buttonTag(html, 'data-race="human"');
+    expect(human).not.toContain('disabled');
+    expect(human).toContain('aria-pressed="false"');
+    expect(cardHtml(html, 'data-race="human"')).not.toContain('Próximamente');
     expect(cardHtml(html, 'data-race="swarm"')).not.toContain('Próximamente');
+  });
+
+  it('as the Humans: fight the wildlife, the Crystal Hive or a mirror Human base; the Swarm AI is "Próximamente"', () => {
+    const out = renderToStaticMarkup(<RacePicker initialSetup={{ playerRace: 'human', rivalRace: 'crystal' }} onStart={noop} />);
+    expect(buttonTag(out, 'data-race="human"')).toContain('aria-pressed="true"');
+    expect(cardHtml(out, 'data-race="human"')).toContain('Elegida');
+    for (const id of ['wildlife', 'crystal', 'human']) expect(buttonTag(out, `data-rival="${id}"`)).not.toContain('disabled');
+    expect(buttonTag(out, 'data-rival="crystal"')).toContain('aria-pressed="true"');
+    expect(buttonTag(out, 'data-rival="swarm"')).toContain('disabled=""');
+    expect(cardHtml(out, 'data-rival="swarm"')).toContain('Próximamente');
+    expect(out).toMatch(/Humanos[^]*VS[^]*Colmena de Cristal[^]*COMENZAR/);
+    expect(rivalOptionsFor('human').map((r) => r.id)).toEqual(['wildlife', 'crystal', 'human', 'swarm']);
   });
 
   it('gives every race its identity: food, breeding, building, strength and tactics', () => {

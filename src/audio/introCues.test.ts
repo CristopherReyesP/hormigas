@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { INTRO_TIMELINE as T, IntroClock, introPhase, SPIRE_COUNT } from '../game/render/introTimeline';
 import type { AudioEvent } from './events';
-import { INTRO_CUES, IntroCueTracker, introRealSeconds } from './introCues';
+import { INTRO_CUES, IntroCueTracker, introCuesFor, introRealSeconds } from './introCues';
 
 const FRAME = 1 / 60;
 
@@ -89,5 +89,26 @@ describe('intro cue tracker', () => {
     tracker.frame(T.impact + 0.1, T.impact + 0.1);
     expect(tracker.frame(T.impact + 0.1, 0)).toEqual([]);
     expect(tracker.finished).toBe(false);
+  });
+});
+
+describe('intro cues per rival', () => {
+  it('only rings the crystal chimes, pulse and hum when the Crystal Hive arrives', () => {
+    const cues = (variant: 'crystal' | 'human' | 'wildlife') => introCuesFor(variant).map((c) => c.cue);
+    expect(cues('crystal')).toEqual(INTRO_CUES.map((c) => c.cue));
+    for (const variant of ['human', 'wildlife'] as const) {
+      expect(cues(variant)).not.toContain('crystal');
+      expect(cues(variant)).not.toContain('pulse');
+      expect(cues(variant)).not.toContain('hum');
+      expect(cues(variant)).toEqual(expect.arrayContaining(['whoosh', 'impact', 'title', 'end']));
+    }
+  });
+
+  it('plays the variant the tracker was reset to', () => {
+    const tracker = new IntroCueTracker();
+    tracker.reset('human');
+    const fired = tracker.frame(T.end, T.end).map(cueOf);
+    expect(fired).not.toContain('crystal');
+    expect(fired).toContain('impact');
   });
 });

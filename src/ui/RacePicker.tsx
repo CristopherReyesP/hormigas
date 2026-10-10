@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { installAudioUi } from '../audio';
 import { sanitizeRunSetup, withPlayerRace, withRivalRace, type RunSetup } from '../game/run/RunSetup';
-import { RACE_CARDS, RIVAL_OPTIONS, raceName, rivalName, type RaceCardInfo, type RaceStat, type RivalInfo } from './racePicker/races';
+import { RACE_CARDS, raceName, rivalName, rivalOptionsFor, type RaceCardInfo, type RaceStat, type RivalInfo } from './racePicker/races';
 import { SpecimenCanvas } from './racePicker/SpecimenCanvas';
 
 interface RacePickerProps {
@@ -49,7 +49,7 @@ export function RacePicker({ initialSetup, onStart, savedRun }: RacePickerProps)
         <section aria-labelledby="race-picker-rival">
           <h2 id="race-picker-rival" className="race-picker-section">RIVAL</h2>
           <div className="rival-options">
-            {RIVAL_OPTIONS.map((rival) => (
+            {rivalOptionsFor(setup.playerRace).map((rival) => (
               <RivalOption
                 key={rival.id}
                 rival={rival}
