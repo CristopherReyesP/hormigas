@@ -163,13 +163,18 @@ export function drawSurfaceMinimap(
   blit(ctx, cache.overlay, layout);
 
   const dots = gm.getSurfaceMinimapDots().sort((a, b) => DOT_ORDER[a.kind] - DOT_ORDER[b.kind]);
+  // Invaders inside: the nest marker blinks red and grows, so the attack below reads from the surface
+  const nestAttacked = (gm.getInvaderCount?.('underground') ?? 0) > 0;
   for (const dot of dots) {
     switch (dot.kind) {
       case 'food': square(ctx, layout, dot.x, dot.y, unit, PAL.leaf[2]); break;
       case 'den': square(ctx, layout, dot.x, dot.y, unit * 3, PAL.beetleEye, CHROME_BG); break;
       case 'ant': square(ctx, layout, dot.x, dot.y, unit * 2, PAL.swarm.flesh[4]); break;
       case 'enemy': square(ctx, layout, dot.x, dot.y, unit * 3, DANGER, CHROME_BG); break;
-      case 'nest': square(ctx, layout, dot.x, dot.y, unit * 5, blink ? ACCENT : PAL.swarm.vein[0], CHROME_BG); break;
+      case 'nest':
+        if (nestAttacked) square(ctx, layout, dot.x, dot.y, unit * (blink ? 9 : 7), blink ? DANGER : '#7a2020', blink ? '#fff' : CHROME_BG);
+        else square(ctx, layout, dot.x, dot.y, unit * 5, blink ? ACCENT : PAL.swarm.vein[0], CHROME_BG);
+        break;
     }
   }
 
