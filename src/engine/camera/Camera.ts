@@ -200,6 +200,11 @@ export class Camera {
     this.centerOn(center.x, center.y);
   }
 
+  /** Canvas px per CSS px, as set by setCanvasSize */
+  getPixelRatio(): number {
+    return this.pixelRatio;
+  }
+
   getCanvasSize(): { width: number; height: number } {
     return { width: this.canvasW, height: this.canvasH };
   }
