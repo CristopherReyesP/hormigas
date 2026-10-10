@@ -10,12 +10,14 @@ interface NotificationStackProps {
   hintTone?: 'hint' | 'danger';
   /** Live readout drawn inside the hint line, under its text (Excavar's counter) */
   hintExtra?: ReactNode;
+  /** A message the HUD already shows elsewhere (the touch hint line): its toast is not repeated */
+  hideMessage?: string | null;
 }
 
 /** Compact message feed just above the console, newest at the bottom. */
-export function NotificationStack({ notifications, hint, hintTone = 'hint', hintExtra }: NotificationStackProps) {
+export function NotificationStack({ notifications, hint, hintTone = 'hint', hintExtra, hideMessage }: NotificationStackProps) {
   // A toast that says exactly what the hint already says is not repeated
-  const visible = notifications.filter((n) => !hint || stripEmoji(n.message) !== hint).slice(-4);
+  const visible = notifications.filter((n) => { const text = stripEmoji(n.message); return text !== hint && text !== hideMessage; }).slice(-4);
   if (visible.length === 0 && !hint) return null;
 
   return (

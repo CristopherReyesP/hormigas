@@ -40,6 +40,15 @@ interface Frames {
 /** World px a muzzle sits above a unit's feet */
 const MUZZLE_LIFT = TILE_SIZE * 0.55;
 
+/**
+ * Walk frame for a unit at render time `time` (s). The render clock can be
+ * negative or not yet set while the intro hands over, so wrap into range.
+ */
+export function humanFrameIndex(time: number, id: number, count: number): number {
+  const tick = Number.isFinite(time) ? Math.floor((time * 1000) / HUMAN_FRAME_MS) : 0;
+  return (((tick + id) % count) + count) % count;
+}
+
 export class HumanRenderer {
   private world: World;
   private fog: VisibilityReader;
@@ -133,8 +142,8 @@ export class HumanRenderer {
     const kind: HumanUnitKind = unit.type === 'builder' ? 'soldier' : unit.type;
     const set = this.framesOf(kind);
     const frames = left ? set.left : set.right;
-    const index = (Math.floor((time * 1000) / HUMAN_FRAME_MS) + id) % frames.length;
-    const frame = frames[index];
+    if (frames.length === 0) return;
+    const frame = frames[humanFrameIndex(time, id, frames.length)];
     const scale = unit.type === 'builder' ? 0.75 : 1;
     const w = Math.round(frame.width * scale);
     const h = Math.round(frame.height * scale);

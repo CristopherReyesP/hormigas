@@ -9,7 +9,7 @@ import { DIRECTIONS } from '../engine/renderer/pixelart/directions';
 import { LEAPER_FRAMES } from '../engine/renderer/sprites/wildlifeSprites';
 import { LEAP, LEAP_CYCLE, leapFrame } from '../game/render/leapMotion';
 
-const ROLES: AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse];
+const ROLES: AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse, AntRole.Defender];
 const FRAMES = 4;
 const SPRITE = SPRITE_GRID.ant * ART_PX; // ant frame size in px (48)
 const COLS = FRAMES + 1; // 4 walk frames + 1 carrying
@@ -28,7 +28,12 @@ const W = Math.max(
   X1 + 12 * (CRICKET + 32) + 36,
 ) + 16;
 const HOP_BLOCK = CRICKET + 72; // one hop cycle sampled left to right
-const H = ROLES.length * BLOCK_H + CRICKET_BLOCK + CRICKET_DIR_BLOCK + HOP_BLOCK + 56;
+// Caste lineup: every caste side by side on dirt and moss, the way the game
+// draws them (1 = zoom 1, then zoom 2), to judge the silhouettes at a glance
+const LINEUP_HEADINGS = [0, 4, 8, 12, 2, 6, 10, 14]; // direction indices
+const LINEUP_ROW = SPRITE + 8;
+const LINEUP_BLOCK = 48 + ROLES.length * LINEUP_ROW + 40 + ROLES.length * LINEUP_ROW * 2;
+const H = ROLES.length * BLOCK_H + CRICKET_BLOCK + CRICKET_DIR_BLOCK + HOP_BLOCK + LINEUP_BLOCK + 56;
 
 const canvas = document.createElement('canvas');
 canvas.width = W;
@@ -120,4 +125,36 @@ for (let ri = 0; ri < ROLES.length; ri++) {
     ctx.fillRect(cx - 40, ground + 30, 80, 2);
     atlas.drawCricket(ctx, cx, ground - f.lift, 0, 0, f.pose);
   }
+}
+
+// Caste lineup (zoom 1, then zoom 2): rows of castes facing 8 headings, left
+// half on regolith dirt, right half on moss
+{
+  const top = 40 + ROLES.length * BLOCK_H + CRICKET_BLOCK + CRICKET_DIR_BLOCK + HOP_BLOCK + 24;
+  const half = LINEUP_HEADINGS.length / 2;
+  const lineup = (zoom: number, y0: number) => {
+    const row = LINEUP_ROW * zoom;
+    const colW = (SPRITE + 12) * zoom;
+    ctx.fillStyle = PAL.white;
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText(`CASTE LINEUP  |  zoom ${zoom}  (dirt | moss)`, X1, y0 - 24);
+    ctx.fillStyle = PAL.grass[1];
+    ctx.fillRect(X1 + 120 + half * colW, y0, half * colW, ROLES.length * row);
+    ROLES.forEach((role, ri) => {
+      const cy = y0 + ri * row + row / 2;
+      ctx.fillStyle = PAL.white;
+      ctx.font = '14px monospace';
+      ctx.fillText(role, X1, cy - 7);
+      ctx.save();
+      ctx.scale(zoom, zoom);
+      ctx.imageSmoothingEnabled = false;
+      LINEUP_HEADINGS.forEach((d, i) => {
+        const cx = X1 + 120 + i * colW + colW / 2;
+        atlas.drawAnt(ctx, cx / zoom, cy / zoom, (d * Math.PI * 2) / DIRECTIONS, phaseFor(i % FRAMES), role, false);
+      });
+      ctx.restore();
+    });
+  };
+  lineup(1, top + 24);
+  lineup(2, top + 24 + ROLES.length * LINEUP_ROW + 40);
 }

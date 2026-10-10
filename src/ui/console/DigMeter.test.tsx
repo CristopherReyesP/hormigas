@@ -7,6 +7,8 @@ import { DigMeter } from './DigMeter';
 import { buildCommands, digHint, type CommandContext } from './commands';
 import type { ColonyDetails } from './useColonyDetails';
 import { NotificationStack } from '../NotificationStack';
+import { TouchCommandBar } from './TouchCommandBar';
+import type { ReactNode } from 'react';
 
 const status = (pending: number, diggers = 4) => digStatus({ pending, cap: 20, diggers, secondsPerTile: 3 });
 
@@ -32,6 +34,44 @@ describe('dig meter', () => {
       <NotificationStack notifications={[]} hint="EXCAVAR: haz clic" hintExtra={<DigMeter status={status(3)} />} />,
     );
     expect(html).toMatch(/notif-line--hint[^>]*>EXCAVAR: haz clic<div class="dig-meter/);
+  });
+});
+
+describe('dig counter in the touch hint line', () => {
+  const bar = (hintExtra: ReactNode, hintRefused: boolean, text: string) =>
+    renderToStaticMarkup(
+      <TouchCommandBar
+        stats={{ quickSelect: [], controlGroups: [] } as unknown as GameStats}
+        hint={{ mode: 'build', text, selection: null }}
+        hintExtra={hintExtra}
+        hintRefused={hintRefused}
+        infoOpen={false}
+        onToggleInfo={() => {}}
+        onQuickSelect={() => {}}
+        onRecallGroup={() => {}}
+        onClearSelection={() => {}}
+      />,
+    );
+
+  it('rides under the tool hint', () => {
+    const html = bar(<DigMeter status={status(12)} />, false, 'EXCAVAR: toca la tierra');
+    expect(html).toContain('quick-hint--meter');
+    expect(html).toMatch(/quick-hint-line">EXCAVAR: toca la tierra<\/span><div class="dig-meter dig-meter--ok/);
+    expect(html).toContain('Excavación: 12/20');
+  });
+
+  it('at the limit the line is the refusal, in red', () => {
+    const message = digHint(status(20))!.text;
+    const html = bar(<DigMeter status={status(20)} />, true, message);
+    expect(html).toContain('quick-hint--refused');
+    expect(html).toContain(message);
+  });
+
+  it('the feed does not repeat a toast the hint line already shows', () => {
+    const message = digHint(status(20))!.text;
+    const toast = { id: 1, severity: 'warning' as const, message: `⛏️ ${message}`, createdAt: 0 };
+    const html = renderToStaticMarkup(<NotificationStack notifications={[toast]} hint={null} hideMessage={message} />);
+    expect(html).not.toContain(message);
   });
 });
 

@@ -158,6 +158,11 @@ export class PostProcessor {
     if (this.alarmTime >= DUSK_ALARM_DURATION) this.alarmTime = -1;
   }
 
+  /** Fire the red alarm pulse now (invaders broke into the nest) */
+  triggerAlarm(): void {
+    this.alarmTime = 0;
+  }
+
   /** Current dusk alarm alpha (0 when idle) — read by tests and the draw pass */
   getAlarmLevel(): number {
     return this.alarmTime < 0 ? 0 : duskAlarmAlpha(this.alarmTime);

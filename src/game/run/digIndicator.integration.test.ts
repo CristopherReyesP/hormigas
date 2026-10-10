@@ -118,6 +118,36 @@ describe('dig limit with the real GameManager', () => {
     game.stop();
   });
 
+  it('a finger tap marks earth and a second tap on the mark takes it off (touch tap order)', () => {
+    const { game, ug, excavation, cam } = setup();
+    const row = earthRow(ug, 1);
+    const at = cam.worldToScreen((row.x + 0.5) * TILE_SIZE, (row.y + 0.5) * TILE_SIZE);
+    game['handleTap'](at.x, at.y);
+    expect(ug.getTile(row.x, row.y)!.designated).toBe(true);
+    expect(excavation.getPendingJobCount()).toBe(1);
+    game['handleTap'](at.x, at.y);
+    expect(ug.getTile(row.x, row.y)!.designated).toBe(false);
+    expect(excavation.getPendingJobCount()).toBe(0);
+    game.stop();
+  });
+
+  it('erasing frees a slot at the limit: the next tap is accepted again', () => {
+    const { game, ug, excavation, cam } = setup();
+    const row = earthRow(ug, 21);
+    for (let i = 0; i < 20; i++) game.designateDig(row.x + i, row.y);
+    const tap = (x: number) => {
+      const p = cam.worldToScreen((x + 0.5) * TILE_SIZE, (row.y + 0.5) * TILE_SIZE);
+      game['handleTap'](p.x, p.y);
+    };
+    tap(row.x + 20);
+    expect(ug.getTile(row.x + 20, row.y)!.designated).toBe(false);
+    tap(row.x); // take a mark off
+    expect(excavation.getPendingJobCount()).toBe(19);
+    tap(row.x + 20);
+    expect(ug.getTile(row.x + 20, row.y)!.designated).toBe(true);
+    game.stop();
+  });
+
   it('the stats report the crew and an estimate once workers take the jobs', () => {
     const { game, ug } = setup();
     const row = earthRow(ug, 4);
