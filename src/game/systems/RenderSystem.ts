@@ -1652,6 +1652,17 @@ export class RenderSystem {
 
         this.spriteAtlas.drawAnt(ctx, px, py + bob, angle, legPhase, role, isCarrying);
         if (carried === 'mushroom') this.farmArt.drawCarriedMushroom(ctx, px, py + bob);
+
+        // "Esperando espacio en la despensa": three amber dots over the ant,
+        // lit one after another, so a crowd waiting with loads reads at a glance
+        if (ant?.state === AntState.WaitingForPantry) {
+          const lit = Math.floor(frameTime / 300) % 3;
+          for (let i = 0; i < 3; i++) {
+            ctx.fillStyle = i === lit ? PAL.glowAmber : PAL.earth[3];
+            // Above the carried load (drawn up to 16 px over the ant)
+            ctx.fillRect(Math.round(px) - 8 + i * 6, Math.round(py) - 24, 4, 4);
+          }
+        }
       } else {
         // Check if it's an egg
         const eggComp = this.world.getComponent<EggComponent>(id, COMPONENT.EGG);

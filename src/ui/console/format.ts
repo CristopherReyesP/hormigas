@@ -77,6 +77,7 @@ export const ANT_STATE_LABEL: Record<string, string> = {
   holding: 'Manteniendo posición',
   mining: 'Minando',
   farm_harvesting: 'Cosechando hongos',
+  waiting_for_pantry: 'Esperando espacio en la despensa',
 };
 
 export const BEETLE_STATE_LABEL: Record<string, string> = {

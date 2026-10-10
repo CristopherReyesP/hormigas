@@ -43,9 +43,19 @@ import {
  * - FetchingFood: walk to the surface stockpile, load up to carry capacity,
  *   then ride the entrance shaft down (TransitSystem).
  * - Hauling: walk to a pantry tile with space and deposit. If the pantry
- *   is full, the porter carries the load back up and leaves it on the
- *   entrance pile, then goes back to work: food never appears or disappears,
- *   and no worker idles below ground with food in its jaws.
+ *   is full, a worker keeps the load and waits for room (WaitingForPantry).
+ * - WaitingForPantry: the designer's rule, "cuando la despensa está llena,
+ *   tienen que esperar a que haya más espacio". The worker stands in the
+ *   storage area below ground holding its load and deposits it the moment a
+ *   pile of that type has room (the colony ate, an egg was paid, the player
+ *   marked more Almacén). If it gets hungry it eats the load (HungerSystem).
+ *   It waits BELOW, on the pantry tiles, not at the entrance: it rides the
+ *   shaft once instead of twice, it stands off the shaft foot so porters,
+ *   miners and diggers keep moving through it, it is out of reach of the
+ *   crickets that raid the entrance, and it is a few steps from the pile
+ *   that frees up. Its load counts as "en camino" on the HUD, so no food is
+ *   hidden, and idle workers start no new foraging while the pantry is full
+ *   (AntAISystem), so the wait never takes the whole workforce.
  * - Scavenging: walk to loose food lying on the underground layer (meat
  *   dropped by invaders killed inside the nest), load it, then deposit it
  *   through the same Hauling flow.
@@ -78,8 +88,8 @@ export class PorterSystem implements System {
 
   /** Retained for GameManager compatibility — the dig-jobs gate was removed (Bug 2 fix) */
   setDigJobsProvider(_fn: () => number): void {
-    // No-op: with the pantry full a hauler takes its load back up to the
-    // entrance pile, whatever the pending dig jobs.
+    // No-op: with the pantry full a hauler waits in the storage area with its
+    // load, whatever the pending dig jobs.
   }
 
   constructor(world: World, grid: UndergroundGrid, surfaceGrid: TileGrid, transitSystem: TransitSystem) {
@@ -157,6 +167,11 @@ export class PorterSystem implements System {
         this.handleScavenging(id, ant, nest, dt);
         continue;
       }
+      if (ant.state === AntState.WaitingForPantry) {
+        if (this.sendOreUp(id, ant)) continue;
+        this.handleWaiting(id, ant, nest, dt);
+        continue;
+      }
 
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
       if (this.transitSystem.isInTransit(id)) continue;
@@ -168,7 +183,7 @@ export class PorterSystem implements System {
       if (isOreLoad(load.resourceType) && load.amount > 0) continue;
 
       // A loaded idle ant below (it finished a dig with food in its mouth)
-      // delivers it: to a pile if there is room, else up to the entrance pile
+      // delivers it: to a pile if there is room, else it waits for room
       if (layer.layer === Layer.Underground && ant.state === AntState.Idle && load.amount > 0) {
         ant.state = AntState.Hauling;
         ant.stateTimer = 0;
@@ -465,13 +480,14 @@ export class PorterSystem implements System {
     if (type === null) return; // ore: sendOreUp already took it off porter duty
 
     if (layer.layer === Layer.Surface) {
-      // A loaded ant on the surface walks to the nest and rides down. With the
-      // pantry full it leaves the load on the entrance pile instead (porters
-      // bring it down once there is room) and goes back to work.
+      // A loaded ant on the surface walks to the nest and rides down. A worker
+      // rides down even with the pantry full: it waits below for room. A
+      // stand-in soldier or scout puts the load back on the entrance pile it
+      // took it from and goes back to its own job.
       const dx = nestPos.x - pos.x;
       const dy = nestPos.y - pos.y;
       if (Math.sqrt(dx * dx + dy * dy) < ANT_DEPOSIT_RANGE) {
-        if (this.grid.hasDepositSpace([type])) {
+        if (ant.role === AntRole.Worker || this.grid.hasDepositSpace([type])) {
           this.transitSystem.requestTransit(id, 'enter');
         } else {
           this.dropOnEntrancePile(nest, carrying, type);
@@ -490,13 +506,18 @@ export class PorterSystem implements System {
 
     const target = this.grid.findDepositTile(type, pos.x, pos.y);
     if (!target) {
-      // Pantry is FULL. Waiting below with the food in its jaws froze the
-      // whole workforce once a big haul filled the pantry (every worker idle
-      // underground, 400+ food in mouths, nobody foraging). The ant rides up
-      // still Hauling and leaves the load on the entrance pile (surface branch).
+      // Pantry is FULL: a worker keeps the load and waits for room in the
+      // storage area (see WaitingForPantry in the class comment). A stand-in
+      // soldier or scout rides up still Hauling and puts the load back on the
+      // entrance pile (surface branch): it has its own job to get back to.
       this.notifyPantryFull();
       this.clearPath(id);
-      this.transitSystem.requestTransit(id, 'exit');
+      if (ant.role === AntRole.Worker) {
+        ant.state = AntState.WaitingForPantry;
+        ant.stateTimer = 0;
+      } else {
+        this.transitSystem.requestTransit(id, 'exit');
+      }
       return;
     }
 
@@ -518,6 +539,61 @@ export class PorterSystem implements System {
     } else {
       this.setUndergroundPath(id, pos, target.x + 0.5, target.y + 0.5);
     }
+  }
+
+  /**
+   * Wait in the storage area with the load until a pile of its type has room,
+   * then deposit it (Hauling). A load eaten while waiting ends the wait.
+   */
+  private handleWaiting(id: number, ant: AntComponent, nest: NestComponent, dt: number): void {
+    if (this.transitSystem.isInTransit(id)) return;
+    const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
+    const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+    const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
+
+    if (carrying.amount <= 1e-6) {
+      // It ate the whole load while waiting: nothing left to store
+      carrying.amount = 0;
+      carrying.resourceType = null;
+      this.finishTrip(id, ant, nest, layer);
+      return;
+    }
+    const type = this.asPantryType(carrying.resourceType);
+    if (type === null) return; // ore: sendOreUp took it
+
+    if (layer.layer === Layer.Surface) {
+      // Brought up by something else: walk back to the nest and ride down
+      ant.state = AntState.Hauling;
+      ant.stateTimer = 0;
+      return;
+    }
+
+    ant.stateTimer += dt;
+    if (this.grid.findDepositTile(type, pos.x, pos.y)) {
+      // Room at last (eaten, spent on an egg, merged, or new Almacén): deposit
+      ant.state = AntState.Hauling;
+      ant.stateTimer = 0;
+      this.clearPath(id);
+      return;
+    }
+
+    const spot = this.waitSpot(id);
+    if (spot && Math.hypot(spot.x - pos.x, spot.y - pos.y) > 0.4) {
+      this.setUndergroundPath(id, pos, spot.x, spot.y);
+    }
+  }
+
+  /**
+   * Where a worker waits for room: on one of the pantry tiles, spread by id so
+   * a crowd does not stack on one tile, never at the foot of the shaft.
+   */
+  private waitSpot(id: number): { x: number; y: number } | null {
+    const tiles = this.grid.getPantryTiles();
+    if (tiles.length === 0) return null;
+    const tile = tiles[id % tiles.length];
+    const jitterX = ((id * 7) % 5 - 2) * 0.12;
+    const jitterY = ((id * 3) % 5 - 2) * 0.12;
+    return { x: tile.x + 0.5 + jitterX, y: tile.y + 0.5 + jitterY };
   }
 
   /** Load delivered — loop for more if there's work, otherwise back to the surface to forage */
@@ -762,7 +838,7 @@ export class PorterSystem implements System {
     const now = Date.now();
     if (now - this.lastPantryFullNotify < PANTRY_FULL_NOTIFY_COOLDOWN_MS) return;
     this.lastPantryFullNotify = now;
-    this.world.pushNotification('warning', '🍖 ¡Despensa llena! La comida espera en la entrada: marca más casillas de Almacén en el nido');
+    this.world.pushNotification('warning', '🍖 ¡Despensa llena! Las obreras esperan con la comida: marca más casillas de Almacén en el nido');
   }
 }
 
