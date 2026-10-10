@@ -139,7 +139,7 @@ describe('night waves from the human base', () => {
   it('keeps every wave total intact', () => {
     for (let n = 1; n <= 12; n++) {
       const w = waveComposition(n, 'human');
-      expect(w.youngBeetles + w.beetles + w.drones).toBe(w.total);
+      expect(w.youngBeetles + w.beetles + w.drones + (w.boss ? 1 : 0)).toBe(w.total);
       expect(w.total).toBe(waveComposition(n).total);
     }
   });

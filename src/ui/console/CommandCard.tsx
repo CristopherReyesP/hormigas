@@ -32,11 +32,13 @@ const PRESS_FLASH_MS = 140;
 const COST_ICON: Record<NonNullable<CommandDef['cost']>['resource'], IconName> = {
   comida: 'pantry',
   hongos: 'fungus',
+  minerales: 'mineral',
 };
 
 const COST_LABEL: Record<NonNullable<CommandDef['cost']>['resource'], string> = {
   comida: 'de comida de la despensa',
   hongos: 'hongos',
+  minerales: 'minerales',
 };
 
 /** 3×5 command card with positional hotkeys and a tooltip plate above it. */

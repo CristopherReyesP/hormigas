@@ -468,6 +468,39 @@ const ICON_ART = {
     'nnnnnn..',
     '........',
   ],
+  /** Espina: a chitin turret with a spine on top */
+  spine: [
+    '....s...',
+    '...sa...',
+    '...am...',
+    '..fmmf..',
+    '..mpfm..',
+    '.fmaamf.',
+    'ffmmmmff',
+    '.kkkkkk.',
+  ],
+  /** Trampa de resina: an amber puddle with a bubble */
+  trap: [
+    '........',
+    '...Y....',
+    '..y.y...',
+    '...Y..Y.',
+    '.yyyyyy.',
+    'yYyyYyyy',
+    '.yyyyyy.',
+    '........',
+  ],
+  /** Muro de quitina: stacked chitin plates */
+  wall: [
+    '........',
+    'fmmfmmmf',
+    'mppmppmp',
+    'ffmmfmmf',
+    'mmfmmmfm',
+    'pmmppmmp',
+    'fmmfmmff',
+    'kkkkkkkk',
+  ],
   /** Recenter the camera: crosshair */
   target: [
     '...aa...',
