@@ -22,6 +22,8 @@ import { snapToWalkable } from '../systems/helpers/playerOrders';
 import type { SelectionSystem } from '../systems/SelectionSystem';
 import { TILE_SIZE, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
 import { fakeCanvas, finishIntro } from '../../test/gameManagerMocks';
+import { feedbackText } from '../../ui/console/feedbackText';
+import type { CommandFeedback } from '../commandFeedback';
 
 vi.mock('../../engine/input/InputManager', async () => (await import('../../test/gameManagerMocks')).mockInputManager());
 vi.mock('../systems/RenderSystem', async () => (await import('../../test/gameManagerMocks')).mockRenderSystem());
@@ -164,8 +166,14 @@ describe('the mine order from the player', () => {
     expect(lastToast()).toBe('3 obreras → minar');
 
     game.stopSelectedAnts();
+    const feedback: unknown[] = [];
+    const off = game.onCommandFeedback((event) => feedback.push(event));
     game['handleTap'](onNode.x, onNode.y);
+    off();
     for (const id of team) expect(ant(id).resourceOrder).toBe('mine');
+    // A tap gets the same phone feedback as the other orders: the toast event, not a second notice
+    expect(feedback).toEqual([expect.objectContaining({ type: 'order', order: 'mine', count: 3, touch: true })]);
+    expect(feedbackText(feedback[0] as CommandFeedback)).toBe('3 obreras → minar');
 
     game.stopSelectedAnts();
     game.armMineTarget();

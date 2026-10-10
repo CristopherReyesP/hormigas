@@ -33,8 +33,12 @@ interface SwarmCaste {
   petiole: readonly number[];                // waist pixels on the axis
   thCx: number; thRx: number; thRy: number;  // thorax
   neck: number | null;
-  hX: number; hR: number; shieldHead?: boolean;
+  hX: number; hR: number;
+  shieldHead?: boolean;                      // broad 5×9 head plate instead of a round head
+  horn?: boolean;                            // pale horn jutting from the shield's front
   hips: readonly [number, number, number]; reach: number; splay: number;
+  stout?: boolean;                           // 2-px thick legs
+  droplet?: boolean;                         // nectar droplet held between the jaws
   antenna: readonly [ArtPoint, ArtPoint, ArtPoint]; // root → elbow → tip (tip flicks)
   spines: readonly ArtPoint[];               // 1-px bone bumps just outside the outline
   jaws: readonly JawStroke[];                // scythe mandibles (unoutlined, stay sharp)
@@ -64,32 +68,36 @@ const SWARM_CASTES: Record<AntRole, SwarmCaste> = {
     ],
     eye: [17, 9], mouth: 20,
   },
-  // Scout: sleek and spineless — slimmest gaster, longest legs and antennae
+  // Scout: sleek and spineless — a long narrow gaster, longest legs and antennae
   [AntRole.Scout]: {
-    gx: 7, grx: 3.4, gry: 1.7, skin: 'flesh', petiole: [11, 12],
+    gx: 7, grx: 3.6, gry: 2.2, skin: 'flesh', petiole: [11, 12],
     thCx: 14, thRx: 1.4, thRy: 1.0, neck: 16, hX: 18, hR: 1.4,
     hips: [13, 14, 15], reach: 7, splay: 4,
     antenna: [[18, 10], [17, 7], [19, 4]], spines: [],
     jaws: [{ points: [[20, 11], [21, 11]], tone: 4 }],
     eye: [18, 11], mouth: 20,
   },
-  // Nurse: soft, pale brood-tender — round gaster, small head, short legs
+  // Nurse: the slim, delicate brood-tender — a small pale egg-shaped gaster
+  // (the vein shows through the thin skin), a long thread waist, a narrow
+  // body, long thin legs and antennae, and a nectar droplet between the jaws
   [AntRole.Nurse]: {
-    gx: 6, grx: 3.4, gry: 3.2, skin: 'pale', petiole: [10],
-    thCx: 12, thRx: 1.3, thRy: 1.2, neck: 14, hX: 16, hR: 1.6,
-    hips: [11, 12, 13], reach: 5, splay: 2,
-    antenna: [[16, 10], [17, 8], [19, 7]], spines: [],
-    jaws: [{ points: [[18, 11], [19, 11]], tone: 4 }],
-    eye: [16, 11], mouth: 18,
+    gx: 6, grx: 2.6, gry: 1.2, skin: 'pale', petiole: [9, 10, 11],
+    thCx: 13, thRx: 1.2, thRy: 0.7, neck: 15, hX: 17, hR: 1.1,
+    hips: [12, 13, 14], reach: 7, splay: 3,
+    antenna: [[17, 11], [18, 8], [21, 6]], spines: [],
+    jaws: [{ points: [[19, 11], [20, 11]], tone: 4 }],
+    eye: [17, 11], mouth: 20, droplet: true,
   },
-  // Armored: dark plated gaster, square shield head, blunt jaws, spine rows + horn
+  // Armored: the colony's wall — a broad shield-plated head with a dark rim
+  // and a forward horn, a thick plated thorax, a heavy plated gaster, short
+  // stout legs, blunt jaws and spine rows
   [AntRole.Defender]: {
-    gx: 6, grx: 3.6, gry: 2.9, skin: 'plated', petiole: [10, 11],
-    thCx: 13, thRx: 1.9, thRy: 1.5, neck: null, hX: 18, hR: 1.8, shieldHead: true,
-    hips: [12, 13, 14], reach: 5, splay: 2,
-    antenna: [[18, 8], [19, 6], [21, 6]], spines: [[4, 7], [6, 7], [8, 7], [13, 9]],
-    jaws: [{ points: [[20, 10], [21, 10]], tone: 3 }],
-    eye: [18, 10], mouth: 20,
+    gx: 6, grx: 3.6, gry: 3.2, skin: 'plated', petiole: [10],
+    thCx: 12.5, thRx: 1.9, thRy: 2.2, neck: null, hX: 17, hR: 2.0, shieldHead: true, horn: true,
+    hips: [10, 11, 12], reach: 5, splay: 2, stout: true,
+    antenna: [[18, 8], [19, 6], [21, 6]], spines: [[4, 7], [6, 7], [8, 7]],
+    jaws: [{ points: [[20, 10]], tone: 3 }],
+    eye: [18, 9], mouth: 20,
   },
 };
 
@@ -167,6 +175,8 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
       const kneeY = AXIS + side * Math.round(c.reach * 0.7);
       // Dark flesh, not outline black, so the legs read on dark regolith
       p.polyline([[hipX, AXIS + side], [kneeX, kneeY], [footX, AXIS + side * c.reach]], F[1]);
+      // Stout legs: a second strand beside the first makes them 2 px thick
+      if (c.stout) p.polyline([[hipX - 1, AXIS + side], [kneeX - 1, kneeY], [footX - 1, AXIS + side * c.reach]], F[1]);
       knees.push([hipX, kneeX, kneeY, side, i]);
     }
   }
@@ -182,10 +192,10 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
   // continuous 1-px outline: gaster + petiole + thorax + neck + head.
   p.outlined(pen => {
     pen.ellipse(c.gx, AXIS, grx, gry, tones[0]);
-    for (const x of c.petiole) pen.px(x, AXIS, F[2]);
-    pen.ellipse(c.thCx, AXIS, c.thRx, c.thRy, skin === 'plated' ? F[2] : F[3]);
-    if (c.neck !== null) pen.px(c.neck, AXIS, F[2]);
-    if (c.shieldHead) pen.rect(c.hX - 2, AXIS - 3, 4, 7, F[2]);
+    for (const x of c.petiole) pen.px(x, AXIS, c.skin === 'pale' ? F[3] : F[2]);
+    pen.ellipse(c.thCx, AXIS, c.thRx, c.thRy, skin === 'plated' ? F[1] : F[3]);
+    if (c.neck !== null) pen.px(c.neck, AXIS, c.skin === 'pale' ? F[3] : F[2]);
+    if (c.shieldHead) pen.rect(c.hX - 2, AXIS - 4, 5, 9, F[1]);
     else pen.disc(c.hX, AXIS, c.hR, F[3]);
   }, O);
 
@@ -238,7 +248,9 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
     p.px(c.gx + 1, AXIS, V[0]);
   } else {
     const half = Math.floor(grx - 0.5);
-    p.hline(c.gx - half, AXIS, half * 2 + 1, V[1]);
+    // Pale nurse skin is thin: the vein shows through it dimmer, brightest at the core
+    p.hline(c.gx - half, AXIS, half * 2 + 1, c.skin === 'pale' ? V[0] : V[1]);
+    p.px(c.gx, AXIS, V[1]);
     p.px(c.gx - half, AXIS, V[0]);
     p.px(c.gx + half, AXIS, V[0]);
   }
@@ -280,11 +292,20 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
     both(c.gx + 2, AXIS - 2, V[0]);
   }
 
-  // Shield head: the lit front plate
+  // Shield head: a dark armor rim around a raised plate with a lit ridge,
+  // and the horn jutting forward from its front edge
   if (c.shieldHead) {
+    p.rect(c.hX - 1, AXIS - 3, 3, 7, F[2]);
     p.vline(c.hX, AXIS - 2, 5, F[3]);
     p.px(c.hX - 1, AXIS, F[3]);
   }
+  if (c.horn) {
+    p.hline(c.hX + 3, AXIS, 3, F[4]);
+    p.px(c.hX + 3, AXIS - 1, F[3]);
+    p.px(c.hX + 3, mirror(AXIS - 1), F[3]);
+  }
+  // Plated thorax: a dark rim around a raised dorsal plate
+  if (skin === 'plated' && c.thRy >= 2) p.ellipse(c.thCx, AXIS, c.thRx - 1, c.thRy - 1, F[2]);
 
   // Titan brood: a thick, knobbed armor plate over the soldier's head
   const plate = stacks('thick_head_plate');
@@ -335,6 +356,9 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
     p.outlined(pen => pen.ellipse(c.mouth, AXIS, 1.2, 1.8, PAL.leaf[1]), O);
     p.vline(c.mouth, AXIS - 1, 3, PAL.leaf[0]);
   }
+
+  // Nurse: a pale nectar droplet held between the jaws for the brood
+  if (c.droplet && !carrying) p.hline(c.mouth, AXIS, 2, F[4]);
 
   // Scythe mandibles (pale bone, unoutlined so the hooks stay 1 px sharp).
   // Acid mandibles turn them chartreuse and drip acid between the jaws.

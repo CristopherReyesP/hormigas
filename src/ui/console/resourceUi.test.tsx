@@ -7,6 +7,7 @@ import { infoSummary } from './infoSummary';
 import { TopStrip } from './TopStrip';
 import { buildCommands, commandTargetHint, type CommandContext } from './commands';
 import type { ColonyDetails } from './useColonyDetails';
+import { feedbackText } from './feedbackText';
 
 const DETAILS = {
   food: { total: 0, leaves: 0, mushrooms: 0, meat: 0 },
@@ -126,5 +127,14 @@ describe('minerals in the top strip', () => {
     const html = renderToStaticMarkup(<TopStrip stats={STATS} />);
     expect(html).toContain('Minerales 120 · 3 mineras');
     expect(html).toMatch(/strip-minerals[\s\S]*3<\/span>/);
+  });
+});
+
+describe('resource order toasts on a phone', () => {
+  it('say who took it and what they gather', () => {
+    expect(feedbackText({ type: 'order', order: 'gather', count: 4, byRole: { [AntRole.Worker]: 4 }, target: null, touch: true, resource: 'hojas' }))
+      .toBe('4 obreras → recolectar hojas');
+    expect(feedbackText({ type: 'order', order: 'mine', count: 1, byRole: { [AntRole.Worker]: 1 }, target: null, touch: true }))
+      .toBe('1 obrera → minar');
   });
 });

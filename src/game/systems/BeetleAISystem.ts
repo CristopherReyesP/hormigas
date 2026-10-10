@@ -18,6 +18,9 @@ import {
   Layer,
 } from '../components/components';
 import { findPath } from '../../simulation/pathfinding/AStar';
+import { FactionId, ownerOf } from '../factions/factions';
+import { HUMAN_COMPONENT } from '../rival/humanComponents';
+import { HUMAN_PLAYER_COMPONENT } from '../races/human/humanPlayerComponents';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
 import {
   BEETLE_STATS,
@@ -70,6 +73,8 @@ export class BeetleAISystem implements System {
       // Underground invaders are driven by UndergroundInvasionSystem, not surface AI
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
       if (layer && layer.layer === Layer.Underground) continue;
+      // Night-wave beetles at a Human player's base are steered by HumanWaveSystem
+      if (this.world.getComponent(id, HUMAN_PLAYER_COMPONENT.WAVE_INVADER)) continue;
 
       const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE)!;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
@@ -466,6 +471,14 @@ export class BeetleAISystem implements System {
         y: antPos.y,
         isSoldier: ant !== undefined && ant.role === AntRole.Soldier,
       });
+    }
+    // A Human player's units are prey too (the rival's Human troops keep to their base)
+    for (const id of this.world.query(HUMAN_COMPONENT.UNIT, COMPONENT.POSITION)) {
+      if (ownerOf(this.world, id) !== FactionId.PLAYER) continue;
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+      if (layer && layer.layer !== Layer.Surface) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      this.prey.push({ id, x: pos.x, y: pos.y, isSoldier: false });
     }
   }
 

@@ -5,6 +5,7 @@ import { CARD_SLOTS, cardHotkeys } from './commandCardLayout';
 import type { IconName } from './pixelIcons';
 import type { ColonyDetails } from './useColonyDetails';
 import { ROLE_BLURB, ROLE_LABEL, stripEmoji } from './format';
+import { humanCommands } from '../races/human/humanCommands';
 import { DEFENSE_STATS, type DefenseKind } from '../../game/run/defenses';
 
 /**
@@ -15,8 +16,8 @@ import { DEFENSE_STATS, type DefenseKind } from '../../game/run/defenses';
 
 /** Nest tools (underground only) and the defense build tools (both layers: Espina, Trampa, Muro) */
 export type BuildMode = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense' | DefenseKind;
-/** 'groups' is the touch stand-in for Ctrl/Shift+digit: bind the selection to a control group */
-export type CardPage = 'root' | 'colony' | 'groups' | 'defenses';
+/** 'groups' is the touch stand-in for Ctrl/Shift+digit: bind the selection to a control group; 'build' is a Human builder's Construir menu */
+export type CardPage = 'root' | 'colony' | 'groups' | 'defenses' | 'build';
 
 const DEFENSE_KINDS: readonly DefenseKind[] = ['spine', 'trap', 'wall'];
 
@@ -34,7 +35,7 @@ export interface CommandDef {
   glyph?: string;
   description: string;
   /** Price printed on the button face; `short` paints it red when the stock cannot pay it */
-  cost?: { amount: number; resource: 'comida' | 'hongos' | 'minerales'; short?: boolean };
+  cost?: { amount: number; resource: 'comida' | 'hongos' | 'raciones' | 'minerales'; short?: boolean };
   /** Small corner text: queue size, tile count, upgrade level */
   badge?: string;
   badgeTone?: 'warn';
@@ -45,6 +46,14 @@ export interface CommandDef {
   /** Why it is disabled, for the tooltip */
   disabledReason?: string;
   tone?: 'danger';
+  /**
+   * A main order of its card (Mover, Atacar, Volver al nido, Atacar guarida):
+   * the compact layout draws it as a big button with its name on it; the
+   * desktop card is unchanged.
+   */
+  prominent?: boolean;
+  /** The name on a prominent button, when the tooltip title is longer */
+  shortLabel?: string;
   run: () => void;
 }
 
@@ -254,6 +263,8 @@ function attackDen(ctx: CommandContext): CommandDef {
   return {
     id: 'attack-den',
     label: hive ? 'Atacar colmena' : spire ? 'Atacar aguja' : human ? 'Atacar edificio' : 'Atacar guarida',
+    shortLabel: hive ? 'Atacar colmena' : spire ? 'Atacar aguja' : human ? 'Atacar edificio' : 'Atacar guarida',
+    prominent: true,
     icon: 'sword',
     description: `Ordena a los soldados libres más cercanos atacar ${base} seleccionada hasta destruirla. Ajusta cuántos en el panel central.`,
     badge: ready ? String(count) : undefined,
@@ -307,6 +318,12 @@ export function commandTargetHint(target: GameStats['commandTarget'], touch = fa
   return null;
 }
 
+/** The selection holds at least one worker (one ant, or a group). */
+function selectionHasWorkers(stats: GameStats): boolean {
+  if (stats.selectedGroup) return (stats.selectedGroup.byRole[AntRole.Worker] ?? 0) > 0;
+  return stats.selectedEntity?.type === 'ant' && (stats.selectedEntity.role ?? AntRole.Worker) === AntRole.Worker;
+}
+
 /** Own ants are selected on the surface: the StarCraft unit card. */
 function hasUnitSelection(stats: GameStats): boolean {
   if (stats.activeLayer !== 'surface') return false;
@@ -319,6 +336,8 @@ function hasUnitSelection(stats: GameStats): boolean {
  */
 function unitPage(ctx: CommandContext): Slot[] {
   const count = ctx.stats.selectedGroup?.count ?? 1;
+  // Recolectar and Minar are worker orders: they show when the selection has workers
+  const workers = selectionHasWorkers(ctx.stats);
   const ants = count === 1 ? 'la hormiga seleccionada' : `las ${count} hormigas seleccionadas`;
   return [
     {
@@ -330,9 +349,12 @@ function unitPage(ctx: CommandContext): Slot[] {
         : `Haz clic derecho en el suelo para mover a ${ants}. También puedes pulsar Mover y luego hacer clic en el destino. Cada una ocupa su lugar en la formación. Al llegar, las obreras vuelven a su trabajo y las guerreras montan guardia allí.`,
       altKeys: ctx.touch ? 'tocar el suelo' : 'clic derecho en el suelo',
       active: ctx.stats.commandTarget === 'move',
+      prominent: true,
+      shortLabel: 'Mover',
       run: act(ctx, () => armOrCancel(ctx, 'move')),
     },
-    {
+    ctx.touch ? rally(ctx, ants) : null,
+    workers ? {
       id: 'gather-order',
       label: 'Recolectar',
       icon: 'leaf',
@@ -341,9 +363,11 @@ function unitPage(ctx: CommandContext): Slot[] {
         : `Pulsa Recolectar y haz clic en una hoja, un hongo o carne: las obreras de la selección la llevan a la despensa y vuelven por más hasta agotarla. El clic derecho sobre la comida hace lo mismo.`,
       altKeys: ctx.touch ? 'tocar la comida' : 'clic derecho en la comida',
       active: ctx.stats.commandTarget === 'gather',
+      prominent: true,
+      shortLabel: 'Recoger',
       run: act(ctx, () => armOrCancel(ctx, 'gather')),
-    },
-    {
+    } : null,
+    workers ? {
       id: 'mine-order',
       label: 'Minar',
       icon: 'mineral',
@@ -352,9 +376,10 @@ function unitPage(ctx: CommandContext): Slot[] {
         : `Pulsa Minar y haz clic en un cristal: las obreras de la selección lo minan y llevan el mineral al nido sin parar, hasta que les des otra orden. El clic derecho sobre el cristal hace lo mismo.`,
       altKeys: ctx.touch ? 'tocar el cristal' : 'clic derecho en el cristal',
       active: ctx.stats.commandTarget === 'mine',
+      prominent: true,
+      shortLabel: 'Minar',
       run: act(ctx, () => armOrCancel(ctx, 'mine')),
-    },
-    null,
+    } : null,
     ctx.touch ? groupsButton(ctx) : null,
     {
       id: 'attack',
@@ -365,6 +390,8 @@ function unitPage(ctx: CommandContext): Slot[] {
         : `Pulsa Atacar y haz clic. Sobre un enemigo, ${ants} lo persiguen hasta matarlo. En el suelo, avanzan, pelean con cada enemigo que ven en el camino y, al llegar, atacan la guarida o la colmena que haya allí. Al terminar, vuelven a su trabajo y defienden el nido si hace falta.`,
       altKeys: ctx.touch ? 'tocar un enemigo' : 'clic derecho en un enemigo',
       tone: 'danger',
+      prominent: true,
+      shortLabel: 'Atacar',
       active: ctx.stats.commandTarget === 'attack',
       run: act(ctx, () => armOrCancel(ctx, 'attack')),
     },
@@ -395,6 +422,21 @@ function unitPage(ctx: CommandContext): Slot[] {
     null,
     deselect(ctx),
   ];
+}
+
+/** Volver al nido (touch): the selection walks back to the nest entrance, a move order there. */
+function rally(ctx: CommandContext, ants: string): CommandDef {
+  return {
+    id: 'rally',
+    label: 'Volver al nido',
+    icon: 'descend',
+    description: `Ordena a ${ants} volver a la entrada del nido. Al llegar, las obreras vuelven a su trabajo y las guerreras montan guardia allí.`,
+    prominent: true,
+    shortLabel: 'Volver al nido',
+    run: act(ctx, () => {
+      if (ctx.gm.returnSelectedToNest() === 0) ctx.notify('Ninguna hormiga elegida puede volver al nido ahora.', 'danger');
+    }),
+  };
 }
 
 /** Mover / Atacar / Recolectar / Minar: arm the order; pressing the armed one again cancels it (touch has no Esc). */
@@ -750,8 +792,10 @@ function colonyPage(ctx: CommandContext): Slot[] {
 
 /** The 15 slots of the card for the current layer and page (null = empty slot). */
 export function buildCommands(ctx: CommandContext): Slot[] {
-  const slots =
-    ctx.stats.activeLayer === 'underground'
+  // A Human player has a card of their own (units, Construir, production); the Swarm's Defensas page is not on it
+  const slots = ctx.stats.human
+    ? humanCommands(ctx, ctx.stats.human)
+    : ctx.stats.activeLayer === 'underground'
       ? ctx.page === 'colony' ? colonyPage(ctx) : ctx.page === 'defenses' ? defensesPage(ctx) : nestRoot(ctx)
       : hasUnitSelection(ctx.stats) ? ctx.page === 'groups' ? groupsPage(ctx) : unitPage(ctx)
       : isDenSelected(ctx.stats) ? denPage(ctx)

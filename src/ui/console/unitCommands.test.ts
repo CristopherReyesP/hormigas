@@ -21,6 +21,7 @@ const details = {
     costs: { worker: 20, soldier: 35, scout: 20, nurse: 20, defender: 20 },
   },
   farm: { tiles: 0, rate: 0, status: 'sin-tiles', stored: 0, capacity: 0 },
+  farmTile: null,
   eatFirst: 'leaf',
   garrison: { target: 0, current: 0 },
   upgrades: [],
@@ -78,7 +79,7 @@ describe('unit command card', () => {
     const { ctx } = context({ selectedGroup: GROUP });
     const slots = ids(ctx);
     expect(slots).toEqual([
-      'move', 'gather-order', 'mine-order', null, null,
+      'move', null, 'gather-order', 'mine-order', null,
       'attack', 'stop', 'hold', null, null,
       'pause', 'speed', null, null, 'deselect',
     ]);
@@ -162,15 +163,43 @@ describe('the card on a touch screen', () => {
     return made;
   };
 
-  it('adds Seleccionar área and Asignar grupo to the unit card, and Seleccionar área to the colony card', () => {
+  it('adds Volver al nido, Seleccionar área and Asignar grupo to the unit card, and Seleccionar área to the colony card', () => {
     expect(ids(touch({ selectedGroup: GROUP }).ctx)).toEqual([
-      'move', 'gather-order', 'mine-order', null, 'groups-page',
+      'move', 'rally', 'gather-order', 'mine-order', 'groups-page',
       'attack', 'stop', 'hold', null, null,
       'pause', 'speed', 'area-select', null, 'deselect',
     ]);
     expect(ids(touch({}).ctx)[12]).toBe('area-select');
     // The desktop card is unchanged
     expect(ids(context({}).ctx)[12]).toBeNull();
+    expect(ids(context({ selectedGroup: GROUP }).ctx)[1]).toBeNull();
+  });
+
+  it('Mover, Atacar and Volver al nido are the big labeled buttons of the unit card, with Recolectar and Minar for workers', () => {
+    const slots = buildCommands(touch({ selectedGroup: GROUP }).ctx);
+    const prominent = slots.filter((c) => c?.prominent).map((c) => [c!.id, c!.shortLabel ?? c!.label]);
+    expect(prominent).toEqual([
+      ['move', 'Mover'],
+      ['rally', 'Volver al nido'],
+      ['gather-order', 'Recoger'],
+      ['mine-order', 'Minar'],
+      ['attack', 'Atacar'],
+    ]);
+    const soldiers = buildCommands(touch({ selectedGroup: { ...GROUP, byRole: { [AntRole.Soldier]: 3 } } }).ctx);
+    expect(soldiers.map((c) => c?.id ?? null)).not.toContain('mine-order');
+  });
+
+  it('Volver al nido sends the selection home and says so', () => {
+    const { gm, ctx } = touch({ selectedGroup: GROUP });
+    Object.assign(gm, { returnSelectedToNest: vi.fn(() => 3) });
+    buildCommands(ctx)[1]!.run();
+    expect((gm as unknown as { returnSelectedToNest: () => number }).returnSelectedToNest).toHaveBeenCalled();
+  });
+
+  it('Atacar guarida is a big labeled button on the den card', () => {
+    const den = { entityId: 9, type: 'beetle_den', position: { x: 0, y: 0 } } as GameStats['selectedEntity'];
+    const slots = buildCommands(touch({ selectedEntity: den, availableSoldiers: 4 }).ctx);
+    expect(slots.find((c) => c?.id === 'attack-den')).toMatchObject({ prominent: true, shortLabel: 'Atacar guarida' });
   });
 
   it('Seleccionar área toggles the box drag', () => {

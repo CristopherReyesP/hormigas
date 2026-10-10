@@ -18,7 +18,7 @@ import {
   type RenderComponent,
 } from '../../components/components';
 import { ENEMY_PICK_RADIUS, ORDER_SNAP_RADIUS } from '../../../shared/constants';
-import { FactionId, isHostileTo } from '../../factions/factions';
+import { FactionId, isHostileTo, ownerOf } from '../../factions/factions';
 import { HUMAN_COMPONENT, type HumanBuildingComponent } from '../../rival/humanComponents';
 import { HUMAN_BUILDING_STATS } from '../../rival/humanBase';
 import { clearResourceOrder } from './resourceOrders';
@@ -286,14 +286,22 @@ export interface MoveOrderResult {
   target: Vector2;
 }
 
-/** Own surface ants among `ids` that can take an order, with their distance to `target`. */
+/**
+ * A unit the player commands: an own ant, or a Human unit the player owns
+ * (a Human player's troops; HumanPlayerUnitSystem carries their orders out).
+ */
+export function isPlayerUnit(world: World, id: EntityId): boolean {
+  if (world.getComponent(id, COMPONENT.ANT) !== undefined) return true;
+  return world.getComponent(id, HUMAN_COMPONENT.UNIT) !== undefined && ownerOf(world, id) === FactionId.PLAYER;
+}
+
+/** Own surface units among `ids` that can take an order, with their distance to `target`. */
 function orderableUnits(world: World, ids: readonly EntityId[], target: Vector2): Array<{ id: EntityId; dist: number }> {
   const units: Array<{ id: EntityId; dist: number }> = [];
   for (const id of ids) {
-    const ant = world.getComponent<AntComponent>(id, COMPONENT.ANT);
     const layer = world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
     const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
-    if (!ant || !pos || !world.getComponent(id, COMPONENT.PATH)) continue;
+    if (!isPlayerUnit(world, id) || !pos || !world.getComponent(id, COMPONENT.PATH)) continue;
     if (layer && layer.layer !== Layer.Surface) continue;
     units.push({ id, dist: Math.hypot(pos.x - target.x, pos.y - target.y) });
   }
@@ -312,8 +320,8 @@ function assignOrder(
   // A ride down the shaft is called off: the player wants the ant up here
   transit?.cancelEnter(id);
   abandonCurrentTask(world, id);
-  const ant = world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
-  ant.state = kind === OrderKind.Hold ? AntState.Holding : AntState.Moving;
+  const ant = world.getComponent<AntComponent>(id, COMPONENT.ANT);
+  if (ant) ant.state = kind === OrderKind.Hold ? AntState.Holding : AntState.Moving;
   world.addComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER, {
     kind,
     target: { x: target.x, y: target.y },

@@ -43,6 +43,8 @@ export interface WaveOverlay {
   anchors: Array<{ x: number; y: number }>;
   /** Scouted next wave: the breach entrance (underground) and the raiders' origin (surface) */
   scout: { breach: { x: number; y: number } | null; origin: { x: number; y: number } | null; nest: { x: number; y: number } } | null;
+  /** Invaders inside the nest while the player watches the surface (0: none): the mound throbs red */
+  nestAttack?: number;
 }
 
 type Visible = (x: number, y: number) => boolean;

@@ -115,7 +115,7 @@ export const FLANKING_MAX_ALLIES = 5;
 
 // Underground invasions (survival waves). One wave per night, launched at nightfall.
 // Wave sizes and their mix come from waveComposition() (src/game/run/waveComposition.ts).
-export const INVASION_BOSS_NIGHT = 7;  // last night of the run (RUN_NIGHTS_TO_WIN): the Crystal Queen attacks (rival Colmena de Cristal)
+export const INVASION_BOSS_NIGHT = 7;  // the first night milestone: the Crystal Queen attacks, once per run (rival Colmena de Cristal)
 export const INVASION_ARM_LEAD = 60;   // seconds before nightfall the wave is telegraphed
 export const WAVE_WARNING_LEAD = 30;   // seconds before nightfall the HUD warning banner goes up
 export const WAVE_BANNER_SECONDS = 5;  // game seconds the arrival and "cleared" banners stay up
@@ -216,7 +216,6 @@ export const CROWD_SQUEEZE_SECONDS = 1.5;       // blocked longer than this → 
 export const ROCK_POCKET_COUNT = 14;       // procedural undiggable blobs (design constraints)
 
 // ── Day/night cycle ────────────────────────────────────────────────
-export const RUN_NIGHTS_TO_WIN = 7;
 export const DAY_DURATION = 150;   // seconds of daylight (forage window)
 export const NIGHT_DURATION = 60;  // seconds of night (predators hunt)
 export const DUSK_WARNING = 15;    // warn this many seconds before nightfall

@@ -43,6 +43,8 @@ export function selectionHealth(sel: SelectedEntityInfo): { current: number; max
  * the colony on the layer in view. A tap on the bar opens the full panel.
  */
 export function infoSummary(stats: GameStats, details: ColonyDetails): string {
+  const humanGroup = stats.human?.group;
+  if (humanGroup) return `GRUPO · ${humanGroup.count}${humanGroup.ordered > 0 ? ` · ${humanGroup.ordered} EN MARCHA` : ''}`;
   const group = stats.selectedGroup;
   if (group) return `GRUPO · ${group.count}${group.ordered > 0 ? ` · ${group.ordered} EN MARCHA` : ''}`;
   const sel = stats.selectedEntity;
@@ -57,6 +59,10 @@ export function infoSummary(stats: GameStats, details: ColonyDetails): string {
   if (stats.activeLayer === 'underground') {
     const queen = details.queen ? `REINA ${Math.round(details.queen.health)}/${Math.round(details.queen.maxHealth)}` : 'SIN REINA';
     return `NIDO · ${queen} · DESPENSA ${details.food.total}`;
+  }
+  if (stats.human) {
+    const h = stats.human;
+    return `EXPEDICIÓN · RACIONES ${h.rations} · MINERALES ${h.minerals} · SUMINISTRO ${h.supply}/${h.supplyCap}`;
   }
   return `ENJAMBRE · ${stats.antCount} · AMENAZAS · ${stats.beetleCount + stats.cricketCount}`;
 }

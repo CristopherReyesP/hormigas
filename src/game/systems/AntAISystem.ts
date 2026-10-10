@@ -1625,7 +1625,6 @@ export class AntAISystem implements System {
     return hunger !== undefined && hunger.current < hunger.max * HUNGER_EAT_THRESHOLD;
   }
 
-  /** Hand a load to the nest's surface stockpile — worker porters haul it below */
   /** Whether the pantry can take a load of this type (no underground wired: assume it can). */
   private pantryHasRoomFor(resourceType: string | null): boolean {
     if (!this.undergroundGrid) return true;
@@ -1633,6 +1632,7 @@ export class AntAISystem implements System {
     return this.undergroundGrid.hasDepositSpace([type]);
   }
 
+  /** Hand a load to the nest's surface stockpile — worker porters haul it below */
   private dropAtStockpile(carrying: CarryingComponent): void {
     const nest = this.world.getComponent<NestComponent>(this.nestEntityId!, COMPONENT.NEST);
     if (!nest) return;

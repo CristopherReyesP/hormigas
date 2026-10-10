@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { World } from '../../engine/ecs/World';
-import { DAY_DURATION, NIGHT_DURATION, RUN_NIGHTS_TO_WIN } from '../../shared/constants';
+import { DAY_DURATION, NIGHT_DURATION } from '../../shared/constants';
 import { GameManager, type GameOverStats } from '../GameManager';
 import { COMPONENT } from '../components/components';
 import { createDefaultModifiers } from '../events/GlobalModifiers';
 import { DayNightSystem } from '../systems/DayNightSystem';
 import { createSeededRng } from './MutationOffers';
 import { RunModifiers } from './RunModifiers';
+
+// No saved record: the run's own nights are the best
+vi.stubGlobal('localStorage', undefined);
 
 function setup() {
   const world = new World();
@@ -34,9 +37,14 @@ function setup() {
     runModifiers: new RunModifiers(),
     offerRng: createSeededRng(1),
     mutationOffer: null,
+    mutationSelection: null,
     lastMutationPick: null,
     statsTicks: 0,
     statsCallback,
+    // Night milestones pay through the wave system; the record starts empty
+    invasionSystem: { pay: (reward: { minerals: number; food: number }) => reward },
+    milestone: null,
+    runStartBest: 0,
     getStats: () => ({ gameOver: state.gameOver, paused }),
   });
   const state = manager as unknown as {
@@ -44,7 +52,7 @@ function setup() {
     mutationOffer: { options: Array<{ id: string }> } | null;
     update: (dt: number) => void;
   };
-  /** Dawns of days 2-7 open the evolution chamber; take the first card to keep going. */
+  /** Dawns from day 2 on open the evolution chamber; take the first card to keep going. */
   const pickIfOffered = () => {
     if (state.mutationOffer) manager.chooseMutation(state.mutationOffer.options[0].id);
   };
@@ -52,27 +60,29 @@ function setup() {
 }
 
 describe('run outcome manager integration', () => {
-  it('captures metrics, pauses, and immediately publishes at the final dawn only', () => {
-    const { manager, state, world, gameLoop, statsCallback, pickIfOffered } = setup();
-    for (let night = 1; night <= RUN_NIGHTS_TO_WIN; night++) {
+  it('keeps going past the old final dawn, then captures metrics, pauses and publishes when the queen dies', () => {
+    const { manager, state, world, health, gameLoop, statsCallback, pickIfOffered } = setup();
+    for (let night = 1; night <= 9; night++) {
       state.update(DAY_DURATION);
-      expect(state.gameOver).toBeNull();
-      statsCallback.mockClear();
       state.update(NIGHT_DURATION);
-      if (night < RUN_NIGHTS_TO_WIN) expect(state.gameOver).toBeNull();
+      expect(state.gameOver).toBeNull();
       pickIfOffered();
     }
-    expect(manager.getAppliedMutations()).toHaveLength(RUN_NIGHTS_TO_WIN - 1);
+    expect(manager.getAppliedMutations()).toHaveLength(9); // the dawns of days 2-10
+    health.current = 0;
+    statsCallback.mockClear();
+    state.update(DAY_DURATION);
     expect(state.gameOver).toEqual({
-      outcome: 'victory', survivedTicks: 123, ...world.metrics, build: expect.any(Array),
+      outcome: 'defeat', survivedTicks: 123, ...world.metrics, build: expect.any(Array),
+      nightsSurvived: 9, bestNight: 9, newRecord: true,
     });
     expect(gameLoop.isPaused()).toBe(true);
     expect(statsCallback).toHaveBeenCalledWith({ gameOver: state.gameOver, paused: true });
   });
 
-  it('publishes defeat if the queen dies during the final transition tick', () => {
+  it('publishes defeat if the queen dies on the tick of the seventh dawn', () => {
     const { state, world, health, update, gameLoop, statsCallback, pickIfOffered } = setup();
-    for (let night = 1; night < RUN_NIGHTS_TO_WIN; night++) {
+    for (let night = 1; night < 7; night++) {
       state.update(DAY_DURATION);
       state.update(NIGHT_DURATION);
       pickIfOffered();

@@ -467,6 +467,116 @@ button:focus-visible {
   opacity: 0.35;
 }
 
+/* Two-step pick: the selected card waits for "Confirmar evolución" */
+.evo-card--selected {
+  transform: translateY(-6px);
+  filter: drop-shadow(4px 10px 0 var(--chrome-bg));
+}
+
+.evo-card--selected .evo-card-plate,
+.evo-card--selected:hover .evo-card-plate,
+.evo-card--selected:focus-visible .evo-card-plate {
+  background: var(--chrome-accent);
+}
+
+.evo-card-picked {
+  margin-right: auto;
+  margin-left: 8px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--chrome-accent);
+}
+
+/* Room under the cards so the fixed bar never covers them */
+.evo-backdrop--selecting {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+}
+
+.evo-confirm-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 51;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--chrome-panel);
+  border-top: 4px solid var(--chrome-accent);
+  box-shadow: 0 -4px 0 var(--chrome-bg);
+  animation: evo-card-in 160ms steps(3) both;
+}
+
+.evo-confirm-btn,
+.evo-cancel-btn {
+  min-height: 56px;
+  padding: 8px 16px;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  box-shadow: 4px 4px 0 var(--chrome-bg);
+}
+
+.evo-confirm-btn {
+  display: flex;
+  flex: 1 1 auto;
+  max-width: 460px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+}
+
+.evo-confirm-label {
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.evo-confirm-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.evo-cancel-btn {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--chrome-text);
+  background: var(--chrome-panel-light);
+  border: 2px solid var(--chrome-border-light);
+}
+
+.evo-confirm-btn:hover,
+.evo-confirm-btn:focus-visible {
+  background: var(--chrome-text);
+}
+
+.evo-cancel-btn:hover,
+.evo-cancel-btn:focus-visible {
+  border-color: var(--chrome-text);
+}
+
+.evo-confirm-btn:focus-visible,
+.evo-cancel-btn:focus-visible {
+  outline: 2px dashed var(--chrome-accent);
+  outline-offset: 3px;
+}
+
+/* Phones: unselected cards keep a two-line description; the selected one shows it whole */
+@media (max-width: 600px) {
+  .evo-card:not(.evo-card--selected) .evo-card-desc {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
 @keyframes evo-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -529,6 +639,28 @@ button:focus-visible {
   animation: run-banner-in 480ms steps(6) both;
 }
 
+.milestone-banner {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  width: min(560px, calc(100% - 32px));
+  transform: translateX(-50%);
+  z-index: 30;
+  text-align: center;
+  pointer-events: none;
+}
+
+.milestone-reward {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 6px 12px;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  color: var(--chrome-text);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-accent);
+}
+
 @keyframes run-banner-in {
   0% { transform: scaleX(0); }
   100% { transform: none; }
@@ -543,6 +675,7 @@ button:focus-visible {
   .evo-pip--next,
   .evo-card--chosen .evo-card-plate,
   .evo-card--chosen .evo-card-inner,
+  .evo-confirm-bar,
   .run-banner {
     animation: none;
   }
@@ -892,6 +1025,14 @@ button:focus-visible {
   text-align: right;
 }
 
+/* The endless run's goal, above the current objective */
+.objective-goal {
+  line-height: 1.7;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--chrome-border);
+}
+
 /* ── Message feed above the console ────────────────────────── */
 .notif-feed {
   position: absolute;
@@ -1036,6 +1177,45 @@ button:focus-visible {
   color: var(--chrome-accent);
   background: var(--chrome-panel-light);
   border-color: var(--chrome-accent-dim);
+}
+
+/* Invaders on the layer the player is NOT watching: the tab throbs red */
+.minimap-tab {
+  position: relative;
+}
+
+.minimap-tab--alert {
+  color: #fff;
+  animation: minimap-tab-alert 0.8s steps(2, jump-none) infinite;
+}
+
+@keyframes minimap-tab-alert {
+  0% { background: #5a1414; border-color: var(--chrome-danger, #ff3b3b); box-shadow: 0 0 6px rgba(255, 59, 59, 0.7); }
+  100% { background: var(--chrome-bg); border-color: #7a2020; box-shadow: none; }
+}
+
+/* How many are attacking there: "⚔ 4" on the tab's corner (desktop and phone) */
+.minimap-tab-badge {
+  position: absolute;
+  top: -7px;
+  right: -3px;
+  padding: 1px 3px;
+  font-size: 9px;
+  line-height: 1;
+  white-space: nowrap;
+  color: #fff;
+  background: var(--chrome-danger, #ff3b3b);
+  border: 1px solid #0e080b;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .minimap-tab--alert {
+    animation: none;
+    background: #5a1414;
+    border-color: var(--chrome-danger, #ff3b3b);
+  }
 }
 
 .minimap-box {
@@ -1753,19 +1933,23 @@ button:focus-visible {
    COMPACT (PHONE) LAYOUTS — HudLayer adds hud-layer--phone-portrait or
    --phone-landscape when the window cannot hold the 1280×720 console
    (hudLayout in src/ui/layout/hudMetrics.ts, whose HUD_BARS and
-   COMPACT_* mirror --strip-row, --card-h, --cmd-btn and --info-bar-h
+   COMPACT_*, HINT_LINE_PX and QUICK_BAR_PX mirror --strip-row, --card-h, --cmd-btn, --hint-h and --quick-h
    here), and hud-layer--touch on touch screens.
    The map gets most of the screen: a one-row strip with the key
-   readouts (Más datos opens the rest), a command card of icon-only
-   buttons, the info panel folded to a one-line bar, and a small
-   minimap that floats over the map and folds to its tabs. The bars
-   grow by the safe areas (notch, home indicator), as the camera does.
+   readouts (Más datos opens the rest), the hint line (what a tap does
+   now), the quick-select bar (Soldados · Obreras · Exploradoras ·
+   Todas · groups), a command card whose main orders are big labeled
+   buttons, the info panel behind the hint line's details button, and
+   a small minimap that floats over the map and folds to its tabs. The
+   bars grow by the safe areas (notch, home indicator), as the camera does.
    ════════════════════════════════════════════════════════════ */
 
 /* Compact-only controls */
 .minimap-tab-icon,
 .minimap-toggle,
 .info-summary,
+.console-quick,
+.cmd-label,
 .strip-more {
   display: none;
 }
@@ -1773,7 +1957,8 @@ button:focus-visible {
 .hud-layer--phone {
   --cmd-btn: 40px;
   --cmd-gap: 4px;
-  --info-bar-h: 32px;
+  --hint-h: 40px;
+  --quick-h: 40px;
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-l: env(safe-area-inset-left, 0px);
@@ -1785,8 +1970,8 @@ button:focus-visible {
 
 .hud-layer--phone-portrait {
   --strip-row: 30px;
-  --card-h: 140px;
-  --deck-h: calc(var(--card-h) + var(--info-bar-h) + var(--safe-b));
+  --card-h: 96px;
+  --deck-h: calc(var(--card-h) + var(--quick-h) + var(--hint-h) + var(--safe-b));
 }
 
 .hud-layer--phone-landscape {
@@ -1919,9 +2104,11 @@ button:focus-visible {
   height: 100%;
 }
 
+/* Portrait: two rows of eight; empty slots give way, the main orders go first */
 .hud-layer--phone-portrait .cmd-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  grid-template-rows: repeat(3, var(--cmd-btn));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-rows: repeat(2, var(--cmd-btn));
+  grid-auto-flow: row dense;
 }
 
 /* Landscape: one row, as many buttons as the page has */
@@ -1932,8 +2119,65 @@ button:focus-visible {
   grid-auto-columns: minmax(0, 1fr);
 }
 
-.hud-layer--phone-landscape .cmd-slot--empty {
+.hud-layer--phone .cmd-slot--empty {
   display: none;
+}
+
+/* The main orders (Mover, Atacar, Volver al nido, Atacar guarida): big buttons with their name */
+.hud-layer--phone .cmd-slot--wide {
+  grid-column: span 3;
+}
+
+.hud-layer--phone-portrait .cmd-slot[data-cmd="rally"] {
+  grid-column: span 2;
+}
+
+.hud-layer--phone .cmd-slot[data-cmd="move"] { order: -3; }
+.hud-layer--phone .cmd-slot[data-cmd="attack"] { order: -2; }
+.hud-layer--phone .cmd-slot[data-cmd="rally"] { order: -1; }
+
+/* Workers selected: Recolectar and Minar join the big buttons. In portrait the
+   first row is Mover, Atacar, Recolectar and Minar (2 columns each); Volver al
+   nido gives up its name and opens the second row */
+.hud-layer--phone .cmd-grid:has([data-cmd="mine-order"]) .cmd-slot[data-cmd="move"] { order: -5; }
+.hud-layer--phone .cmd-grid:has([data-cmd="mine-order"]) .cmd-slot[data-cmd="attack"] { order: -4; }
+.hud-layer--phone .cmd-slot[data-cmd="gather-order"] { order: -3; }
+.hud-layer--phone .cmd-slot[data-cmd="mine-order"] { order: -2; }
+.hud-layer--phone-portrait .cmd-grid:has([data-cmd="mine-order"]) .cmd-slot--wide {
+  grid-column: span 2;
+}
+.hud-layer--phone-portrait .cmd-grid:has([data-cmd="mine-order"]) .cmd-slot--wide .cmd-face {
+  gap: 2px;
+  padding: 0 3px;
+}
+.hud-layer--phone-portrait .cmd-grid:has([data-cmd="mine-order"]) .cmd-slot[data-cmd="rally"] {
+  grid-column: span 1;
+}
+.hud-layer--phone-portrait .cmd-grid:has([data-cmd="mine-order"]) .cmd-slot[data-cmd="rally"] .cmd-label {
+  display: none;
+}
+
+.hud-layer--phone .cmd-slot--wide .cmd-face {
+  gap: 6px;
+  padding: 0 6px;
+}
+
+.hud-layer--phone .cmd-label {
+  display: block;
+  min-width: 0;
+  font-size: 8px;
+  line-height: 1.4;
+  text-align: left;
+  text-transform: uppercase;
+  color: var(--chrome-text);
+}
+
+.hud-layer--phone .cmd-btn--danger .cmd-label {
+  color: #ffd0d0;
+}
+
+.hud-layer--phone .cmd-btn--active .cmd-label {
+  color: var(--chrome-accent);
 }
 
 .hud-layer--phone .cmd-slot {
@@ -1982,27 +2226,196 @@ button:focus-visible {
   min-width: 0;
 }
 
+/* Opened from the hint line's details button: the full panel over the map, above the bars */
 .hud-layer--phone-portrait .console-info {
   left: var(--safe-l);
   right: var(--safe-r);
-  bottom: calc(var(--card-h) + var(--safe-b));
+  bottom: var(--deck-h);
 }
 
 .hud-layer--phone-landscape .console-info {
   left: calc(6px + var(--safe-l));
-  bottom: calc(var(--deck-h) + 6px);
+  bottom: calc(var(--deck-h) + var(--hint-h) + var(--quick-h) + 12px);
   width: min(360px, 46%);
 }
 
-.hud-layer--phone .info-summary {
+/* The quick-select bar carries the control groups on phones */
+.hud-layer--phone .console-info .ctrl-groups {
+  display: none;
+}
+
+/* ── Hint line and quick-select bar, over the command card ── */
+.hud-layer--phone .console-quick {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.hud-layer--phone-portrait .console-quick {
+  left: var(--safe-l);
+  right: var(--safe-r);
+  bottom: calc(var(--card-h) + var(--safe-b));
+  height: calc(var(--hint-h) + var(--quick-h));
+}
+
+/* Landscape: they float over the map's bottom left, as the info bar did */
+.hud-layer--phone-landscape .console-quick {
+  left: calc(6px + var(--safe-l));
+  bottom: calc(var(--deck-h) + 6px);
+  width: min(460px, 58%);
+}
+
+.quick-hint {
   display: flex;
   gap: 4px;
-  height: var(--info-bar-h);
+  height: var(--hint-h);
   padding: 0 4px;
 }
 
-.hud-layer--phone-landscape .info-summary {
+.quick-hint-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  overflow: hidden;
+  line-height: 1.4; /* three lines fit the 40 px line */
+  color: var(--chrome-text);
+  background: var(--float-bg);
+  border: 2px solid var(--chrome-border);
+  border-left: 4px solid var(--chrome-dim);
+}
+
+.quick-hint--order .quick-hint-text {
+  border-left-color: var(--chrome-accent);
+}
+
+.quick-hint--target .quick-hint-text,
+.quick-hint--area .quick-hint-text {
+  color: var(--chrome-accent);
+  border-color: var(--chrome-accent-dim);
+  border-left-color: var(--chrome-accent);
+}
+
+.quick-hint--build .quick-hint-text {
+  border-left-color: var(--chrome-warn);
+}
+
+.quick-selection {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0 0 6px;
+  font: inherit;
+  line-height: 1.4;
+  text-align: left;
+  color: var(--chrome-accent);
+  background: var(--chrome-panel-light);
+  border: 2px solid var(--chrome-accent-dim);
+  cursor: pointer;
+}
+
+/* "5 soldados" over "elegidos": the widest caste name (exploradoras) fits one line */
+.quick-selection-text {
+  width: 96px;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.quick-selection-x {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 100%;
+  font-size: 12px;
+  color: var(--chrome-text);
+  border-left: 2px solid var(--chrome-accent-dim);
+}
+
+.quick-info {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
   padding: 0;
+  color: var(--chrome-text);
+  background: var(--float-bg);
+  border: 2px solid var(--chrome-border);
+  cursor: pointer;
+}
+
+.quick-info[aria-expanded="true"] {
+  border-color: var(--chrome-accent-dim);
+}
+
+.quick-bar {
+  display: flex;
+  gap: 4px;
+  height: var(--quick-h);
+  padding: 2px 4px;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+
+.quick-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.quick-chip {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 48px;
+  height: 36px;
+  padding: 0 4px;
+  font: inherit;
+  line-height: 1;
+  color: var(--chrome-text);
+  background: var(--float-bg);
+  border: 2px solid var(--chrome-border);
+  box-shadow: inset 2px 2px 0 var(--chrome-bg);
+  cursor: pointer;
+}
+
+.quick-chip-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.quick-chip-count {
+  color: var(--chrome-accent);
+}
+
+.quick-chip-label {
+  white-space: nowrap;
+  /* The pixel font's glyphs carry a blank column: -1px keeps five labeled chips (a Human bar) on a phone's width */
+  letter-spacing: -1px;
+}
+
+.quick-chip--selected {
+  color: var(--chrome-accent);
+  background: color-mix(in srgb, var(--chrome-accent) 16%, var(--chrome-panel));
+  border-color: var(--chrome-accent);
+}
+
+.quick-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.quick-chip--group {
+  flex: 0 0 auto;
+  border-style: dashed;
 }
 
 .info-toggle {
@@ -2106,7 +2519,7 @@ button:focus-visible {
   height: 32px;
 }
 
-/* Control group chips: finger-sized, over the info bar */
+/* Control group chips: finger-sized, over the info bar (on phones they ride the quick-select bar) */
 .hud-layer--touch .ctrl-groups {
   top: -36px;
 }
@@ -2150,6 +2563,12 @@ button:focus-visible {
   display: none;
 }
 
+.hud-layer--phone .minimap-tab-badge {
+  top: 2px;
+  right: 2px;
+  font-size: 9px;
+}
+
 .hud-layer--phone .minimap-tab-icon {
   display: flex;
 }
@@ -2186,8 +2605,10 @@ button:focus-visible {
 }
 
 .hud-layer--phone-landscape .notif-feed {
-  right: calc(8px + var(--safe-r) + 30%);
-  bottom: calc(var(--deck-h) + var(--info-bar-h) + 12px);
+  left: auto;
+  right: calc(8px + var(--safe-r));
+  width: min(320px, 38%);
+  bottom: calc(var(--deck-h) + 8px);
 }
 
 .hud-layer--phone .notif-line {
@@ -2203,6 +2624,158 @@ button:focus-visible {
   top: calc(var(--strip-h) + 6px);
   left: calc(6px + var(--safe-l));
   width: min(200px, calc(100% - 170px));
+}
+
+/* ── Touch order feedback: the toast and the long-press burst ── */
+.touch-feedback {
+  position: absolute;
+  inset: 0;
+  z-index: 35; /* over the console and the floating minimap, for a moment */
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.order-toast {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--strip-h) + 8px);
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 8px 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--chrome-text);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-accent-dim);
+  border-left: 6px solid var(--chrome-accent);
+  animation: order-toast 1600ms steps(8) forwards;
+}
+
+.order-toast--attack {
+  border-color: #7a2222;
+  border-left-color: var(--chrome-danger);
+}
+
+@keyframes order-toast {
+  0% { opacity: 0; transform: translate(-50%, 8px); }
+  12% { opacity: 1; transform: translate(-50%, 0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.caste-burst {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+/* The label hangs centered over the finger, or inward near a screen edge */
+.caste-burst--center .caste-burst-label { transform: translateX(-50%); }
+.caste-burst--left .caste-burst-label { transform: translateX(-24px); }
+.caste-burst--right .caste-burst-label { transform: translateX(calc(-100% + 24px)); }
+
+.caste-burst-ring {
+  position: absolute;
+  left: -40px;
+  top: -40px;
+  width: 80px;
+  height: 80px;
+  border: 3px solid var(--chrome-accent);
+  border-radius: 50%;
+  animation: caste-burst-ring 600ms steps(6) forwards;
+}
+
+.caste-burst-label {
+  position: absolute;
+  left: 0;
+  top: -64px;
+  padding: 4px 8px;
+  white-space: nowrap;
+  color: var(--chrome-accent);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-accent-dim);
+  animation: caste-burst-label 1100ms steps(8) forwards;
+}
+
+@keyframes caste-burst-ring {
+  0% { transform: scale(0.3); opacity: 1; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+@keyframes caste-burst-label {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ── First-game coach marks: a bubble above its target, with an arrow ── */
+.coach-mark {
+  position: absolute;
+  z-index: 40;
+  transform: translateY(calc(-100% - 12px));
+}
+
+.coach-mark::after {
+  content: '';
+  position: absolute;
+  left: calc(var(--arrow-x, 50%) - 8px);
+  bottom: -10px;
+  border: 8px solid transparent;
+  border-top-color: var(--chrome-accent);
+  border-bottom: 0;
+}
+
+.coach-mark-inner {
+  padding: 8px 10px;
+  line-height: 1.6;
+  color: var(--chrome-text);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-accent);
+  box-shadow: 0 0 0 2px var(--chrome-bg);
+}
+
+.coach-mark-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: var(--chrome-accent);
+}
+
+.coach-mark-step {
+  color: var(--chrome-dim);
+}
+
+.coach-mark-text {
+  margin-bottom: 8px;
+}
+
+.coach-mark-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.coach-mark-actions .hud-btn {
+  min-width: 64px;
+  height: 32px;
+  padding: 0 10px;
+}
+
+.coach-mark-next {
+  color: var(--chrome-accent);
+  border-color: var(--chrome-accent-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .order-toast,
+  .caste-burst-ring,
+  .caste-burst-label {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -2769,4 +3342,9 @@ button:focus-visible {
 .hud-layer--phone .next-wave-body {
   max-height: 34vh;
   overflow-y: auto;
+}
+
+/* Landscape: the open card stops above the floating hint line and quick-select bar (it scrolls instead) */
+.hud-layer--phone-landscape .next-wave-body {
+  max-height: max(48px, calc(100vh - var(--strip-h) - var(--deck-h) - var(--hint-h) - var(--quick-h) - 124px));
 }

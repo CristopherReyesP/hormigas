@@ -54,6 +54,8 @@ export const AntState = {
   Holding: 'holding',
   /** A worker walking to a mineral node and chipping ore off it (P7.1) */
   Mining: 'mining',
+  /** A nurse picking ripe mushrooms off a farm tile and carrying them to the pantry (FarmHarvestJob) */
+  FarmHarvesting: 'farm_harvesting',
 } as const;
 
 export type AntState = typeof AntState[keyof typeof AntState];
@@ -89,6 +91,17 @@ export interface AntComponent {
   resourceOrder?: ResourceOrderKind;
   /** Worker on a gather order: the food source it keeps going back to */
   foodTargetId?: EntityId | null;
+  /** Nurse: the farm tile she is harvesting and how far along the trip is */
+  farmHarvest?: FarmHarvestJob | null;
+}
+
+/** One harvest trip: walk to a ripe farm tile, pick for a moment, carry the mushrooms to the pantry */
+export interface FarmHarvestJob {
+  tileX: number;
+  tileY: number;
+  phase: 'going' | 'picking' | 'carrying';
+  /** Seconds spent in the current phase */
+  timer: number;
 }
 
 /** The resource orders: Minar (a mineral node) and Recolectar (a food source) */
