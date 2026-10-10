@@ -3,24 +3,22 @@ import { GameManager, type GameStats } from '../GameManager';
 import { COMPONENT, type HealthComponent } from '../components/components';
 import type { DayNightSystem } from '../systems/DayNightSystem';
 import { MUTATION_DEFINITIONS, MUTATION_IDS } from './MutationDefinitions';
+import { fakeCanvas } from '../../test/gameManagerMocks';
 
 // Real manager and simulation; browser-only adapters are replaced. The input mock
 // records key handlers so the tests can press the game's hotkeys.
 const keyHandlers = new Map<string, () => void>();
-vi.mock('../../engine/input/InputManager', () => ({ InputManager: class {
-  setCamera() {} onCanvasClick() {} destroy() {}
-  onKeyAction(key: string, handler: () => void) { keyHandlers.set(key, handler); }
-} }));
-vi.mock('../systems/RenderSystem', () => ({ RenderSystem: class {
-  setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {}
-  setFarmStatusProvider() {} invalidateTerrain() {} startMeteorIntro() {} skipIntro() {}
-} }));
+vi.mock('../../engine/input/InputManager', async () => (await import('../../test/gameManagerMocks')).mockInputManager({
+  onKeyAction(key: string, handler: () => void) { keyHandlers.set(key, handler); },
+}));
+vi.mock('../systems/RenderSystem', async () =>
+  (await import('../../test/gameManagerMocks')).mockRenderSystem());
 // The intro-skip listeners hang off window and the canvas; node has neither.
 vi.stubGlobal('window', new EventTarget());
 
 function manager() {
   keyHandlers.clear();
-  const game = new GameManager(Object.assign(new EventTarget(), { getContext: () => ({}) }) as unknown as HTMLCanvasElement);
+  const game = new GameManager(fakeCanvas());
   const published: GameStats[] = [];
   game.onStats(stats => published.push(stats));
   return { game, published };
