@@ -19,9 +19,6 @@ export interface FoodSpriteSpec {
   direction: number;
 }
 
-const SHROOM_CAP_RAMP = [PAL.shroomCap, PAL.shroomCapLight] as const;
-const SHROOM_STEM_RAMP = [PAL.sand[1], PAL.shroomStem] as const;
-
 /** 16×16 art-pixel food item in one of the 16 directions, lit top-left after the turn. */
 export function paintFood({ variant, sizeLevel, direction }: FoodSpriteSpec): ArtGrid {
   const grid = new ArtGrid(SPRITE_GRID.food);
@@ -55,21 +52,23 @@ function paintLeaf(p: ArtPen, sl: number): void {
   p.sheen(8, 8, 1, L[2]);
 }
 
-/** Small panther-cap mushroom: muted rust cap, white spots, cream stem. */
+/** Small alien fungus: blue-violet cap with mint glowing pores on a mauve stalk. */
 function paintMushroomFood(p: ArtPen, sl: number): void {
+  const F = PAL.fungus;
   const rx = [1.8, 2.4, 3.0, 3.7, 4.4][sl];
   const ry = [1.3, 1.6, 1.9, 2.3, 2.8][sl];
   const stemH = [3, 3, 4, 5, 6][sl];
   p.outlined(pen => {
-    pen.rect(7, 8, 3, stemH, PAL.shroomStem);
-    pen.ellipse(8, 7, rx, ry, PAL.shroomCap);
+    pen.rect(7, 8, 3, stemH, F.stalk[2]);
+    pen.ellipse(8, 7, rx, ry, F.cap[2]);
   }, PAL.outline);
-  const spots: Array<[number, number]> = [[8, 6]];
-  if (sl >= 2) spots.push([6, 7]);
-  if (sl >= 3) spots.push([10, 6]);
-  if (sl >= 4) spots.push([5, 8], [11, 8]);
-  for (const [x, y] of spots) p.px(x, y, PAL.white);
-  p.shade([SHROOM_CAP_RAMP, SHROOM_STEM_RAMP]);
+  const pores: Array<[number, number]> = [[8, 6]];
+  if (sl >= 2) pores.push([6, 7]);
+  if (sl >= 3) pores.push([10, 6]);
+  if (sl >= 4) pores.push([5, 8], [11, 8]);
+  for (const [x, y] of pores) p.px(x, y, F.glow[1]);
+  if (sl >= 3) p.px(8, 8 + stemH - 2, F.glow[0]); // faint glowing core in the stalk
+  p.shade([F.cap, F.stalk]);
 }
 
 /** Chunky irregular meat blob with fat marbling; ramp = [dark, base, highlight]. */
@@ -151,26 +150,94 @@ export function paintDen(p: PixelPainter, grassy: boolean): void {
   }
 }
 
+/** Whether art pixel (x, y) is inside PixelPainter.ellipse(cx, cy, rx, ry). */
+function inEllipse(x: number, y: number, cx: number, cy: number, rx: number, ry: number): boolean {
+  const nx = (x - cx) / (rx + 0.25);
+  const ny = (y - cy) / (ry + 0.25);
+  return nx * nx + ny * ny <= 1;
+}
+
 /**
- * 32×32 art-pixel panther-cap Amanita: muted rust cap with a lit shoulder and
- * white warts, cream stem with a lit left edge and dithered right shading.
+ * 32×32 art-pixel alien bioluminescent fungus: a dusky blue-violet dome with
+ * rings of mint glowing pores, a glowing gill crescent under its rim and
+ * drooping filaments with lit tips, on a ringed mauve stalk with a glowing
+ * core that rises from a bulb sending root tendrils over the regolith.
  */
 export function paintGiantMushroom(p: PixelPainter): void {
+  const C = PAL.fungus.cap;
+  const S = PAL.fungus.stalk;
+  const G = PAL.fungus.glow;
   p.shadow(16, 28, 12, 2.8, PAL.outline);
 
-  // Stem
-  outlined((dx, dy, c) => p.rect(12 + dx, 14 + dy, 8, 14, c ?? PAL.shroomStem));
-  p.dither(16, 18, 4, 10, PAL.sand[1], PAL.shroomStem);
-  p.vline(12, 16, 10, PAL.white);
+  // Root tendrils creeping from the bulb over the ground, glowing at the tips
+  const roots: Array<[number, number, number, number]> = [[12, 27, 5, 29], [20, 27, 27, 29], [14, 28, 9, 30], [18, 28, 23, 30]];
+  for (const [x0, y0, x1, y1] of roots) {
+    p.line(x0, y0, x1, y1, S[1]);
+    p.px(x1, y1, G[0]);
+  }
 
-  // Cap
-  outlined((dx, dy, c) => p.ellipse(16 + dx, 10 + dy, 12, 6.8, c ?? PAL.shroomCap));
-  p.dither(8, 6, 8, 4, PAL.shroomCapLight, PAL.shroomCap);
-  p.dither(10, 5, 4, 2, PAL.white, PAL.shroomCapLight);
-  p.hline(9, 16, 15, PAL.shroomCapLight); // underside rim
-  // White warts, bigger near the crown
-  const warts: Array<[number, number, number]> = [
-    [11, 5, 1.2], [16, 8, 1.4], [21, 6, 1.2], [6, 10, 1], [25, 12, 1], [12, 12, 0.6], [20, 11, 0.6], [24, 8, 0.6],
+  // Stalk: a bulb base and a ringed column with a glowing core seen through it
+  outlined((dx, dy, c) => {
+    p.ellipse(16 + dx, 26 + dy, 5, 2, c ?? S[2]);
+    p.rect(13 + dx, 13 + dy, 6, 13, c ?? S[2]);
+  });
+  p.vline(13, 14, 11, S[3]); // lit left edge
+  p.dither(17, 14, 2, 11, S[1], S[2]);
+  p.hline(12, 25, 3, S[3]); // lit bulb shoulder
+  p.dither(17, 26, 4, 2, S[1], S[2]);
+  for (const y of [17, 21]) {
+    p.hline(13, y, 6, S[1]); // ring groove
+    p.hline(14, y + 1, 3, S[3]); // ridge catching the light
+  }
+  p.vline(15, 15, 10, G[0]);
+  p.px(15, 19, G[1]);
+  p.px(15, 23, G[1]);
+
+  // Cap: the gill crescent under the rim, then the dome over it
+  const DOME = [16, 9, 13, 6] as const;
+  const GILLS = [16, 14, 11, 3] as const;
+  outlined((dx, dy, c) => {
+    p.ellipse(GILLS[0] + dx, GILLS[1] + dy, GILLS[2], GILLS[3], c ?? C[0]);
+    p.ellipse(DOME[0] + dx, DOME[1] + dy, DOME[2], DOME[3], c ?? C[2]);
+  });
+  // Glowing gill stripes wherever the crescent shows under the dome, brightest at the edge
+  for (let y = 10; y <= 17; y++) {
+    for (let x = 4; x <= 28; x++) {
+      if (!inEllipse(x, y, ...GILLS) || inEllipse(x, y, ...DOME)) continue;
+      const edge = !inEllipse(x, y + 1, ...GILLS);
+      if (x % 2 === 0) p.px(x, y, edge && x % 4 === 0 ? G[1] : G[0]);
+    }
+  }
+  // Dome light: lit crown up-left, shaded rim down-right
+  p.dither(10, 4, 5, 1, C[3], C[2]);
+  p.dither(7, 5, 8, 3, C[3], C[2]);
+  p.dither(11, 4, 3, 2, C[4], C[3]);
+  p.dither(18, 11, 9, 2, C[1], C[2]);
+  p.dither(16, 13, 9, 1, C[1], C[2]);
+  p.dither(15, 14, 7, 1, C[1], C[2]);
+
+  // Bioluminescent pores in rings around the crown, bigger near the top
+  const pores: Array<[number, number, boolean]> = [
+    [15, 4, true], [10, 6, true], [20, 6, true],
+    [6, 9, false], [13, 8, true], [18, 9, true], [25, 9, false],
+    [4, 11, false], [9, 11, false], [15, 12, false], [22, 12, false], [27, 11, false],
   ];
-  for (const [x, y, r] of warts) p.disc(x, y, r, PAL.white);
+  for (const [x, y, big] of pores) {
+    if (big) {
+      p.rect(x, y, 2, 2, G[1]);
+      p.px(x, y, G[2]);
+      p.hline(x, y + 2, 2, C[1]); // the pore's sunken lip
+    } else {
+      p.px(x, y, G[1]);
+      p.px(x, y + 1, C[1]);
+    }
+  }
+
+  // Drooping filaments from the rim, swaying out at the end, with glowing tips
+  const filaments: Array<[number, number, number, number]> = [[5, 15, 5, -1], [8, 18, 4, 0], [24, 18, 4, 0], [27, 15, 5, 1]];
+  for (const [x, y, len, sway] of filaments) {
+    p.vline(x, y, len - 1, C[2]);
+    p.px(x + sway, y + len - 1, C[2]);
+    p.px(x + sway, y + len, G[1]);
+  }
 }
