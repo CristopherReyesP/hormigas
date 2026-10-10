@@ -35,6 +35,8 @@ const DENY_FIELDS: Record<string, readonly string[]> = {
     // A highlighted dawn card is cleared on load (the offer itself is saved and reopens);
     // the milestone banner is a few seconds of UI, its reward is already paid
     'mutationSelection', 'milestone',
+    // The last half minute of damage to the core, for the end screen's cause; a loaded run starts it afresh
+    'coreLedger',
   ],
   // A building being placed and its ghost are a tool in the player's hand, not run state
   HumanPlayerRun: ['placing', 'ghost'],
