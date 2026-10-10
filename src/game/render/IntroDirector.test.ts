@@ -3,7 +3,7 @@ import { Camera } from '../../engine/camera/Camera';
 import { TILE_SIZE } from '../../shared/constants';
 import { IntroDirector } from './IntroDirector';
 import { MeteorIntro } from './MeteorIntro';
-import { INTRO_TIMELINE as T, IntroClock, flashAlpha, meteorGround } from './introTimeline';
+import { INTRO_TIMELINE as T, IntroClock, flashAlpha, meteorGround, type IntroVariant } from './introTimeline';
 
 const VIEWPORT = { x: 0, y: 0, w: 800, h: 600 };
 const NEST = { x: 1936, y: 1456 };
@@ -11,14 +11,14 @@ const IMPACT = { x: 3300, y: 600 };
 /** Thirty seconds of 60 fps frames: a frame loop that runs past this is broken, not slow. */
 const MAX_FRAMES = 60 * 30;
 
-function setup() {
+function setup(variant: IntroVariant = 'crystal') {
   const camera = new Camera();
   camera.setViewport(VIEWPORT);
   camera.setDefaultZoom(1);
   camera.zoom = 1;
   const lights: Array<{ x: number; y: number; r: number }> = [];
   const clock = new IntroClock();
-  const director = new IntroDirector(camera, clock, NEST, IMPACT, (x, y, r) => lights.push({ x, y, r }));
+  const director = new IntroDirector(camera, clock, NEST, IMPACT, (x, y, r) => lights.push({ x, y, r }), variant);
   const center = () => camera.screenToWorld(VIEWPORT.w / 2, VIEWPORT.h / 2);
   /** One rendered frame: the clock's owner (GameManager) advances it, then the director frames the shot. */
   const frame = (dt: number) => {
@@ -85,6 +85,22 @@ describe('intro director', () => {
     const x = camera.x;
     frame(1 / 60);
     expect(camera.x).toBe(x);
+  });
+});
+
+describe('intro director against the Humans', () => {
+  it('chases the dropship along its own braking path and settles on the base site', () => {
+    const { director, lights, center, camera, runTo } = setup('human');
+    runTo((T.meteorStart + T.impact) / 2);
+    const spot = lights[lights.length - 1];
+    const ground = meteorGround(director.elapsed(), NEST, IMPACT, 'human')!;
+    expect(Math.abs(spot.x - ground.x / TILE_SIZE)).toBeLessThanOrEqual(1);
+    expect(Math.abs(spot.y - ground.y / TILE_SIZE)).toBeLessThanOrEqual(1);
+    runTo(T.impact + T.cameraSettle + 0.1);
+    expect(center().x).toBeCloseTo(IMPACT.x, 0);
+    expect(center().y).toBeCloseTo(IMPACT.y, 0);
+    expect(camera.zoom).toBe(1.5);
+    expect(lights[lights.length - 1]).toMatchObject({ x: Math.floor(IMPACT.x / TILE_SIZE), y: Math.floor(IMPACT.y / TILE_SIZE) });
   });
 });
 

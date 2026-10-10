@@ -58,7 +58,8 @@ import { resolveRunOutcome, type RunOutcome } from './run/RunOutcome';
 import { DayNightSystem, type DayPhase } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
 import { IntroDirector } from './render/IntroDirector';
-import { IntroClock } from './render/introTimeline';
+import { IntroClock, introRivalLine, introVariantFor } from './render/introTimeline';
+import type { IntroArrival } from './render/introArrival';
 import { audioIntroFrame, audioRunEnded, audioRunStarted, emitAudio } from '../audio';
 import { selectionAudio } from '../audio/gameHooks';
 import { createAnt, createFood, createMineral, createNest, createBeetleDen, createQueen, createCrystalHive } from './entities/factories';
@@ -70,7 +71,7 @@ import { CrystalShieldSystem } from './systems/CrystalShieldSystem';
 import { DEFAULT_RUN_SETUP, type RivalId, type RunSetup } from './run/RunSetup';
 import { HumanBaseSystem } from './systems/HumanBaseSystem';
 import { HumanUnitAISystem } from './systems/HumanUnitAISystem';
-import { HUMAN_COMPONENT } from './rival/humanComponents';
+import { HUMAN_COMPONENT, type HumanBuildingComponent, type HumanUnitComponent } from './rival/humanComponents';
 import { createHumanBase } from './rival/humanFactories';
 import { humanSelection, type HumanSelection } from './rival/humanInfo';
 import { pickHumanBaseSite } from './rival/humanSite';
@@ -650,6 +651,9 @@ export class GameManager {
       edgeMargin: CRATER_EDGE_MARGIN,
       farFraction: CRATER_FAR_FRACTION,
     });
+    // The opening brings in the rival picked before the run (see introArrival.ts)
+    const introVariant = introVariantFor(this.rivalRace);
+    let arrival: IntroArrival = { variant: introVariant, target: { ...this.craterSite }, rivalLine: introRivalLine(this.rivalRace) };
     if (this.rivalRace === 'human') {
       // The Humans camp on another far clearing, away from the crater: the
       // crater's shard field stays between the two bases
@@ -665,7 +669,10 @@ export class GameManager {
         avoid: this.craterSite,
         avoidDistance: HUMAN_SITE_CRATER_DISTANCE,
       });
-      this.rivalCoreId = createHumanBase(this.world, this.grid, site, { x: nestX, y: nestY }).coreId;
+      const base = createHumanBase(this.world, this.grid, site, { x: nestX, y: nestY });
+      this.rivalCoreId = base.coreId;
+      // Their dropship lands on the command center and the real base unfolds there
+      arrival = { ...arrival, target: { x: site.x, y: site.y }, base: this.introHumanBase(base.buildings, [...base.garrison, base.builderId]) };
     } else if (this.rivalRace === 'crystal') {
       // The Crystal Hive rises from the crater: the rival's base, and its core.
       // Against Fauna salvaje the crater stays bare.
@@ -673,21 +680,35 @@ export class GameManager {
     }
     const rival = this.world.factions.get(FactionId.RIVAL);
     if (rival && this.rivalCoreId !== null) rival.coreId = this.rivalCoreId;
-    this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock);
+    this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock, arrival);
     this.spawnMineralFields({ x: nestX, y: nestY });
     const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
-    // The fireball lights the ground it flies over and the crater, so the chase
-    // crosses lit terrain; what it lit stays explored, a scorched trail to the crater
+    // The fireball (or the dropship) lights the ground it flies over and its
+    // target, so the chase crosses lit terrain; what it lit stays explored, a
+    // scorched trail to the crater or the Human base
     this.introDirector = new IntroDirector(
       this.camera,
       this.introClock,
       tileCenter({ x: nestX, y: nestY }),
-      tileCenter(this.craterSite),
+      tileCenter(arrival.target),
       (x, y, r) => this.visibilityGrid.revealCircle(x, y, r),
+      introVariant,
     );
     window.addEventListener('keydown', this.skipIntro);
     canvas.addEventListener('pointerdown', this.skipIntro);
-    audioRunStarted(() => ({ layer: this.activeLayerValue(), view: this.activeCamera().getViewRectTiles() }));
+    audioRunStarted(() => ({ layer: this.activeLayerValue(), view: this.activeCamera().getViewRectTiles() }), introVariant);
+  }
+
+  /** The Human base as the opening raises it: building kinds and tiles (command center first), troop posts. */
+  private introHumanBase(buildings: readonly EntityId[], troops: readonly EntityId[]): NonNullable<IntroArrival['base']> {
+    const tileOf = (id: EntityId) => {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      return { x: Math.round(pos.x), y: Math.round(pos.y) };
+    };
+    return {
+      buildings: buildings.map((id) => ({ kind: this.world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!.kind, ...tileOf(id) })),
+      troops: troops.map((id) => ({ ...tileOf(id), builder: this.world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT)?.type === 'builder' })),
+    };
   }
 
   /**

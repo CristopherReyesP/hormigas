@@ -35,7 +35,26 @@ import {
   spireGrowth,
   sporeMote,
   titleAlpha,
+  INTRO_VARIANTS,
+  introDrones,
+  introFlashAlpha,
+  introPulse,
+  introRivalLine,
+  introSpireGrowth,
+  introVariantFor,
 } from './introTimeline';
+import {
+  HUMAN_LANDING,
+  WAKE_CRITTERS,
+  WILDLIFE_WAKE,
+  dropshipState,
+  humanBuildProgress,
+  landingDustProgress,
+  searchlightSpot,
+  troopState,
+  wakeCritter,
+} from './introArrival';
+import { hasGlyph } from '../../engine/renderer/pixelart/PixelFont';
 
 const magnitude = (v: { x: number; y: number }) => Math.hypot(v.x, v.y);
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -550,5 +569,183 @@ describe('title card copy', () => {
   it('splits the title over two lines so it can be drawn big', () => {
     expect(INTRO_TITLE_LINES.join(' ')).toBe(INTRO_TITLE);
     expect(INTRO_TITLE_LINES).toHaveLength(2);
+  });
+});
+
+// ── One opening per rival ─────────────────────────────────────────────
+
+describe('intro variant per rival', () => {
+  it('picks the arrival from the rival chosen in the race picker', () => {
+    expect(introVariantFor('crystal')).toBe('crystal');
+    expect(introVariantFor('human')).toBe('human');
+    expect(introVariantFor('wildlife')).toBe('wildlife');
+    // A mirror match has no alien base to bring in either
+    expect(introVariantFor('swarm')).toBe('wildlife');
+  });
+
+  it('brings a meteor for the Hive and the wildlife, and a dropship for the Humans', () => {
+    expect(INTRO_VARIANTS.crystal.arrival).toBe('meteor');
+    expect(INTRO_VARIANTS.wildlife.arrival).toBe('meteor');
+    expect(INTRO_VARIANTS.human.arrival).toBe('dropship');
+  });
+
+  it('deploys Crystal spires, pulse and drones only against the Crystal Hive', () => {
+    expect(INTRO_VARIANTS.crystal.crystalDeploy).toBe(true);
+    expect(INTRO_VARIANTS.human.crystalDeploy).toBe(false);
+    expect(INTRO_VARIANTS.wildlife.crystalDeploy).toBe(false);
+    expect(INTRO_VARIANTS.wildlife.wildlifeWake).toBe(true);
+    expect(INTRO_VARIANTS.human.humanDeploy).toBe(true);
+    expect(INTRO_VARIANTS.crystal.humanDeploy || INTRO_VARIANTS.crystal.wildlifeWake).toBe(false);
+  });
+
+  it('shows no crystal deploy at any moment of the wildlife or the human opening', () => {
+    const nest = { x: 1000, y: 1000 };
+    const impact = { x: 2200, y: 400 };
+    for (const variant of ['wildlife', 'human'] as const) {
+      for (let t = 0; t <= T.end; t += 0.05) {
+        expect(introDrones(variant, t, impact, nest), `${variant} @${t}`).toEqual([]);
+        expect(introPulse(variant, t)).toBeNull();
+        for (let i = 0; i < SPIRE_COUNT; i++) expect(introSpireGrowth(variant, i, t)).toBe(0);
+      }
+    }
+  });
+
+  it('keeps today\'s spires, pulse and drones against the Crystal Hive', () => {
+    const nest = { x: 1000, y: 1000 };
+    const impact = { x: 2200, y: 400 };
+    expect(introDrones('crystal', T.droneStart + 1, impact, nest)).toHaveLength(DRONE_COUNT);
+    expect(introPulse('crystal', T.pulseStart + 0.1)).toBe(crystalPulseProgress(T.pulseStart + 0.1));
+    expect(introSpireGrowth('crystal', 0, T.end)).toBe(1);
+  });
+
+  it('names the rival under the title, in the pixel font', () => {
+    expect(introRivalLine('human')).toBe('RIVAL: HUMANOS');
+    expect(introRivalLine('crystal')).toBe('RIVAL: COLMENA DE CRISTAL');
+    expect(introRivalLine('wildlife')).toBe('RIVAL: FAUNA SALVAJE');
+    for (const rival of ['human', 'crystal', 'wildlife'] as const) {
+      for (const ch of introRivalLine(rival)) expect(hasGlyph(ch), ch).toBe(true);
+    }
+  });
+});
+
+describe('the Humans\' dropship', () => {
+  const nest = { x: 1000, y: 1000 };
+  const site = { x: 300, y: 2100 };
+  const ALT = 400;
+
+  it('flies from the colony and touches down on the human base site', () => {
+    expect(meteorGround(T.meteorStart, nest, site, 'human')).toEqual(nest);
+    const ship = dropshipState(T.impact, nest, site, ALT)!;
+    expect(ship).toMatchObject({ x: site.x, y: site.y, alt: 0, landed: true });
+    expect(ship.facingLeft).toBe(true);
+  });
+
+  it('brakes into a soft landing instead of slamming in like the meteor', () => {
+    const speed = (variant: 'human' | 'crystal', t: number) =>
+      magnitude({
+        x: meteorGround(t + 0.01, nest, site, variant)!.x - meteorGround(t, nest, site, variant)!.x,
+        y: meteorGround(t + 0.01, nest, site, variant)!.y - meteorGround(t, nest, site, variant)!.y,
+      });
+    const mid = (T.meteorStart + T.impact) / 2;
+    expect(speed('human', T.impact - 0.02)).toBeLessThan(speed('human', mid));
+    expect(speed('crystal', T.impact - 0.02)).toBeGreaterThan(speed('crystal', mid));
+    expect(meteorAltitude(T.impact - 0.05, ALT, 'human')).toBeLessThan(meteorAltitude(T.impact - 0.05, ALT, 'crystal'));
+  });
+
+  it('fires its engines on the way down and lifts off once the base is dropped', () => {
+    expect(dropshipState(T.meteorStart - 0.1, nest, site, ALT)).toBeNull();
+    expect(dropshipState((T.meteorStart + T.impact) / 2, nest, site, ALT)!.thrust).toBeGreaterThan(0);
+    expect(dropshipState(T.impact + 0.2, nest, site, ALT)!.thrust).toBe(0);
+    const up = dropshipState(HUMAN_LANDING.liftoffStart + HUMAN_LANDING.liftoffDuration * 0.6, nest, site, ALT)!;
+    expect(up.alt).toBeGreaterThan(0);
+    expect(up.landed).toBe(false);
+    expect(dropshipState(HUMAN_LANDING.liftoffStart + HUMAN_LANDING.liftoffDuration, nest, site, ALT)).toBeNull();
+  });
+
+  it('chases the dropship with the camera, settles on the base site and lights it, not the crater', () => {
+    const focus = introCameraFocus(T.impact + T.cameraSettle + 0.1, nest, site, 'human');
+    expect(focus.x).toBeCloseTo(site.x);
+    expect(focus.y).toBeCloseTo(site.y);
+    const lit = introLitAreas(T.impact + 1, nest, site, 'human');
+    expect(lit).toHaveLength(1);
+    expect(lit[0]).toMatchObject({ x: site.x, y: site.y });
+    // The base spreads over several tiles: the light covers more than the crater's 8
+    expect(lit[0].r).toBeGreaterThan(8);
+    const trail = introLitAreas((T.meteorStart + T.impact) / 2, nest, site, 'human')[0];
+    const ground = meteorGround((T.meteorStart + T.impact) / 2, nest, site, 'human')!;
+    expect(trail).toMatchObject({ x: ground.x, y: ground.y });
+  });
+
+  it('kicks up a dust ring on touchdown, with no white meteor flash', () => {
+    expect(landingDustProgress(T.impact - 0.01)).toBeNull();
+    expect(landingDustProgress(T.impact + 0.3)).toBeGreaterThan(0);
+    expect(introFlashAlpha('human', 0)).toBe(0);
+    expect(introFlashAlpha('crystal', 0)).toBe(flashAlpha(0));
+    expect(magnitude(shakeOffset(T.impact + 0.01, 0.5))).toBeLessThan(magnitude(shakeOffset(T.impact + 0.01)));
+  });
+
+  it('raises the command center first, then the rest of the base, floor by floor', () => {
+    expect(humanBuildProgress(0, HUMAN_LANDING.buildStart - 0.01)).toBe(0);
+    const mid = humanBuildProgress(0, HUMAN_LANDING.buildStart + HUMAN_LANDING.buildDuration / 2);
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(1);
+    expect(mid * 8).toBe(Math.floor(mid * 8));
+    expect(humanBuildProgress(1, HUMAN_LANDING.buildStart + HUMAN_LANDING.buildDuration / 2)).toBeLessThan(mid);
+    for (let i = 0; i < 4; i++) expect(humanBuildProgress(i, T.returnStart)).toBe(1);
+  });
+
+  it('marches the soldiers out of the command center to their posts', () => {
+    const door = { x: 300, y: 2140 };
+    const post = { x: 240, y: 2060 };
+    expect(troopState(0, HUMAN_LANDING.troopStart - 0.01, door, post)).toBeNull();
+    const out = troopState(0, HUMAN_LANDING.troopStart + 0.01, door, post)!;
+    expect(magnitude({ x: out.x - door.x, y: out.y - door.y })).toBeLessThan(5);
+    expect(out.marching).toBe(true);
+    const there = troopState(0, T.returnStart, door, post)!;
+    expect(there).toMatchObject({ x: post.x, y: post.y, marching: false });
+  });
+
+  it('sweeps a searchlight across the ground once the command center stands', () => {
+    const origin = { x: 300, y: 2100 };
+    expect(searchlightSpot(HUMAN_LANDING.searchlightStart - 0.01, origin, nest)).toBeNull();
+    const a = searchlightSpot(HUMAN_LANDING.searchlightStart + 0.4, origin, nest)!;
+    const b = searchlightSpot(HUMAN_LANDING.searchlightStart + 1.2, origin, nest)!;
+    expect(magnitude({ x: a.x - b.x, y: a.y - b.y })).toBeGreaterThan(20);
+    expect(searchlightSpot(T.returnEnd, origin, nest)).toBeNull();
+  });
+});
+
+describe('the wildlife wakes', () => {
+  const nest = { x: 1000, y: 1000 };
+  const impact = { x: 2200, y: 400 };
+
+  it('bursts beetles and leapers out of the ground around the crater, then scatters them', () => {
+    expect(WAKE_CRITTERS).toContain('beetle');
+    expect(WAKE_CRITTERS).toContain('leaper');
+    for (let i = 0; i < WAKE_CRITTERS.length; i++) {
+      expect(wakeCritter(i, WILDLIFE_WAKE.start - 0.01, impact, nest)).toBeNull();
+      const start = WILDLIFE_WAKE.start + i * WILDLIFE_WAKE.stagger;
+      const rumble = wakeCritter(i, start + 0.01, impact, nest)!;
+      expect(rumble.emerge).toBe(0);
+      const d0 = magnitude({ x: rumble.x - impact.x, y: rumble.y - impact.y });
+      expect(d0).toBeGreaterThan(60);
+      const later = wakeCritter(i, T.returnStart, impact, nest)!;
+      expect(later.emerge).toBe(1);
+      expect(later.kind).toBe(WAKE_CRITTERS[i]);
+      expect(magnitude({ x: later.x - impact.x, y: later.y - impact.y })).toBeGreaterThan(d0 + 60);
+      expect(wakeCritter(i, T.returnEnd, impact, nest)).toBeNull();
+    }
+  });
+
+  it('hops the leapers and keeps the beetles on the ground', () => {
+    const lifts = (i: number) => {
+      const out: number[] = [];
+      for (let t = WILDLIFE_WAKE.start; t < T.returnEnd; t += 0.02) out.push(wakeCritter(i, t, impact, nest)?.lift ?? 0);
+      return out;
+    };
+    const leaper = WAKE_CRITTERS.indexOf('leaper');
+    const beetle = WAKE_CRITTERS.indexOf('beetle');
+    expect(Math.max(...lifts(leaper))).toBeGreaterThan(10);
+    expect(Math.max(...lifts(beetle))).toBe(0);
   });
 });
