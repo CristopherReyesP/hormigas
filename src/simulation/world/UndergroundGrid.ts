@@ -647,7 +647,15 @@ export class UndergroundGrid implements WalkableGrid {
     const taken = Math.min(amount, tile.food.amount);
     tile.food.amount -= taken;
     if (tile.food.amount <= FOOD_EPSILON) tile.food = null;
+    if (this.farmTakeListener && this.isFarmTile(tile)) this.farmTakeListener(x, y, taken);
     return { type, taken };
+  }
+
+  private farmTakeListener: ((x: number, y: number, taken: number) => void) | null = null;
+
+  /** Told whenever anything takes mushrooms off a farm tile (the renderer plays the pluck) */
+  setFarmTakeListener(fn: ((x: number, y: number, taken: number) => void) | null): void {
+    this.farmTakeListener = fn;
   }
 
   /** Drain up to `amount` of one type (pantry + farm piles), fullest first. Returns the amount drained. */
