@@ -66,6 +66,7 @@ import { ObjectiveSystem, type ObjectiveState } from './systems/ObjectiveSystem'
 import { UndergroundInvasionSystem, type InvasionInfo, type WaveThreat } from './systems/UndergroundInvasionSystem';
 import { SpoilageSystem } from './systems/SpoilageSystem';
 import { FungusFarmSystem } from './systems/FungusFarmSystem';
+import { farmGrowthProgress, farmTileStatusLabel, isFarmTileReady } from './render/fungusGrowth';
 import { UndergroundHealingSystem } from './systems/UndergroundHealingSystem';
 import { resolveRunOutcome, type RunOutcome } from './run/RunOutcome';
 import { DayNightSystem, type DayPhase } from './systems/DayNightSystem';
@@ -675,6 +676,9 @@ export class GameManager {
     this.renderSystem.setFarmStatusProvider(() => this.fungusFarmSystem.getStatus().status);
     // A Humans run swaps the colony systems for the Human base's
     this.humanPlayer?.install();
+    // Anything that takes mushrooms off a farm tile plays the pluck; a tapped farm shows its growth bars
+    this.undergroundGrid.setFarmTakeListener((x, y) => this.renderSystem.queueFarmHarvest(x, y));
+    this.renderSystem.setFarmFocusProvider(() => this.farmFocus);
     // The defense build ghost and the scouted breach, drawn in the world
     this.renderSystem.setWaveOverlayProvider(() => this.waveOverlay());
 
@@ -860,6 +864,12 @@ export class GameManager {
         // Clicking the throne she already occupies falls through to selection.
         if (!this.sendQueenToThroneAt(tile.x, tile.y)) {
           this.clickSelect(screenX, screenY, mods);
+          // A tap on bare farm ground (no ant there) shows that tile's growth
+          if (this.selectionSystem.getSelectedEntityId() === null && this.selectionSystem.getSelectedAnts().length === 0) {
+            this.focusFarmTile(tile.x, tile.y);
+          } else {
+            this.farmFocus = null;
+          }
         }
       }
       return;
@@ -1736,6 +1746,7 @@ export class GameManager {
 
   clearSelection(): void {
     this.selectionSystem.clearSelection();
+    this.farmFocus = null;
     this.armedCommand = null;
     this.publishStats();
   }
@@ -2267,6 +2278,37 @@ export class GameManager {
     return this.undergroundGrid.getConsumptionPriority();
   }
 
+  /** The farm tile the player tapped (info card line and growth bars), if any */
+  private farmFocus: { x: number; y: number } | null = null;
+
+  /** Point the info card at a farm tile; any other tile lets go. True when it is a farm tile. */
+  focusFarmTile(tileX: number, tileY: number): boolean {
+    const tile = this.undergroundGrid.getTile(tileX, tileY);
+    const isFarm = tile !== null && tile.walkable && tile.chamberType === ChamberType.FungusFarm;
+    this.farmFocus = isFarm ? { x: tileX, y: tileY } : null;
+    return isFarm;
+  }
+
+  /** Growth of the tapped farm tile, for the info card */
+  getFocusedFarmTile(): { x: number; y: number; progress: number; ready: boolean; label: string } | null {
+    const focus = this.farmFocus;
+    if (!focus) return null;
+    const tile = this.undergroundGrid.getTile(focus.x, focus.y);
+    if (!tile || tile.chamberType !== ChamberType.FungusFarm) {
+      this.farmFocus = null;
+      return null;
+    }
+    const amount = tile.food?.type === 'mushroom' ? tile.food.amount : 0;
+    const capacity = this.undergroundGrid.getPantryTileCapacity();
+    return {
+      x: focus.x,
+      y: focus.y,
+      progress: farmGrowthProgress(amount, capacity),
+      ready: isFarmTileReady(amount, capacity),
+      label: farmTileStatusLabel(amount, capacity),
+    };
+  }
+
   /** Farm state for the UI: production rate, stall reason, and fill level */
   getFarmStatus(): { tiles: number; rate: number; status: string; stored: number; capacity: number } {
     const s = this.fungusFarmSystem.getStatus();
@@ -2489,6 +2531,7 @@ export class GameManager {
 
   exitUnderground(): void {
     this.dropAntSelection();
+    this.farmFocus = null;
     this.activeLayer = 'surface';
     this.input.setCamera(this.camera);
   }

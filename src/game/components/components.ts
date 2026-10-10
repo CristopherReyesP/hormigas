@@ -54,6 +54,8 @@ export const AntState = {
   Holding: 'holding',
   /** A worker walking to a mineral node and chipping ore off it (P7.1) */
   Mining: 'mining',
+  /** A nurse picking ripe mushrooms off a farm tile and carrying them to the pantry (FarmHarvestJob) */
+  FarmHarvesting: 'farm_harvesting',
 } as const;
 
 export type AntState = typeof AntState[keyof typeof AntState];
@@ -80,6 +82,17 @@ export interface AntComponent {
   mineralTargetId?: EntityId | null;
   /** Worker: seconds spent chipping at the node on this trip */
   miningProgress?: number;
+  /** Nurse: the farm tile she is harvesting and how far along the trip is */
+  farmHarvest?: FarmHarvestJob | null;
+}
+
+/** One harvest trip: walk to a ripe farm tile, pick for a moment, carry the mushrooms to the pantry */
+export interface FarmHarvestJob {
+  tileX: number;
+  tileY: number;
+  phase: 'going' | 'picking' | 'carrying';
+  /** Seconds spent in the current phase */
+  timer: number;
 }
 
 export interface HungerComponent {

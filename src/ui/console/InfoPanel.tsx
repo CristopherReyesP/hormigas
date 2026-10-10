@@ -160,6 +160,11 @@ function NestSummary({ details }: { details: ColonyDetails }) {
               {FARM_STATUS[farm.status] ?? farm.status}
               {farm.status === 'produciendo' ? ` · +${farm.rate.toFixed(1)}/s` : ''}
             </div>
+            {details.farmTile && (
+              <div className={`info-note${details.farmTile.ready ? ' info-note--good' : ''}`}>
+                <strong>{details.farmTile.label}</strong>
+              </div>
+            )}
           </>
         )}
       </Column>
