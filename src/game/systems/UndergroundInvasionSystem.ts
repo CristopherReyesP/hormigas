@@ -2,6 +2,7 @@ import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { TransitSystem } from './TransitSystem';
+import { hasPlayerOrder } from './helpers/playerOrders';
 import type { DayNightSystem, DayPhase } from './DayNightSystem';
 import type { EntityId } from '../../shared/types';
 import {
@@ -197,6 +198,7 @@ export class UndergroundInvasionSystem implements System {
     for (const id of ants) {
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
       if (ant.role !== AntRole.Soldier) continue;
+      if (hasPlayerOrder(this.world, id)) continue; // under the player's orders
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
 
       if (layer.layer === Layer.Underground) {
@@ -268,6 +270,7 @@ export class UndergroundInvasionSystem implements System {
       if (sent >= Math.min(needed, INVASION_SOLDIER_RESPONDERS)) break;
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
       if (ant.role !== AntRole.Soldier || ant.commandTargetId !== null) continue;
+      if (hasPlayerOrder(this.world, id)) continue; // under the player's orders
 
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
       if (layer.layer !== Layer.Surface) continue;
@@ -355,6 +358,7 @@ export class UndergroundInvasionSystem implements System {
       if (layer.layer !== Layer.Underground) continue;
       if (this.transitSystem.isInTransit(id)) continue;
       if (ant.role === AntRole.Defender) continue; // DefenderAISystem drives them — area-bound sentinels
+      if (hasPlayerOrder(this.world, id)) continue; // under the player's orders: never drafted
       if (ant.role === AntRole.Soldier) ugSoldiers.push(id);
       else ugCivilians.push(id);
     }

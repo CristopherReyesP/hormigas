@@ -305,3 +305,12 @@ export const FORAGE_ENEMY_AVOID_RADIUS = 5;       // non-soldiers refuse to harv
 export const CRATER_CLEAR_RADIUS = 3; // tiles around the impact that must be walkable
 export const CRATER_EDGE_MARGIN = 6; // tiles kept between the crater and the map edge
 export const CRATER_FAR_FRACTION = 0.75; // of the farthest clearing's distance from the nest
+
+// === Player orders (StarCraft-style control) ===
+export const ORDER_PATHS_PER_TICK = 6;      // ordered ants routed per tick; a big group spreads its A* runs over frames
+export const ORDER_PATH_MAX_STEPS = 6000;   // A* budget for an ordered route (player orders may cross the whole map)
+export const ORDER_ARRIVE_RADIUS = 0.3;     // tiles from the formation slot that count as "arrived"
+export const ORDER_SETTLE_RADIUS = 2;       // a route that ended this close to the slot also counts (slot crowded or blocked)
+export const ORDER_MAX_ROUTES = 6;          // re-route attempts before an unreachable order is dropped
+export const ORDER_TIMEOUT_SECONDS = 90;    // an order that has not arrived by then is dropped (the AI takes over)
+export const ORDER_SNAP_RADIUS = 3;         // a click on rock snaps to the nearest walkable tile this close

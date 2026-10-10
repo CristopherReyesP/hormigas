@@ -8,7 +8,7 @@ import type { EntityId } from '../shared/types';
 import { World } from '../engine/ecs/World';
 import { GameLoop } from '../engine/loop/GameLoop';
 import { CanvasRenderer } from '../engine/renderer/CanvasRenderer';
-import { InputManager } from '../engine/input/InputManager';
+import { InputManager, type InputModifiers, type ScreenBox } from '../engine/input/InputManager';
 import { Camera, type ViewportRect } from '../engine/camera/Camera';
 import { isTileVisible, type VisibilityReader } from '../engine/renderer/fogVisibility';
 import { TileGrid } from '../simulation/world/TileGrid';
@@ -27,7 +27,8 @@ import { CricketSpawnSystem } from './systems/CricketSpawnSystem';
 import { HungerSystem } from './systems/HungerSystem';
 import { RegenerationSystem } from './systems/RegenerationSystem';
 import { BreedingSystem } from './systems/BreedingSystem';
-import { SelectionSystem } from './systems/SelectionSystem';
+import { SelectionSystem, type SelectionBox } from './systems/SelectionSystem';
+import { endPlayerOrder, hasPlayerOrder, issueMoveOrders, stopAnts } from './systems/helpers/playerOrders';
 import { FoodRespawnSystem } from './systems/FoodRespawnSystem';
 import { FogOfWarSystem } from './systems/FogOfWarSystem';
 import { EggIncubationSystem } from './systems/EggIncubationSystem';
@@ -72,6 +73,7 @@ import {
   type EggQueueComponent,
   type CombatComponent,
   type PathComponent,
+  type LayerValue,
 } from './components/components';
 import {
   INITIAL_ANTS,
@@ -150,6 +152,21 @@ export interface SelectedEntityInfo {
   cricketDenActiveCrickets?: number;
 }
 
+/** Several own ants selected: what the StarCraft-style group panel shows. */
+export interface SelectedGroupInfo {
+  count: number;
+  /** Selected ants per caste */
+  byRole: Partial<Record<AntRole, number>>;
+  /** Ants with a player order still running */
+  ordered: number;
+  /** The first GROUP_GRID_MAX ants, castes in breed order: the wireframe grid */
+  units: Array<{ id: EntityId; role: AntRole; health: number; ordered: boolean }>;
+}
+
+/** Wireframe cells the group panel shows (StarCraft shows 24 too). */
+const GROUP_GRID_MAX = 24;
+const GROUP_ROLE_ORDER: readonly AntRole[] = [AntRole.Soldier, AntRole.Defender, AntRole.Worker, AntRole.Scout, AntRole.Nurse];
+
 export interface GameNotification {
   id: number;
   severity: 'info' | 'success' | 'warning' | 'danger';
@@ -226,6 +243,10 @@ export interface GameStats {
     role: AntRole | null;
   };
   selectedEntity: SelectedEntityInfo | null;
+  /** Two or more own ants selected (selectedEntity is null then) */
+  selectedGroup?: SelectedGroupInfo | null;
+  /** A command card order waiting for its target click ('move': Mover was pressed) */
+  commandTarget?: 'move' | null;
   notifications: GameNotification[];
   objective: ObjectiveState | null;
   invasion: InvasionInfo;
@@ -310,6 +331,11 @@ export class GameManager {
   private incubationMode = false;
   private storageMode = false;
   private viewportConfigured = false;
+  private transitSystem: TransitSystem;
+  /** Mover was pressed: the next left click on the ground is the move target */
+  private moveTargetArmed = false;
+  /** Order pings for the renderer (tile coords), drained every frame */
+  private orderPings: Array<{ x: number; y: number }> = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -318,7 +344,10 @@ export class GameManager {
     this.visibilityGrid = new VisibilityGrid(WORLD_WIDTH, WORLD_HEIGHT);
     this.renderer = new CanvasRenderer(canvas);
     this.camera = new Camera();
-    this.input = new InputManager(canvas);
+    this.input = new InputManager(canvas, {
+      onSelectBox: (box, mods) => this.selectInScreenBox(box, mods),
+      onCommand: (screenX, screenY) => this.commandAt(screenX, screenY),
+    });
     this.input.setCamera(this.camera);
 
     // Underground layer
@@ -371,6 +400,7 @@ export class GameManager {
     this.world.addSystem(regenerationSystem);
     this.world.addSystem(breedingSystem);
     const transitSystem = new TransitSystem(this.world, this.undergroundGrid);
+    this.transitSystem = transitSystem;
     this.world.addSystem(transitSystem);
     // Healing ants descend to the pantry when the surface stockpile is dry
     this.antAISystem.setUndergroundAccess(this.undergroundGrid, transitSystem);
@@ -429,7 +459,7 @@ export class GameManager {
     this.input.onKeyAction('KeyR', () => this.camera.reset());
 
     // Setup canvas click handler for selection (screen coords → tile coords via camera)
-    this.input.onCanvasClick((screenX, screenY) => {
+    this.input.onCanvasClick((screenX, screenY, mods) => {
       if (this.activeLayer === 'underground') {
         const tile = this.undergroundCamera.screenToTile(screenX, screenY);
         if (this.digMode) {
@@ -449,15 +479,20 @@ export class GameManager {
           // the queen to THAT throne — with several thrones, the player picks.
           // Clicking the throne she already occupies falls through to selection.
           if (!this.sendQueenToThroneAt(tile.x, tile.y)) {
-            this.selectEntityAt(tile.x, tile.y);
+            this.clickSelect(screenX, screenY, mods);
           }
         }
+        return;
+      }
+      if (this.moveTargetArmed) {
+        // Mover was pressed: this click is the destination
+        this.commandAt(screenX, screenY);
         return;
       }
       const tile = this.camera.screenToTile(screenX, screenY);
       // Check if clicking on already-selected nest → enter underground
       const currentSelected = this.selectionSystem.getSelectedEntityId();
-      if (currentSelected !== null) {
+      if (currentSelected !== null && !mods.shift && !mods.ctrl) {
         const nest = this.world.getComponent<NestComponent>(currentSelected, COMPONENT.NEST);
         if (nest) {
           const pos = this.world.getComponent<PositionComponent>(currentSelected, COMPONENT.POSITION);
@@ -471,7 +506,7 @@ export class GameManager {
           }
         }
       }
-      this.selectEntityAt(tile.x, tile.y);
+      this.clickSelect(screenX, screenY, mods);
     });
 
     // Initialize game world
@@ -827,18 +862,120 @@ export class GameManager {
   }
 
   selectEntityAt(tileX: number, tileY: number): void {
-    this.selectionSystem.selectAt(tileX, tileY);
+    this.selectionSystem.selectAt(tileX, tileY, { layer: this.activeLayerValue() });
     // Force stats update to reflect selection
-    if (this.statsCallback) {
-      this.statsCallback(this.getStats());
-    }
+    this.publishStats();
   }
 
   clearSelection(): void {
     this.selectionSystem.clearSelection();
-    if (this.statsCallback) {
-      this.statsCallback(this.getStats());
+    this.moveTargetArmed = false;
+    this.publishStats();
+  }
+
+  /** Narrow a group to one of its ants (its cell in the group panel was clicked). */
+  selectOnly(id: EntityId): void {
+    this.selectionSystem.selectOnly(id);
+    this.publishStats();
+  }
+
+  /** Detener: drop the orders of the selected ants; their own AI takes over. */
+  stopSelectedAnts(): number {
+    const stopped = stopAnts(this.world, this.selectionSystem.getSelectedAnts());
+    this.moveTargetArmed = false;
+    this.publishStats();
+    return stopped;
+  }
+
+  /** Mover: arm a move order; the next left click on the ground is the target. */
+  armMoveTarget(): void {
+    this.moveTargetArmed = this.activeLayer === 'surface' && this.selectionSystem.getSelectedAnts().length > 0;
+    this.publishStats();
+  }
+
+  cancelCommandTarget(): void {
+    if (!this.moveTargetArmed) return;
+    this.moveTargetArmed = false;
+    this.publishStats();
+  }
+
+  /**
+   * Order the selected ants to walk to a tile: each gets its own formation slot.
+   * Surface only for now. Returns how many ants took the order.
+   */
+  orderSelectedMove(tileX: number, tileY: number): number {
+    this.moveTargetArmed = false;
+    if (this.activeLayer !== 'surface' || this.gameOver) return 0;
+    const ants = this.selectionSystem.getSelectedAnts();
+    if (ants.length === 0) return 0;
+    const result = issueMoveOrders(this.world, this.grid, ants, { x: tileX, y: tileY }, this.transitSystem);
+    if (!result) return 0;
+    this.orderPings.push(result.target);
+    this.publishStats();
+    return result.ordered.length;
+  }
+
+  /** Order pings since the last frame (tile coords); the renderer animates them. */
+  drainOrderPings(): Array<{ x: number; y: number }> {
+    return this.orderPings.splice(0);
+  }
+
+  /** Live selection box (canvas px) while the player drags. */
+  getDragBox(): ScreenBox | null {
+    return this.input.getDragBox();
+  }
+
+  private activeLayerValue(): LayerValue {
+    return this.activeLayer === 'underground' ? Layer.Underground : Layer.Surface;
+  }
+
+  private activeCamera(): Camera {
+    return this.activeLayer === 'underground' ? this.undergroundCamera : this.camera;
+  }
+
+  /** Canvas px to entity-position space: an entity at (x, y) is drawn centered on tile (x, y). */
+  private screenToEntity(screenX: number, screenY: number): { x: number; y: number } {
+    const world = this.activeCamera().screenToWorld(screenX, screenY);
+    return { x: world.x / TILE_SIZE - 0.5, y: world.y / TILE_SIZE - 0.5 };
+  }
+
+  /** Left click: pick one entity; shift toggles an ant in the group; ctrl takes its caste on screen. */
+  private clickSelect(screenX: number, screenY: number, mods: InputModifiers): void {
+    const at = this.screenToEntity(screenX, screenY);
+    const layer = this.activeLayerValue();
+    if (mods.ctrl) {
+      const view = this.activeCamera().getViewRectTiles();
+      const box: SelectionBox = { minX: view.x - 0.5, minY: view.y - 0.5, maxX: view.x + view.w - 0.5, maxY: view.y + view.h - 0.5 };
+      this.selectionSystem.selectSameCaste(at.x, at.y, box, layer);
+    } else {
+      this.selectionSystem.selectAt(at.x, at.y, { layer, additive: mods.shift });
     }
+    if (this.selectionSystem.getSelectedAnts().length === 0) this.moveTargetArmed = false;
+    this.publishStats();
+  }
+
+  /** Left drag released: select the own ants inside the box (shift adds). */
+  private selectInScreenBox(box: ScreenBox, mods: InputModifiers): void {
+    const a = this.screenToEntity(box.x0, box.y0);
+    const b = this.screenToEntity(box.x1, box.y1);
+    const area: SelectionBox = { minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y), maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y) };
+    this.selectionSystem.selectInBox(area, this.activeLayerValue(), mods.shift);
+    this.moveTargetArmed = false;
+    this.publishStats();
+  }
+
+  /** Right tap (or a click with Mover armed): the selected ants move there. */
+  private commandAt(screenX: number, screenY: number): void {
+    // Orders run on the surface only for now; right-click does nothing below
+    if (this.activeLayer !== 'surface') return;
+    const at = this.screenToEntity(screenX, screenY);
+    this.orderSelectedMove(Math.round(at.x), Math.round(at.y));
+  }
+
+  /** Leaving a layer drops the ants picked on it; a selected nest or food stays. */
+  private dropAntSelection(): void {
+    this.moveTargetArmed = false;
+    if (this.selectionSystem.getSelectedAnts().length > 0) this.selectionSystem.clearSelection();
   }
 
   setColonyPriority(priority: ColonyPriority): void {
@@ -1067,6 +1204,8 @@ export class GameManager {
       if (layer.layer !== Layer.Surface) continue;
 
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      // The horn outranks the player's own orders: everybody home
+      if (hasPlayerOrder(this.world, id)) endPlayerOrder(this.world, id);
       // Porters keep their load and task — they're heading to the nest or
       // underground anyway, and re-typing their state would double-count food
       if (ant.state === AntState.FetchingFood || ant.state === AntState.Hauling) continue;
@@ -1413,6 +1552,7 @@ export class GameManager {
   }
 
   enterUnderground(): void {
+    this.dropAntSelection();
     this.activeLayer = 'underground';
     const cx = Math.floor(UNDERGROUND_WIDTH / 2) * TILE_SIZE;
     const cy = Math.floor(UNDERGROUND_HEIGHT / 2) * TILE_SIZE;
@@ -1422,6 +1562,7 @@ export class GameManager {
   }
 
   exitUnderground(): void {
+    this.dropAntSelection();
     this.activeLayer = 'surface';
     this.input.setCamera(this.camera);
   }
@@ -1653,6 +1794,30 @@ export class GameManager {
     };
   }
 
+  /** Two or more selected ants: counts per caste and the wireframe cells. */
+  getSelectedGroup(): SelectedGroupInfo | null {
+    const ids = this.selectionSystem.getSelectedAnts();
+    if (ids.length < 2) return null;
+    const byRole: Partial<Record<AntRole, number>> = {};
+    const units: SelectedGroupInfo['units'] = [];
+    let ordered = 0;
+    for (const id of ids) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+      const hasOrder = hasPlayerOrder(this.world, id);
+      byRole[ant.role] = (byRole[ant.role] ?? 0) + 1;
+      if (hasOrder) ordered++;
+      units.push({
+        id,
+        role: ant.role,
+        health: health ? Math.max(0, Math.min(1, health.current / Math.max(1, health.max))) : 1,
+        ordered: hasOrder,
+      });
+    }
+    units.sort((a, b) => GROUP_ROLE_ORDER.indexOf(a.role) - GROUP_ROLE_ORDER.indexOf(b.role) || a.id - b.id);
+    return { count: ids.length, byRole, ordered, units: units.slice(0, GROUP_GRID_MAX) };
+  }
+
   getSelectedEntity(): SelectedEntityInfo | null {
     const selectedId = this.selectionSystem.getSelectedEntityId();
     if (selectedId === null) return null;
@@ -1851,6 +2016,8 @@ export class GameManager {
       colonyPriority: this.getColonyPriority(),
       breeding: this.getBreedingStatus(),
       selectedEntity: this.getSelectedEntity(),
+      selectedGroup: this.getSelectedGroup(),
+      commandTarget: this.moveTargetArmed && this.selectionSystem.getSelectedAnts().length > 0 ? 'move' : null,
       notifications: this.getActiveNotifications(),
       objective: this.objectiveSystem.getState(),
       invasion: this.invasionSystem.getInfo(),

@@ -45,6 +45,8 @@ export const AntState = {
   Eating: 'eating',
   Hauling: 'hauling',
   Scavenging: 'scavenging',
+  /** Following a player order (PlayerOrderComponent); the colony AI waits until it ends */
+  Moving: 'moving',
 } as const;
 
 export type AntState = typeof AntState[keyof typeof AntState];
@@ -240,6 +242,29 @@ export interface LayerComponent {
   layer: LayerValue;
 }
 
+/** Order kinds the player can give. Attack orders arrive with P3b. */
+export const OrderKind = {
+  Move: 'move',
+} as const;
+export type OrderKind = typeof OrderKind[keyof typeof OrderKind];
+
+/**
+ * A direct player command. While an ant carries one, AntAISystem drives it and
+ * the colony systems (porters, digging, garrison, invasion draft) leave it alone.
+ * The order is removed on arrival and the ant goes back to its own job.
+ */
+export interface PlayerOrderComponent {
+  kind: OrderKind;
+  /** This ant's formation slot (tile) */
+  target: Vector2;
+  /** Layer the order was given on; orders only run on the surface for now */
+  layer: LayerValue;
+  /** Seconds since the order was given */
+  elapsed: number;
+  /** A* routes requested so far (0 = still waiting for its first route) */
+  routes: number;
+}
+
 // Component name constants to avoid magic strings
 export const COMPONENT = {
   POSITION: 'position',
@@ -265,4 +290,5 @@ export const COMPONENT = {
   QUEEN_ENTITY: 'queen_entity',
   EGG_QUEUE: 'egg_queue',
   EGG: 'egg',
+  PLAYER_ORDER: 'player_order',
 } as const;

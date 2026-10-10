@@ -5,6 +5,7 @@ import type { TileGrid } from '../../simulation/world/TileGrid';
 import type { TransitSystem } from './TransitSystem';
 import { findPath } from '../../simulation/pathfinding/AStar';
 import { findAttacker, ensureCombatComponent } from './helpers/combatHelpers';
+import { hasPlayerOrder } from './helpers/playerOrders';
 import { antSpawnStats } from '../run/antStats';
 import {
   COMPONENT,
@@ -90,6 +91,8 @@ export class PorterSystem implements System {
     for (const id of ants) {
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
       if (ant.role !== AntRole.Worker) continue;
+      // The player gave this ant an order: it is not a porter until the order ends
+      if (hasPlayerOrder(this.world, id)) continue;
 
       if (ant.state === AntState.FetchingFood) {
         if (this.reactToSurfaceThreat(id, ant, nestPos)) continue;
