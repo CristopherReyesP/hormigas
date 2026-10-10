@@ -7,6 +7,12 @@ import type { ColonyDetails } from './useColonyDetails';
 
 /** Name and faction line of a selected entity. */
 export function selectionTitle(sel: SelectedEntityInfo): { name: string; faction: string } {
+  // A Crystal player's own Hive, spires and units
+  if (sel.owned) {
+    if (sel.type === 'crystal_hive') return { name: 'Tu colmena', faction: 'Colmena de Cristal · núcleo' };
+    if (sel.type === 'crystal_spire') return { name: SPIRE_NAME[sel.spireKind ?? 'forge'], faction: 'Colmena de Cristal · tuya' };
+    if (sel.type === 'crystal_unit') return { name: CRYSTAL_UNIT_NAME[sel.crystalKind ?? 'drone'], faction: 'Colmena de Cristal · tuya' };
+  }
   switch (sel.type) {
     case 'ant': return { name: ROLE_LABEL[sel.role ?? AntRole.Worker], faction: 'Enjambre mutante' };
     case 'nest': return { name: 'Nido', faction: 'Enjambre mutante · colmena' };
@@ -47,6 +53,10 @@ export function infoSummary(stats: GameStats, details: ColonyDetails): string {
     if (health) return `${name}${shield} · VIDA ${Math.round(health.current)}/${Math.round(health.max)}`;
     if (sel.type === 'food') return `${name} · ${Math.round(sel.foodAmount ?? 0)}`;
     return name;
+  }
+  if (stats.crystal) {
+    const c = stats.crystal;
+    return `COLMENA · MINERALES ${c.minerals} · SUMINISTRO ${c.supply.used}/${c.supply.cap}`;
   }
   if (stats.activeLayer === 'underground') {
     const queen = details.queen ? `REINA ${Math.round(details.queen.health)}/${Math.round(details.queen.maxHealth)}` : 'SIN REINA';

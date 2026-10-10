@@ -9,13 +9,20 @@ import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
+import { CrystalIntroTitle } from './ui/races/crystal/CrystalIntroTitle';
 import { NestAlert } from './ui/NestAlert';
 import { HumanIntroBanner } from './ui/races/human/HumanIntroBanner';
 import { NextWaveCard } from './ui/NextWaveCard';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
 import { ColonyPriority } from './game/components/components';
-import { loadRunSetup, saveRunSetup, type RunSetup } from './game/run/RunSetup';
+import { loadRunSetup, sanitizeRunSetup, saveRunSetup, type RunSetup } from './game/run/RunSetup';
+import type { SaveFile } from './game/save/format';
+import { getSaveStorage } from './game/save/storage';
+import { GameMenu } from './ui/save/GameMenu';
+import { SaveToasts } from './ui/save/SaveToasts';
+import { StartSaves } from './ui/save/StartSaves';
+import { restoreFactory, useAutosave } from './ui/save/useRunSaves';
 
 const DEFAULT_STATS: GameStats = {
   antCount: 0,
@@ -72,10 +79,17 @@ export default function App() {
   const [runSetup, setRunSetup] = useState<RunSetup | null>(null);
   const gameManagerRef = useRef<GameManager | null>(null);
   const [gameManager, setGameManager] = useState<GameManager | null>(null);
+  // Builds a run loaded from a save (undefined for a new run); `runKey` remounts the canvas for each run
+  const [createGame, setCreateGame] = useState<((canvas: HTMLCanvasElement) => GameManager) | undefined>(undefined);
+  const [runKey, setRunKey] = useState(0);
+  const saveStorage = getSaveStorage();
+  const autosaveNow = useAutosave(gameManager, saveStorage);
 
   const handleStart = useCallback((setup: RunSetup) => {
     saveRunSetup(setup);
     setStats(DEFAULT_STATS);
+    setCreateGame(undefined);
+    setRunKey((k) => k + 1);
     setRunSetup(setup); // mounts GameCanvas → fresh GameManager, whose meteor intro opens the run
   }, []);
 
@@ -84,8 +98,24 @@ export default function App() {
     gameManagerRef.current = null;
     setGameManager(null);
     setStats(DEFAULT_STATS);
+    setCreateGame(undefined);
     setRunSetup(null);
   }, []);
+
+  const handleLoadSave = useCallback((save: SaveFile) => {
+    // Remounts GameCanvas, which builds the saved run instead of a new one (no intro)
+    gameManagerRef.current = null;
+    setGameManager(null);
+    setStats({ ...DEFAULT_STATS, introPlaying: false });
+    setCreateGame(() => restoreFactory(save, handleRestart));
+    setRunKey((k) => k + 1);
+    setRunSetup(sanitizeRunSetup(save.state.setup));
+  }, [handleRestart]);
+
+  const handleExitToMenu = useCallback(() => {
+    autosaveNow();
+    handleRestart();
+  }, [autosaveNow, handleRestart]);
 
   // "Seguir jugando" after a victory: the endless run goes on without the rival base
   const handleContinue = useCallback(() => {
@@ -100,6 +130,8 @@ export default function App() {
   const handleGameManager = useCallback((gm: GameManager) => {
     gameManagerRef.current = gm;
     setGameManager(gm);
+    // A loaded run shows its colony at once, not after the first stats tick
+    if (!gm.getStats().introPlaying) setStats(gm.getStats());
   }, []);
 
   const refreshStats = useCallback(() => {
@@ -130,13 +162,29 @@ export default function App() {
 
   if (!runSetup) {
     // Shown on first load and after every restart, before any simulation runs
-    return <RacePicker initialSetup={loadRunSetup()} onStart={handleStart} />;
+    return (
+      <>
+        <RacePicker
+          initialSetup={loadRunSetup()}
+          onStart={handleStart}
+          savedRun={<StartSaves storage={saveStorage} onLoad={handleLoadSave} />}
+        />
+        <SaveToasts />
+      </>
+    );
   }
 
   return (
     <div className="hive-screen">
       {/* The world fills the window; every HUD element floats above it */}
-      <GameCanvas setup={runSetup} onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} introPlaying={stats.introPlaying} />
+      <GameCanvas
+        key={runKey}
+        setup={runSetup}
+        createGame={createGame}
+        onStatsUpdate={handleStatsUpdate}
+        onGameManager={handleGameManager}
+        introPlaying={stats.introPlaying}
+      />
       {/* Hidden during the opening cinematic, then it fades in */}
       <HudLayer introPlaying={stats.introPlaying}>
         <TopStrip stats={stats} gameManager={gameManager} />
@@ -150,12 +198,19 @@ export default function App() {
       {!stats.introPlaying && (
         <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
       )}
+      {/* The Crystal Hive skips the Swarm's meteor intro: a short title instead */}
+      {runSetup.playerRace === 'crystal' && !stats.gameOver && <CrystalIntroTitle />}
       {/* Invaders inside the nest: the banner with "Ir al nido", and the all-clear */}
       {!stats.introPlaying && stats.nestAlert && (
         <NestAlert state={stats.nestAlert} activeLayer={stats.activeLayer} onGoToNest={handleGoToNest} />
       )}
       {/* A Human expedition's landing line (the Swarm opens with the meteor cinematic instead) */}
       {stats.human?.intro && !stats.gameOver && <HumanIntroBanner title={stats.human.intro} />}
+      {/* Pause menu: save, load, back to the start screen */}
+      {!stats.introPlaying && !stats.gameOver && gameManager && (
+        <GameMenu game={gameManager} storage={saveStorage} onLoad={handleLoadSave} onExit={handleExitToMenu} />
+      )}
+      <SaveToasts />
       {!stats.introPlaying && !stats.gameOver && <MilestoneBanner milestone={stats.milestone} />}
       {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} onContinue={handleContinue} />}
 

@@ -12,6 +12,8 @@ interface MinimapPanelProps {
   gameManager: GameManager | null;
   activeLayer: LayerName;
   onSwitchLayer: (layer: LayerName) => void;
+  /** No NIDO tab: the race has no cave (the Crystal Hive) */
+  hideNest?: boolean;
   /** Hostile units in the nest and wave raiders on the surface: the tabs' red badges */
   invaders?: { underground: number; surface: number };
 }
@@ -43,7 +45,7 @@ function loadVisible(): boolean {
  * camera looks at; clicking or dragging on the map moves that camera.
  * M shows or hides the map, as it did for the old nest overlay.
  */
-export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, invaders }: MinimapPanelProps) {
+export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, hideNest = false, invaders }: MinimapPanelProps) {
   const alerts = tabAlerts(activeLayer, invaders?.underground ?? 0, invaders?.surface ?? 0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [visible, setVisible] = useState(loadVisible);
@@ -144,8 +146,8 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, invaders
             <span className="minimap-tab-label">SUPERFICIE</span>
             <TabBadge alert={alerts.surface} />
           </button>
-          {/* The Humans build up, not down: no nest view */}
-          {gameManager?.getRunSetup?.().playerRace !== 'human' && (
+          {/* The Humans build up and the Crystal Hive grows spires: no nest view */}
+          {!hideNest && gameManager?.getRunSetup?.().playerRace !== 'human' && (
           <button
             type="button"
             role="tab"

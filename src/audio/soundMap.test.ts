@@ -32,6 +32,7 @@ describe('event → sound mapping', () => {
     [{ type: 'hatch', caste: 'worker' }, 'hatchChime'],
     [{ type: 'dawnOffer' }, 'dawnSwell'],
     [{ type: 'mutationChosen' }, 'mutationChosen'],
+    [{ type: 'upgrade', level: 2 }, 'levelUp'],
     [{ type: 'intro', cue: 'whoosh', duration: 2.6 }, 'introWhoosh'],
     [{ type: 'intro', cue: 'impact' }, 'introImpact'],
     [{ type: 'intro', cue: 'crystal', index: 3 }, 'introCrystal'],

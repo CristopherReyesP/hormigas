@@ -118,6 +118,7 @@ export interface RivalInfo {
   readonly portrait: 'beetle' | UnitPortrait;
 }
 
+/** The rivals the picker lists for the Swarm (the default player race) */
 export const RIVAL_OPTIONS: readonly RivalInfo[] = [
   {
     id: 'wildlife',
@@ -151,14 +152,15 @@ const SWARM_RIVAL: Omit<RivalInfo, 'available' | 'note'> = {
 
 /**
  * The rivals the picker offers to a `player` race: the wildlife, the Crystal
- * Hive and the Humans (a mirror match for a Human player). A Human player
+ * Hive and the Humans (mirror matches included). A Human or Crystal player
  * also sees the Swarm, as "Próximamente" until it has an AI.
  */
 export function rivalOptionsFor(player: RaceId): RivalInfo[] {
   if (player === 'swarm') return [...RIVAL_OPTIONS];
   const options: RivalInfo[] = RIVAL_OPTIONS.map((rival) => {
     const available = isAvailableRival(rival.id, player);
-    const note = !available ? 'Próximamente' : rival.id === player ? 'Espejo: otra base humana' : rival.note;
+    const mirror = player === 'human' ? 'Espejo: otra base humana' : 'Espejo: otra colmena de cristal';
+    const note = !available ? 'Próximamente' : rival.id === player ? mirror : rival.note;
     return { ...rival, available, note };
   });
   const swarm = isAvailableRival('swarm', player);
