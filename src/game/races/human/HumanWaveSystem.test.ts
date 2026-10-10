@@ -10,6 +10,9 @@ import { BeetleAISystem } from '../../systems/BeetleAISystem';
 import type { DayPhase } from '../../systems/DayNightSystem';
 import { waveComposition } from '../../run/waveComposition';
 import { HumanWaveSystem } from './HumanWaveSystem';
+import { BOSS_COMPONENT } from '../../run/miniBoss';
+import { ELITE_COMPONENT } from '../../run/eliteAffixes';
+import { HUMAN_PLAYER_COMPONENT } from './humanPlayerComponents';
 import { createPlayerHumanBuilding } from './humanPlayerFactories';
 
 const CX = Math.floor(WORLD_WIDTH / 2);
@@ -88,5 +91,23 @@ describe('night waves against a Human player', () => {
     expect(waves.getInfo().active).toBe(false);
     expect(world.metrics.wavesRepelled).toBe(1);
     expect(waves.getInfo().banner?.kind).toBe('cleared');
+  });
+
+  it('wave 3 brings elites and the Acorazado Colosal over the surface, scouted ahead on the card', () => {
+    const { world, clock, waves, run } = setup();
+    (waves as unknown as { waveNumber: number }).waveNumber = 2;
+    clock.day = 3;
+    const next = waves.getInfo().next!;
+    expect(next.wave).toBe(3);
+    expect(next.boss?.kind).toBe('colossus');
+    expect(next.elites.length).toBeGreaterThan(0);
+    expect(next.entrance).toBeNull();
+    clock.phase = 'night';
+    run(30);
+    const invaders = world.query(HUMAN_PLAYER_COMPONENT.WAVE_INVADER);
+    expect(invaders.some((id) => world.getComponent(id, BOSS_COMPONENT))).toBe(true);
+    expect(invaders.some((id) => world.getComponent(id, ELITE_COMPONENT))).toBe(true);
+    for (const id of invaders) expect(world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!.layer).toBe(Layer.Surface);
+    expect(waves.getInfo().boss?.kind).toBe('colossus');
   });
 });

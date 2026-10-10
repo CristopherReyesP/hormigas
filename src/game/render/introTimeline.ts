@@ -1,4 +1,5 @@
 import { hash2 } from '../../engine/renderer/pixelart/palette';
+import type { RivalId } from '../run/RunSetup';
 
 /**
  * Pure timing and motion for the run's opening cinematic. Letterbox bars
@@ -8,6 +9,13 @@ import { hash2 } from '../../engine/renderer/pixelart/palette';
  * rings out and the first Crystal drones rise out of the crater, unfold
  * their orbiting shards and glide toward the colony. Then the camera glides
  * home and the title card shows over the colony.
+ *
+ * That is the Crystal Hive's opening. The rival picked in the race picker
+ * picks the variant (see IntroVariant): against the Humans a dropship
+ * brakes down onto their base site and the base unfolds there, and against
+ * the wildlife the meteor's impact wakes the beetles and leapers instead of
+ * deploying anything. Their choreography lives in introArrival.ts; the
+ * timing, the slow motion, the skip and the camera work are shared.
  *
  * Everything here is a function of INTRO time, so pausing holds the intro
  * and tests can sample any moment. IntroClock maps real frame time to intro
@@ -64,6 +72,44 @@ export const INTRO_TIMELINE = {
 } as const;
 
 const T = INTRO_TIMELINE;
+
+/** Which opening plays: the arrival of the rival picked before the run. */
+export type IntroVariant = 'crystal' | 'human' | 'wildlife';
+
+export interface IntroVariantTraits {
+  /** What comes down at the target: the meteorite, or the Humans' dropship */
+  arrival: 'meteor' | 'dropship';
+  /** Crystal spires, the cyan pulse and the Crystal drones out of the crater */
+  crystalDeploy: boolean;
+  /** Beetles and leapers burst out of the ground around the crater */
+  wildlifeWake: boolean;
+  /** The Human base unfolds at the landing site and troops march out */
+  humanDeploy: boolean;
+}
+
+export const INTRO_VARIANTS: Readonly<Record<IntroVariant, IntroVariantTraits>> = {
+  crystal: { arrival: 'meteor', crystalDeploy: true, wildlifeWake: false, humanDeploy: false },
+  human: { arrival: 'dropship', crystalDeploy: false, wildlifeWake: false, humanDeploy: true },
+  wildlife: { arrival: 'meteor', crystalDeploy: false, wildlifeWake: true, humanDeploy: false },
+};
+
+/** The opening for `rival`. A rival with no alien base to bring in (wildlife, a mirror match) gets the plain impact. */
+export function introVariantFor(rival: RivalId): IntroVariant {
+  return rival === 'crystal' || rival === 'human' ? rival : 'wildlife';
+}
+
+/** The rival's name as the pixel font spells it (capitals only). */
+const RIVAL_TITLE_NAMES: Readonly<Record<RivalId, string>> = {
+  wildlife: 'FAUNA SALVAJE',
+  crystal: 'COLMENA DE CRISTAL',
+  human: 'HUMANOS',
+  swarm: 'ENJAMBRE',
+};
+
+/** The short line under the title card that says who the colony is up against. */
+export function introRivalLine(rival: RivalId): string {
+  return `RIVAL: ${RIVAL_TITLE_NAMES[rival]}`;
+}
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const lerp = (a: Vec2, b: Vec2, f: number): Vec2 => ({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
@@ -144,36 +190,43 @@ export function letterboxAmount(t: number): number {
   return 1 - ((t - T.letterboxOutStart) / T.letterboxOut) ** 3;
 }
 
-/** The meteor's flight curve: accelerating, 0 at launch and 1 at the impact. */
-function flightCurve(u: number): number {
-  return clamp01(u) ** 1.6;
+/**
+ * The flight curve, 0 at launch and 1 at the impact: the meteor accelerates
+ * all the way in; the dropship speeds up and brakes into a soft landing.
+ */
+function flightCurve(u: number, variant: IntroVariant = 'crystal'): number {
+  const f = clamp01(u);
+  return INTRO_VARIANTS[variant].arrival === 'dropship' ? f * f * (3 - 2 * f) : f ** 1.6;
 }
 
-/** Flight progress 0..1, accelerating as it falls; null outside the flight. */
-export function meteorProgress(t: number): number | null {
+/** Flight progress 0..1 (accelerating for the meteor, braking for the dropship); null outside the flight. */
+export function meteorProgress(t: number, variant: IntroVariant = 'crystal'): number | null {
   if (t < T.meteorStart || t >= T.impact) return null;
-  return flightCurve((t - T.meteorStart) / (T.impact - T.meteorStart));
+  return flightCurve((t - T.meteorStart) / (T.impact - T.meteorStart), variant);
 }
 
 /**
- * The point on the ground under the meteor (world px): it launches over the
- * colony and runs out to the impact. Null outside the flight.
+ * The point on the ground under the meteor (or the dropship), in world px:
+ * it launches over the colony and runs out to the target. Null outside the
+ * flight.
  */
-export function meteorGround(t: number, nest: Vec2, impact: Vec2): Vec2 | null {
-  const p = meteorProgress(t);
+export function meteorGround(t: number, nest: Vec2, impact: Vec2, variant: IntroVariant = 'crystal'): Vec2 | null {
+  const p = meteorProgress(t, variant);
   return p === null ? null : lerp(nest, impact, p);
 }
 
 /**
- * Height of the fireball above its ground point (world px), from `alt0`
- * at launch down to the ground at the impact. The fireball is drawn this
- * far above its shadow.
+ * Height of the fireball (or the dropship) above its ground point (world
+ * px), from `alt0` at launch down to the ground at the impact; it is drawn
+ * this far above its shadow. The dropship's descent flattens out at the
+ * end, a hover onto its landing struts.
  */
-export function meteorAltitude(t: number, alt0: number): number {
+export function meteorAltitude(t: number, alt0: number, variant: IntroVariant = 'crystal'): number {
   if (t <= T.meteorStart) return alt0;
   if (t >= T.impact) return 0;
   const u = (t - T.meteorStart) / (T.impact - T.meteorStart);
-  return alt0 * (1 - u) ** 1.25;
+  // The dropship holds its altitude longer, then flattens out onto the ground
+  return INTRO_VARIANTS[variant].arrival === 'dropship' ? alt0 * (1 - u * u) ** 2 : alt0 * (1 - u) ** 1.25;
 }
 
 /**
@@ -182,13 +235,13 @@ export function meteorAltitude(t: number, alt0: number): number {
  * ease-out whose opening speed matches the chase, holds there for the
  * deployment, then glides home with an ease-in-out.
  */
-export function introCameraFocus(t: number, nest: Vec2, impact: Vec2): Vec2 {
+export function introCameraFocus(t: number, nest: Vec2, impact: Vec2, variant: IntroVariant = 'crystal'): Vec2 {
   const flight = T.impact - T.meteorStart;
   if (t < T.impact) {
-    return lerp(nest, impact, flightCurve((t - T.cameraLag - T.meteorStart) / flight));
+    return lerp(nest, impact, flightCurve((t - T.cameraLag - T.meteorStart) / flight, variant));
   }
   if (t < T.impact + T.cameraSettle) {
-    const atImpact = flightCurve((T.impact - T.cameraLag - T.meteorStart) / flight);
+    const atImpact = flightCurve((T.impact - T.cameraLag - T.meteorStart) / flight, variant);
     return lerp(nest, impact, atImpact + (1 - atImpact) * easeOutCubic((t - T.impact) / T.cameraSettle));
   }
   if (t < T.returnStart) return { x: impact.x, y: impact.y };
@@ -206,14 +259,18 @@ export interface LitArea extends Vec2 {
   r: number;
 }
 
+/** Tiles lit around the target once it lands: the crater, or the wider Human base. */
+const TARGET_LIGHT: Readonly<Record<IntroVariant, number>> = { crystal: 8, wildlife: 8, human: 11 };
+
 /**
- * Ground the fireball lights this frame: a spot under the meteor that
- * widens as it comes down, then the crater until the camera has left.
+ * Ground the fireball (or the dropship's engines) lights this frame: a spot
+ * under it that widens as it comes down, then the target until the camera
+ * has left. What it lit stays explored: a scorched trail to the target.
  */
-export function introLitAreas(t: number, nest: Vec2, impact: Vec2): LitArea[] {
-  const ground = meteorGround(t, nest, impact);
-  if (ground) return [{ ...ground, r: 3 + Math.round(3 * (meteorProgress(t) ?? 0)) }];
-  if (t >= T.impact && t < T.returnStart + 0.6) return [{ x: impact.x, y: impact.y, r: 8 }];
+export function introLitAreas(t: number, nest: Vec2, impact: Vec2, variant: IntroVariant = 'crystal'): LitArea[] {
+  const ground = meteorGround(t, nest, impact, variant);
+  if (ground) return [{ ...ground, r: 3 + Math.round(3 * (meteorProgress(t, variant) ?? 0)) }];
+  if (t >= T.impact && t < T.returnStart + 0.6) return [{ x: impact.x, y: impact.y, r: TARGET_LIGHT[variant] }];
   return [];
 }
 
@@ -229,12 +286,12 @@ const toArtPx = (v: number): number => Math.round(v / 2) * 2 || 0;
  * falling off quadratically, in even pixels so the world never lands between
  * art pixels. Zero before the impact and once the shake has settled.
  */
-export function shakeOffset(t: number): Vec2 {
+export function shakeOffset(t: number, scale = 1): Vec2 {
   const s = t - T.impact;
   const d = T.shakeDuration;
   if (s < 0 || s >= d) return { x: 0, y: 0 };
   const step = Math.floor(s * SHAKE_RATE);
-  const amp = SHAKE_MAX * (1 - step / (SHAKE_RATE * d)) ** 2;
+  const amp = SHAKE_MAX * scale * (1 - step / (SHAKE_RATE * d)) ** 2;
   const a = hash2(step, 977) * Math.PI * 2;
   return { x: toArtPx(Math.cos(a) * amp), y: toArtPx(Math.sin(a) * amp) };
 }
@@ -244,6 +301,11 @@ const FLASH_ALPHAS = [1, 0.7] as const;
 
 export function flashAlpha(framesSinceImpact: number): number {
   return FLASH_ALPHAS[framesSinceImpact] ?? 0;
+}
+
+/** Only the meteorite flashes white: a dropship touches down in its own dust. */
+export function introFlashAlpha(variant: IntroVariant, framesSinceImpact: number): number {
+  return INTRO_VARIANTS[variant].arrival === 'meteor' ? flashAlpha(framesSinceImpact) : 0;
 }
 
 /** Warm (fireball orange) wash that follows the white flash, in three steps. */
@@ -302,6 +364,16 @@ export function spireGrowth(i: number, t: number): number {
 export function crystalPulseProgress(t: number): number | null {
   if (t < T.pulseStart || t >= T.pulseStart + T.pulseDuration) return null;
   return (t - T.pulseStart) / T.pulseDuration;
+}
+
+/** Spire `i`'s growth in this variant's opening: only the Crystal Hive grows any. */
+export function introSpireGrowth(variant: IntroVariant, i: number, t: number): number {
+  return INTRO_VARIANTS[variant].crystalDeploy ? spireGrowth(i, t) : 0;
+}
+
+/** The cyan pulse in this variant's opening: only the Crystal Hive sends one. */
+export function introPulse(variant: IntroVariant, t: number): number | null {
+  return INTRO_VARIANTS[variant].crystalDeploy ? crystalPulseProgress(t) : null;
 }
 
 export const DRONE_COUNT = 4;
@@ -410,6 +482,17 @@ export function droneState(i: number, t: number, impact: Vec2, nest: Vec2): Dron
     return { ...state, ...lerp(from, to, easeOutQuad((s - open) / T.droneGlide)), gliding: true };
   }
   return { ...state, ...to };
+}
+
+/** The Crystal drones up at time `t` in this variant's opening, by index; none unless the Hive arrives. */
+export function introDrones(variant: IntroVariant, t: number, impact: Vec2, nest: Vec2): Array<[number, DroneState]> {
+  const out: Array<[number, DroneState]> = [];
+  if (!INTRO_VARIANTS[variant].crystalDeploy) return out;
+  for (let i = 0; i < DRONE_COUNT; i++) {
+    const d = droneState(i, t, impact, nest);
+    if (d) out.push([i, d]);
+  }
+  return out;
 }
 
 export const SHARD_COUNT = 2;

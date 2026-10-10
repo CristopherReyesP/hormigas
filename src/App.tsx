@@ -9,6 +9,7 @@ import { RacePicker } from './ui/RacePicker';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
 import { HumanIntroBanner } from './ui/races/human/HumanIntroBanner';
+import { NextWaveCard } from './ui/NextWaveCard';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
 import { ColonyPriority } from './game/components/components';
@@ -122,6 +123,8 @@ export default function App() {
         <TopStrip stats={stats} gameManager={gameManager} />
         {/* Defaults carry no objective: wait for the first real snapshot */}
         {stats.tickCount > 0 && !stats.human && <ObjectivePanel objective={stats.objective} />}
+        {/* Scouting: the coming wave's mix, elites, boss and breach, all day */}
+        {stats.tickCount > 0 && <NextWaveCard invasion={stats.invasion} />}
         <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} />
       </HudLayer>
       {/* Night-wave alerts: outside the scaled HUD, over the whole screen; none during the intro */}

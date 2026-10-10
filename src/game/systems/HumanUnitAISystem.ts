@@ -13,6 +13,7 @@ import {
 import { FactionId, ownerOf, relation } from '../factions/factions';
 import { HUMAN_RAID_SECONDS, HUMAN_UNIT_STATS } from '../rival/humanBase';
 import { HUMAN_COMPONENT, type HumanUnitComponent } from '../rival/humanComponents';
+import { STRUCTURE_COMPONENT, type StructureComponent } from '../run/defenses';
 import { ORDER_PATH_MAX_STEPS } from '../../shared/constants';
 
 /** Seconds between two route requests while closing in on a moving enemy */
@@ -100,9 +101,11 @@ export class HumanUnitAISystem implements System {
   /** Surface units of every non-wildlife faction; each unit keeps only its enemies */
   private snapshotPrey(): void {
     this.prey.length = 0;
-    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT, HUMAN_COMPONENT.UNIT, HUMAN_COMPONENT.BUILDING]) {
+    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT, HUMAN_COMPONENT.UNIT, HUMAN_COMPONENT.BUILDING, STRUCTURE_COMPONENT]) {
       for (const id of this.world.query(store, COMPONENT.POSITION, COMPONENT.HEALTH)) {
         if (!this.onSurface(id)) continue;
+        // Walls are not chased (their tile cannot be walked to): DefenseSystem points units at the ones they bump into
+        if (this.world.getComponent<StructureComponent>(id, STRUCTURE_COMPONENT)?.kind === 'wall') continue;
         const faction = ownerOf(this.world, id);
         if (faction === null || faction === FactionId.WILDLIFE) continue;
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;

@@ -85,9 +85,10 @@ describe('the Human HUD', () => {
     expect(defeat).toContain('CAYÓ EL CENTRO DE MANDO');
     expect(defeat).not.toContain('REINA');
     expect(defeat).not.toContain('Hormigas nacidas');
-    const win = renderToStaticMarkup(<GameOverScreen stats={{ ...base, outcome: 'victory' }} onRestart={() => {}} />);
-    expect(win).toContain('LA EXPEDICIÓN RESISTE');
-    expect(win).toMatch(/La expedición sobrevivió 7 noches/);
+    const win = renderToStaticMarkup(<GameOverScreen stats={{ ...base, outcome: 'victory', rivalCoreDestroyed: 'human' }} onRestart={() => {}} />);
+    expect(win).toContain('LA EXPEDICIÓN VENCE');
+    expect(win).toContain('La expedición destruyó el Centro de Mando rival.');
+    expect(win).not.toMatch(/noches/);
     const crush = renderToStaticMarkup(
       <GameOverScreen stats={{ ...base, outcome: 'victory', rivalCoreDestroyed: 'crystal', hiveDestroyed: true }} onRestart={() => {}} />,
     );

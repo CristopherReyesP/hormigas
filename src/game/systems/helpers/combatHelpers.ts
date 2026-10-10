@@ -21,9 +21,13 @@ export interface ArmorComponent {
   armor: number;
 }
 
-/** An entity's armor, 0 when it has none */
+/** Armor lent by an aura (the Coronel en Tanque Pesado), on top of the unit's own; WaveBossSystem keeps it */
+export const AURA_ARMOR_COMPONENT = 'aura_armor';
+
+/** An entity's armor (its own plus any aura's), 0 when it has none */
 export function armorOf(world: World, id: EntityId): number {
-  return world.getComponent<ArmorComponent>(id, ARMOR_COMPONENT)?.armor ?? 0;
+  return (world.getComponent<ArmorComponent>(id, ARMOR_COMPONENT)?.armor ?? 0)
+    + (world.getComponent<ArmorComponent>(id, AURA_ARMOR_COMPONENT)?.armor ?? 0);
 }
 
 /** A hit of `damage` on `targetId` after its armor (floor of 1 damage on an armored target) */

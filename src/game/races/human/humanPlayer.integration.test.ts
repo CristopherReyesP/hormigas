@@ -193,15 +193,27 @@ describe('a Humans run against the wildlife', () => {
     game.stop();
   });
 
-  it('survives to dawn after night 7 for the win', () => {
-    const { game, state } = start(VS_WILDLIFE);
+  it('is endless: dawn after night 7 does not end the run, and the waves keep coming past night 10', () => {
+    const { game, state, run, world } = start(VS_WILDLIFE);
     const dayNight = game['dayNightSystem'] as unknown as { dayNumber: number; phase: string; phaseTimer: number };
     dayNight.dayNumber = 7;
     dayNight.phase = 'night';
     dayNight.phaseTimer = 0.01;
     state.update(DT);
     state.update(DT);
-    expect(state.gameOver?.outcome).toBe('victory');
+    expect(state.gameOver).toBeNull();
+    // Keep the command center standing and push on to night 11
+    const waves = game.getHumanPlayer()!.waves as unknown as { waveNumber: number };
+    waves.waveNumber = 10;
+    dayNight.dayNumber = 11;
+    dayNight.phase = 'day';
+    dayNight.phaseTimer = 0.2;
+    run(6);
+    const info = game.getStats().invasion;
+    expect(state.gameOver).toBeNull();
+    expect(info.active).toBe(true);
+    expect(info.waveNumber).toBe(11);
+    expect(world.query(HUMAN_PLAYER_COMPONENT.WAVE_INVADER).length).toBeGreaterThan(0);
     game.stop();
   });
 });

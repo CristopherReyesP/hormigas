@@ -2,7 +2,6 @@
 // center and its rival, instead of the Swarm's queen and colony.
 
 import type { GameOverStats } from '../../../game/GameManager';
-import { RUN_NIGHTS_TO_WIN } from '../../../shared/constants';
 
 export interface GameOverCopy {
   /** The full-screen banner on a win */
@@ -18,8 +17,7 @@ export function humanGameOverCopy(stats: GameOverStats): GameOverCopy {
     ? 'Sin Centro de Mando no hay expedición.'
     : stats.rivalCoreDestroyed === 'human'
       ? 'La expedición destruyó el Centro de Mando rival.'
-      : stats.hiveDestroyed || stats.rivalCoreDestroyed === 'crystal'
-        ? 'La expedición destruyó la Colmena de Cristal.'
-        : `La expedición sobrevivió ${RUN_NIGHTS_TO_WIN} noches.`;
-  return { banner: 'LA EXPEDICIÓN RESISTE', defeatTitle: 'CAYÓ EL CENTRO DE MANDO', line };
+      : 'La expedición destruyó la Colmena de Cristal.';
+  // Human runs are endless: the only victory is the rival's core falling
+  return { banner: 'LA EXPEDICIÓN VENCE', defeatTitle: 'CAYÓ EL CENTRO DE MANDO', line };
 }

@@ -18,6 +18,8 @@ import { HUMAN_COMPONENT, type HumanBuildingComponent, type HumanUnitComponent }
 import { humanShotsFor, type HumanShotKind } from '../rival/humanShots';
 import type { CombatVfx } from '../vfx/CombatVfx';
 import { damageAfterArmor } from './helpers/combatHelpers';
+import { BOSS_COMPONENT } from '../run/miniBoss';
+import { STRUCTURE_COMPONENT } from '../run/defenses';
 
 /** A Human unit or building */
 export function isHumanEntity(world: World, id: EntityId): boolean {
@@ -46,7 +48,7 @@ export function fireHumanShot(
 }
 
 /** Stores a tank shell can catch besides its target */
-const SPLASH_STORES = [COMPONENT.ANT, COMPONENT.BEETLE, COMPONENT.CRICKET, COMPONENT.CRYSTAL_UNIT, HUMAN_COMPONENT.UNIT];
+const SPLASH_STORES = [COMPONENT.ANT, COMPONENT.BEETLE, COMPONENT.CRICKET, COMPONENT.CRYSTAL_UNIT, HUMAN_COMPONENT.UNIT, STRUCTURE_COMPONENT];
 
 /**
  * A tank shell that hit `targetId` for `damage` also hits every enemy of the
@@ -57,7 +59,8 @@ const SPLASH_STORES = [COMPONENT.ANT, COMPONENT.BEETLE, COMPONENT.CRICKET, COMPO
 export function applyHumanSplash(world: World, attackerId: EntityId, targetId: EntityId, damage: number): EntityId[] {
   const unit = world.getComponent<HumanUnitComponent>(attackerId, HUMAN_COMPONENT.UNIT);
   if (!unit) return [];
-  const radius = HUMAN_UNIT_STATS[unit.type].splashRadius;
+  // The Coronel en Tanque Pesado's shells splash wider than a plain tank's
+  const radius = world.getComponent<{ splashRadius?: number }>(attackerId, BOSS_COMPONENT)?.splashRadius ?? HUMAN_UNIT_STATS[unit.type].splashRadius;
   if (radius <= 0) return [];
   const at = world.getComponent<PositionComponent>(targetId, COMPONENT.POSITION);
   if (!at) return [];

@@ -154,7 +154,7 @@ export class HumanPlayerRun {
     this.selection = selection;
     this.economy = new HumanPlayerSystem(world, grid);
     this.units = new HumanPlayerUnitSystem(world, grid);
-    this.waves = new HumanWaveSystem(world, grid, clock, () => this.liveCore());
+    this.waves = new HumanWaveSystem(world, grid, clock, () => this.liveCore(), { onFood: (amount) => this.economy.addRations(amount) });
   }
 
   /** Swap the Swarm's colony systems for the Human base's (the waves are GameManager's wave director) */
