@@ -50,11 +50,15 @@ import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 import { MeteorIntro } from '../render/MeteorIntro';
 import { CrystalRivalArt } from '../render/crystalRivalArt';
+import { FungusFarmArt } from '../render/fungusFarmArt';
+import { carriedFoodSprite } from '../render/fungusGrowth';
 import type { ShieldComponent } from '../rival/crystalShield';
 import { combatVfxFor } from '../vfx/CombatVfx';
 import { drawCombatVfx } from '../vfx/drawCombatVfx';
 import { HumanRenderer } from './HumanRenderer';
+import { drawDefenses, drawGhost, drawScoutMarks, drawWaveFx, drawWaveUnits, type WaveOverlay } from '../render/waveFunArt';
 import type { IntroClock, Vec2 } from '../render/introTimeline';
+import type { IntroArrival } from '../render/introArrival';
 import { LeapTracker, type LeapDraw } from '../render/leapMotion';
 import type { TilePos } from '../run/craterSite';
 import type { EntityId } from '../../shared/types';
@@ -107,6 +111,12 @@ const ATTACK_RED = PAL.dangerRed;
 const ATTACK_RED_LIGHT = PAL.meteor[1];
 /** Seconds a move ping stays on the ground */
 const ORDER_PING_SECONDS = 0.7;
+/** A finger order's big marker stays this long */
+const BIG_PING_SECONDS = 1.2;
+/** Its lines from the units fade out over this share of it */
+const BIG_PING_LINE_SHARE = 0.6;
+/** At most this many units get a line: a big group would hide the map */
+const BIG_PING_LINES_MAX = 24;
 /** Seconds the targeted enemy's ellipse flashes red-orange after an attack order */
 const TARGET_FLASH_SECONDS = 0.9;
 /** Up to this many selected ordered ants get a dotted line to their slot; more just mark the slots */
@@ -125,6 +135,14 @@ export interface OrderPing {
   kind: 'move' | 'attack';
   /** Attack on one enemy: the ping follows it and its ellipse flashes */
   targetId?: EntityId;
+  /**
+   * A finger order (phone): a big marker that is hard to miss under a thumb
+   * (a green circle for a move, a red crosshair for an attack), held longer,
+   * with brief lines from `units` to the target.
+   */
+  big?: boolean;
+  /** The ants that took the order, for the big marker's lines */
+  units?: EntityId[];
 }
 
 /** Live player-command feedback the GameManager owns: the drag box and new orders. */
@@ -175,6 +193,8 @@ export class RenderSystem {
   private leapTracker = new LeapTracker();
   /** The Human rival's buildings, troops and gunfire */
   private humanRenderer: HumanRenderer;
+  /** Race-specific marks drawn in world space over the units (a Human player's build ghost, rally points, selection) */
+  private worldOverlay: ((ctx: CanvasRenderingContext2D, interpolation: number, time: number) => void) | null = null;
   private camera: Camera | null = null;
   private ambientParticles: AmbientParticleSystem;
   private ugGrid: UndergroundGrid | null = null;
@@ -182,6 +202,12 @@ export class RenderSystem {
   private getActiveLayer: (() => 'surface' | 'underground') | null = null;
   private ugParticles: Array<{x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; type: 'dust' | 'spore' | 'warmth'}> = [];
   private ugParticleTimer = 0;
+  /** Fungus farm crops, plucks and carried mushrooms (baked sheets) */
+  private farmArt = new FungusFarmArt();
+  /** Farm tiles drawn this frame, reused for the overlay pass */
+  private farmTilesInView: Array<{ x: number; y: number; amount: number }> = [];
+  private farmTileCount = 0;
+  private getFarmFocus: (() => { x: number; y: number } | null) | null = null;
   private ugTextureCanvas: OffscreenCanvas | null = null;
   private ugTextureReady = false;
   /** The run's opening (meteor, impact, crater); null until GameManager stages it */
@@ -452,9 +478,15 @@ export class RenderSystem {
    */
   private renderOrderPings(ctx: CanvasRenderingContext2D): void {
     if (this.orderPings.length === 0) return;
-    this.orderPings = this.orderPings.filter((ping) => this.animationTime - ping.born < ORDER_PING_SECONDS);
+    this.orderPings = this.orderPings.filter(
+      (ping) => this.animationTime - ping.born < (ping.big ? BIG_PING_SECONDS : ORDER_PING_SECONDS),
+    );
     const p = new PixelPainter(ctx, 2);
     for (const ping of this.orderPings) {
+      if (ping.big) {
+        this.renderBigPing(ctx, p, ping);
+        continue;
+      }
       const age = (this.animationTime - ping.born) / ORDER_PING_SECONDS;
       if (age > 0.55 && Math.floor(this.animationTime * 16) % 2 === 1) continue; // blink out
       const attack = ping.kind === 'attack';
@@ -482,6 +514,70 @@ export class RenderSystem {
       } else {
         p.hline(cx - 1, cy, 3, light);
         p.vline(cx, cy - 1, 3, light);
+      }
+    }
+  }
+
+  /**
+   * A finger order's marker: brief fading lines from the units to the target,
+   * then a big ring that snaps in and pulses. A move is a green circle with a
+   * center dot; an attack is a red crosshair whose arms reach past the ring.
+   */
+  private renderBigPing(ctx: CanvasRenderingContext2D, p: PixelPainter, ping: OrderPing & { born: number }): void {
+    const age = (this.animationTime - ping.born) / BIG_PING_SECONDS;
+    const attack = ping.kind === 'attack';
+    const dark = attack ? ATTACK_RED : SELECT_GREEN;
+    const light = attack ? ATTACK_RED_LIGHT : SELECT_GREEN_LIGHT;
+    const at = ping.targetId !== undefined ? this.world.getComponent<PositionComponent>(ping.targetId, COMPONENT.POSITION) : undefined;
+    const cx = Math.round(((at?.x ?? ping.x) * TILE_SIZE + TILE_SIZE / 2) / 2);
+    const cy = Math.round(((at?.y ?? ping.y) * TILE_SIZE + TILE_SIZE / 2) / 2);
+
+    if (age < BIG_PING_LINE_SHARE && ping.units) {
+      ctx.save();
+      ctx.globalAlpha = ALPHA_STEPS[age < BIG_PING_LINE_SHARE / 2 ? 0 : 2];
+      for (const id of ping.units.slice(0, BIG_PING_LINES_MAX)) {
+        const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+        if (!pos) continue;
+        const ax = Math.round((pos.x * TILE_SIZE + TILE_SIZE / 2) / 2);
+        const ay = Math.round((pos.y * TILE_SIZE + TILE_SIZE / 2) / 2);
+        p.line(ax, ay, cx, cy, light);
+      }
+      ctx.restore();
+    }
+
+    if (age > 0.75 && Math.floor(this.animationTime * 12) % 2 === 1) return; // blink out
+    // Snap in from wide to the resting size, then breathe a pixel
+    const r = age < 0.2 ? Math.round(30 - (age / 0.2) * 14) : 16 + (Math.floor(this.animationTime * 6) % 2);
+    // A ring on the ground (flattened like the selection ellipses), two art px thick
+    const ry = Math.round(r * 0.55);
+    this.groundRing(p, cx, cy, r, ry, dark, light);
+    if (attack) {
+      // Crosshair: arms from inside the ring to well past it, and an X at the center
+      for (let d = r - 5; d <= r + 6; d++) {
+        p.px(cx + d, cy, light);
+        p.px(cx - d, cy, light);
+      }
+      for (let d = ry - 4; d <= ry + 6; d++) {
+        p.px(cx, cy + d, light);
+        p.px(cx, cy - d, light);
+      }
+      for (let d = -2; d <= 2; d++) {
+        p.px(cx + d, cy + d, dark);
+        p.px(cx + d, cy - d, dark);
+      }
+    } else {
+      this.groundRing(p, cx, cy, Math.max(4, Math.round(r / 2)), Math.max(2, Math.round(ry / 2)), dark, light);
+      p.rect(cx - 1, cy - 1, 3, 3, light);
+    }
+  }
+
+  /** A flattened ring on the ground: the upper half lit, the lower half dark, 2 art px thick. */
+  private groundRing(p: PixelPainter, cx: number, cy: number, rx: number, ry: number, dark: string, light: string): void {
+    for (let iy = -ry - 1; iy <= ry + 1; iy++) {
+      for (let ix = -rx - 1; ix <= rx + 1; ix++) {
+        const outer = (ix / (rx + 0.25)) ** 2 + (iy / (ry + 0.25)) ** 2 <= 1;
+        const inner = (ix / (rx - 1.75)) ** 2 + (iy / Math.max(0.5, ry - 1.75)) ** 2 <= 1;
+        if (outer && !inner) p.px(cx + ix, cy + iy, iy < 0 ? light : dark);
       }
     }
   }
@@ -576,8 +672,25 @@ export class RenderSystem {
   private getFarmStatus: (() => string) | null = null;
 
   /** Farm tiles pulse while the farm is converting — wired by GameManager */
+  private getWaveOverlay: (() => WaveOverlay) | null = null;
+
+  /** The defense build ghost and the scouted breach, from the GameManager */
+  setWaveOverlayProvider(fn: () => WaveOverlay): void {
+    this.getWaveOverlay = fn;
+  }
+
   setFarmStatusProvider(fn: () => string): void {
     this.getFarmStatus = fn;
+  }
+
+  /** The farm tile the player tapped: farm growth bars show while one is set */
+  setFarmFocusProvider(fn: () => { x: number; y: number } | null): void {
+    this.getFarmFocus = fn;
+  }
+
+  /** Something took mushrooms off a farm tile: play the pluck there */
+  queueFarmHarvest(x: number, y: number): void {
+    this.farmArt.queueHarvest(x, y);
   }
 
   private getDayPhase: (() => { phase: 'day' | 'night'; progress: number }) | null = null;
@@ -587,14 +700,24 @@ export class RenderSystem {
     this.getDayPhase = fn;
   }
 
-  /** Stage the run's opening: the meteor strikes `impactTile` and leaves its crater there. GameManager advances `clock`. */
-  startMeteorIntro(impactTile: TilePos, nestTile: TilePos, clock: IntroClock): void {
+  /** Marks a race draws over the surface units, in world space (null removes them) */
+  setWorldOverlay(draw: ((ctx: CanvasRenderingContext2D, interpolation: number, time: number) => void) | null): void {
+    this.worldOverlay = draw;
+  }
+
+  /**
+   * Stage the run's opening: the crater (with its shard field) sits at
+   * `impactTile`, and `arrival` says what comes down and where (the meteor on
+   * the crater by default; the Humans' dropship on their base). GameManager
+   * advances `clock`.
+   */
+  startMeteorIntro(impactTile: TilePos, nestTile: TilePos, clock: IntroClock, arrival?: IntroArrival): void {
     // The Hive's corruption: crystal shards on the ground around the impact
     const shards = crystalShardsAround(impactTile, DECOR_SEED, (x, y) => {
       const tile = this.grid.getTile(x, y);
       return tile !== null && tile.terrain !== TerrainType.Water;
     });
-    this.intro = new MeteorIntro(impactTile, nestTile, clock, shards);
+    this.intro = new MeteorIntro(impactTile, nestTile, clock, shards, arrival);
     this.craterTile = { x: impactTile.x, y: impactTile.y };
   }
 
@@ -794,8 +917,9 @@ export class RenderSystem {
         p.hline(0, fy, 16, PAL.earth[0]);
         p.hline(0, fy - 1, 16, PAL.earth[3]);
       }
-      // Mycelium threads: pale fungal specks between the furrows
-      for (let k = 0; k < 9; k++) {
+      // Mycelium threads: pale fungal specks between the furrows (sparse: the
+      // growing crop drawn on top carries the farm's look)
+      for (let k = 0; k < 5; k++) {
         const gx = Math.floor(hash2(seed, k * 3) * 16);
         const gy = Math.floor(hash2(seed, k * 3 + 1) * 16);
         p.px(gx, gy, PAL.shroomStem);
@@ -824,6 +948,11 @@ export class RenderSystem {
     if (version === this.ugLightVersion) return;
     this.ugLightVersion = version;
     computeUndergroundLight(grid, this.ugLightLevel, this.ugLightColor, this.ugLightBright);
+  }
+
+  /** Fire the red screen-edge alarm (invaders broke into the nest) */
+  triggerAlarm(): void {
+    this.postProcessor.triggerAlarm();
   }
 
   invalidateTerrain(): void {
@@ -878,13 +1007,22 @@ export class RenderSystem {
     this.renderPheromones();
     this.renderParticles();
     this.renderOrderLines(ctx, interpolation);
+    drawDefenses(ctx, this.world, Layer.Surface, this.animationTime);
     this.renderEntitiesInterpolated(interpolation);
+    const seen = (x: number, y: number) => isTileVisible(this.visibilityGrid, x, y);
+    drawWaveUnits(ctx, this.world, Layer.Surface, this.animationTime, interpolation, seen);
+    drawWaveFx(ctx, this.world, Layer.Surface, this.animationTime, seen);
     this.renderDeathEffects(ctx, dt);
     drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Surface, this.visibilityGrid);
     this.fogRenderer.update();
     this.fogRenderer.draw(ctx);
     // The player's own command feedback reads over the fog
     this.renderOrderPings(ctx);
+    const overlay = this.getWaveOverlay?.() ?? null;
+    if (overlay) {
+      drawScoutMarks(ctx, overlay, Layer.Surface, this.animationTime);
+      drawGhost(ctx, overlay, this.animationTime);
+    }
     if (this.camera) this.intro?.drawWorldFx(ctx, this.camera);
     ctx.restore();
     this.postProcessor.setLights(dayPhase?.phase === 'night' ? this.collectSurfaceLights() : []);
@@ -973,6 +1111,10 @@ export class RenderSystem {
     const texCanvas = this.ugTextureCanvas!;
 
     // === PASS 1: Base terrain (textured tiles) ===
+    const farmTime = frameTime / 1000;
+    const farmCap = grid.getPantryTileCapacity();
+    const farmProducing = this.getFarmStatus !== null && this.getFarmStatus() === 'produciendo';
+    this.farmTileCount = 0;
     for (let y = startY; y < endY; y++) {
       for (let x = startX; x < endX; x++) {
         const tile = grid.getTile(x, y);
@@ -1021,37 +1163,20 @@ export class RenderSystem {
         // Area identity comes from the FLOOR TEXTURES themselves (rows 2/3/4/8/9)
         // — no overlays, no icons: each chamber type has its own realistic ground
 
-        // Fungus farm crop GROWS — mushroom count + size scale with this tile's
-        // pile so the player SEES the harvest building up. While the farm is
-        // converting, the caps shimmer (quantized 2-state, no smooth alpha).
-        if (tile.chamberType === ChamberType.FungusFarm) {
-          const producing = this.getFarmStatus !== null && this.getFarmStatus() === 'produciendo';
-          const shimmer = producing && Math.floor(frameTime * 0.004 + x + y) % 2 === 0;
-          const capColor = shimmer ? PAL.shroomCapLight : PAL.shroomCap;
-          const fill = Math.min(1, (tile.food?.amount ?? 0) / this.ugGrid!.getPantryTileCapacity());
-          const shrooms = 1 + Math.floor(fill * 5); // a sprout even when empty → up to a 6-shroom crop
-          const seed = x * 31 + y * 17;
-          for (let m = 0; m < shrooms; m++) {
-            const mx = px + 4 + Math.floor(hash2(seed, m * 2) * ((T - 12) / 2)) * 2;
-            const my = py + 6 + Math.floor(hash2(seed, m * 2 + 1) * ((T - 14) / 2)) * 2;
-            // First mushrooms grow TALL once the pile passes half capacity
-            const big = fill > 0.5 && m < 2;
-            if (big) {
-              ctx.fillStyle = PAL.shroomStem;
-              ctx.fillRect(mx + 2, my + 3, 2, 5);
-              ctx.fillStyle = capColor;
-              ctx.fillRect(mx, my, 6, 3);
-              ctx.fillStyle = PAL.shroomCapLight;
-              ctx.fillRect(mx, my, 3, 1);
-            } else {
-              ctx.fillStyle = PAL.shroomStem;
-              ctx.fillRect(mx + 1, my + 2, 2, 3);
-              ctx.fillStyle = capColor;
-              ctx.fillRect(mx, my, 4, 2);
-              ctx.fillStyle = PAL.shroomCapLight;
-              ctx.fillRect(mx, my, 2, 1);
-            }
+        // Fungus farm crop GROWS through its stages with this tile's real pile
+        // (spores → sprouts → caps → mature → ripe); baked frames, see fungusFarmArt
+        if (tile.chamberType === ChamberType.FungusFarm && tile.walkable) {
+          const amount = tile.food?.type === 'mushroom' ? tile.food.amount : 0;
+          this.farmArt.drawCrop(ctx, x, y, amount, farmCap, farmTime, farmProducing);
+          const slot = this.farmTilesInView[this.farmTileCount];
+          if (slot) {
+            slot.x = x;
+            slot.y = y;
+            slot.amount = amount;
+          } else {
+            this.farmTilesInView.push({ x, y, amount });
           }
+          this.farmTileCount++;
         }
 
         // Designation overlay (dashed border, quantized alpha)
@@ -1272,6 +1397,12 @@ export class RenderSystem {
       this.ugParticles.splice(0, this.ugParticles.length - 30);
     }
 
+    // === PASS 3.6: Fungus farm overlay — spores, ripe sparkles and growth bars
+    // (bars when zoomed in past the default or after a tap on the farm); plucks go over the ants ===
+    if (this.farmTilesInView.length > this.farmTileCount) this.farmTilesInView.length = this.farmTileCount;
+    const showFarmBars = this.ugCamera.zoom >= this.ugCamera.getDefaultZoom() + 1 || (this.getFarmFocus?.() ?? null) !== null;
+    this.farmArt.drawOverlay(ctx, this.farmTilesInView, farmCap, farmTime, showFarmBars);
+
     // === PASS 3.7: Pantry tile piles (drawn under entities so ants walk over them) ===
     // Each FoodStorage tile renders its own physical pile — the grid is the source
     // of truth. Farm tiles draw their own growing mushrooms in the tile pass.
@@ -1319,6 +1450,8 @@ export class RenderSystem {
     }
 
     drawCombatVfx(ctx, combatVfxFor(this.world), 'ground', Layer.Underground, null);
+    // Nest defenses stand on the floor, under the units
+    drawDefenses(ctx, this.world, Layer.Underground, this.animationTime);
 
     // === PASS 4: Underground entities ===
     const entities = this.world.query(COMPONENT.POSITION, COMPONENT.RENDER, COMPONENT.LAYER);
@@ -1432,13 +1565,20 @@ export class RenderSystem {
           }
         }
 
-        // Carrying indicator (for any ant with food) — square pixel chunk
-        if (isCarrying) {
+        // "Cosechando": the picking pose bobs the ant one art px over the farm tile
+        const picking = ant?.state === AntState.FarmHarvesting && ant.farmHarvest?.phase === 'picking';
+        const bob = picking && Math.floor(frameTime / 160) % 2 === 0 ? 2 : 0;
+
+        // Carrying indicator (for any ant with food): a pale violet mushroom for
+        // mushrooms (farm harvest), a square pixel chunk for anything else
+        const carried = isCarrying ? carriedFoodSprite(carrying?.resourceType) : null;
+        if (carried === 'chunk') {
           ctx.fillStyle = PAL.glowGreen;
           ctx.fillRect(Math.round(px) - 2, Math.round(py) - 8, 4, 4);
         }
 
-        this.spriteAtlas.drawAnt(ctx, px, py, angle, legPhase, role, isCarrying);
+        this.spriteAtlas.drawAnt(ctx, px, py + bob, angle, legPhase, role, isCarrying);
+        if (carried === 'mushroom') this.farmArt.drawCarriedMushroom(ctx, px, py + bob);
       } else {
         // Check if it's an egg
         const eggComp = this.world.getComponent<EggComponent>(id, COMPONENT.EGG);
@@ -1525,7 +1665,15 @@ export class RenderSystem {
       }
     }
 
+    drawWaveUnits(ctx, this.world, Layer.Underground, this.animationTime, 1, null);
+    drawWaveFx(ctx, this.world, Layer.Underground, this.animationTime, null);
+    const overlay = this.getWaveOverlay?.() ?? null;
+    if (overlay) {
+      drawScoutMarks(ctx, overlay, Layer.Underground, this.animationTime);
+      drawGhost(ctx, overlay, this.animationTime);
+    }
     drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Underground, null);
+    this.farmArt.drawPlucks(ctx, farmTime);
     ctx.restore(); // restore camera transform
 
     // Nightfall reaches the player down here too
@@ -1727,11 +1875,13 @@ export class RenderSystem {
       return c && c.state === CricketState.StealingFood;
     });
 
+    const nestAttacked = (this.getWaveOverlay?.()?.nestAttack ?? 0) > 0;
     for (const { id, pos, radius } of nestEntities) {
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
       const nest = this.world.getComponent<NestComponent>(id, COMPONENT.NEST);
       this.drawNest(ctx, x, y, radius, isNestBeingRobbedInterp, nest);
+      if (nestAttacked) this.drawNestUnderAttack(ctx, x, y, radius);
     }
 
     for (const { id, pos } of denEntities) {
@@ -1807,9 +1957,11 @@ export class RenderSystem {
       this.drawCrystalDrone(ctx, x, y, id);
     }
 
-    // The Human rival: buildings on explored ground, troops where the colony sees now, gunfire
-    this.humanRenderer.draw(ctx, interpolation, this.animationTime, (c, px, py, current, max, always, scale, yOffset) =>
+    // The Human rival: buildings on explored ground, troops where the colony sees now, gunfire.
+    // While their arrival plays, the intro draws the base unfolding instead
+    if (!this.intro?.hidesRivalBase()) this.humanRenderer.draw(ctx, interpolation, this.animationTime, (c, px, py, current, max, always, scale, yOffset) =>
       this.drawHealthBar(c, px, py, current, max, always, scale, yOffset));
+    this.worldOverlay?.(ctx, interpolation, this.animationTime);
 
     for (const { id, pos } of antEntities) {
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
@@ -2158,6 +2310,43 @@ export class RenderSystem {
     }
     ctx.globalAlpha = 1;
     ctx.restore();
+  }
+
+  /**
+   * Invaders inside the nest, seen from the surface: the mound throbs red in
+   * stepped pulses and crossed fangs blink over the entrance.
+   */
+  private drawNestUnderAttack(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, radius: number): void {
+    const px = tileX * TILE_SIZE + TILE_SIZE / 2;
+    const py = tileY * TILE_SIZE + TILE_SIZE / 2;
+    const nestR = radius * TILE_SIZE * 1.3;
+    const p = new PixelPainter(ctx, 2);
+    const cx = Math.round(px / 2);
+    const cy = Math.round(py / 2);
+    const rArt = Math.round((nestR * 0.8) / 2);
+
+    // Red wash over the mound, 3 stepped levels (never a smooth fade)
+    const step = Math.floor(((this.animationTime * 1.2) % 1) * 3);
+    ctx.globalAlpha = [0.32, 0.2, 0.1][step];
+    p.ellipse(cx, cy, rArt, Math.round(rArt * 0.6), PAL.nightAlarm);
+    ctx.globalAlpha = ALPHA_STEPS[step];
+    p.ring(cx, cy, rArt + 1 + step * 2, PAL.dangerRed);
+    ctx.globalAlpha = 1;
+
+    // Crossed fangs in a dark plate above the entrance
+    const ix = cx - 5;
+    const iy = Math.round((py - nestR * 1.05) / 2) - 11;
+    const lit = Math.floor(this.animationTime * 3) % 2 === 0;
+    p.rect(ix - 1, iy - 1, 13, 13, '#0e080b');
+    p.outlineRect(ix - 1, iy - 1, 13, 13, lit ? PAL.nightAlarm : PAL.dangerRed);
+    const blade = lit ? '#ffe27a' : '#e8d8dc';
+    p.line(ix + 1, iy + 1, ix + 9, iy + 9, blade);
+    p.line(ix + 9, iy + 1, ix + 1, iy + 9, blade);
+    p.rect(ix, iy + 8, 3, 3, PAL.dangerRed);
+    p.rect(ix + 8, iy + 8, 3, 3, PAL.dangerRed);
+    // A pointer down at the mound
+    p.rect(ix + 4, iy + 12, 3, 1, lit ? PAL.nightAlarm : PAL.dangerRed);
+    p.px(ix + 5, iy + 13, lit ? PAL.nightAlarm : PAL.dangerRed);
   }
 
   private drawBeetle(

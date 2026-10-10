@@ -18,6 +18,15 @@ const UI_SOUNDS: Record<UiSound, SoundId> = {
 
 const DEATH_SOUNDS = { ant: 'deathAnt', beetle: 'deathBeetle', cricket: 'deathCricket' } as const satisfies Record<string, SoundId>;
 
+/** The wave extras reuse the existing synth: no new recipes */
+const WAVE_FX_SOUNDS = {
+  boss: 'introImpact',
+  bossDown: 'mutationChosen',
+  explode: 'deathBeetle',
+  spine: 'acidHit',
+  perfect: 'dawnSwell',
+} as const satisfies Record<string, SoundId>;
+
 /** 'end' is a control beat (the music bed comes in), not a sound. */
 const INTRO_SOUNDS: Record<Exclude<IntroCue, 'end'>, SoundId> = {
   whoosh: 'introWhoosh',
@@ -48,7 +57,10 @@ export function soundForEvent(event: AudioEvent): SoundRequest | null {
     case 'death':
       return { sound: DEATH_SOUNDS[event.kind], params: {}, at: event.at };
     case 'wave':
+    case 'nestAlarm':
       return { sound: 'waveAlarm', params: {} };
+    case 'waveFx':
+      return { sound: WAVE_FX_SOUNDS[event.kind], params: {}, at: event.at };
     case 'eggQueued':
       return { sound: 'eggQueued', params: {} };
     case 'eggLaid':

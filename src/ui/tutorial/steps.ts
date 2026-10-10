@@ -1,6 +1,7 @@
 import type { GoalId } from '../../game/tutorial/goals';
 import type { StepId } from '../../game/tutorial/plan';
 import type { FocusKind } from '../../game/tutorial/TutorialScenario';
+import { RUN_GOAL_TEXT } from '../../game/run/nightMilestones';
 
 /**
  * Everything the tutorial SAYS and POINTS AT, in one place: Hormi's lines per
@@ -57,9 +58,9 @@ export const TARGETS = {
   breedSoldier: '[data-cmd="breed-soldier"]',
   attack: '[data-cmd="attack"]',
   areaSelect: '[data-cmd="area-select"]',
-  /** The quick-select troop bar (touch command redesign); used once it exists */
-  troopBar: '[data-troop-bar]',
-  troopSoldiers: '[data-troop-chip="soldier"]',
+  /** The touch quick-select bar (TouchCommandBar) and its chips */
+  troopBar: '[data-coach="quick-bar"]',
+  troopSoldiers: '[data-quick-chip="soldier"]',
   pantry: '[data-hud="pantry"]',
   minerals: '[data-hud="minerals"]',
   help: '[data-hud="help"]',
@@ -88,7 +89,7 @@ export const STEP_COPY: Record<StepId, StepCopy> = {
   select: {
     layer: 'surface',
     title: 'Elige tus hormigas',
-    intro: 'Estas son tus hormigas. Para darles órdenes, primero hay que elegirlas.',
+    intro: 'Estas son tus hormigas, y te presto 4 soldados. Para darles órdenes, primero hay que elegirlas.',
     goals: {
       'select-one': {
         text: {
@@ -99,10 +100,10 @@ export const STEP_COPY: Record<StepId, StepCopy> = {
       },
       'select-group': {
         text: {
-          touch: 'Ahora elige varias: usa la barra de tropas, o Seleccionar área y arrastra el dedo alrededor de ellas.',
-          mouse: 'Ahora elige varias: arrastra con el botón izquierdo un recuadro alrededor de ellas.',
+          touch: 'Ahora elige varias a la vez: toca «Soldados» en la barra de tropas.',
+          mouse: 'Ahora elige varias: arrastra con el botón izquierdo un recuadro alrededor de los soldados.',
         },
-        target: { selectors: { touch: [TARGETS.troopBar, TARGETS.areaSelect] }, world: 'nest' },
+        target: { selectors: { touch: [TARGETS.troopSoldiers, TARGETS.troopBar, TARGETS.areaSelect] }, world: 'soldiers' },
       },
     },
     done: '¡Tienes tu equipo!',
@@ -189,11 +190,11 @@ export const STEP_COPY: Record<StepId, StepCopy> = {
   attack: {
     layer: 'surface',
     title: '¡Al ataque!',
-    intro: 'Te presto 4 soldados. Hay una guarida de acorazados cerca. ¡Vamos a sacarlos!',
+    intro: 'Hay una guarida de acorazados cerca. ¡Vamos a sacarlos con tus soldados!',
     goals: {
       'select-soldiers': {
         text: {
-          touch: 'Elige a los soldados: tócalos, usa la barra de tropas o Seleccionar área.',
+          touch: 'Elige a los soldados: toca «Soldados» en la barra de tropas.',
           mouse: 'Elige a los soldados: haz clic en uno o arrastra un recuadro alrededor de ellos.',
         },
         target: { selectors: { touch: [TARGETS.troopSoldiers] }, world: 'soldiers' },
@@ -220,7 +221,7 @@ export const STEP_COPY: Record<StepId, StepCopy> = {
     goals: {
       'repel-wave': {
         text: {
-          touch: 'Elige a tus soldados y toca a los acorazados para atacarlos.',
+          touch: 'Toca «Soldados» en la barra y luego toca a los acorazados para atacarlos.',
           mouse: 'Elige a tus soldados y haz clic derecho en los acorazados para atacarlos.',
         },
         target: { world: 'practice' },
@@ -230,7 +231,7 @@ export const STEP_COPY: Record<StepId, StepCopy> = {
   },
   wrap: {
     title: '¡Ya sabes jugar!',
-    intro: 'Para ganar: sobrevive 7 noches o destruye la base rival. Si muere la reina, pierdes.',
+    intro: `Tu meta: ${RUN_GOAL_TEXT.charAt(0).toLowerCase()}${RUN_GOAL_TEXT.slice(1)}`,
     goals: {
       ack: {
         text: 'Si te olvidas de algo, el botón ? te muestra los controles y puedes repetir el tutorial.',
@@ -295,7 +296,9 @@ export const UI_TEXT = {
   helpTitle: 'Controles',
   helpReplay: 'Repetir tutorial',
   helpClose: 'Cerrar',
-  helpGoal: 'Meta: sobrevive 7 noches o destruye la base rival. Si muere la reina, pierdes.',
+  helpGoal: `Meta: ${RUN_GOAL_TEXT.charAt(0).toLowerCase()}${RUN_GOAL_TEXT.slice(1)}`,
+  finished: (stars: number, total: number) =>
+    `¡Lo lograste! Ganaste ${stars} ${stars === 1 ? 'estrella' : 'estrellas'} de ${total}. Ahora la colonia es tuya: hazla crecer y sobrevive todas las noches que puedas.`,
   helpButton: 'Ayuda y controles',
 } as const;
 
@@ -305,12 +308,14 @@ export const HELP_CONTROLS: Record<Device, ReadonlyArray<{ what: string; how: st
     { what: 'Mover la cámara', how: 'Arrastra un dedo' },
     { what: 'Acercar o alejar', how: 'Pellizca con dos dedos' },
     { what: 'Elegir una hormiga', how: 'Tócala' },
-    { what: 'Elegir varias', how: 'Seleccionar área y arrastra el dedo, o mantén el dedo sobre una para elegir a todas las de su tipo' },
+    { what: 'Elegir varias', how: 'Toca «Soldados», «Obreras» o «Todas» en la barra de tropas; tócala otra vez para ir hacia ellas' },
+    { what: 'Elegir con un recuadro', how: 'Seleccionar área y arrastra el dedo' },
     { what: 'Mover o atacar', how: 'Con hormigas elegidas, toca el suelo o un enemigo' },
     { what: 'Atacar con el botón', how: 'Toca Atacar y luego al enemigo' },
     { what: 'Bajar al hormiguero', how: 'Toca NIDO; SUPERFICIE para subir' },
     { what: 'Ver qué hace un botón', how: 'Mantén el dedo sobre él' },
-    { what: 'Volver al nido', how: 'Toca el botón de mira junto al minimapa' },
+    { what: 'Traer tropas a casa', how: 'Con tropas elegidas, toca Volver al nido' },
+    { what: 'Ver el nido', how: 'Toca el botón de mira junto al minimapa' },
   ],
   mouse: [
     { what: 'Mover la cámara', how: 'Arrastra con el botón derecho o la rueda' },
@@ -321,7 +326,7 @@ export const HELP_CONTROLS: Record<Device, ReadonlyArray<{ what: string; how: st
     { what: 'Atacar con el botón', how: 'Atacar (A) y luego clic en el enemigo' },
     { what: 'Grupos', how: 'Ctrl+número guarda un grupo; el número lo vuelve a elegir' },
     { what: 'Pausa y velocidad', how: 'Espacio pausa; + y - cambian la velocidad' },
-    { what: 'Volver al nido', how: 'Botón de mira junto al minimapa' },
+    { what: 'Ver el nido', how: 'Botón de mira junto al minimapa' },
     { what: 'Bajar al hormiguero', how: 'Clic en NIDO; SUPERFICIE para subir' },
   ],
 };

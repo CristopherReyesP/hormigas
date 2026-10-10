@@ -38,6 +38,7 @@ describe('help card', () => {
     expect(html).toContain('Gira la rueda');
     expect(html).not.toContain('Pellizca');
     expect(html).toMatch(/data-help-replay[^>]*>Repetir tutorial/);
-    expect(html).toContain('sobrevive 7 noches');
+    expect(html).toContain('sobrevive el mayor número de noches');
+    expect(html).not.toContain('7 noches');
   });
 });

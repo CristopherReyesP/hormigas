@@ -33,12 +33,15 @@ function overlap(a: Rect, b: Rect): number {
  * Put the bubble at the top or the bottom of the band the HUD bars leave
  * free (never over the command card), on the side away from the target;
  * when both sides touch the target, the side that covers less of it.
+ * `avoid` are floating HUD pieces (the phone's minimap) the bubble should
+ * not cover either, though the target always matters more.
  */
 export function placeBubble(
   viewport: { width: number; height: number },
   bars: { top: number; bottom: number },
   bubbleHeight: number,
   target: Rect | null,
+  avoid: readonly Rect[] = [],
 ): BubblePlacement {
   const m = BUBBLE_MARGIN;
   const width = Math.max(0, Math.min(BUBBLE_MAX_WIDTH, viewport.width - 2 * m));
@@ -46,16 +49,15 @@ export function placeBubble(
   const topY = bars.top + m;
   const bottomY = Math.max(topY, viewport.height - bars.bottom - m - bubbleHeight);
   const at = (side: 'top' | 'bottom'): BubblePlacement => ({ left, width, side, top: side === 'top' ? topY : bottomY });
-  if (!target) return at('top');
-  const padded: Rect = { left: target.left - m, top: target.top - m, width: target.width + 2 * m, height: target.height + 2 * m };
-  const cover = (p: BubblePlacement) => overlap({ left: p.left, top: p.top, width: p.width, height: bubbleHeight }, padded);
+  const pad = (r: Rect): Rect => ({ left: r.left - m, top: r.top - m, width: r.width + 2 * m, height: r.height + 2 * m });
+  const box = (p: BubblePlacement): Rect => ({ left: p.left, top: p.top, width: p.width, height: bubbleHeight });
+  const score = (p: BubblePlacement) =>
+    (target ? overlap(box(p), pad(target)) * 1000 : 0) + avoid.reduce((sum, r) => sum + overlap(box(p), pad(r)), 0);
   // The side away from the target first: a target in the upper half sends the bubble down
-  const targetMid = target.top + target.height / 2;
-  const prefer: Array<'top' | 'bottom'> = targetMid < viewport.height / 2 ? ['bottom', 'top'] : ['top', 'bottom'];
+  const prefer: Array<'top' | 'bottom'> =
+    target && target.top + target.height / 2 < viewport.height / 2 ? ['bottom', 'top'] : ['top', 'bottom'];
   const [first, second] = prefer.map(at);
-  if (cover(first) === 0) return first;
-  if (cover(second) === 0) return second;
-  return cover(first) <= cover(second) ? first : second;
+  return score(second) < score(first) ? second : first;
 }
 
 export interface ArrowPlacement {

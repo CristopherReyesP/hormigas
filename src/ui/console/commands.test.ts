@@ -41,6 +41,7 @@ const details: ColonyDetails = {
     },
   },
   farm: { tiles: 2, rate: 0, status: 'sin-hojas', stored: 0, capacity: 0 },
+  farmTile: null,
   eatFirst: 'leaf',
   garrison: { target: 2, current: 1 },
   upgrades: [
@@ -85,8 +86,31 @@ describe('surface command card', () => {
     expect(ids).toEqual([
       'gather', 'explore', 'defend', 'retreat', 'descend',
       'breed-worker', 'breed-soldier', 'breed-scout', 'breed-nurse', 'breed-defender',
-      'pause', 'speed', null, null, null,
+      'pause', 'speed', null, 'defenses-page', null,
     ]);
+  });
+
+  it('opens the Defensas page: Espina, Trampa and Muro priced in minerals, each arming its build tool', () => {
+    const { ctx } = context();
+    buildCommands(ctx)[13]!.run();
+    expect(ctx.setPage).toHaveBeenCalledWith('defenses');
+    const page = context({ page: 'defenses' });
+    page.ctx.stats = { ...page.ctx.stats, mineralsStored: 50 } as GameStats;
+    const commands = buildCommands(page.ctx);
+    expect(commands.map((c) => c?.id ?? null).slice(0, 3)).toEqual(['build-spine', 'build-trap', 'build-wall']);
+    expect(commands[0]).toMatchObject({ label: 'Espina', cost: { amount: 75, resource: 'minerales', short: true } });
+    expect(commands[1]).toMatchObject({ label: 'Trampa de resina', cost: { amount: 40, resource: 'minerales', short: false } });
+    expect(commands[2]).toMatchObject({ label: 'Muro de quitina', cost: { amount: 30, resource: 'minerales' } });
+    expect(commands[14]).toMatchObject({ id: 'back' });
+    commands[0]!.run();
+    expect(page.ctx.toggleBuildMode).toHaveBeenCalledWith('spine');
+    const armed = buildCommands({ ...page.ctx, buildMode: 'wall' });
+    expect(armed[2]!.active).toBe(true);
+  });
+
+  it('explains the defense tools by touch: a tap previews, a second tap builds', () => {
+    const { ctx } = context({ page: 'defenses', touch: true });
+    expect(buildCommands(ctx)[0]!.description).toContain('tócala otra vez');
   });
 
   it('maps each button to the existing game action', () => {
@@ -216,6 +240,14 @@ describe('speed button', () => {
 });
 
 describe('nest command card', () => {
+  it('the Defensas page is there below too, for the breach tiles', () => {
+    const made = context({ page: 'defenses' });
+    made.ctx.stats = { ...made.ctx.stats, activeLayer: 'underground' } as GameStats;
+    const commands = buildCommands(made.ctx);
+    expect(commands[0]).toMatchObject({ id: 'build-spine' });
+    expect(commands[0]!.description).toContain('cerca de una entrada');
+  });
+
   function nest(page: 'root' | 'colony' = 'root') {
     const made = context({ page });
     made.ctx.stats = { ...made.ctx.stats, activeLayer: 'underground' } as GameStats;
@@ -264,7 +296,7 @@ describe('nest command card', () => {
     expect(commands.map((c) => c?.id ?? null)).toEqual([
       'garrison-down', 'garrison-up', 'diet-leaf', 'diet-mushroom', 'diet-meat',
       'upgrade-carry', 'upgrade-damage', null, null, null,
-      null, null, null, null, 'back',
+      null, 'defenses-page', null, null, 'back',
     ]);
     commands[1]!.run();
     expect(gm.setGarrisonSize).toHaveBeenCalledWith(3);

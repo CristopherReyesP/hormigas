@@ -1,4 +1,4 @@
-import { INTRO_TIMELINE as T, SPIRE_COUNT } from '../game/render/introTimeline';
+import { INTRO_TIMELINE as T, INTRO_VARIANTS, SPIRE_COUNT, type IntroVariant } from '../game/render/introTimeline';
 import type { AudioEvent, IntroCue } from './events';
 
 /** One beat of the intro's sound: the intro time it fires at, and what it plays. */
@@ -34,8 +34,17 @@ function buildIntroCues(): IntroCueSpec[] {
   return cues.sort((a, b) => a.at - b.at);
 }
 
-/** The intro's sound schedule, straight off the intro timeline, in time order. */
+/** The intro's sound schedule (the Crystal Hive's opening), straight off the intro timeline, in time order. */
 export const INTRO_CUES: readonly IntroCueSpec[] = buildIntroCues();
+
+/** The Hive's crystal chimes, pulse and drone hum belong to its deployment only. */
+const CRYSTAL_ONLY: ReadonlySet<IntroCue> = new Set<IntroCue>(['crystal', 'pulse', 'hum']);
+const PLAIN_CUES: readonly IntroCueSpec[] = INTRO_CUES.filter((c) => !CRYSTAL_ONLY.has(c.cue));
+
+/** The sound schedule for one rival's opening. */
+export function introCuesFor(variant: IntroVariant): readonly IntroCueSpec[] {
+  return INTRO_VARIANTS[variant].crystalDeploy ? INTRO_CUES : PLAIN_CUES;
+}
 
 const toEvent = (c: IntroCueSpec): AudioEvent => ({ type: 'intro', cue: c.cue, index: c.index, duration: c.duration });
 
@@ -48,12 +57,15 @@ const toEvent = (c: IntroCueSpec): AudioEvent => ({ type: 'intro', cue: c.cue, i
 export class IntroCueTracker {
   private last = 0;
   private done = false;
+  private cues: readonly IntroCueSpec[] = INTRO_CUES;
 
   get finished(): boolean {
     return this.done;
   }
 
-  reset(): void {
+  /** A new run's opening; `variant` picks its schedule (the Crystal Hive's by default). */
+  reset(variant: IntroVariant = 'crystal'): void {
+    this.cues = introCuesFor(variant);
     this.last = 0;
     this.done = false;
   }
@@ -67,7 +79,7 @@ export class IntroCueTracker {
       this.done = true;
       return [{ type: 'introSkip' }];
     }
-    const due = INTRO_CUES.filter((c) => c.at > this.last && c.at <= t).map(toEvent);
+    const due = this.cues.filter((c) => c.at > this.last && c.at <= t).map(toEvent);
     this.last = t;
     if (t >= T.end) this.done = true;
     return due;

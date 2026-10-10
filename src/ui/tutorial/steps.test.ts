@@ -39,8 +39,21 @@ describe('tutorial copy', () => {
     }
   });
 
-  it('describes the group selection generically, so a troop bar can serve it too', () => {
-    expect(goalCopy('select', 'select-group', 'touch').text).toMatch(/barra de tropas/);
+  it('teaches the touch troop bar: «Soldados» in the bar, highlighted by its chip', () => {
+    const group = goalCopy('select', 'select-group', 'touch');
+    expect(group.text).toMatch(/toca «Soldados» en la barra/);
+    expect(group.selectors[0]).toBe('[data-quick-chip="soldier"]');
+    expect(group.selectors).toContain('[data-coach="quick-bar"]');
+    expect(goalCopy('attack', 'select-soldiers', 'touch').selectors[0]).toBe('[data-quick-chip="soldier"]');
+    // A mouse has no troop bar
+    expect(goalCopy('select', 'select-group', 'mouse').selectors).toEqual([]);
+  });
+
+  it('wraps up with the endless goal, never the old seven nights', () => {
+    for (const device of ['touch', 'mouse'] as const) {
+      expect(stepIntro('wrap', device)).toContain('sobrevive el mayor número de noches');
+      expect(stepIntro('wrap', device)).not.toMatch(/7 noches/);
+    }
   });
 
   it('every highlight target is a stable selector or a world focus', () => {

@@ -13,6 +13,7 @@ import {
 import { FactionId, ownerOf, relation } from '../factions/factions';
 import { HUMAN_RAID_SECONDS, HUMAN_UNIT_STATS } from '../rival/humanBase';
 import { HUMAN_COMPONENT, type HumanUnitComponent } from '../rival/humanComponents';
+import { STRUCTURE_COMPONENT, type StructureComponent } from '../run/defenses';
 import { ORDER_PATH_MAX_STEPS } from '../../shared/constants';
 
 /** Seconds between two route requests while closing in on a moving enemy */
@@ -39,7 +40,8 @@ interface Prey {
  * fires (CombatSystem lands the shots). Without one it marches (night wave),
  * hunts (day raid), heads home after a raid, or keeps near the command
  * center. Like the Crystal units, they fight only factions they are at war
- * with. The builder is HumanBaseSystem's.
+ * with, buildings included (a Human player's base). The builder is
+ * HumanBaseSystem's, and a Human player's own troops are the player's.
  */
 export class HumanUnitAISystem implements System {
   readonly name = 'HumanUnitAISystem';
@@ -61,6 +63,8 @@ export class HumanUnitAISystem implements System {
 
     for (const id of units) {
       if (!this.onSurface(id)) continue;
+      // A Human player's own troops answer the player (HumanPlayerUnitSystem), never this AI
+      if (ownerOf(this.world, id) === FactionId.PLAYER) continue;
       const unit = this.world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT)!;
       if (unit.type === 'builder') continue;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
@@ -97,9 +101,11 @@ export class HumanUnitAISystem implements System {
   /** Surface units of every non-wildlife faction; each unit keeps only its enemies */
   private snapshotPrey(): void {
     this.prey.length = 0;
-    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT, HUMAN_COMPONENT.UNIT]) {
+    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT, HUMAN_COMPONENT.UNIT, HUMAN_COMPONENT.BUILDING, STRUCTURE_COMPONENT]) {
       for (const id of this.world.query(store, COMPONENT.POSITION, COMPONENT.HEALTH)) {
         if (!this.onSurface(id)) continue;
+        // Walls are not chased (their tile cannot be walked to): DefenseSystem points units at the ones they bump into
+        if (this.world.getComponent<StructureComponent>(id, STRUCTURE_COMPONENT)?.kind === 'wall') continue;
         const faction = ownerOf(this.world, id);
         if (faction === null || faction === FactionId.WILDLIFE) continue;
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;

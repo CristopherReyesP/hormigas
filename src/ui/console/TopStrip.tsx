@@ -5,6 +5,7 @@ import type { IconName } from './pixelIcons';
 import { formatClock, stripEmoji } from './format';
 import { useFlashOnChange } from '../useFlashOnChange';
 import { SoundToggle } from '../../audio/ui/SoundToggle';
+import { HumanResources } from '../races/human/HumanResources';
 
 type FoodType = 'leaf' | 'mushroom' | 'meat';
 
@@ -130,6 +131,7 @@ export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
   return (
     <header className={open ? 'top-strip top-strip--open' : 'top-strip'}>
       <div className="strip-group">
+        {stats.human ? <HumanResources human={stats.human} /> : (<>
         <FoodResource icon="leaf" value={leaves} label="Hojas" active={eatFirst === 'leaf'} onSelect={select('leaf')} />
         <FoodResource icon="fungus" value={stats.mushroomStored} label="Hongos" active={eatFirst === 'mushroom'} onSelect={select('mushroom')} />
         <FoodResource icon="meat" value={stats.meatStored} label="Carne" active={eatFirst === 'meat'} onSelect={select('meat')} />
@@ -144,6 +146,7 @@ export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
         {stats.nurseCount > 0 && <Resource icon="nurse" value={stats.nurseCount} label="Nodrizas" />}
         {stats.defenderCount > 0 && <Resource icon="shield" value={stats.defenderCount} label="Defensoras" />}
         </span>
+        </>)}
       </div>
 
       <div className="strip-group strip-group--center">

@@ -13,6 +13,6 @@ export interface TutorialStage {
   nest: { x: number; y: number };
   /** Mark ground as explored around a tile, so the player can see what Hormi points at */
   reveal: (x: number, y: number, radius: number) => void;
-  /** Stop (true) or restart (false) the day/night clock and the random events */
+  /** Stop (true) or restart (false) the day/night clock, random events, the wave runtime, the defenses and the nest alert */
   holdCalm: (held: boolean) => void;
 }

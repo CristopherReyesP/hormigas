@@ -50,6 +50,22 @@ describe('bubble placement', () => {
   });
 });
 
+describe('bubble placement around floating HUD', () => {
+  it('leaves the phone minimap free when nothing is highlighted', () => {
+    const minimap: Rect = { left: 280, top: 40, width: 104, height: 160 };
+    const p = placeBubble(PHONE, PHONE_BARS, 150, null, [minimap]);
+    expect(p.side).toBe('bottom');
+    expect(overlaps({ ...p, height: 150 }, minimap)).toBe(false);
+  });
+
+  it('the target still wins over the minimap', () => {
+    const minimap: Rect = { left: 280, top: 40, width: 104, height: 160 };
+    const button: Rect = { left: 300, top: 600, width: 40, height: 40 };
+    const p = placeBubble(PHONE, PHONE_BARS, 260, button, [minimap]);
+    expect(overlaps({ ...p, height: 260 }, button)).toBe(false);
+  });
+});
+
 describe('arrow placement', () => {
   it('points down at a target low on screen and up at one near the top', () => {
     expect(placeArrow({ left: 100, top: 700, width: 40, height: 40 }, 844)).toEqual({ x: 120, y: 696, pointing: 'down' });

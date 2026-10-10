@@ -47,6 +47,8 @@ export function GameCanvas({ setup, onStatsUpdate, onGameManager, introPlaying, 
 
     gm.onStats(onStatsUpdate);
     gm.start();
+    // Dev builds only: lets browser checks (Playwright) find units on screen; stripped from production
+    if (import.meta.env.DEV) (window as unknown as { __hormigasGame?: GameManager }).__hormigasGame = gm;
     onGameManager(gm);
 
     return () => {

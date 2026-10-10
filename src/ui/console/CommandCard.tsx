@@ -28,15 +28,19 @@ const RESERVED_REASON: Record<string, string> = {
 
 const PRESS_FLASH_MS = 140;
 
-/** Eggs are paid from the pantry, upgrades from farm fungus */
+/** Eggs are paid from the pantry, upgrades from farm fungus; a Human player pays rations and minerals */
 const COST_ICON: Record<NonNullable<CommandDef['cost']>['resource'], IconName> = {
   comida: 'pantry',
   hongos: 'fungus',
+  raciones: 'bowl',
+  minerales: 'mineral',
 };
 
 const COST_LABEL: Record<NonNullable<CommandDef['cost']>['resource'], string> = {
   comida: 'de comida de la despensa',
   hongos: 'hongos',
+  raciones: 'raciones',
+  minerales: 'minerales',
 };
 
 /** 3×5 command card with positional hotkeys and a tooltip plate above it. */
@@ -114,7 +118,8 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked, tou
             return (
               <div
                 key={command.id}
-                className="cmd-slot"
+                className={command.prominent ? 'cmd-slot cmd-slot--wide' : 'cmd-slot'}
+                data-cmd={command.id}
                 onMouseEnter={() => {
                   if (!fingerRef.current) setHovered(i);
                 }}
@@ -167,6 +172,7 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked, tou
                     ) : (
                       <span className="cmd-glyph">{command.glyph}</span>
                     )}
+                    {command.prominent && <span className="cmd-label">{command.shortLabel ?? command.label}</span>}
                     {!touch && <span className="cmd-key">{key}</span>}
                     {command.badge && (
                       <span className={command.badgeTone ? `cmd-badge cmd-badge--${command.badgeTone}` : 'cmd-badge'}>{command.badge}</span>

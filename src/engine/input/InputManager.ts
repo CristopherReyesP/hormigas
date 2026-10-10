@@ -42,6 +42,8 @@ export interface PointerHandlers {
   onPaint?: (screenX: number, screenY: number, phase: PaintPhase) => void;
   /** Asked when a finger drag starts; 'pan' when absent */
   touchDragMode?: () => TouchDragMode;
+  /** The mouse moved over the canvas with no button held (canvas px): hover feedback */
+  onHover?: (screenX: number, screenY: number) => void;
 }
 
 const NO_MODS: InputModifiers = { shift: false, ctrl: false };
@@ -78,6 +80,8 @@ export class InputManager {
 
   /** The mouse press in progress (one button at a time) */
   private gesture: PointerGesture | null = null;
+  /** Canvas px of the mouse over the canvas (build-tool ghosts), null once it leaves */
+  private hoverAt: { x: number; y: number } | null = null;
   /** Canvas px where the press started and where the pointer is now */
   private pressAt = { x: 0, y: 0 };
   private pointerAt = { x: 0, y: 0 };
@@ -130,6 +134,11 @@ export class InputManager {
 
   isKeyDown(key: string): boolean {
     return this.keysDown.has(key);
+  }
+
+  /** Where the mouse rests over the canvas (canvas px), or null when it is elsewhere or not a mouse. */
+  getHoverPoint(): { x: number; y: number } | null {
+    return this.hoverAt;
   }
 
   /** The selection box being dragged right now (canvas px), or null. */
@@ -214,7 +223,10 @@ export class InputManager {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
-    if (e.pointerType === 'mouse') this.mouseMove(e);
+    if (e.pointerType === 'mouse') {
+      this.hoverAt = e.target === this.canvas ? this.cssToCanvas(e) : null;
+      this.mouseMove(e);
+    }
     else this.applyTouch(this.touch.move(e.pointerId, e.clientX, e.clientY, performance.now()));
   };
 
@@ -250,7 +262,13 @@ export class InputManager {
 
   private mouseMove(e: PointerEvent): void {
     const gesture = this.gesture;
-    if (!gesture) return;
+    if (!gesture) {
+      if (this.handlers.onHover && e.target === this.canvas && !this.isDirected()) {
+        const at = this.cssToCanvas(e);
+        this.handlers.onHover(at.x, at.y);
+      }
+      return;
+    }
     // A chorded release (another button still held) arrives as a move, not an up
     if ((e.buttons & buttonBit(gesture.button)) === 0) {
       this.mouseUp(e, gesture.button);

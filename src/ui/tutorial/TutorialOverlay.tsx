@@ -65,6 +65,18 @@ function sameHighlight(a: Highlight, b: Highlight): boolean {
   );
 }
 
+/** Floating HUD pieces over the map (the phone's minimap) that the bubble should leave free */
+const FLOATING_HUD = ['.console-minimap'];
+
+function floatingHud(): Rect[] {
+  const out: Rect[] = [];
+  for (const selector of FLOATING_HUD) {
+    const r = document.querySelector(selector)?.getBoundingClientRect();
+    if (r && r.width > 0 && r.height > 0) out.push({ left: r.left, top: r.top, width: r.width, height: r.height });
+  }
+  return out;
+}
+
 /** HUD bar heights on screen now (CSS px), so the bubble stays over the map */
 function hudBars(): { top: number; bottom: number } {
   const w = window.innerWidth;
@@ -197,7 +209,7 @@ export function TutorialOverlay({ gameManager, onExit, onFinish }: TutorialOverl
   const worldTarget = shown.world
     ? { left: shown.world.x - 24, top: shown.world.y - 24, width: 48, height: 48 }
     : null;
-  const bubble = placeBubble(viewport, hudBars(), bubbleHeight, shown.rect ?? worldTarget);
+  const bubble = placeBubble(viewport, hudBars(), bubbleHeight, shown.rect ?? worldTarget, floatingHud());
   const arrow = shown.rect ? placeArrow(shown.rect, viewport.height) : null;
   const night = step?.id === 'night' && state.phase !== 'done' && !finished;
 
@@ -275,7 +287,7 @@ export function TutorialOverlay({ gameManager, onExit, onFinish }: TutorialOverl
           </div>
           {finished ? (
             <p className="tut-say">
-              ¡Lo lograste! Ganaste {UI_TEXT.stars(state.stars)} de {total}. Ahora la colonia es tuya: sobrevive 7 noches o destruye la base rival.
+              {UI_TEXT.finished(state.stars, total)}
             </p>
           ) : (
             step && (

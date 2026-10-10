@@ -106,6 +106,73 @@
   white-space: normal;
 }
 
+/* A mini-boss arrives: amber, bigger, longer */
+.wave-announce--miniboss {
+  text-shadow: 3px 3px 0 #000, 0 0 22px rgba(240, 181, 65, 0.85);
+  animation-duration: 7s;
+}
+
+.wave-announce--miniboss .wave-announce-title {
+  font-size: clamp(20px, 7vw, 54px);
+  color: var(--chrome-warn, #f0b541);
+  white-space: normal;
+}
+
+.wave-announce-reward {
+  color: var(--chrome-warn, #f0b541);
+}
+
+.wave-announce--perfect .wave-announce-title {
+  font-size: clamp(20px, 7vw, 48px);
+}
+
+/* The boss's health bar, at the top of the screen under the top strip */
+.boss-bar {
+  position: absolute;
+  top: clamp(40px, 7vh, 64px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px 10px 6px;
+  background: rgba(14, 8, 11, 0.88);
+  border: 2px solid var(--chrome-warn, #f0b541);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6);
+}
+
+.boss-bar-name {
+  font-size: clamp(9px, 1.6vw, 12px);
+  color: var(--chrome-warn, #f0b541);
+}
+
+.boss-bar-track {
+  height: 8px;
+  background: #2a141c;
+  border: 1px solid #000;
+}
+
+.boss-bar-track--shield {
+  height: 4px;
+}
+
+.boss-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--chrome-danger, #ff3b3b);
+  transition: width 0.25s linear;
+}
+
+.boss-bar-fill--shield {
+  background: var(--race-crystal, #5ff3ff);
+}
+
+/* While a boss lives, the counter moves under its bar */
+.boss-bar ~ .wave-counter {
+  top: calc(clamp(40px, 7vh, 64px) + 48px);
+}
+
 /* Red pulse on the screen edges as the wave strikes */
 .wave-edge-pulse {
   position: absolute;
@@ -186,5 +253,28 @@
   }
   .wave-announce {
     animation-name: none;
+  }
+}
+
+/* Short screens (phones in landscape): keep the big announcements clear of the boss bar */
+@media (max-height: 500px) {
+  .wave-announce {
+    top: 56%;
+    gap: 4px;
+  }
+  .wave-announce .wave-announce-title,
+  .wave-announce--miniboss .wave-announce-title,
+  .wave-announce--boss .wave-announce-title {
+    font-size: clamp(16px, 8vh, 32px);
+  }
+  .wave-announce-sub {
+    font-size: clamp(9px, 3.4vh, 14px);
+  }
+  .boss-bar {
+    top: 34px;
+    padding: 3px 8px 4px;
+  }
+  .boss-bar ~ .wave-counter {
+    top: 76px;
   }
 }

@@ -15,7 +15,8 @@ export interface StepPlan {
 
 export const TUTORIAL_PLAN: readonly StepPlan[] = [
   { id: 'camera', goals: ['pan', 'zoom'] },
-  { id: 'select', goals: ['select-one', 'select-group'] },
+  // Hormi lends the soldiers here, so the touch troop bar has a «Soldados» chip to teach
+  { id: 'select', goals: ['select-one', 'select-group'], enter: 'gift-soldiers' },
   { id: 'move', goals: ['move'] },
   { id: 'gather', goals: ['gather'] },
   { id: 'nest', goals: ['open-nest', 'dig', 'chamber'] },

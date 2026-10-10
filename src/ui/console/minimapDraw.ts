@@ -88,6 +88,31 @@ function drawWavePings(
   }
 }
 
+/** The scouted next wave (its breach, the raiders' origin): an amber diamond, all day */
+function drawScoutPings(
+  ctx: CanvasRenderingContext2D,
+  layout: MinimapLayout,
+  marks: ReadonlyArray<{ x: number; y: number }>,
+  unit: number,
+  blink: boolean,
+): void {
+  if (marks.length === 0) return;
+  ctx.fillStyle = blink ? '#ffe27a' : '#f0b541';
+  const r = unit * 3;
+  for (const m of marks) {
+    const p = tileToMinimap(layout, m.x, m.y);
+    const x = Math.round(p.x);
+    const y = Math.round(p.y);
+    ctx.beginPath();
+    ctx.moveTo(x, y - r);
+    ctx.lineTo(x + r, y);
+    ctx.lineTo(x, y + r);
+    ctx.lineTo(x - r, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
 const DOT_ORDER: Record<SurfaceMinimapDot['kind'], number> = { food: 0, den: 1, ant: 2, enemy: 3, nest: 4 };
 
 /** Surface: terrain under fog of war, colony and visible enemies, nest, camera box. */
@@ -138,16 +163,22 @@ export function drawSurfaceMinimap(
   blit(ctx, cache.overlay, layout);
 
   const dots = gm.getSurfaceMinimapDots().sort((a, b) => DOT_ORDER[a.kind] - DOT_ORDER[b.kind]);
+  // Invaders inside: the nest marker blinks red and grows, so the attack below reads from the surface
+  const nestAttacked = (gm.getInvaderCount?.('underground') ?? 0) > 0;
   for (const dot of dots) {
     switch (dot.kind) {
       case 'food': square(ctx, layout, dot.x, dot.y, unit, PAL.leaf[2]); break;
       case 'den': square(ctx, layout, dot.x, dot.y, unit * 3, PAL.beetleEye, CHROME_BG); break;
       case 'ant': square(ctx, layout, dot.x, dot.y, unit * 2, PAL.swarm.flesh[4]); break;
       case 'enemy': square(ctx, layout, dot.x, dot.y, unit * 3, DANGER, CHROME_BG); break;
-      case 'nest': square(ctx, layout, dot.x, dot.y, unit * 5, blink ? ACCENT : PAL.swarm.vein[0], CHROME_BG); break;
+      case 'nest':
+        if (nestAttacked) square(ctx, layout, dot.x, dot.y, unit * (blink ? 9 : 7), blink ? DANGER : '#7a2020', blink ? '#fff' : CHROME_BG);
+        else square(ctx, layout, dot.x, dot.y, unit * 5, blink ? ACCENT : PAL.swarm.vein[0], CHROME_BG);
+        break;
     }
   }
 
+  drawScoutPings(ctx, layout, gm.getScoutMarks?.('surface') ?? [], unit, blink);
   drawWavePings(ctx, layout, gm.getWaveThreats('surface'), unit, blink);
   strokeView(ctx, layout, gm.getSurfaceView(), unit);
   return layout;
@@ -237,6 +268,7 @@ export function drawUndergroundMinimap(
     square(ctx, layout, e.x, e.y, unit * 4, UNDERGROUND_DOT[e.kind], CHROME_BG);
   }
 
+  drawScoutPings(ctx, layout, gm.getScoutMarks?.('underground') ?? [], unit, blink);
   drawWavePings(ctx, layout, gm.getWaveThreats('underground'), unit, blink);
   strokeView(ctx, layout, gm.getUndergroundView(), unit);
   return layout;

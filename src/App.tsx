@@ -4,10 +4,14 @@ import { TopStrip } from './ui/console/TopStrip';
 import { Console } from './ui/console/Console';
 import { ObjectivePanel } from './ui/ObjectivePanel';
 import { GameOverScreen } from './ui/GameOverScreen';
+import { MilestoneBanner } from './ui/MilestoneBanner';
 import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
+import { NestAlert } from './ui/NestAlert';
+import { HumanIntroBanner } from './ui/races/human/HumanIntroBanner';
+import { NextWaveCard } from './ui/NextWaveCard';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
 import { ColonyPriority } from './game/components/components';
@@ -17,6 +21,7 @@ import { TutorialOverlay } from './ui/tutorial/TutorialOverlay';
 import { TutorialOffer } from './ui/tutorial/TutorialOffer';
 import { HelpCard } from './ui/tutorial/HelpCard';
 import { firstVisit } from './ui/tutorial/firstVisit';
+import { coachStorage, markCoachSeen } from './ui/console/coachMarks';
 import { deviceOf } from './ui/tutorial/steps';
 import { useTouchUi } from './ui/layout/touch';
 
@@ -55,11 +60,13 @@ const DEFAULT_STATS: GameStats = {
   objective: null,
   invasion: { waveNumber: 0, nextWaveIn: 180, active: false, invadersAlive: 0, armed: false, waveSize: 0, remaining: 0, banner: null, threats: [] },
   gameOver: null,
+  milestone: null,
   activeEvents: [],
   dayPhase: 'day',
   dayNumber: 1,
   phaseRemaining: 0,
   mutationOffer: null,
+  mutationSelection: null,
   lastMutationPick: null,
   introPlaying: true, // every run opens on the meteor intro, so the HUD starts hidden
 };
@@ -94,6 +101,8 @@ export default function App() {
   /** The guided tutorial: a fresh calm run with Hormi (from the picker, the first-visit offer or the help card) */
   const handleTutorial = useCallback(() => {
     firstVisit.remember('done');
+    // The tutorial teaches what the touch coach marks point at: they need not show after it either
+    markCoachSeen(coachStorage());
     setOfferTutorial(false);
     setHelpOpen(false);
     gameManagerRef.current = null;
@@ -138,6 +147,12 @@ export default function App() {
     setRunSetup(null);
   }, []);
 
+  // "Seguir jugando" after a victory: the endless run goes on without the rival base
+  const handleContinue = useCallback(() => {
+    const gm = gameManagerRef.current;
+    if (gm?.continueAfterVictory()) setStats(gm.getStats());
+  }, []);
+
   const handleStatsUpdate = useCallback((newStats: GameStats) => {
     setStats(newStats);
   }, []);
@@ -160,8 +175,17 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [gameManager]);
 
-  const handleChooseMutation = useCallback((id: MutationId) => {
-    gameManagerRef.current?.chooseMutation(id);
+  const handleGoToNest = useCallback(() => {
+    gameManagerRef.current?.goToNestFight();
+    refreshStats();
+  }, [refreshStats]);
+
+  const handleSelectMutation = useCallback((id: MutationId | null) => {
+    gameManagerRef.current?.selectMutation(id);
+  }, []);
+
+  const handleConfirmMutation = useCallback(() => {
+    gameManagerRef.current?.confirmMutation();
   }, []);
 
   if (!runSetup) {
@@ -189,24 +213,35 @@ export default function App() {
       <HudLayer introPlaying={stats.introPlaying}>
         <TopStrip stats={stats} gameManager={gameManager} onHelp={openHelp} />
         {/* Defaults carry no objective: wait for the first real snapshot */}
-        {stats.tickCount > 0 && <ObjectivePanel objective={stats.objective} />}
-        <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} />
+        {stats.tickCount > 0 && !stats.human && <ObjectivePanel objective={stats.objective} />}
+        {/* Scouting: the coming wave's mix, elites, boss and breach, all day */}
+        {stats.tickCount > 0 && <NextWaveCard invasion={stats.invasion} />}
+        <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} tutorialRunning={tutorialOpen} />
       </HudLayer>
       {/* Night-wave alerts: outside the scaled HUD, over the whole screen; none during the intro */}
       {!stats.introPlaying && (
         <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
       )}
+      {/* Invaders inside the nest: the banner with "Ir al nido", and the all-clear */}
+      {!stats.introPlaying && stats.nestAlert && (
+        <NestAlert state={stats.nestAlert} activeLayer={stats.activeLayer} onGoToNest={handleGoToNest} />
+      )}
+      {/* A Human expedition's landing line (the Swarm opens with the meteor cinematic instead) */}
+      {stats.human?.intro && !stats.gameOver && <HumanIntroBanner title={stats.human.intro} />}
+      {!stats.introPlaying && !stats.gameOver && <MilestoneBanner milestone={stats.milestone} />}
       {tutorialOpen && gameManager && !stats.introPlaying && !stats.gameOver && (
         <TutorialOverlay gameManager={gameManager} onExit={closeTutorial} onFinish={closeTutorial} />
       )}
       {helpOpen && <HelpCard device={deviceOf(touch)} onClose={closeHelp} onReplayTutorial={handleTutorial} />}
-      {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
+      {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} onContinue={handleContinue} />}
 
       {/* Dawn mutation pick: full-screen, above the HUD */}
       <EvolutionChamber
         offer={stats.mutationOffer}
+        selected={stats.mutationSelection}
         lastPick={stats.lastMutationPick}
-        onChoose={handleChooseMutation}
+        onSelect={handleSelectMutation}
+        onConfirm={handleConfirmMutation}
       />
     </div>
   );

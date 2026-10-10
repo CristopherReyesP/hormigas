@@ -15,7 +15,7 @@ import {
   type PathComponent,
   type PositionComponent,
 } from '../components/components';
-import { FactionId, ownerOf, relation } from '../factions/factions';
+import { FactionId, nearestEnemyBase, ownerOf, relation } from '../factions/factions';
 import {
   HUMAN_BUILDING_STATS,
   HUMAN_ECONOMY,
@@ -57,6 +57,12 @@ export interface HumanBaseOptions {
    * into each wave through launchRaid().
    */
   autoRaids?: boolean;
+  /**
+   * The faction whose base this system runs. Unset, it takes the first
+   * command center it finds (one Human base per run); a Human player's
+   * mirror match sets RIVAL so the player's base is left alone.
+   */
+  faction?: FactionId;
 }
 
 /** What the HUD and the info panel show about the base. */
@@ -101,6 +107,7 @@ export class HumanBaseSystem implements System {
   private grid: PathGrid;
   private clock: HumanClock;
   private autoRaids: boolean;
+  private faction: FactionId | undefined;
   private lastPhase: DayPhase;
   private rations: number = HUMAN_ECONOMY.startRations;
   private built = 0;
@@ -118,12 +125,14 @@ export class HumanBaseSystem implements System {
     this.grid = grid;
     this.clock = clock;
     this.autoRaids = options.autoRaids ?? true;
+    this.faction = options.faction;
     this.lastPhase = clock.getPhase();
   }
 
   /** The first command center still standing (the run has one) */
   private core(): EntityId | null {
     for (const id of this.world.query(HUMAN_COMPONENT.BUILDING, COMPONENT.POSITION)) {
+      if (this.faction !== undefined && ownerOf(this.world, id) !== this.faction) continue;
       if (this.world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!.kind === 'command_center') return id;
     }
     return null;
@@ -200,11 +209,12 @@ export class HumanBaseSystem implements System {
     for (const id of this.world.query(HUMAN_COMPONENT.BUILDING, COMPONENT.COMBAT, COMPONENT.POSITION)) {
       const building = this.world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!;
       const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT)!;
+      const own = this.factionOf(id);
+      if (this.faction !== undefined && own !== this.faction) continue; // another base's turret
       if (building.constructing > 0) {
         combat.targetEntityId = null;
         continue;
       }
-      const own = this.factionOf(id);
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const foes = this.enemies.filter((e) => {
         const owner = ownerOf(this.world, e.id);
@@ -476,21 +486,7 @@ export class HumanBaseSystem implements System {
 
   /** The closest nest of a faction the base is at war with, as a tile */
   private enemyNest(core: EntityId): Vector2 | null {
-    const owner = this.factionOf(core);
-    const at = this.world.getComponent<PositionComponent>(core, COMPONENT.POSITION)!;
-    let best: Vector2 | null = null;
-    let bestDist = Infinity;
-    for (const id of this.world.query(COMPONENT.NEST, COMPONENT.POSITION)) {
-      const nestOwner = ownerOf(this.world, id);
-      if (nestOwner === null || relation(owner, nestOwner) !== 'enemy') continue;
-      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-      const dist = Math.hypot(pos.x - at.x, pos.y - at.y);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = tile(pos);
-      }
-    }
-    return best;
+    return nearestEnemyBase(this.world, this.factionOf(core), this.world.getComponent<PositionComponent>(core, COMPONENT.POSITION)!);
   }
 
   private route(pos: PositionComponent, path: PathComponent, goal: Vector2): boolean {
@@ -507,6 +503,7 @@ const BUILT_LABEL: Record<HumanBuildingKind, string> = {
   barracks: 'un cuartel',
   bunker: 'un búnker',
   supply_depot: 'un depósito de suministros',
+  factory: 'una fábrica',
 };
 
 function tile(pos: { x: number; y: number }): Vector2 {

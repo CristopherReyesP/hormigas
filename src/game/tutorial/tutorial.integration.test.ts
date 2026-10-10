@@ -94,6 +94,26 @@ describe('tutorial with the real GameManager', { timeout: 60_000 }, () => {
     expect(game.getStats().phaseRemaining).toBeLessThan(before);
   });
 
+  it('even if night fell, the held wave runtime launches nothing and the defenses stay idle', () => {
+    const { game, tick, controller } = setup();
+    controller.poll();
+    // Force a nightfall past the held clock
+    const clock = game['dayNightSystem'] as unknown as { setHeld(h: boolean): void; phaseTimer: number };
+    clock.setHeld(false);
+    clock.phaseTimer = 0.05;
+    tick(3);
+    const stats = game.getStats();
+    expect(stats.dayPhase).toBe('night');
+    expect(stats.invasion.active).toBe(false);
+    expect(stats.invasion.waveNumber).toBe(0);
+    expect(game['defenseSystem']['held']).toBe(true);
+    expect(game['tutorialCalm']).toBe(true);
+    // Leaving the tutorial releases all of it
+    controller.exit();
+    expect(game['defenseSystem']['held']).toBe(false);
+    expect(game['tutorialCalm']).toBe(false);
+  });
+
   it('a remount (dispose, then start again) keeps the clock held and the lessons staged once', () => {
     const { game, tick, controller, world } = setup();
     controller.dispose();
