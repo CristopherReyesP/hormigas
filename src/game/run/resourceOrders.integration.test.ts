@@ -4,6 +4,7 @@ import type { World } from '../../engine/ecs/World';
 import type { Camera } from '../../engine/camera/Camera';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import type { PathGrid } from '../../simulation/pathfinding/AStar';
+import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import {
   AntRole,
   AntState,
@@ -68,6 +69,11 @@ describe('the gather order', () => {
     const { game, world, selection, spot, workers, run, ant, lastToast } = setup();
     const at = spot(7, -2);
     const food = createFood(world, at.x, at.y, 400, FoodType.Leaf);
+    // Room for the whole source: with a full pantry the loads would wait below
+    // for space (the designer's rule) and this loop is about the order itself
+    (game['undergroundGrid'] as UndergroundGrid).setPantryTileCapacityBonus(500);
+    // No raid or wave pulls the ordered workers into a fight mid-loop (random maps, 4 minutes of play)
+    game.getTutorialStage().holdCalm(true);
     const team = workers(2);
     selection.selectAnts(team, Layer.Surface);
     expect(game.orderSelectedGather(food)).toBe(2);
@@ -77,7 +83,8 @@ describe('the gather order', () => {
     // Count the loads each ordered worker picks up at the source
     const trips = new Map(team.map((id) => [id, 0]));
     const held = new Map(team.map((id) => [id, 0]));
-    for (let i = 0; i < 240 * 30 && world.hasEntity(food); i++) {
+    // Every load rides down to the pantry, so a 400 source takes a while on a far map
+    for (let i = 0; i < 480 * 30 && world.hasEntity(food); i++) {
       game['update'](DT);
       for (const id of team) {
         const load = world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!.amount;

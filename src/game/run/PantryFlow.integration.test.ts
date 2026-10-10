@@ -41,11 +41,12 @@ function parts(game: GameManager) {
 }
 
 /** Run the simulation for `seconds` of game time, picking the dawn mutation like a player would. */
-function run(game: GameManager, seconds: number) {
+function run(game: GameManager, seconds: number, each?: () => void) {
   for (let i = 0; i < seconds * 30; i++) {
     const offer = game['mutationOffer'] as { options: Array<{ id: string }> } | null;
     if (offer) game.chooseMutation(offer.options[0].id);
     game['update'](1 / 30);
+    each?.();
   }
 }
 
@@ -88,38 +89,66 @@ function putOnEntrance(nest: NestComponent, type: 'leaf' | 'mushroom' | 'meat', 
 }
 
 describe('food flow from the entrance to the pantry', () => {
+  // Updated for the designer's rule ("cuando la despensa está llena, tienen que
+  // esperar a que haya más espacio"): a full pantry no longer sends loads to
+  // the entrance pile. Loaded workers wait below in the WaitingForPantry state,
+  // which the HUD counts, and nobody else starts a foraging trip, so the
+  // workforce still never freezes idle below with food in its jaws.
   it('does not leave the workforce idle below ground with food in its jaws once the pantry fills up', () => {
     const game = manager();
     const { world, grid, nest } = parts(game);
     fillPantry(grid, 'leaf', grid.getPantryTileCapacity());
+    const pile = nest.foodStored;
+    const loaded = world.query(COMPONENT.ANT, COMPONENT.CARRYING, COMPONENT.LAYER).filter((id) => {
+      const ant = world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      return ant.role === AntRole.Worker && world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!.layer === Layer.Surface;
+    }).slice(0, 3);
+    for (const id of loaded) {
+      const load = world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
+      load.resourceType = 'mushroom';
+      load.amount = 20;
+      world.getComponent<AntComponent>(id, COMPONENT.ANT)!.state = AntState.ReturningHome;
+    }
     run(game, 40);
 
     const stats = game.getStats();
     expect(stats.pantryFull).toBe(true);
     expect(idleLoadedBelow(world)).toBe(0);
-    // The harvest waits on the entrance pile, where the HUD shows it as on its way
-    expect(nest.foodStored).toBeGreaterThan(100);
-    expect(stats.foodInTransit).toBeGreaterThanOrEqual(Math.floor(nest.foodStored));
+    // The loads wait in the jaws of the waiting workers, counted as on their way
+    expect(stats.antsWaitingForPantry).toBe(3);
+    expect(nest.foodStored).toBeLessThanOrEqual(pile);
+    expect(stats.foodInTransit).toBeGreaterThanOrEqual(60);
   });
 
   it('carries the entrance pile down as soon as the pantry has room, instead of letting it grow', () => {
     const game = manager();
     const { world, grid, nest } = parts(game);
     fillPantry(grid, 'leaf', grid.getPantryTileCapacity());
+    // Soldiers and scouts still leave their loads on the pile
+    putOnEntrance(nest, 'leaf', 300);
     run(game, 40);
     const waiting = nest.foodStored;
     expect(waiting).toBeGreaterThan(100);
+    expect(waiting).toBeLessThanOrEqual(300);
 
     // The player answers "Despensa llena": more room in the pantry
     grid.setPantryTileCapacityBonus(150);
-    run(game, 45);
+    // Peaks, not the end state: a cricket raid late in the run can empty the
+    // pile and the pantry, which says nothing about the porters
+    let most = 0;
+    let pantry = 0;
+    let pile = waiting;
+    run(game, 60, () => {
+      most = Math.max(most, porters(world));
+      pantry = Math.max(pantry, grid.getPantryStored().total);
+      pile = Math.min(pile, nest.foodStored);
+    });
 
-    const stats = game.getStats();
-    expect(stats.pantryFull).toBe(false);
-    expect(nest.foodStored).toBeLessThan(waiting);
-    expect(stats.pantryStored).toBeGreaterThan(450 + 45);
+    expect(game.getStats().pantryFull).toBe(false);
+    expect(pile).toBeLessThan(waiting - 45);
+    expect(pantry).toBeGreaterThan(450 + 45);
     // More than the old flat four porters work the pile
-    expect(porters(world)).toBeGreaterThan(4);
+    expect(most).toBeGreaterThan(4);
   });
 
   it('lets more porters work a bigger entrance pile', () => {
