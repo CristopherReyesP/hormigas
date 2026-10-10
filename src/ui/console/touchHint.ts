@@ -135,6 +135,8 @@ const TEXT = {
 const OWN_CRYSTAL = 'Produce o añade pisos con los botones de abajo · elige tropas en la barra';
 /** A Human player's own building selected: its card trains and builds */
 const OWN_BUILDING = 'Entrena o construye con los botones de abajo · elige tropas en la barra';
+/** A Human player with nothing selected: where soldiers come from (the most missed step), then the bar */
+const HUMAN_PICK = 'Toca el Cuartel o el Centro de mando para entrenar soldados · usa la barra para elegir tropas';
 const AREA = 'Arrastra un rectángulo para elegir hormigas';
 const BELOW_ANTS = 'Bajo tierra las hormigas trabajan solas · sube para darles órdenes';
 
@@ -182,6 +184,6 @@ export function touchHint(input: TouchHintInput): TouchHint {
     return { mode: 'info', text: text.food, selection };
   }
   // A Human player picks units, not ants
-  const pick = input.human || input.crystal ? text.pick.replace('una hormiga', 'una unidad') : text.pick;
+  const pick = input.human ? HUMAN_PICK : input.crystal ? text.pick.replace('una hormiga', 'una unidad') : text.pick;
   return { mode: 'pick', text: pick, selection: null };
 }
