@@ -18,6 +18,7 @@ import { TileGrid } from '../../simulation/world/TileGrid';
 import { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { fakeCanvas } from '../../test/gameManagerMocks';
+import { waveComposition } from './waveComposition';
 import { ANT_SPEED, BEETLE_MEAT_AMOUNT, BREED_COST_SOLDIER, BREED_COST_WORKER, EXCAVATION_TIME, FLANKING_BONUS_PER_ALLY, FOG_REVEAL_MULTIPLIER, FOOD_RESPAWN_INTERVAL, ROLE_STATS, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
 
 // Keep the actual manager constructor and simulation, replace browser-only adapters.
@@ -292,10 +293,11 @@ describe('mutation read sites', () => {
       for (let i = 0; i < stacks; i++) game.applyMutation('spore_bloom');
       const invasion = game['invasionSystem'];
       invasion['launchWave']();
-      return invasion['invaders'].size + invasion['pendingSpawns'];
+      return invasion['invaders'].size + invasion['pendingSpawns'].length;
     };
-    expect(waveSize(0)).toBe(1);
-    expect(waveSize(2)).toBe(3);
+    const base = waveComposition(1).total;
+    expect(waveSize(0)).toBe(base);
+    expect(waveSize(2)).toBe(base + 2);
   });
 
   describe('porter loads', () => {

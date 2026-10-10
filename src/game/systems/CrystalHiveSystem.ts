@@ -22,6 +22,15 @@ export interface NightClock {
   getDayNumber(): number;
 }
 
+export interface CrystalHiveOptions {
+  /**
+   * The hive launches its own wave at every nightfall, sized by crystalWaveSize
+   * (on by default). The real game turns it off: UndergroundInvasionSystem
+   * folds the hive's drones into each wave through launchRaid().
+   */
+  autoRaids?: boolean;
+}
+
 /** Drones crystallize on a small ring around the hive, one slot after another. */
 const SPAWN_RING = 2;
 const SPAWN_SLOTS = 8;
@@ -42,12 +51,34 @@ export class CrystalHiveSystem implements System {
   private clock: NightClock;
   private lastPhase: DayPhase;
   private spawnCount = 0;
+  private autoRaids: boolean;
 
-  constructor(world: World, grid: PathGrid, clock: NightClock) {
+  constructor(world: World, grid: PathGrid, clock: NightClock, options: CrystalHiveOptions = {}) {
     this.world = world;
     this.grid = grid;
     this.clock = clock;
     this.lastPhase = clock.getPhase();
+    this.autoRaids = options.autoRaids ?? true;
+  }
+
+  /** The first hive still standing (the run has one) */
+  private firstHive(): EntityId | null {
+    const hives = this.world.query(COMPONENT.CRYSTAL_HIVE, COMPONENT.POSITION);
+    return hives.length > 0 ? hives[0] : null;
+  }
+
+  /** Send `count` drones from the hive at the nearest enemy nest now; returns the drones sent */
+  launchRaid(count: number): EntityId[] {
+    const hiveId = this.firstHive();
+    return hiveId === null ? [] : this.launchWave(hiveId, count);
+  }
+
+  /** Where raids leave from, in tiles (null once the hive is gone) */
+  raidOrigin(): Vector2 | null {
+    const hiveId = this.firstHive();
+    if (hiveId === null) return null;
+    const pos = this.world.getComponent<PositionComponent>(hiveId, COMPONENT.POSITION)!;
+    return { x: pos.x, y: pos.y };
   }
 
   update(dt: number): void {
@@ -63,9 +94,9 @@ export class CrystalHiveSystem implements System {
       if (step.spawn) this.crystallize(hiveId);
 
       const night = this.clock.getDayNumber();
-      if (nightfall && hive.lastWaveNight < night) {
+      if (this.autoRaids && nightfall && hive.lastWaveNight < night) {
         hive.lastWaveNight = night;
-        this.launchWave(hiveId, night);
+        this.launchWave(hiveId, crystalWaveSize(night));
       }
     }
   }
@@ -97,13 +128,13 @@ export class CrystalHiveSystem implements System {
     return { x: at.x, y: at.y };
   }
 
-  private launchWave(hiveId: EntityId, night: number): void {
+  private launchWave(hiveId: EntityId, size: number): EntityId[] {
     const target = this.enemyNestOf(hiveId);
-    if (!target) return;
-    const plan = planCrystalWave(crystalWaveSize(night), this.garrisonOf(hiveId));
+    if (!target) return [];
+    const plan = planCrystalWave(size, this.garrisonOf(hiveId));
     const wave = [...plan.sent];
     for (let i = 0; i < plan.crystallize; i++) wave.push(this.crystallize(hiveId));
-    if (wave.length === 0) return;
+    if (wave.length === 0) return [];
 
     // One shared route from the hive: every drone starts within a few tiles of it
     const hivePos = this.world.getComponent<PositionComponent>(hiveId, COMPONENT.POSITION)!;
@@ -125,6 +156,7 @@ export class CrystalHiveSystem implements System {
         ? '💎 Un dron de cristal sale de la Colmena hacia tu nido'
         : `💎 La Colmena de Cristal lanza una oleada: ${wave.length} drones van hacia tu nido`,
     );
+    return wave;
   }
 
   /** The closest nest of a faction this hive is at war with, as a tile */

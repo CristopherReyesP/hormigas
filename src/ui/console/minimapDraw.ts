@@ -70,6 +70,24 @@ function strokeView(ctx: CanvasRenderingContext2D, layout: MinimapLayout, view: 
   );
 }
 
+/** Wave threats (the breach, the hive raid, the live wave): a red ring that throbs with `blink` */
+function drawWavePings(
+  ctx: CanvasRenderingContext2D,
+  layout: MinimapLayout,
+  threats: ReadonlyArray<{ x: number; y: number }>,
+  unit: number,
+  blink: boolean,
+): void {
+  if (threats.length === 0) return;
+  ctx.strokeStyle = DANGER;
+  ctx.lineWidth = unit;
+  const r = unit * (blink ? 7 : 4);
+  for (const t of threats) {
+    const p = tileToMinimap(layout, t.x, t.y);
+    ctx.strokeRect(Math.round(p.x - r) + unit / 2, Math.round(p.y - r) + unit / 2, r * 2 - unit, r * 2 - unit);
+  }
+}
+
 const DOT_ORDER: Record<SurfaceMinimapDot['kind'], number> = { food: 0, den: 1, ant: 2, enemy: 3, nest: 4 };
 
 /** Surface: terrain under fog of war, colony and visible enemies, nest, camera box. */
@@ -130,6 +148,7 @@ export function drawSurfaceMinimap(
     }
   }
 
+  drawWavePings(ctx, layout, gm.getWaveThreats('surface'), unit, blink);
   strokeView(ctx, layout, gm.getSurfaceView(), unit);
   return layout;
 }
@@ -150,6 +169,7 @@ export function drawUndergroundMinimap(
   gm: GameManager,
   cache: MinimapCache,
   unit: number,
+  blink = false,
 ): MinimapLayout {
   const { width, height } = ctx.canvas;
   const layout = fitMinimap(UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT, width, height);
@@ -217,6 +237,7 @@ export function drawUndergroundMinimap(
     square(ctx, layout, e.x, e.y, unit * 4, UNDERGROUND_DOT[e.kind], CHROME_BG);
   }
 
+  drawWavePings(ctx, layout, gm.getWaveThreats('underground'), unit, blink);
   strokeView(ctx, layout, gm.getUndergroundView(), unit);
   return layout;
 }
