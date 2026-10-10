@@ -109,4 +109,5 @@ const BUILDING_ARTICLE: Record<HumanBuildingComponent['kind'], string> = {
   barracks: 'un cuartel humano',
   bunker: 'un búnker humano',
   supply_depot: 'un depósito humano',
+  factory: 'una fábrica humana',
 };

@@ -40,6 +40,7 @@ export const HUMAN_BUILDING_NAME: Readonly<Record<HumanBuildingKind, string>> = 
   barracks: 'Cuartel',
   bunker: 'Búnker',
   supply_depot: 'Depósito de suministros',
+  factory: 'Fábrica',
 };
 
 const UNIT_BLURB: Readonly<Record<HumanUnitType, string>> = {
@@ -54,6 +55,7 @@ const BUILDING_BLURB: Readonly<Record<HumanBuildingKind, string>> = {
   barracks: 'Entrena soldados, tiradores desde la noche 2 y tanques desde la noche 5. Cada cuartel entrena en paralelo.',
   bunker: 'Defensa fija: dispara a tus unidades en cuanto entran en su alcance.',
   supply_depot: 'Amplía el suministro de la base y le da raciones de sus cultivos.',
+  factory: 'Taller de blindados: fabrica tanques, lentos y pesados, con obuses de daño en área.',
 };
 
 const STATE_LABEL: Readonly<Record<HumanUnitState, string>> = {

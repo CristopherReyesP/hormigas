@@ -17,6 +17,7 @@ import { FactionId, ownerOf, relation } from '../factions/factions';
 import { CRYSTAL_DRONE_STATS, CRYSTAL_HIVE_STATS } from '../rival/crystalHive';
 import { CRYSTAL_ECONOMY } from '../rival/crystalRival';
 import { ORDER_PATH_MAX_STEPS } from '../../shared/constants';
+import { HUMAN_COMPONENT } from '../rival/humanComponents';
 
 /** Seconds between two route requests while chasing a moving enemy */
 const CHASE_REPATH_INTERVAL = 0.7;
@@ -86,7 +87,8 @@ export class CrystalUnitAISystem implements System {
   /** Surface units of every non-wildlife faction; each drone keeps only its enemies */
   private snapshotPrey(): void {
     this.prey.length = 0;
-    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT]) {
+    // Human units and buildings too: a Human player's base is what the waves march on
+    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT, HUMAN_COMPONENT.UNIT, HUMAN_COMPONENT.BUILDING]) {
       for (const id of this.world.query(store, COMPONENT.POSITION, COMPONENT.HEALTH)) {
         if (!this.onSurface(id)) continue;
         const faction = ownerOf(this.world, id);
