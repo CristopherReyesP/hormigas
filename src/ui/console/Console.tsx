@@ -7,6 +7,7 @@ import { InfoPanel } from './InfoPanel';
 import { MinimapPanel } from './MinimapPanel';
 import { useColonyDetails } from './useColonyDetails';
 import { useTouchUi } from '../layout/touch';
+import { crystalBuildHint } from '../races/crystal/crystalCommands';
 
 interface ConsoleProps {
   stats: GameStats;
@@ -83,14 +84,18 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
 
   const hasSelection = Boolean(stats.selectedEntity || stats.selectedGroup);
   // The groups page belongs to a selection of own ants: it closes when they are gone
-  const hasAnts = stats.activeLayer === 'surface' && Boolean(stats.selectedGroup || stats.selectedEntity?.type === 'ant');
+  const hasAnts = stats.activeLayer === 'surface'
+    && Boolean(stats.selectedGroup || stats.selectedEntity?.type === 'ant' || (stats.selectedEntity?.type === 'crystal_unit' && stats.selectedEntity.owned));
   if (page === 'groups' && !hasAnts) setPage('root');
   const onEscape = useCallback(() => {
     if (stats.commandTarget) gameManager?.cancelCommandTarget();
-    else if (buildMode) setBuildMode(null);
+    else if (stats.crystal?.buildMode) {
+      gameManager?.getCrystal()?.setBuildMode(null);
+      refreshStats();
+    } else if (buildMode) setBuildMode(null);
     else if (page !== 'root') setPage('root');
     else if (hasSelection) gameManager?.clearSelection();
-  }, [stats.commandTarget, buildMode, page, hasSelection, gameManager]);
+  }, [stats.commandTarget, stats.crystal?.buildMode, buildMode, page, hasSelection, gameManager, refreshStats]);
 
   const commands = useMemo(
     () =>
@@ -115,8 +120,11 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
     [gameManager, stats, details, page, buildMode, attackCount, toggleBuildMode, switchLayer, refresh, notify, touch, groupAdd],
   );
 
-  const areaHint = touch && stats.areaSelect ? 'SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus hormigas' : null;
-  const hint = notice?.text ?? commandTargetHint(stats.commandTarget, touch) ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint);
+  const areaHint = touch && stats.areaSelect
+    ? `SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus ${stats.crystal ? 'unidades' : 'hormigas'}`
+    : null;
+  const crystalHint = stats.crystal?.buildMode ? crystalBuildHint(stats.crystal.buildMode, touch) : null;
+  const hint = notice?.text ?? commandTargetHint(stats.commandTarget, touch) ?? crystalHint ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint);
   const overlayOpen = Boolean(stats.mutationOffer || stats.gameOver);
 
   return (
@@ -126,7 +134,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
         <div className="console-deck" aria-hidden="true">
           <div className="console-vein" />
         </div>
-        <MinimapPanel gameManager={gameManager} activeLayer={stats.activeLayer} onSwitchLayer={switchLayer} />
+        <MinimapPanel gameManager={gameManager} activeLayer={stats.activeLayer} onSwitchLayer={switchLayer} hideNest={Boolean(stats.crystal)} />
         <InfoPanel
           stats={stats}
           details={details}

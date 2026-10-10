@@ -11,6 +11,8 @@ interface MinimapPanelProps {
   gameManager: GameManager | null;
   activeLayer: LayerName;
   onSwitchLayer: (layer: LayerName) => void;
+  /** No NIDO tab: the race has no cave (the Crystal Hive) */
+  hideNest?: boolean;
 }
 
 /** Map box in CSS px (kept in sync with .minimap-box in index.css); phone layouts resize it */
@@ -32,7 +34,7 @@ function loadVisible(): boolean {
  * camera looks at; clicking or dragging on the map moves that camera.
  * M shows or hides the map, as it did for the old nest overlay.
  */
-export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer }: MinimapPanelProps) {
+export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, hideNest = false }: MinimapPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [visible, setVisible] = useState(loadVisible);
   /** The map's CSS size: the phone layouts shrink it */
@@ -131,7 +133,7 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer }: Minima
             <span className="minimap-tab-icon"><PixelIcon name="sun" /></span>
             <span className="minimap-tab-label">SUPERFICIE</span>
           </button>
-          <button
+          {!hideNest && <button
             type="button"
             role="tab"
             aria-selected={activeLayer === 'underground'}
@@ -142,7 +144,7 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer }: Minima
           >
             <span className="minimap-tab-icon"><PixelIcon name="den" /></span>
             <span className="minimap-tab-label">NIDO</span>
-          </button>
+          </button>}
           {/* Compact HUD only: fold the map away to these tabs (M does the same) */}
           <button
             type="button"

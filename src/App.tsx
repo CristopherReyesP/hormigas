@@ -8,6 +8,7 @@ import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
+import { CrystalIntroTitle } from './ui/races/crystal/CrystalIntroTitle';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
 import { ColonyPriority } from './game/components/components';
@@ -127,6 +128,8 @@ export default function App() {
       {!stats.introPlaying && (
         <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
       )}
+      {/* The Crystal Hive skips the Swarm's meteor intro: a short title instead */}
+      {runSetup.playerRace === 'crystal' && !stats.gameOver && <CrystalIntroTitle />}
       {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
 
       {/* Dawn mutation pick: full-screen, above the HUD */}

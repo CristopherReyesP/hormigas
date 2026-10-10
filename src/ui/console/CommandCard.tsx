@@ -28,15 +28,17 @@ const RESERVED_REASON: Record<string, string> = {
 
 const PRESS_FLASH_MS = 140;
 
-/** Eggs are paid from the pantry, upgrades from farm fungus */
+/** Eggs are paid from the pantry, upgrades from farm fungus, the Crystal Hive's everything from minerals */
 const COST_ICON: Record<NonNullable<CommandDef['cost']>['resource'], IconName> = {
   comida: 'pantry',
   hongos: 'fungus',
+  minerales: 'mineral',
 };
 
 const COST_LABEL: Record<NonNullable<CommandDef['cost']>['resource'], string> = {
   comida: 'de comida de la despensa',
   hongos: 'hongos',
+  minerales: 'minerales',
 };
 
 /** 3×5 command card with positional hotkeys and a tooltip plate above it. */

@@ -34,6 +34,7 @@ import { ControlGroups } from './systems/ControlGroups';
 import {
   dispatchDenAttack,
   findEnemyAt,
+  findStructureAt,
   hasActiveOrder,
   isFreeSoldier,
   issueAttackOrders,
@@ -857,7 +858,10 @@ export class GameManager {
     }
     if (this.activeLayer === 'surface' && !this.armedCommand && !this.gameOver && this.selectionSystem.getSelectedAnts().length > 0) {
       const at = this.screenToEntity(screenX, screenY);
-      if (this.enemyAt(at) === null && this.selectionSystem.antAt(at.x, at.y, Layer.Surface) !== null) {
+      // A tap on another own unit, or on an own structure (a Crystal player's spire), picks it instead of ordering
+      const ownBase = this.crystal ? findStructureAt(this.world, at) : null;
+      const ownStructure = ownBase !== null && ownerOf(this.world, ownBase) === FactionId.PLAYER;
+      if (this.enemyAt(at) === null && (ownStructure || this.selectionSystem.antAt(at.x, at.y, Layer.Surface) !== null)) {
         this.clickSelect(screenX, screenY, NO_MODIFIERS);
       } else {
         this.commandAt(screenX, screenY);

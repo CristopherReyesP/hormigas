@@ -14,7 +14,7 @@ export type CrystalPlayerUnitKind = 'drone' | 'sentinel';
 
 /** The run's opening: the Hive at the map center, two drones and a mineral stock */
 export const CRYSTAL_PLAYER_START = {
-  minerals: 200,
+  minerals: 300,
   drones: 2,
 } as const;
 
