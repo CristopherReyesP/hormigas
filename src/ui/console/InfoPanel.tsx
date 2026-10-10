@@ -8,6 +8,7 @@ import type { ColonyDetails } from './useColonyDetails';
 import { deriveBroodPipeline } from './brood';
 import { BroodReadout } from './BroodReadout';
 import { broodKeys } from './commands';
+import { ControlGroupBar } from './ControlGroupBar';
 import {
   ANT_STATE_LABEL, BEETLE_STATE_LABEL, ROLE_BLURB, CARRY_LABEL, CRICKET_STATE_LABEL, FOOD_LABEL, ROLE_ICON, ROLE_LABEL, ROLE_PLURAL, formatClock,
 } from './format';
@@ -324,11 +325,12 @@ function GroupInfo({ group, gameManager, underground }: { group: SelectedGroupIn
   );
 }
 
-/** Center console plate: what is selected, or the state of the colony on this layer. */
+/** Center console plate: what is selected, or the state of the colony on this layer; control group chips ride its top edge. */
 export function InfoPanel(props: InfoPanelProps) {
   const { stats, details } = props;
   return (
     <section className="console-info" aria-label="Información">
+      <ControlGroupBar groups={stats.controlGroups ?? []} onRecall={(slot) => props.gameManager?.recallControlGroup(slot)} />
       <div className="chrome-plate console-plate">
       <div className="chrome-plate-inner console-info-inner">
         {stats.selectedGroup ? (

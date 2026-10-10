@@ -8,7 +8,7 @@ import type { EntityId } from '../shared/types';
 import { World } from '../engine/ecs/World';
 import { GameLoop } from '../engine/loop/GameLoop';
 import { CanvasRenderer } from '../engine/renderer/CanvasRenderer';
-import { InputManager, type InputModifiers, type ScreenBox } from '../engine/input/InputManager';
+import { InputManager, type InputModifiers, type KeyPress, type ScreenBox } from '../engine/input/InputManager';
 import { Camera, type ViewportRect } from '../engine/camera/Camera';
 import { isTileVisible, type VisibilityReader } from '../engine/renderer/fogVisibility';
 import { TileGrid } from '../simulation/world/TileGrid';
@@ -28,6 +28,7 @@ import { HungerSystem } from './systems/HungerSystem';
 import { RegenerationSystem } from './systems/RegenerationSystem';
 import { BreedingSystem } from './systems/BreedingSystem';
 import { SelectionSystem, type SelectionBox } from './systems/SelectionSystem';
+import { ControlGroups } from './systems/ControlGroups';
 import {
   dispatchDenAttack,
   findEnemyAt,
@@ -125,6 +126,8 @@ import {
   CRATER_CLEAR_RADIUS,
   CRATER_EDGE_MARGIN,
   CRATER_FAR_FRACTION,
+  CONTROL_GROUP_SLOTS,
+  GAME_SPEED_MAX,
 } from '../shared/constants';
 
 /** Mixed into the run seed so the crater does not share the dawn offers' draws. */
@@ -175,6 +178,18 @@ export interface SelectedGroupInfo {
   ordered: number;
   /** The first GROUP_GRID_MAX ants, castes in breed order: the wireframe grid */
   units: Array<{ id: EntityId; role: AntRole; health: number; ordered: boolean }>;
+}
+
+/** A bound control group, for the chips above the info panel. */
+export interface ControlGroupInfo {
+  /** Digit it is bound to (1-9) */
+  slot: number;
+  /** Ants in it still alive */
+  count: number;
+  /** The caste most of it belongs to (fighters win ties): the chip's icon */
+  role: AntRole;
+  /** It is exactly the current selection */
+  selected: boolean;
 }
 
 /** Wireframe cells the group panel shows (StarCraft shows 24 too). */
@@ -261,6 +276,8 @@ export interface GameStats {
   selectedGroup?: SelectedGroupInfo | null;
   /** A command card order waiting for its target click: Mover or Atacar was pressed */
   commandTarget?: CommandTarget | null;
+  /** Bound control groups, by digit */
+  controlGroups?: ControlGroupInfo[];
   notifications: GameNotification[];
   objective: ObjectiveState | null;
   invasion: InvasionInfo;
@@ -350,6 +367,8 @@ export class GameManager {
   private armedCommand: CommandTarget | null = null;
   /** Order pings for the renderer (tile coords), drained every frame */
   private orderPings: OrderPing[] = [];
+  /** Ctrl+digit groups of own ants */
+  private readonly controlGroups = new ControlGroups();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -462,9 +481,16 @@ export class GameManager {
 
     // Setup input
     this.input.onKeyAction('Space', () => this.togglePause());
-    this.input.onKeyAction('Digit1', () => this.handleSlotKey(1));
-    this.input.onKeyAction('Digit2', () => this.handleSlotKey(2));
-    this.input.onKeyAction('Digit3', () => this.handleSlotKey(3));
+    // Digits are control groups (the dawn pick borrows 1-3); + and - set game speed
+    for (let slot = 1; slot <= CONTROL_GROUP_SLOTS; slot++) {
+      this.input.onKeyAction(`Digit${slot}`, (press) => this.handleDigitKey(slot, press));
+    }
+    // '=' is the unshifted + key on US layouts; the numpad and other layouts print '+' and '-'
+    for (const [key, step] of [['+', 1], ['=', 1], ['-', -1]] as const) {
+      this.input.onKeyAction(key, (press) => {
+        if (!press.repeat) this.stepSpeed(step);
+      });
+    }
     if (import.meta.env.DEV) {
       // Dev-only preview of the evolution chamber; stripped from production builds.
       // KeyE (evolution) because KeyM already toggles the underground minimap.
@@ -813,14 +839,89 @@ export class GameManager {
     this.publishStats();
   }
 
-  /** Keys 1-3 pick a card while the evolution chamber is open, otherwise they set game speed. */
-  private handleSlotKey(slot: number): void {
-    if (!this.mutationOffer) {
-      this.gameLoop.setSpeed(slot);
+  /**
+   * Digit keys. While the evolution chamber is open, 1-3 pick a card and
+   * nothing else happens. Otherwise Ctrl+digit binds the selected ants to that
+   * control group, Shift+digit adds them, and the digit alone recalls it. A
+   * held key's auto-repeat is ignored.
+   */
+  private handleDigitKey(slot: number, press: KeyPress): void {
+    if (press.repeat) return;
+    if (this.mutationOffer) {
+      const option = this.mutationOffer.options[slot - 1];
+      if (option && !press.ctrl && !press.shift) this.chooseMutation(option.id);
       return;
     }
-    const option = this.mutationOffer.options[slot - 1];
-    if (option) this.chooseMutation(option.id);
+    if (this.gameOver) return;
+    if (press.ctrl) this.bindControlGroup(slot);
+    else if (press.shift) this.bindControlGroup(slot, true);
+    else this.recallControlGroup(slot);
+  }
+
+  /** Ctrl+digit: the selected own ants become group `slot`; `add` (Shift+digit) adds them instead. */
+  bindControlGroup(slot: number, add = false): boolean {
+    const ants = this.selectionSystem.getSelectedAnts();
+    const bound = add ? this.controlGroups.add(slot, ants) : this.controlGroups.bind(slot, ants);
+    if (bound) this.publishStats();
+    return bound;
+  }
+
+  /**
+   * Digit (or a click on its chip): select group `slot`'s living ants on the
+   * layer in view. Pressed twice within CONTROL_GROUP_DOUBLE_TAP_MS it also
+   * centers the camera on them, unless a cinematic owns the camera. Returns
+   * how many ants were selected.
+   */
+  recallControlGroup(slot: number, nowMs = performance.now()): number {
+    const double = this.controlGroups.tap(slot, nowMs);
+    const layer = this.activeLayerValue();
+    const living = this.controlGroups.recall(slot, (id) => this.world.getComponent(id, COMPONENT.ANT) !== undefined);
+    const here = living.filter((id) => (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer ?? Layer.Surface) === layer);
+    if (here.length === 0) return 0;
+    const selected = this.selectionSystem.selectAnts(here, layer);
+    this.armedCommand = null;
+    if (double) this.centerOnAnts(here);
+    this.publishStats();
+    return selected;
+  }
+
+  /** The bound control groups for the HUD chips: living count, lead caste, and whether it is the selection. */
+  getControlGroups(): ControlGroupInfo[] {
+    const selection = this.selectionSystem.getSelectedAnts();
+    const out: ControlGroupInfo[] = [];
+    for (const slot of this.controlGroups.slots()) {
+      const ids = this.controlGroups.members(slot).filter((id) => this.world.getComponent(id, COMPONENT.ANT) !== undefined);
+      if (ids.length === 0) continue;
+      const byRole = new Map<AntRole, number>();
+      for (const id of ids) {
+        const role = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!.role;
+        byRole.set(role, (byRole.get(role) ?? 0) + 1);
+      }
+      const role = GROUP_ROLE_ORDER.reduce((best, r) => ((byRole.get(r) ?? 0) > (byRole.get(best) ?? 0) ? r : best));
+      const selected = selection.length === ids.length && ids.every((id) => selection.includes(id));
+      out.push({ slot, count: ids.length, role, selected });
+    }
+    return out;
+  }
+
+  /** Center the camera of the layer in view on these ants. */
+  private centerOnAnts(ids: readonly EntityId[]): void {
+    const camera = this.activeCamera();
+    if (camera.isDirected()) return; // the intro cinematic owns the camera
+    let x = 0;
+    let y = 0;
+    for (const id of ids) {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      x += pos.x;
+      y += pos.y;
+    }
+    camera.centerOn((x / ids.length) * TILE_SIZE + TILE_SIZE / 2, (y / ids.length) * TILE_SIZE + TILE_SIZE / 2);
+  }
+
+  /** + and -: one game speed step faster or slower, between ×1 and ×GAME_SPEED_MAX. */
+  stepSpeed(step: 1 | -1): void {
+    this.gameLoop.setSpeed(Math.max(1, Math.min(GAME_SPEED_MAX, this.gameLoop.getSpeed() + step)));
+    this.publishStats();
   }
 
   private render(interpolation: number, dt: number): void {
@@ -2054,6 +2155,7 @@ export class GameManager {
       selectedEntity: this.getSelectedEntity(),
       selectedGroup: this.getSelectedGroup(),
       commandTarget: this.selectionSystem.getSelectedAnts().length > 0 ? this.armedCommand : null,
+      controlGroups: this.getControlGroups(),
       notifications: this.getActiveNotifications(),
       objective: this.objectiveSystem.getState(),
       invasion: this.invasionSystem.getInfo(),

@@ -156,7 +156,9 @@ describe('speed button', () => {
       const { gm, ctx } = context();
       ctx.stats = { ...ctx.stats, speed } as GameStats;
       const button = buildCommands(ctx)[11]!;
-      expect(button).toMatchObject({ id: 'speed', glyph: `×${speed}`, label: `Velocidad ×${speed}`, altKeys: '1, 2, 3' });
+      expect(button).toMatchObject({ id: 'speed', glyph: `×${speed}`, label: `Velocidad ×${speed}` });
+      expect(button.altKeys).toMatch(/^\+ y -/);
+      expect(button.description).toContain('La tecla + acelera y la tecla - frena.');
       button.run();
       expect(gm.setSpeed).toHaveBeenCalledWith(next);
     }

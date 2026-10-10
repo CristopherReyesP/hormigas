@@ -155,12 +155,12 @@ function timeCommands(ctx: CommandContext): CommandDef[] {
       run: act(ctx, () => ctx.gm.togglePause()),
     },
     {
-      // One button for the three speeds: the top strip already shows the speed and 1-3 still pick one
+      // One button for the three speeds: the top strip already shows the speed; + and - step it
       id: 'speed',
       label: `Velocidad ×${speed}`,
       glyph: `×${speed}`,
-      description: `${speed === 1 ? 'Ritmo normal.' : `El tiempo corre ${speed} veces más rápido.`} Cambia entre ×1, ×2 y ×3.`,
-      altKeys: '1, 2, 3',
+      description: `${speed === 1 ? 'Ritmo normal.' : `El tiempo corre ${speed} veces más rápido.`} Cambia entre ×1, ×2 y ×3. La tecla + acelera y la tecla - frena.`,
+      altKeys: '+ y - (también en el teclado numérico)',
       active: speed > 1,
       run: act(ctx, () => ctx.gm.setSpeed((speed % MAX_SPEED) + 1)),
     },

@@ -317,4 +317,9 @@ export const ORDER_SNAP_RADIUS = 3;         // a click on rock snaps to the near
 export const ORDER_CHASE_REPATH_SECONDS = 0.75; // an ordered chase re-aims at its moving quarry this often
 export const GUARD_LEASH_RADIUS = 8;        // a warrior on guard fights enemies up to this far from its post, never farther
 export const GUARD_HOME_RADIUS = 1;         // ...and walks back once a fight left it farther than this from the post
-export const ENEMY_PICK_RADIUS = 1.5;       // a right-click this close to a beetle or cricket targets it (dens: their own size)
+export const ENEMY_PICK_RADIUS = 1.5;       // a right-click this close to an enemy targets it (a big sprite like the cricket: its own size)
+
+// === Control groups and game speed keys ===
+export const CONTROL_GROUP_SLOTS = 9;          // Ctrl+1..9 bind a group, 1..9 recall it
+export const CONTROL_GROUP_DOUBLE_TAP_MS = 300; // the same digit twice this fast also centers the camera on the group
+export const GAME_SPEED_MAX = 3;               // + and - step game speed between x1 and this

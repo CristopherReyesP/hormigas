@@ -2,14 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GameManager, type GameStats } from '../GameManager';
 import { COMPONENT, type HealthComponent } from '../components/components';
 import type { DayNightSystem } from '../systems/DayNightSystem';
+import type { KeyPress } from '../../engine/input/InputManager';
 import { MUTATION_DEFINITIONS, MUTATION_IDS } from './MutationDefinitions';
 
 // Real manager and simulation; browser-only adapters are replaced. The input mock
 // records key handlers so the tests can press the game's hotkeys.
-const keyHandlers = new Map<string, () => void>();
+const keyHandlers = new Map<string, (press: KeyPress) => void>();
 vi.mock('../../engine/input/InputManager', () => ({ InputManager: class {
   setCamera() {} onCanvasClick() {} destroy() {}
-  onKeyAction(key: string, handler: () => void) { keyHandlers.set(key, handler); }
+  onKeyAction(key: string, handler: (press: KeyPress) => void) { keyHandlers.set(key, handler); }
 } }));
 vi.mock('../systems/RenderSystem', () => ({ RenderSystem: class {
   setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {}
@@ -27,7 +28,7 @@ function manager() {
 }
 
 function press(code: string) {
-  keyHandlers.get(code)?.();
+  keyHandlers.get(code)?.({ shift: false, ctrl: false, repeat: false });
 }
 
 /** Skip to the last instant of the night, then run one real tick across dawn. */
@@ -96,11 +97,10 @@ describe('dawn mutation pick', () => {
     expect(game.getStats().paused).toBe(true);
   });
 
-  it('turns keys 1-3 into card picks while an offer is pending, and game speed otherwise', () => {
+  it('turns keys 1-3 into card picks while an offer is pending; they never set game speed', () => {
     const { game } = manager();
     press('Digit3');
-    expect(game.getStats().speed).toBe(3);
-    press('Digit1');
+    expect(game.getStats().speed).toBe(1);
     reachNextDawn(game);
     const second = game.getStats().mutationOffer!.options[1].id;
 

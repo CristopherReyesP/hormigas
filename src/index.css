@@ -1302,6 +1302,54 @@ button:focus-visible {
   border-bottom: 1px solid var(--chrome-border);
 }
 
+/* Control group chips (Ctrl+digit): tabs riding the info plate's top edge, StarCraft style */
+.ctrl-groups {
+  position: absolute;
+  left: 14px;
+  top: -14px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+}
+
+.ctrl-chip {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 6px 0 4px;
+  color: var(--chrome-text);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-border);
+  box-shadow: inset 2px 2px 0 var(--chrome-bg), 2px 2px 0 #000;
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.ctrl-chip:hover,
+.ctrl-chip:focus-visible {
+  border-color: var(--chrome-border-light);
+  outline: none;
+}
+
+.ctrl-chip-key {
+  align-self: flex-start;
+  margin-top: 2px;
+  color: var(--chrome-accent);
+}
+
+.ctrl-chip-count {
+  min-width: 10px;
+  text-align: right;
+}
+
+/* The group that is the current selection */
+.ctrl-chip--selected {
+  color: var(--chrome-accent);
+  background: var(--chrome-panel-light);
+  border-color: var(--chrome-accent-dim);
+}
+
 .info-stepper {
   display: flex;
   align-items: center;
