@@ -50,6 +50,7 @@ import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 import { MeteorIntro } from '../render/MeteorIntro';
 import { CrystalRivalArt } from '../render/crystalRivalArt';
+import type { CrystalOverlay } from '../races/crystal/CrystalPlayerController';
 import type { ShieldComponent } from '../rival/crystalShield';
 import { combatVfxFor } from '../vfx/CombatVfx';
 import { drawCombatVfx } from '../vfx/drawCombatVfx';
@@ -133,6 +134,8 @@ export interface CommandOverlaySource {
   getDragBox(): ScreenBox | null;
   /** Orders given since the last frame */
   drainOrderPings(): OrderPing[];
+  /** A Crystal player's build ghost and rally line (absent or null for the Swarm) */
+  crystalOverlay?(): CrystalOverlay | null;
 }
 
 /** An ant drawn this frame, replayed by the night glow pass (world px). */

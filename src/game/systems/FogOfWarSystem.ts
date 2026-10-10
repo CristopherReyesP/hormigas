@@ -3,6 +3,7 @@ import type { World } from '../../engine/ecs/World';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { AntRole, COMPONENT, Layer, type AntComponent, type PositionComponent, type RoleStatsComponent, type LayerComponent } from '../components/components';
 import { FOG_REVEAL_MULTIPLIER } from '../../shared/constants';
+import { playerCrystalVision } from '../races/crystal/crystalVision';
 
 const DEFAULT_VISION_RANGE = 10;
 
@@ -48,6 +49,11 @@ export class FogOfWarSystem implements System {
         Math.round(pos.y),
         revealRange
       );
+    }
+
+    // A Crystal player's units and structures see too
+    for (const eye of playerCrystalVision(this.world)) {
+      this.visibilityGrid.revealCircle(Math.round(eye.x), Math.round(eye.y), eye.radius);
     }
   }
 }

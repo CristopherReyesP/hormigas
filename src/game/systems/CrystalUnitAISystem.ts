@@ -59,6 +59,8 @@ export class CrystalUnitAISystem implements System {
 
     for (const id of units) {
       if (!this.onSurface(id)) continue;
+      // The player's own Crystal units obey the player (CrystalPlayerUnitSystem), never this AI
+      if (ownerOf(this.world, id) === FactionId.PLAYER) continue;
       const unit = this.world.getComponent<CrystalUnitComponent>(id, COMPONENT.CRYSTAL_UNIT)!;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH)!;
@@ -83,10 +85,10 @@ export class CrystalUnitAISystem implements System {
     }
   }
 
-  /** Surface units of every non-wildlife faction; each drone keeps only its enemies */
+  /** Surface units (and Crystal structures) of every non-wildlife faction; each drone keeps only its enemies */
   private snapshotPrey(): void {
     this.prey.length = 0;
-    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT]) {
+    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT, COMPONENT.CRYSTAL_HIVE, COMPONENT.CRYSTAL_SPIRE]) {
       for (const id of this.world.query(store, COMPONENT.POSITION, COMPONENT.HEALTH)) {
         if (!this.onSurface(id)) continue;
         const faction = ownerOf(this.world, id);

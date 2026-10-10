@@ -41,6 +41,7 @@ import {
   type HumanUnitComponent,
 } from '../rival/humanFactories';
 import { ORDER_PATH_MAX_STEPS } from '../../shared/constants';
+import { nearestEnemyCore } from '../factions/baseCore';
 import type { DayPhase } from './DayNightSystem';
 
 /** What the base reads from the day/night cycle (DayNightSystem, or a test clock). */
@@ -474,23 +475,10 @@ export class HumanBaseSystem implements System {
     }
   }
 
-  /** The closest nest of a faction the base is at war with, as a tile */
+  /** The closest base core (a nest, or a playable race's core) of a faction the base is at war with, as a tile */
   private enemyNest(core: EntityId): Vector2 | null {
-    const owner = this.factionOf(core);
     const at = this.world.getComponent<PositionComponent>(core, COMPONENT.POSITION)!;
-    let best: Vector2 | null = null;
-    let bestDist = Infinity;
-    for (const id of this.world.query(COMPONENT.NEST, COMPONENT.POSITION)) {
-      const nestOwner = ownerOf(this.world, id);
-      if (nestOwner === null || relation(owner, nestOwner) !== 'enemy') continue;
-      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-      const dist = Math.hypot(pos.x - at.x, pos.y - at.y);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = tile(pos);
-      }
-    }
-    return best;
+    return nearestEnemyCore(this.world, this.factionOf(core), at);
   }
 
   private route(pos: PositionComponent, path: PathComponent, goal: Vector2): boolean {

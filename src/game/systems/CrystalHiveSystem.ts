@@ -11,7 +11,8 @@ import {
   type PositionComponent,
 } from '../components/components';
 import { createCrystalDrone } from '../entities/factories';
-import { FactionId, ownerOf, relation } from '../factions/factions';
+import { FactionId, ownerOf } from '../factions/factions';
+import { nearestEnemyCore } from '../factions/baseCore';
 import { CRYSTAL_HIVE_STATS, crystalWaveSize, planCrystalWave, stepHiveProduction } from '../rival/crystalHive';
 import { ORDER_PATH_MAX_STEPS } from '../../shared/constants';
 import type { DayPhase } from './DayNightSystem';
@@ -61,10 +62,14 @@ export class CrystalHiveSystem implements System {
     this.autoRaids = options.autoRaids ?? true;
   }
 
-  /** The first hive still standing (the run has one) */
+  /** The rival hives: a player's own Hive (a Crystal player) is never run by this AI */
+  private aiHives(): EntityId[] {
+    return this.world.query(COMPONENT.CRYSTAL_HIVE, COMPONENT.POSITION).filter((id) => ownerOf(this.world, id) !== FactionId.PLAYER);
+  }
+
+  /** The first rival hive still standing (the run has one) */
   private firstHive(): EntityId | null {
-    const hives = this.world.query(COMPONENT.CRYSTAL_HIVE, COMPONENT.POSITION);
-    return hives.length > 0 ? hives[0] : null;
+    return this.aiHives()[0] ?? null;
   }
 
   /** Send `count` drones from the hive at the nearest enemy nest now; returns the drones sent */
@@ -86,7 +91,7 @@ export class CrystalHiveSystem implements System {
     const nightfall = this.lastPhase !== 'night' && phase === 'night';
     this.lastPhase = phase;
 
-    for (const hiveId of this.world.query(COMPONENT.CRYSTAL_HIVE, COMPONENT.POSITION)) {
+    for (const hiveId of this.aiHives()) {
       const hive = this.world.getComponent<CrystalHiveComponent>(hiveId, COMPONENT.CRYSTAL_HIVE)!;
       const garrison = this.garrisonOf(hiveId);
       const step = stepHiveProduction(hive.productionTimer, dt, garrison.length, CRYSTAL_HIVE_STATS.garrisonCap);
@@ -159,22 +164,10 @@ export class CrystalHiveSystem implements System {
     return wave;
   }
 
-  /** The closest nest of a faction this hive is at war with, as a tile */
+  /** The closest base core (a nest, or a Crystal player's Hive) of a faction this hive is at war with, as a tile */
   private enemyNestOf(hiveId: EntityId): Vector2 | null {
     const owner = ownerOf(this.world, hiveId) ?? FactionId.RIVAL;
     const at = this.world.getComponent<PositionComponent>(hiveId, COMPONENT.POSITION)!;
-    let best: Vector2 | null = null;
-    let bestDist = Infinity;
-    for (const id of this.world.query(COMPONENT.NEST, COMPONENT.POSITION)) {
-      const nestOwner = ownerOf(this.world, id);
-      if (nestOwner === null || relation(owner, nestOwner) !== 'enemy') continue;
-      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-      const dist = Math.hypot(pos.x - at.x, pos.y - at.y);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = { x: Math.round(pos.x), y: Math.round(pos.y) };
-      }
-    }
-    return best;
+    return nearestEnemyCore(this.world, owner, at);
   }
 }

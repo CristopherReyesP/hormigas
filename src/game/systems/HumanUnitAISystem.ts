@@ -94,10 +94,10 @@ export class HumanUnitAISystem implements System {
     }
   }
 
-  /** Surface units of every non-wildlife faction; each unit keeps only its enemies */
+  /** Surface units (and Crystal structures) of every non-wildlife faction; each unit keeps only its enemies */
   private snapshotPrey(): void {
     this.prey.length = 0;
-    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT, HUMAN_COMPONENT.UNIT]) {
+    for (const store of [COMPONENT.ANT, COMPONENT.CRYSTAL_UNIT, HUMAN_COMPONENT.UNIT, COMPONENT.CRYSTAL_HIVE, COMPONENT.CRYSTAL_SPIRE]) {
       for (const id of this.world.query(store, COMPONENT.POSITION, COMPONENT.HEALTH)) {
         if (!this.onSurface(id)) continue;
         const faction = ownerOf(this.world, id);

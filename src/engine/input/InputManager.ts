@@ -42,6 +42,8 @@ export interface PointerHandlers {
   onPaint?: (screenX: number, screenY: number, phase: PaintPhase) => void;
   /** Asked when a finger drag starts; 'pan' when absent */
   touchDragMode?: () => TouchDragMode;
+  /** The mouse moved with no button held (canvas px): build ghosts follow it */
+  onHover?: (screenX: number, screenY: number) => void;
 }
 
 const NO_MODS: InputModifiers = { shift: false, ctrl: false };
@@ -250,7 +252,13 @@ export class InputManager {
 
   private mouseMove(e: PointerEvent): void {
     const gesture = this.gesture;
-    if (!gesture) return;
+    if (!gesture) {
+      if (this.handlers.onHover && e.target === this.canvas) {
+        const at = this.cssToCanvas(e);
+        this.handlers.onHover(at.x, at.y);
+      }
+      return;
+    }
     // A chorded release (another button still held) arrives as a move, not an up
     if ((e.buttons & buttonBit(gesture.button)) === 0) {
       this.mouseUp(e, gesture.button);

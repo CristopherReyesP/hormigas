@@ -18,6 +18,7 @@ import {
   Layer,
 } from '../components/components';
 import { findPath } from '../../simulation/pathfinding/AStar';
+import { CRYSTAL_PLAYER_COMPONENT } from '../races/crystal/crystalPlayerComponents';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
 import {
   BEETLE_STATS,
@@ -70,6 +71,8 @@ export class BeetleAISystem implements System {
       // Underground invaders are driven by UndergroundInvasionSystem, not surface AI
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
       if (layer && layer.layer === Layer.Underground) continue;
+      // Night-wave beetles marching on a Crystal player's Hive are driven by CrystalSurfaceWaveSystem
+      if (this.world.getComponent(id, CRYSTAL_PLAYER_COMPONENT.SURFACE_RAIDER) !== undefined) continue;
 
       const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE)!;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;

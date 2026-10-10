@@ -4,13 +4,13 @@ import type { EntityId } from '../../shared/types';
 import {
   COMPONENT,
   Layer,
-  type AntComponent,
   type LayerComponent,
   type LayerValue,
   type SelectableComponent,
   type PositionComponent,
 } from '../components/components';
 import { findStructureAt } from './helpers/playerOrders';
+import { isPlayerUnit, unitKindKey } from '../factions/playerUnits';
 
 /** A rectangle in entity-position space (tile units, fractional). */
 export interface SelectionBox {
@@ -108,10 +108,8 @@ export class SelectionSystem implements System {
       this.selectAt(tileX, tileY, { layer });
       return;
     }
-    const role = this.world.getComponent<AntComponent>(clicked, COMPONENT.ANT)!.role;
-    const group = this.antsInBox(view, layer).filter(
-      (id) => this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!.role === role,
-    );
+    const kind = unitKindKey(this.world, clicked);
+    const group = this.antsInBox(view, layer).filter((id) => unitKindKey(this.world, id) === kind);
     if (!group.includes(clicked)) group.unshift(clicked);
     this.setSelection(group, layer);
   }
@@ -120,8 +118,8 @@ export class SelectionSystem implements System {
   antAt(tileX: number, tileY: number, layer: LayerValue): EntityId | null {
     let best: EntityId | null = null;
     let bestDist = DIRECT_HIT_RANGE;
-    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.SELECTABLE, COMPONENT.POSITION)) {
-      if (this.layerOf(id) !== layer) continue;
+    for (const id of this.world.query(COMPONENT.SELECTABLE, COMPONENT.POSITION)) {
+      if (this.layerOf(id) !== layer || !this.isAnt(id)) continue;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const dist = Math.hypot(pos.x - tileX, pos.y - tileY);
       if (dist <= bestDist) {
@@ -165,8 +163,8 @@ export class SelectionSystem implements System {
 
   private antsInBox(box: SelectionBox, layer: LayerValue): EntityId[] {
     const caught: EntityId[] = [];
-    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.SELECTABLE, COMPONENT.POSITION)) {
-      if (this.layerOf(id) !== layer) continue;
+    for (const id of this.world.query(COMPONENT.SELECTABLE, COMPONENT.POSITION)) {
+      if (this.layerOf(id) !== layer || !this.isAnt(id)) continue;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       if (
         pos.x >= box.minX - BOX_SLACK && pos.x <= box.maxX + BOX_SLACK &&
@@ -218,8 +216,9 @@ export class SelectionSystem implements System {
     if (selectable) selectable.selected = on;
   }
 
+  /** An own unit: an ant, or a unit of the player's playable race */
   private isAnt(id: EntityId): boolean {
-    return this.world.getComponent<AntComponent>(id, COMPONENT.ANT) !== undefined;
+    return isPlayerUnit(this.world, id);
   }
 
   private layerOf(id: EntityId): LayerValue | null {

@@ -37,6 +37,7 @@ import { combatVfxFor } from '../vfx/CombatVfx';
 import { ORDER_PATH_MAX_STEPS } from '../../shared/constants';
 import type { NightClock } from './CrystalHiveSystem';
 import { SPIRE_NAME } from '../rival/crystalNames';
+import { nearestEnemyCore } from '../factions/baseCore';
 
 /** What the rival reads from the day/night cycle (DayNightSystem, or a test clock). */
 export interface RivalClock extends NightClock {
@@ -411,9 +412,9 @@ export class CrystalRivalSystem implements System {
 
   // ── Lookups ──────────────────────────────────────────────
 
+  /** The rival's hive (a Crystal player's own Hive is never run by this AI) */
   private hive(): EntityId | null {
-    const hives = this.world.query(COMPONENT.CRYSTAL_HIVE, COMPONENT.POSITION);
-    return hives.length > 0 ? hives[0] : null;
+    return this.world.query(COMPONENT.CRYSTAL_HIVE, COMPONENT.POSITION).find((id) => ownerOf(this.world, id) !== FactionId.PLAYER) ?? null;
   }
 
   private spiresOf(hive: EntityId): EntityId[] {
@@ -430,22 +431,9 @@ export class CrystalRivalSystem implements System {
     }).sort((a, b) => a - b);
   }
 
+  /** The closest enemy base core: a nest, or a Crystal player's Hive */
   private enemyNest(hive: EntityId): Vector2 | null {
-    const owner = ownerOf(this.world, hive) ?? FactionId.RIVAL;
-    const at = this.posOf(hive)!;
-    let best: Vector2 | null = null;
-    let bestDist = Infinity;
-    for (const id of this.world.query(COMPONENT.NEST, COMPONENT.POSITION)) {
-      const nestOwner = ownerOf(this.world, id);
-      if (nestOwner === null || relation(owner, nestOwner) !== 'enemy') continue;
-      const pos = this.posOf(id)!;
-      const dist = Math.hypot(pos.x - at.x, pos.y - at.y);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = { x: Math.round(pos.x), y: Math.round(pos.y) };
-      }
-    }
-    return best;
+    return nearestEnemyCore(this.world, ownerOf(this.world, hive) ?? FactionId.RIVAL, this.posOf(hive)!);
   }
 
   private posOf(id: EntityId): PositionComponent | undefined {
