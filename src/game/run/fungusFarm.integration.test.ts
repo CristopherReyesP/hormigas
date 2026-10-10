@@ -34,13 +34,15 @@ function buildFarm(game: GameManager): Array<{ x: number; y: number }> {
 }
 
 describe('the fungus farm grows and the colony harvests it', () => {
-  it('grows a tile to ripe, then a nurse harvests it into the pantry', () => {
+  it('gardeners mulch the beds, a tile grows to ripe, then a nurse harvests it into the pantry', () => {
     const game = manager();
     const grid = game['undergroundGrid'] as UndergroundGrid;
     const farm = buildFarm(game);
     const render = game['renderSystem'] as unknown as { queueFarmHarvest: { mock: { calls: unknown[][] } } };
 
     let ripe = false;
+    let gardeners = 0;
+    let mulched = false;
     let harvesters = 0;
     let harvested = false;
     let pantryMushrooms = 0;
@@ -52,14 +54,22 @@ describe('the fungus farm grows and the colony harvests it', () => {
       const onPantry = grid.getPantryTiles().reduce((sum, t) => sum + (t.food?.type === 'mushroom' ? t.food.amount : 0), 0);
       pantryMushrooms = Math.max(pantryMushrooms, onPantry);
       const cap = grid.getPantryTileCapacity();
-      if (grid.getFarmTiles().some((t) => (t.food?.amount ?? 0) >= cap - 1e-6)) ripe = true;
+      if (grid.getFarmMulchTotal() > 0) mulched = true;
+      if (!ripe && grid.getFarmTiles().some((t) => (t.food?.amount ?? 0) >= cap - 1e-6)) {
+        ripe = true;
+        // The colony has eaten through the foragers' haul: room in the pantry for the harvest
+        for (const t of grid.getPantryTiles()) if (t.food?.type === 'mushroom') grid.takeFood(t.x, t.y, t.food.amount);
+      }
       for (const id of game['world'].query(COMPONENT.ANT)) {
         const ant = game['world'].getComponent<AntComponent>(id, COMPONENT.ANT)!;
         if (ant.state === AntState.FarmHarvesting) harvesters++;
+        if (ant.state === AntState.FarmTending) gardeners++;
       }
       harvested = render.queueFarmHarvest.mock.calls.some(([x, y]) => farm.some((t) => t.x === x && t.y === y)) && harvesters > 0;
     }
 
+    expect(gardeners).toBeGreaterThan(0);
+    expect(mulched).toBe(true);
     expect(ripe).toBe(true);
     expect(harvesters).toBeGreaterThan(0);
     expect(harvested).toBe(true);

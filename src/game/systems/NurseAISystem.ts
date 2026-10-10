@@ -21,6 +21,7 @@ import { BROOD_CARE_BOUT, BROOD_CARE_SPEEDUP } from '../../shared/constants';
 import { eggsPerIncubationTile, incubationSpeed } from '../upgrades/upgradeEffects';
 import { eat, isHurt, needsMeal } from './HungerSystem';
 import { tryStartFarmHarvest, updateFarmHarvest, type FarmNav } from './helpers/farmHarvest';
+import { tryStartFarmTending, updateFarmTending } from './helpers/farmTending';
 
 // Sub-tile slots so up to 4 eggs on one incubation tile don't overlap visually
 const EGG_SLOT_OFFSETS = [
@@ -86,6 +87,9 @@ export class NurseAISystem implements System {
           break;
         case AntState.FarmHarvesting:
           updateFarmHarvest(this.world, this.grid, id, ant, pos, dt, this.farmNav);
+          break;
+        case AntState.FarmTending:
+          updateFarmTending(this.world, this.grid, id, ant, pos, dt, this.farmNav);
           break;
       }
     }
@@ -236,6 +240,10 @@ export class NurseAISystem implements System {
     // Priority 4b: Harvest the fungus farm — a ripe tile gets picked and carried
     // to the pantry, so the player sees the farm being worked
     if (tryStartFarmHarvest(this.world, this.grid, id, ant, pos, this.farmNav)) return;
+
+    // Priority 4c: Tend the fungus farm — carry leaves from the pantry and lay
+    // them as mulch on the beds; the fungus only grows on tended tiles
+    if (tryStartFarmTending(this.world, this.grid, id, ant, pos, this.farmNav)) return;
 
     // Priority 5: Brood care — a nurse with nothing else to do attends a growing
     // larva so it hatches sooner. Without this, brood speed was fixed by timers

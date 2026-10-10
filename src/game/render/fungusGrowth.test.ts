@@ -8,6 +8,8 @@ import {
   farmGrowthStage,
   farmTileStatusLabel,
   farmTileVariant,
+  mulchScrapCount,
+  MULCH_SCRAPS,
 } from './fungusGrowth';
 
 describe('fungus farm growth stages', () => {
@@ -123,7 +125,18 @@ describe('farm animation state', () => {
   it('shows a pale violet mushroom on an ant carrying mushrooms', () => {
     expect(carriedFoodSprite('mushroom')).toBe('mushroom');
     expect(carriedFoodSprite('giant_mushroom')).toBe('mushroom');
-    expect(carriedFoodSprite('leaf')).toBe('chunk');
+    expect(carriedFoodSprite('leaf')).toBe('leaf');
+    expect(carriedFoodSprite('beetle_meat')).toBe('chunk');
     expect(carriedFoodSprite(null)).toBe(null);
+  });
+});
+
+describe('mulch scraps', () => {
+  it('shows nothing on a bare bed, at least one scrap once mulched, all of them when full', () => {
+    expect(mulchScrapCount(0, 12)).toBe(0);
+    expect(mulchScrapCount(0.1, 12)).toBe(1);
+    expect(mulchScrapCount(6, 12)).toBe(MULCH_SCRAPS / 2);
+    expect(mulchScrapCount(12, 12)).toBe(MULCH_SCRAPS);
+    expect(mulchScrapCount(5, 0)).toBe(0);
   });
 });

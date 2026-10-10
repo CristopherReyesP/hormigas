@@ -74,6 +74,13 @@ function hash01(x: number, y: number, salt: number): number {
   return (h >>> 0) / 4294967296;
 }
 
+/** Leaf scraps shown on a farm bed for its mulch (0 bare … MULCH_SCRAPS fully mulched) */
+export const MULCH_SCRAPS = 6;
+export function mulchScrapCount(mulch: number, capacity: number): number {
+  if (!(capacity > 0) || !(mulch > 0)) return 0;
+  return Math.max(1, Math.min(MULCH_SCRAPS, Math.ceil((mulch / capacity) * MULCH_SCRAPS)));
+}
+
 /** Small deterministic per-tile variation, seeded by the tile coordinates */
 export function farmTileVariant(x: number, y: number): FarmTileVariant {
   return {
@@ -161,8 +168,9 @@ export class FarmAnimState {
 }
 
 /** Which sprite rides on an ant's back for its load */
-export function carriedFoodSprite(resourceType: string | null | undefined): 'mushroom' | 'chunk' | null {
+export function carriedFoodSprite(resourceType: string | null | undefined): 'mushroom' | 'leaf' | 'chunk' | null {
   if (!resourceType) return null;
   if (resourceType === 'mushroom' || resourceType === 'giant_mushroom') return 'mushroom';
+  if (resourceType === 'leaf') return 'leaf';
   return 'chunk';
 }
