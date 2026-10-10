@@ -13,6 +13,8 @@ interface GameCanvasProps {
   onGameManager: (gm: GameManager) => void;
   /** True while the opening cinematic plays and the HUD is hidden */
   introPlaying: boolean;
+  /** Builds the GameManager instead of a new run (a loaded save); read once */
+  createGame?: (canvas: HTMLCanvasElement) => GameManager;
 }
 
 /**
@@ -24,7 +26,7 @@ interface GameCanvasProps {
  * During the intro the HUD is hidden and that band is the whole window; as
  * the HUD fades in, the band eases back so the camera glides instead of jumping.
  */
-export function GameCanvas({ setup, onStatsUpdate, onGameManager, introPlaying }: GameCanvasProps) {
+export function GameCanvas({ setup, onStatsUpdate, onGameManager, introPlaying, createGame }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const gameManagerRef = useRef<GameManager | null>(null);
@@ -38,7 +40,7 @@ export function GameCanvas({ setup, onStatsUpdate, onGameManager, introPlaying }
     if (!canvasRef.current) return;
     if (gameManagerRef.current) return; // prevent double init in strict mode
 
-    const gm = new GameManager(canvasRef.current, setup);
+    const gm = createGame ? createGame(canvasRef.current) : new GameManager(canvasRef.current, setup);
     gameManagerRef.current = gm;
 
     gm.onStats(onStatsUpdate);
