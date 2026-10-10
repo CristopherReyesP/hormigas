@@ -171,6 +171,40 @@ describe('playing the Crystal Hive against the Humans', () => {
   });
 });
 
+describe('the new waves against the Crystal Hive', () => {
+  it('wave 3 brings elites and the Humans’ mini-boss, marching at the Hive on the surface', () => {
+    const { game, world, run, dayNight } = setup(VS_HUMANS);
+    const waves = game.getCrystal()!.waves;
+    waves['waveNumber'] = 2;
+    dayNight.dayNumber = 3;
+    const intel = game.getStats().invasion.next!;
+    expect(intel.boss?.kind).toBe('colonel');
+    expect(intel.elites.length).toBeGreaterThan(0);
+    expect(intel.entrance).toBeNull();
+    dayNight.phaseTimer = 0.05;
+    run(0.3);
+    const info = game.getStats().invasion;
+    expect(info.active).toBe(true);
+    expect(info.boss?.kind).toBe('colonel');
+    expect(world.query('elite').length).toBeGreaterThan(0);
+    expect(world.query('mini_boss').every((id) => world.getComponent<{ layer: string }>(id, COMPONENT.LAYER)?.layer !== 'underground')).toBe(true);
+    game.stop();
+  });
+
+  it('against the wildlife the Acorazado Colosal walks in from the edge', () => {
+    const { game, world, run, dayNight } = setup(VS_WILDLIFE);
+    game.getCrystal()!.waves['waveNumber'] = 2;
+    dayNight.dayNumber = 3;
+    dayNight.phaseTimer = 0.05;
+    run(30);
+    const bosses = world.query('mini_boss');
+    expect(bosses.length).toBe(1);
+    expect(world.getComponent(bosses[0], 'surface_raider')).toBeDefined();
+    expect(world.getComponent<{ layer: string }>(bosses[0], COMPONENT.LAYER)?.layer).toBe('surface');
+    game.stop();
+  });
+});
+
 describe('playing the Crystal Hive against the wildlife', () => {
   it('night waves of beetles cross the surface toward the Hive', () => {
     const { game, world, run, dayNight, hive } = setup(VS_WILDLIFE);

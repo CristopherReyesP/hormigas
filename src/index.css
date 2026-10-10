@@ -2632,3 +2632,121 @@ button:focus-visible {
   }
 }
 /* ── end RACE PICKER ── */
+
+/* ── Próxima oleada (NextWaveCard) ─────────────────────────── */
+.next-wave {
+  position: absolute;
+  top: calc(var(--strip-h) + 12px);
+  right: 10px;
+  z-index: 15;
+  width: 250px;
+  max-width: calc(100% - 20px);
+  filter: drop-shadow(4px 4px 0 #000);
+}
+
+.next-wave .chrome-plate {
+  --cut: 10px;
+}
+
+.next-wave--soon .chrome-plate {
+  background: var(--chrome-danger);
+}
+
+.next-wave-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px;
+}
+
+.next-wave-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.next-wave-clock {
+  margin-left: auto;
+  color: var(--chrome-warn);
+}
+
+.next-wave--soon .next-wave-clock {
+  color: var(--chrome-danger);
+}
+
+.next-wave-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.6;
+}
+
+.next-wave-title {
+  color: var(--chrome-text);
+}
+
+.next-wave-sub {
+  margin-top: 2px;
+  color: var(--chrome-dim);
+}
+
+.next-wave-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.next-wave-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--chrome-text);
+}
+
+.next-wave-count {
+  color: var(--chrome-warn);
+}
+
+.next-wave-affix {
+  font-family: system-ui, sans-serif;
+}
+
+.next-wave-boss {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px;
+  border: 1px solid var(--chrome-warn);
+}
+
+.next-wave-boss-name {
+  color: var(--chrome-warn);
+}
+
+.next-wave-where {
+  color: var(--chrome-text);
+}
+
+/* Phones: the minimap takes the top right, so the card sits under OBJETIVOS */
+.hud-layer--phone .next-wave {
+  right: auto;
+  left: 10px;
+  top: calc(var(--strip-h) + 52px);
+  width: 210px;
+  z-index: 16;
+}
+
+.hud-layer--phone .next-wave-body {
+  max-height: 34vh;
+  overflow-y: auto;
+}

@@ -3,6 +3,7 @@ import { emitAudio, setAudioSink, type UiSound } from './events';
 import { IntroCueTracker } from './introCues';
 import { audioSettings, busLevels } from './settings';
 import type { Listener } from './spatial';
+import type { IntroVariant } from '../game/render/introTimeline';
 
 export { emitAudio } from './events';
 export type { AudioEvent, AudioLayer, WorldPoint } from './events';
@@ -65,10 +66,10 @@ export function unlockAudio(): AudioEngine | null {
   return engine;
 }
 
-/** A run began: world sounds are heard from this view (the viewed layer and its camera). */
-export function audioRunStarted(view: () => Listener): void {
+/** A run began: world sounds are heard from this view (the viewed layer and its camera); its opening plays `introVariant`'s cues. */
+export function audioRunStarted(view: () => Listener, introVariant: IntroVariant = 'crystal'): void {
   listener = view;
-  introCues.reset();
+  introCues.reset(introVariant);
   engine?.startRun();
 }
 

@@ -59,7 +59,8 @@ import { resolveRunOutcome, type RunOutcome } from './run/RunOutcome';
 import { DayNightSystem, type DayPhase } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
 import { IntroDirector } from './render/IntroDirector';
-import { IntroClock } from './render/introTimeline';
+import { IntroClock, introRivalLine, introVariantFor } from './render/introTimeline';
+import type { IntroArrival } from './render/introArrival';
 import { audioIntroFrame, audioRunEnded, audioRunStarted, emitAudio } from '../audio';
 import { selectionAudio } from '../audio/gameHooks';
 import { createAnt, createFood, createMineral, createNest, createBeetleDen, createQueen, createCrystalHive } from './entities/factories';
@@ -68,12 +69,17 @@ import { CrystalUnitAISystem } from './systems/CrystalUnitAISystem';
 import { CrystalRivalSystem, type CrystalRivalSnapshot } from './systems/CrystalRivalSystem';
 import type { ShieldComponent } from './rival/crystalShield';
 import { CrystalShieldSystem } from './systems/CrystalShieldSystem';
+import { DefenseSystem } from './systems/DefenseSystem';
+import { EliteSystem } from './systems/EliteSystem';
+import { WaveBossSystem } from './systems/WaveBossSystem';
+import { DEFENSE_STATS, type DefenseKind, type DefenseLayer } from './run/defenses';
+import type { WaveOverlay } from './render/waveFunArt';
 import { DEFAULT_RUN_SETUP, type RaceId, type RivalId, type RunSetup } from './run/RunSetup';
 import { CrystalPlayerController, type CrystalPlayerSnapshot } from './races/crystal/CrystalPlayerController';
 import { isPlayerUnit } from './factions/playerUnits';
 import { HumanBaseSystem } from './systems/HumanBaseSystem';
 import { HumanUnitAISystem } from './systems/HumanUnitAISystem';
-import { HUMAN_COMPONENT } from './rival/humanComponents';
+import { HUMAN_COMPONENT, type HumanBuildingComponent, type HumanUnitComponent } from './rival/humanComponents';
 import { createHumanBase } from './rival/humanFactories';
 import { humanSelection, type HumanSelection } from './rival/humanInfo';
 import { pickHumanBaseSite } from './rival/humanSite';
@@ -320,7 +326,23 @@ export interface SurfaceMinimapDot {
   kind: 'ant' | 'enemy' | 'den' | 'food' | 'nest';
 }
 
+/** The defense build tool's preview under the pointer (or the last tapped tile) */
+export interface PlacementGhost {
+  kind: DefenseKind;
+  layer: DefenseLayer;
+  x: number;
+  y: number;
+  valid: boolean;
+  /** Why it cannot go there (Spanish), when invalid */
+  reason?: string;
+  cost: number;
+  /** Espina: its reach, for the range circle */
+  range: number;
+}
+
 export interface GameStats {
+  /** The defense being placed (Espina, Trampa, Muro), or null */
+  defenseBuild?: DefenseKind | null;
   antCount: number;
   workerCount: number;
   soldierCount: number;
@@ -475,6 +497,12 @@ export class GameManager {
   private orderPings: OrderPing[] = [];
   /** Ctrl+digit groups of own ants */
   private readonly controlGroups = new ControlGroups();
+  /** Nest defenses: placement and the turrets, traps and walls themselves */
+  private defenseSystem!: DefenseSystem;
+  /** The defense the build tool places, or null */
+  private defenseBuild: DefenseKind | null = null;
+  /** Where the build tool's ghost sits (canvas px of the pointer, or a tapped tile) */
+  private ghostTile: { layer: DefenseLayer; x: number; y: number } | null = null;
 
   constructor(canvas: HTMLCanvasElement, setup: RunSetup = DEFAULT_RUN_SETUP) {
     this.canvas = canvas;
@@ -591,6 +619,13 @@ export class GameManager {
     } else {
       this.world.addSystem(this.invasionSystem);
     }
+    // Night-wave extras: elite affixes, the mini-bosses' abilities, the nest defenses
+    this.world.addSystem(new EliteSystem(this.world));
+    this.world.addSystem(new WaveBossSystem(this.world, {
+      onSpawn: (id) => (this.crystal ? this.crystal.waves.addInvader(id) : this.invasionSystem.addInvader(id)),
+    }));
+    this.defenseSystem = new DefenseSystem(this.world, this.grid, this.undergroundGrid);
+    this.world.addSystem(this.defenseSystem);
     // The rival base's night raids are part of each invasion wave, not waves of their own
     if (this.rivalRace === 'human') {
       const humanBaseSystem = new HumanBaseSystem(this.world, this.grid, this.dayNightSystem, { autoRaids: false });
@@ -612,6 +647,8 @@ export class GameManager {
     this.world.addSystem(this.fungusFarmSystem);
     // Farm tiles pulse while producing — render needs to know the farm state
     this.renderSystem.setFarmStatusProvider(() => this.fungusFarmSystem.getStatus().status);
+    // The defense build ghost and the scouted breach, drawn in the world
+    this.renderSystem.setWaveOverlayProvider(() => this.waveOverlay());
 
     // Create game loop
     this.gameLoop = new GameLoop(
@@ -671,6 +708,9 @@ export class GameManager {
       edgeMargin: CRATER_EDGE_MARGIN,
       farFraction: CRATER_FAR_FRACTION,
     });
+    // The opening brings in the rival picked before the run (see introArrival.ts)
+    const introVariant = introVariantFor(this.rivalRace);
+    let arrival: IntroArrival = { variant: introVariant, target: { ...this.craterSite }, rivalLine: introRivalLine(this.rivalRace) };
     if (this.rivalRace === 'human') {
       // The Humans camp on another far clearing, away from the crater: the
       // crater's shard field stays between the two bases
@@ -686,7 +726,10 @@ export class GameManager {
         avoid: this.craterSite,
         avoidDistance: HUMAN_SITE_CRATER_DISTANCE,
       });
-      this.rivalCoreId = createHumanBase(this.world, this.grid, site, { x: nestX, y: nestY }).coreId;
+      const base = createHumanBase(this.world, this.grid, site, { x: nestX, y: nestY });
+      this.rivalCoreId = base.coreId;
+      // Their dropship lands on the command center and the real base unfolds there
+      arrival = { ...arrival, target: { x: site.x, y: site.y }, base: this.introHumanBase(base.buildings, [...base.garrison, base.builderId]) };
     } else if (this.rivalRace === 'crystal') {
       // The Crystal Hive rises from the crater: the rival's base, and its core.
       // Against Fauna salvaje the crater stays bare.
@@ -694,23 +737,37 @@ export class GameManager {
     }
     const rival = this.world.factions.get(FactionId.RIVAL);
     if (rival && this.rivalCoreId !== null) rival.coreId = this.rivalCoreId;
-    // The meteor intro is the Swarm's; the Crystal Hive opens on its Hive (a title card in the HUD)
+    // The meteor intro (and the rival's arrival) is the Swarm's; the Crystal Hive opens on its Hive (a title card in the HUD)
     if (this.crystal) this.introClock.advance(Number.POSITIVE_INFINITY);
-    else this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock);
+    else this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock, arrival);
     this.spawnMineralFields({ x: nestX, y: nestY });
     const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
-    // The fireball lights the ground it flies over and the crater, so the chase
-    // crosses lit terrain; what it lit stays explored, a scorched trail to the crater
+    // The fireball (or the dropship) lights the ground it flies over and its
+    // target, so the chase crosses lit terrain; what it lit stays explored, a
+    // scorched trail to the crater or the Human base
     this.introDirector = new IntroDirector(
       this.camera,
       this.introClock,
       tileCenter({ x: nestX, y: nestY }),
-      tileCenter(this.craterSite),
+      tileCenter(arrival.target),
       (x, y, r) => this.visibilityGrid.revealCircle(x, y, r),
+      introVariant,
     );
     window.addEventListener('keydown', this.skipIntro);
     canvas.addEventListener('pointerdown', this.skipIntro);
-    audioRunStarted(() => ({ layer: this.activeLayerValue(), view: this.activeCamera().getViewRectTiles() }));
+    audioRunStarted(() => ({ layer: this.activeLayerValue(), view: this.activeCamera().getViewRectTiles() }), introVariant);
+  }
+
+  /** The Human base as the opening raises it: building kinds and tiles (command center first), troop posts. */
+  private introHumanBase(buildings: readonly EntityId[], troops: readonly EntityId[]): NonNullable<IntroArrival['base']> {
+    const tileOf = (id: EntityId) => {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      return { x: Math.round(pos.x), y: Math.round(pos.y) };
+    };
+    return {
+      buildings: buildings.map((id) => ({ kind: this.world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!.kind, ...tileOf(id) })),
+      troops: troops.map((id) => ({ ...tileOf(id), builder: this.world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT)?.type === 'builder' })),
+    };
   }
 
   /**
@@ -787,6 +844,10 @@ export class GameManager {
    * selected nest goes down into it).
    */
   private handleClick(screenX: number, screenY: number, mods: InputModifiers): void {
+    if (this.defenseBuild) {
+      this.placeDefenseAtScreen(screenX, screenY);
+      return;
+    }
     if (this.activeLayer === 'underground') {
       const tile = this.undergroundCamera.screenToTile(screenX, screenY);
       if (this.digMode) {
@@ -856,6 +917,14 @@ export class GameManager {
       // A spire selected: a tap on open ground is its rally point
       if (this.setRallyAt(this.screenToTile(screenX, screenY))) return;
     }
+    if (this.defenseBuild) {
+      // Touch: the first tap shows the ghost there, a second tap on the same tile builds
+      const tile = this.screenToBuildTile(screenX, screenY);
+      const ghost = this.ghostTile;
+      if (ghost && ghost.layer === tile.layer && ghost.x === tile.x && ghost.y === tile.y) this.placeDefenseAtScreen(screenX, screenY);
+      else this.ghostTile = tile;
+      return;
+    }
     if (this.activeLayer === 'surface' && !this.armedCommand && !this.gameOver && this.selectionSystem.getSelectedAnts().length > 0) {
       const at = this.screenToEntity(screenX, screenY);
       // A tap on another own unit, or on an own structure (a Crystal player's spire), picks it instead of ordering
@@ -892,6 +961,7 @@ export class GameManager {
   /** What a one-finger drag does now: paint with a build tool on, a box while Seleccionar área is on, else pan. */
   private touchDragMode(): TouchDragMode {
     if (this.crystal?.getBuildMode()) return 'paint'; // drag the ghost, lift to place
+    if (this.defenseBuild) return 'pan';
     if (this.activeLayer === 'underground' && this.activeBuildMode() !== null) return 'paint';
     if (this.areaSelect) return 'box';
     return 'pan';
@@ -967,6 +1037,107 @@ export class GameManager {
     else if (stroke.tool === 'storage') this.designateStorage(x, y);
     else if (stroke.tool === 'throne') this.designateThrone(x, y);
     else this.designateDefense(x, y);
+  }
+
+  /** The tile under a canvas point on the layer in view */
+  private screenToBuildTile(screenX: number, screenY: number): { layer: DefenseLayer; x: number; y: number } {
+    const tile = this.activeCamera().screenToTile(screenX, screenY);
+    return { layer: this.activeLayer, x: tile.x, y: tile.y };
+  }
+
+  /** Arm (or with null, put away) the defense build tool: Espina, Trampa de resina or Muro de quitina */
+  setDefenseBuild(kind: DefenseKind | null): void {
+    if (kind === this.defenseBuild) return;
+    this.defenseBuild = kind;
+    this.ghostTile = null;
+    if (kind) {
+      this.armedCommand = null;
+      this.areaSelect = false;
+    }
+    this.publishStats();
+  }
+
+  getDefenseBuild(): DefenseKind | null {
+    return this.defenseBuild;
+  }
+
+  /** Move the ghost to the tile under a canvas point (the mouse hover) */
+  private updateGhostAt(screenX: number, screenY: number): void {
+    if (!this.defenseBuild) return;
+    this.ghostTile = this.screenToBuildTile(screenX, screenY);
+  }
+
+  /** The build tool's preview: where, whether it may go there, its cost and range */
+  getPlacementGhost(): PlacementGhost | null {
+    const kind = this.defenseBuild;
+    const at = this.ghostTile;
+    if (!kind || !at || at.layer !== this.activeLayer) return null;
+    const verdict = this.defenseSystem.check(kind, at.layer, at.x, at.y);
+    const stats = DEFENSE_STATS[kind];
+    return {
+      kind,
+      layer: at.layer,
+      x: at.x,
+      y: at.y,
+      valid: verdict.ok,
+      ...(verdict.ok ? {} : { reason: verdict.message }),
+      cost: stats.cost,
+      range: kind === 'spine' ? stats.range : kind === 'trap' ? stats.range : 0,
+    };
+  }
+
+  /** Build the armed defense on a tile of a layer; a refusal is explained in the feed */
+  placeDefense(kind: DefenseKind, layer: DefenseLayer, x: number, y: number): boolean {
+    const result = this.defenseSystem.place(kind, layer, x, y);
+    if (result.ok) {
+      emitAudio({ type: 'ui', sound: 'command' });
+      this.world.pushNotification('success', `🛡️ ${result.message}`);
+    } else {
+      emitAudio({ type: 'ui', sound: 'error' });
+      this.world.pushNotification('warning', `${DEFENSE_STATS[kind].name}: ${result.message}`, 'defense-refused', 1200);
+    }
+    this.publishStats();
+    return result.ok;
+  }
+
+  private placeDefenseAtScreen(screenX: number, screenY: number): void {
+    const kind = this.defenseBuild;
+    if (!kind || this.gameOver) return;
+    const tile = this.screenToBuildTile(screenX, screenY);
+    this.ghostTile = tile;
+    this.placeDefense(kind, tile.layer, tile.x, tile.y);
+  }
+
+  /** What the renderer draws for the wave extras on the layer in view */
+  private waveOverlay(): WaveOverlay {
+    const info = this.invasionSystem.getInfo();
+    const next = info.next ?? null;
+    const nest = this.world.query(COMPONENT.NEST, COMPONENT.POSITION)[0];
+    const nestPos = nest !== undefined ? this.world.getComponent<PositionComponent>(nest, COMPONENT.POSITION) : undefined;
+    return {
+      ghost: this.getPlacementGhost(),
+      anchors: this.defenseBuild ? this.defenseSystem.buildAnchors(this.activeLayer) : [],
+      scout: next && this.dayNightSystem.getPhase() === 'day'
+        ? {
+          breach: next.entrance ? { x: next.entrance.x, y: next.entrance.y } : null,
+          origin: next.surface ? { x: next.surface.x, y: next.surface.y } : null,
+          nest: nestPos ? { x: nestPos.x, y: nestPos.y } : { x: Math.floor(WORLD_WIDTH / 2), y: Math.floor(WORLD_HEIGHT / 2) },
+        }
+        : null,
+    };
+  }
+
+  /** Scouted marks for the minimap: the coming wave's breach (underground) or the raiders' origin (surface) */
+  getScoutMarks(layer: 'surface' | 'underground'): Array<{ x: number; y: number }> {
+    const next = this.invasionSystem.getInfo().next ?? null;
+    if (!next) return [];
+    if (layer === 'underground') return next.entrance ? [{ x: next.entrance.x + 0.5, y: next.entrance.y + 0.5 }] : [];
+    return next.surface ? [{ x: next.surface.x, y: next.surface.y }] : [];
+  }
+
+  /** The tiles defenses may be built around on a layer: the nest, or the entrances (the breach) */
+  getDefenseAnchors(layer: DefenseLayer): Array<{ x: number; y: number }> {
+    return this.defenseSystem.buildAnchors(layer);
   }
 
   /** Seleccionar área (touch): the next finger drag on the ground draws a selection box. */
@@ -1397,6 +1568,10 @@ export class GameManager {
     this.introClock.advance(dt);
     audioIntroFrame(this.introClock.elapsed, dt);
     this.introDirector.frame();
+    if (this.defenseBuild) {
+      const hover = this.input.getHoverPoint();
+      if (hover) this.updateGhostAt(hover.x, hover.y);
+    }
     this.renderSystem.renderInterpolated(interpolation, dt);
     // The HUD fades in on the frame the intro ends, not at the next stats tick
     if (introWasPlaying && !this.introClock.isPlaying()) this.publishStats();
@@ -2727,6 +2902,7 @@ export class GameManager {
       selectedGroup: this.getSelectedGroup(),
       commandTarget: this.selectionSystem.getSelectedAnts().length > 0 ? this.armedCommand : null,
       areaSelect: this.areaSelect,
+      defenseBuild: this.defenseBuild,
       controlGroups: this.getControlGroups(),
       notifications: this.getActiveNotifications(),
       objective: this.crystal ? this.crystal.objective() : this.objectiveSystem.getState(),

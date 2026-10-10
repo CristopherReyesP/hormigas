@@ -14,12 +14,33 @@ import {
 import { createBeetle } from '../../entities/factories';
 import { FactionId, ownerOf } from '../../factions/factions';
 import { emitAudio } from '../../../audio/events';
-import { waveComposition, YOUNG_BEETLE_SCALE } from '../../run/waveComposition';
-import type { InvasionInfo, RaidSource, WaveBanner, WaveBannerKind } from '../../systems/UndergroundInvasionSystem';
+import {
+  waveComposition,
+  YOUNG_BEETLE_SCALE,
+  type EliteAffix,
+  type MiniBossKind,
+  type WaveElite,
+  type WaveRival,
+  type WaveUnitKind,
+} from '../../run/waveComposition';
+import { ELITE_AFFIXES, makeElite } from '../../run/eliteAffixes';
+import { BOSS_COMPONENT, MINI_BOSSES, makeMiniBoss, markCrystalQueen, type BossComponent } from '../../run/miniBoss';
+import { BOSS_REWARD, waveClearReward } from '../../run/waveRewards';
+import { waveRuntimeFor } from '../../run/waveRuntime';
+import type { ShieldComponent } from '../../rival/crystalShield';
+import {
+  compassLabel,
+  isBossNight,
+  type BossBarInfo,
+  type InvasionInfo,
+  type NextWaveIntel,
+  type RaidSource,
+  type WaveBanner,
+  type WaveBannerKind,
+} from '../../systems/UndergroundInvasionSystem';
 import type { DayPhase } from '../../systems/DayNightSystem';
 import {
   INVASION_ARM_LEAD,
-  INVASION_BOSS_NIGHT,
   ORDER_PATH_MAX_STEPS,
   WAVE_BANNER_SECONDS,
   WAVE_WARNING_LEAD,
@@ -42,14 +63,40 @@ const DRIVE_INTERVAL = 0.5;
 /** Seconds between two beetles stepping onto the map */
 const SPAWN_INTERVAL = 0.8;
 
-type Kind = 'young' | 'adult';
+interface Pending {
+  kind: 'young' | 'adult' | 'boss';
+  affix?: EliteAffix;
+}
+
+/** One night's wave against the Crystal Hive */
+interface CrystalWave {
+  wave: number;
+  young: number;
+  beetles: number;
+  /** The rival base's raiders (none against the wildlife) */
+  raiders: number;
+  elites: WaveElite[];
+  boss: MiniBossKind | null;
+  total: number;
+  statScale: number;
+}
+
+const GROUP_LABELS: Record<WaveUnitKind, (rival: WaveRival) => string> = {
+  young: () => 'Acorazados jóvenes',
+  beetle: () => 'Acorazados',
+  drone: (rival) => (rival === 'human' ? 'Tropas humanas' : 'Drones de cristal'),
+};
 
 /**
  * Night waves against a Crystal player (P10). There is no cave to breach:
- * every nightfall the wave's beetles walk in from a map edge and march on the
- * Hive across the surface, and the rival base (RaidSource) sends its troops or
- * drones at the Hive too. Raiders fight the Crystal units and structures they
- * meet on the way. Reports the same InvasionInfo the HUD reads for the Swarm.
+ * every nightfall the wave's beetles (half the Swarm's count, the Crystal Hive
+ * has fewer units) walk in from a map edge and march on the Hive across the
+ * surface, and the rival base (RaidSource) sends its raiders at the Hive too.
+ * The waves follow waveComposition: elites from wave 3, a mini-boss every
+ * third wave (the rival's own leads its raiders; the Acorazado Colosal walks
+ * in with the beetles), the Crystal Queen on night 7, and the run is endless.
+ * Clearing a wave and killing a boss pay minerals. Raiders fight the Crystal
+ * units and structures they meet. Reports the same InvasionInfo the HUD reads.
  */
 export class CrystalSurfaceWaveSystem implements System {
   readonly name = 'CrystalSurfaceWaveSystem';
@@ -66,13 +113,18 @@ export class CrystalSurfaceWaveSystem implements System {
   private warned = false;
   private waveSize = 0;
   private statScale = 1;
+  private bossTier = 1;
   private invaders = new Set<EntityId>();
-  private pending: Kind[] = [];
+  private bosses = new Set<EntityId>();
+  private pending: Pending[] = [];
   private spawnTimer = 0;
   private driveTimer = 0;
   private banner: WaveBanner | null = null;
   private bannerTimer = 0;
   private nextBannerId = 1;
+  /** Own units alive when the wave struck: losing none makes a perfect defense */
+  private watched = new Set<EntityId>();
+  private lost = 0;
 
   constructor(world: World, grid: PathGrid, clock: WaveClock) {
     this.world = world;
@@ -85,14 +137,39 @@ export class CrystalSurfaceWaveSystem implements System {
     this.raidSource = source;
   }
 
-  /** The mix of the next wave: the rival's raiders plus the (thinned) beetles */
-  private nextWave(): { beetles: number; young: number; raiders: number; total: number; statScale: number } {
-    const base = waveComposition(this.waveNumber + 1, this.raidSource?.rival ?? 'crystal');
+  /** A unit that joined the wave on now (a Prisma Guardián's shard): it counts until it dies */
+  addInvader(id: EntityId): void {
+    if (!this.world.hasEntity(id)) return;
+    this.invaders.add(id);
+    if (this.waveActive) this.waveSize++;
+  }
+
+  private rival(): WaveRival {
+    return this.raidSource ? this.raidSource.rival ?? 'crystal' : 'wildlife';
+  }
+
+  /** The next wave: the rival's raiders in full, the beetles thinned; elites kept within each kind */
+  private nextWave(): CrystalWave {
+    const base = waveComposition(this.waveNumber + 1, this.rival());
     const raiders = this.raidSource ? base.drones : 0;
     const extra = Math.max(0, this.world.runModifiers.extraInvadersPerWave);
     const allBeetles = crystalWaveBeetles(base.youngBeetles + base.beetles + (base.drones - raiders) + extra);
     const young = Math.min(allBeetles, Math.round((allBeetles * base.youngBeetles) / Math.max(1, base.youngBeetles + base.beetles)));
-    return { beetles: allBeetles - young, young, raiders, total: allBeetles + raiders, statScale: base.statScale };
+    const beetles = allBeetles - young;
+    const limit: Record<WaveUnitKind, number> = { young, beetle: beetles, drone: raiders };
+    const used: Record<WaveUnitKind, number> = { young: 0, beetle: 0, drone: 0 };
+    const elites: WaveElite[] = [];
+    for (const e of base.elites) {
+      const unit: WaveUnitKind = e.unit === 'drone' && raiders === 0 ? 'beetle' : e.unit;
+      if (used[unit] >= limit[unit]) continue;
+      used[unit]++;
+      elites.push({ unit, affix: e.affix });
+    }
+    let boss: MiniBossKind | null = base.boss;
+    if (boss && boss !== 'colossus' && !this.raidSource) boss = 'colossus';
+    // On the Crystal Queen's night she is the boss: no mini-boss joins her
+    if (boss && isBossNight(this.clock.getDayNumber()) && this.raidSource?.launchBoss) boss = null;
+    return { wave: base.wave, young, beetles, raiders, elites, boss, total: allBeetles + raiders + (boss ? 1 : 0), statScale: base.statScale };
   }
 
   getInfo(): InvasionInfo {
@@ -106,17 +183,78 @@ export class CrystalSurfaceWaveSystem implements System {
       remaining: this.waveActive ? this.invaders.size + this.pending.length : 0,
       banner: this.banner ? { ...this.banner } : null,
       threats: this.threats(),
+      next: this.waveActive ? null : this.nextIntel(),
+      boss: this.bossBar(),
     };
+  }
+
+  /** The scouted next wave: its mix, elites, boss and the edge it walks in from */
+  private nextIntel(): NextWaveIntel {
+    const wave = this.nextWave();
+    const rival = this.rival();
+    const groups = ([['young', wave.young], ['beetle', wave.beetles], ['drone', wave.raiders]] as const)
+      .filter(([, count]) => count > 0)
+      .map(([id, count]) => ({ id, label: GROUP_LABELS[id](rival), count }));
+    const elites: NextWaveIntel['elites'] = [];
+    for (const e of wave.elites) {
+      const row = elites.find((r) => r.affix === e.affix);
+      if (row) row.count++;
+      else elites.push({ affix: e.affix, ...ELITE_AFFIXES[e.affix], count: 1 });
+    }
+    let boss: NextWaveIntel['boss'] = wave.boss ? { kind: wave.boss, ...MINI_BOSSES[wave.boss] } : null;
+    if (!boss && isBossNight(this.clock.getDayNumber()) && this.raidSource?.launchBoss) {
+      boss = { kind: 'crystal_queen', name: 'Reina de Cristal', ability: 'Su aura recarga los escudos de su escolta y su pulso daña a quien se acerca.' };
+    }
+    const edge = this.edgeOf(this.waveNumber + 1);
+    const hive = this.hiveTile();
+    return {
+      wave: wave.wave,
+      total: wave.total,
+      groups,
+      elites,
+      boss,
+      entrance: null,
+      surface: { x: edge.x, y: edge.y, direction: compassLabel(hive.x, hive.y, edge.x, edge.y) },
+    };
+  }
+
+  private hiveTile(): Vector2 {
+    const core = this.world.factions.get(FactionId.PLAYER)?.coreId;
+    const pos = core !== undefined ? this.world.getComponent<PositionComponent>(core, COMPONENT.POSITION) : undefined;
+    return pos ? { x: pos.x, y: pos.y } : { x: Math.floor(this.grid.width / 2), y: Math.floor(this.grid.height / 2) };
+  }
+
+  private bossBar(): BossBarInfo | null {
+    let best: BossBarInfo | null = null;
+    for (const id of this.bosses) {
+      const boss = this.world.getComponent<BossComponent>(id, BOSS_COMPONENT);
+      const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+      if (!boss || !health || health.current <= 0) continue;
+      const shield = this.world.getComponent<ShieldComponent>(id, COMPONENT.SHIELD);
+      const info: BossBarInfo = {
+        kind: boss.kind,
+        name: boss.name,
+        health: Math.max(0, Math.ceil(health.current)),
+        maxHealth: health.max,
+        shield: shield ? Math.max(0, Math.ceil(shield.current)) : 0,
+        maxShield: shield?.max ?? 0,
+      };
+      if (!best || info.maxHealth > best.maxHealth) best = info;
+    }
+    return best;
   }
 
   update(dt: number): void {
     for (const id of [...this.invaders]) if (!this.world.hasEntity(id)) this.invaders.delete(id);
+    for (const id of [...this.bosses]) if (!this.world.hasEntity(id)) this.bosses.delete(id);
+    if (this.waveActive) this.watchUnits();
+    this.payBossKills();
 
     if (this.pending.length > 0) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
         this.spawnTimer = SPAWN_INTERVAL;
-        this.spawnBeetle(this.pending.shift()!);
+        this.spawn(this.pending.shift()!);
       }
     }
 
@@ -133,24 +271,25 @@ export class CrystalSurfaceWaveSystem implements System {
       this.waveActive = false;
       this.waveArmed = false;
       this.world.metrics.wavesRepelled++;
-      this.showBanner('cleared', this.waveNumber, this.waveSize);
-      this.world.pushNotification('success', `🛡️ ¡Oleada ${this.waveNumber} superada!`);
+      this.payClear();
     }
 
     if (phase === 'day' && !this.waveActive && !this.waveArmed && this.clock.getPhaseRemaining() <= INVASION_ARM_LEAD) {
       this.waveArmed = true;
-      this.world.pushNotification('warning', `🪲 Algo se mueve en los bordes del mapa: la oleada ${this.waveNumber + 1} (${this.nextWave().total} enemigos) atacará la colmena al anochecer`);
+      const wave = this.nextWave();
+      this.world.pushNotification('warning', `🪲 Algo se mueve en los bordes del mapa: la oleada ${this.waveNumber + 1} (${wave.total} enemigos${this.extrasLabel(wave)}) atacará la colmena al anochecer`);
     }
     if (phase === 'day' && !this.waveActive && !this.warned && this.clock.getPhaseRemaining() <= WAVE_WARNING_LEAD) {
       this.warned = true;
-      const count = this.nextWave().total;
-      this.showBanner('warning', this.waveNumber + 1, count);
-      this.world.pushNotification('danger', `⚠️ ¡Oleada ${this.waveNumber + 1} en ${WAVE_WARNING_LEAD} s! ${count} enemigos hacia la colmena`);
+      const wave = this.nextWave();
+      const intel = this.nextIntel();
+      this.showBanner('warning', this.waveNumber + 1, wave.total, { elites: wave.elites.length, ...(intel.boss ? { bossName: intel.boss.name } : {}) });
+      this.world.pushNotification('danger', `⚠️ ¡Oleada ${this.waveNumber + 1} en ${WAVE_WARNING_LEAD} s! ${wave.total} enemigos${this.extrasLabel(wave)} hacia la colmena`);
     }
 
     // A wave still marching never holds the next one back: the new one joins it
     if (nightfall) this.launchWave();
-    if (nightfall && this.clock.getDayNumber() === INVASION_BOSS_NIGHT) this.launchBoss();
+    if (nightfall && isBossNight(this.clock.getDayNumber())) this.launchQueen();
 
     this.driveTimer -= dt;
     if (this.driveTimer <= 0) {
@@ -159,9 +298,52 @@ export class CrystalSurfaceWaveSystem implements System {
     }
   }
 
-  private showBanner(kind: WaveBannerKind, wave: number, count: number): void {
-    this.banner = { id: this.nextBannerId++, kind, wave, count };
+  private extrasLabel(wave: CrystalWave): string {
+    const parts: string[] = [];
+    if (wave.elites.length > 0) parts.push(`${wave.elites.length} ${wave.elites.length === 1 ? 'élite' : 'élites'}`);
+    if (wave.boss) parts.push(`el ${MINI_BOSSES[wave.boss].name}`);
+    return parts.length > 0 ? `, con ${parts.join(' y ')}` : '';
+  }
+
+  private showBanner(kind: WaveBannerKind, wave: number, count: number, extra: Partial<WaveBanner> = {}): void {
+    this.banner = { id: this.nextBannerId++, kind, wave, count, ...extra };
     this.bannerTimer = WAVE_BANNER_SECONDS;
+  }
+
+  private ownUnits(): EntityId[] {
+    return this.world.query(COMPONENT.CRYSTAL_UNIT).filter((id) => ownerOf(this.world, id) === FactionId.PLAYER);
+  }
+
+  private watchUnits(): void {
+    for (const id of this.watched) {
+      if (this.world.hasEntity(id)) continue;
+      this.watched.delete(id);
+      this.lost++;
+    }
+    for (const id of this.ownUnits()) this.watched.add(id);
+  }
+
+  /** The wave is cleared: minerals, more for a defense that lost no unit */
+  private payClear(): void {
+    const perfect = this.lost === 0;
+    const reward = waveClearReward(this.waveNumber, perfect);
+    this.world.minerals.deposit(reward.minerals);
+    this.watched.clear();
+    this.showBanner('cleared', this.waveNumber, this.waveSize, { perfect, reward: { minerals: reward.minerals, food: 0 } });
+    if (perfect) emitAudio({ type: 'waveFx', kind: 'perfect' });
+    this.world.pushNotification('success', `🛡️ ¡Oleada ${this.waveNumber} superada!${perfect ? ' ¡Defensa perfecta!' : ''} +${reward.minerals} minerales`);
+  }
+
+  /** A mini-boss fell: its mineral reward, always */
+  private payBossKills(): void {
+    const kills = waveRuntimeFor(this.world).bossKills;
+    if (kills.length === 0) return;
+    for (const kill of kills.splice(0)) {
+      this.world.minerals.deposit(BOSS_REWARD.minerals);
+      emitAudio({ type: 'waveFx', kind: 'bossDown' });
+      this.world.pushNotification('success', `👑 ¡Derrotaste al ${kill.name}! +${BOSS_REWARD.minerals} minerales`);
+      this.showBanner('bossDown', this.waveNumber, this.waveSize, { bossName: kill.name, reward: { minerals: BOSS_REWARD.minerals, food: 0 } });
+    }
   }
 
   private launchWave(): void {
@@ -172,26 +354,65 @@ export class CrystalSurfaceWaveSystem implements System {
     this.waveArmed = false;
     this.warned = false;
     this.statScale = wave.statScale;
-    const raiders = wave.raiders > 0 && this.raidSource ? this.raidSource.launch(wave.raiders) : [];
-    for (const id of raiders) {
-      this.scale(id, wave.statScale, wave.statScale);
-      this.invaders.add(id);
+    this.bossTier = Math.max(1, Math.floor(wave.wave / 3));
+    this.lost = 0;
+    this.watched = new Set(this.ownUnits());
+    const affixesOf = (unit: WaveUnitKind) => wave.elites.filter((e) => e.unit === unit).map((e) => e.affix);
+
+    // The rival's raiders march on the Hive; its mini-boss leaves with them as the last one sent
+    const surfaceBoss = wave.boss === 'prism' || wave.boss === 'colonel' ? wave.boss : null;
+    const asked = wave.raiders + (surfaceBoss ? 1 : 0);
+    const sent = asked > 0 && this.raidSource ? this.raidSource.launch(asked) : [];
+    let bossId: EntityId | null = null;
+    if (surfaceBoss && sent.length > 0) {
+      bossId = sent[sent.length - 1];
+      makeMiniBoss(this.world, bossId, surfaceBoss, this.bossTier);
+      this.scale(bossId, wave.statScale, wave.statScale);
+      this.bosses.add(bossId);
+      this.invaders.add(bossId);
     }
-    // Raiders the rival could not send come as beetles
-    const beetles = wave.beetles + (wave.raiders - raiders.length);
-    this.pending.push(...Array<Kind>(wave.young).fill('young'), ...Array<Kind>(beetles).fill('adult'));
-    this.waveSize = wave.young + beetles + raiders.length;
-    if (this.pending.length > 0) this.spawnBeetle(this.pending.shift()!);
+    const raiders = sent.filter((id) => id !== bossId);
+    const raiderAffixes = affixesOf('drone');
+    raiders.forEach((id, i) => {
+      this.scale(id, wave.statScale, wave.statScale);
+      if (i < raiderAffixes.length) makeElite(this.world, id, raiderAffixes[i]);
+      this.invaders.add(id);
+    });
+    // Raiders the rival could not send come as beetles; a boss with no base behind it is the Colosal
+    const missing = asked - sent.length;
+    const colossus = wave.boss === 'colossus' || (surfaceBoss !== null && bossId === null);
+    const beetles = wave.beetles + Math.max(0, missing - (surfaceBoss && bossId === null ? 1 : 0));
+    const youngAffixes = affixesOf('young');
+    const beetleAffixes = [...affixesOf('beetle'), ...raiderAffixes.slice(raiders.length)];
+    this.pending.push(
+      ...Array.from({ length: wave.young }, (_, i): Pending => ({ kind: 'young', affix: youngAffixes[i] })),
+      ...Array.from({ length: beetles }, (_, i): Pending => ({ kind: 'adult', affix: beetleAffixes[i] })),
+      ...(colossus ? [{ kind: 'boss' as const }] : []),
+    );
+    this.waveSize = wave.young + beetles + raiders.length + (bossId !== null || colossus ? 1 : 0);
+    if (this.pending.length > 0) this.spawn(this.pending.shift()!);
     this.spawnTimer = SPAWN_INTERVAL;
-    this.showBanner('arrival', this.waveNumber, this.waveSize);
-    const side = this.edgeLabel(this.edgeOf(this.waveNumber));
-    const rival = raiders.length > 0 ? ` y ${raiders.length} ${this.raidSource?.unitLabel?.(raiders.length) ?? 'drones de cristal'} desde su base` : '';
+
+    const bossKind: MiniBossKind | null = bossId !== null ? surfaceBoss : colossus ? 'colossus' : null;
+    this.showBanner('arrival', this.waveNumber, this.waveSize, bossKind ? { bossName: MINI_BOSSES[bossKind].name, bossAbility: MINI_BOSSES[bossKind].ability } : {});
+    if (bossKind) {
+      this.bannerTimer = WAVE_BANNER_SECONDS + 3;
+      emitAudio({ type: 'waveFx', kind: 'boss' });
+    }
+    const side = compassLabel(this.hiveTile().x, this.hiveTile().y, this.edgeOf(this.waveNumber).x, this.edgeOf(this.waveNumber).y);
+    const rival = raiders.length > 0 || bossId !== null
+      ? ` y ${raiders.length + (bossId !== null ? 1 : 0)} ${this.raidSource?.unitLabel?.(raiders.length) ?? 'drones de cristal'} desde su base`
+      : '';
     this.world.pushNotification('danger', `🪲 ¡OLEADA ${this.waveNumber} · ${this.waveSize} enemigos! Acorazados desde el ${side}${rival}, hacia tu colmena`);
+    if (bossId !== null && bossKind) this.world.pushNotification('danger', `👑 ¡El ${MINI_BOSSES[bossKind].name} encabeza el asalto!`);
   }
 
-  private launchBoss(): void {
+  /** The boss night: the Crystal Queen (a Crystal rival only) joins whatever wave is on */
+  private launchQueen(): void {
     const boss = this.raidSource?.launchBoss?.() ?? null;
     if (boss === null) return;
+    markCrystalQueen(this.world, boss);
+    this.bosses.add(boss);
     this.invaders.add(boss);
     this.waveActive = true;
     this.waveSize++;
@@ -210,7 +431,7 @@ export class CrystalSurfaceWaveSystem implements System {
       { x: cx, y: this.grid.height - 2 },
       { x: cx, y: 1 },
     ];
-    const start = (wave - 1) % edges.length;
+    const start = (((wave - 1) % edges.length) + edges.length) % edges.length;
     for (let i = 0; i < edges.length; i++) {
       const edge = edges[(start + i) % edges.length];
       if (this.grid.isWalkable(edge.x, edge.y)) return edge;
@@ -218,18 +439,22 @@ export class CrystalSurfaceWaveSystem implements System {
     return edges[start];
   }
 
-  private edgeLabel(edge: Vector2): string {
-    if (edge.x <= 1) return 'oeste';
-    if (edge.x >= this.grid.width - 2) return 'este';
-    return edge.y <= 1 ? 'norte' : 'sur';
-  }
-
-  private spawnBeetle(kind: Kind): void {
+  private spawn(next: Pending): void {
     const edge = this.edgeOf(this.waveNumber);
     const id = createBeetle(this.world, edge.x, edge.y, null);
     this.world.addComponent(id, CRYSTAL_PLAYER_COMPONENT.SURFACE_RAIDER, { wave: this.waveNumber });
-    const young = kind === 'young';
+    if (next.kind === 'boss') {
+      makeMiniBoss(this.world, id, 'colossus', this.bossTier);
+      this.scale(id, this.statScale, this.statScale);
+      this.bosses.add(id);
+      this.invaders.add(id);
+      emitAudio({ type: 'waveFx', kind: 'boss' });
+      this.world.pushNotification('danger', `👑 ¡El ${MINI_BOSSES.colossus.name} avanza hacia tu colmena!`);
+      return;
+    }
+    const young = next.kind === 'young';
     this.scale(id, (young ? YOUNG_BEETLE_SCALE.health : 1) * this.statScale, (young ? YOUNG_BEETLE_SCALE.damage : 1) * this.statScale);
+    if (next.affix) makeElite(this.world, id, next.affix);
     this.invaders.add(id);
   }
 
@@ -328,7 +553,8 @@ export class CrystalSurfaceWaveSystem implements System {
     const out: InvasionInfo['threats'] = [];
     const edge = this.edgeOf(this.waveNumber + 1);
     out.push({ x: edge.x, y: edge.y, layer: 'surface' });
-    const origin = this.nextWave().raiders > 0 ? this.raidSource?.origin() ?? null : null;
+    const next = this.nextWave();
+    const origin = next.raiders > 0 || (next.boss !== null && next.boss !== 'colossus') ? this.raidSource?.origin() ?? null : null;
     if (origin) out.push({ x: origin.x, y: origin.y, layer: 'surface' });
     return out;
   }

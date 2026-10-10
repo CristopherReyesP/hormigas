@@ -1,55 +1,104 @@
 import { describe, expect, it } from 'vitest';
-import { WAVE_MAX_UNITS, waveComposition } from './waveComposition';
+import {
+  ELITE_AFFIX_ORDER,
+  MINI_BOSS_EVERY,
+  WAVE_MAX_UNITS,
+  eliteShare,
+  miniBossFor,
+  waveComposition,
+  type WaveComposition,
+  type WaveRival,
+} from './waveComposition';
 
-const waves = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => waveComposition(from + i));
+const RIVALS: WaveRival[] = ['wildlife', 'crystal', 'human'];
+const waves = (from: number, to: number, rival: WaveRival = 'crystal') =>
+  Array.from({ length: to - from + 1 }, (_, i) => waveComposition(from + i, rival));
+/** Every unit the wave sends, the mini-boss included */
+const parts = (w: WaveComposition) => w.youngBeetles + w.beetles + w.drones + (w.boss ? 1 : 0);
+/** The table before elites and bosses: the size curve these waves must stay close to */
+const OLD_TOTALS = [3, 5, 8, 12, 17, 23, 30, 38, 47, 50];
 
 describe('waveComposition', () => {
-  it('opens with a small, survivable wave: 3 young beetles, no drones', () => {
-    expect(waveComposition(1)).toEqual({ wave: 1, total: 3, youngBeetles: 3, beetles: 0, drones: 0, statScale: 1 });
+  it('opens with a small, survivable wave: 3 young beetles, no drones, no elites, no boss', () => {
+    expect(waveComposition(1)).toEqual({ wave: 1, total: 3, youngBeetles: 3, beetles: 0, drones: 0, statScale: 1, elites: [], boss: null });
   });
 
-  it('follows the documented curve for waves 1-10', () => {
-    expect(waves(1, 10).map((w) => w.total)).toEqual([3, 5, 8, 12, 17, 23, 30, 38, 47, 50]);
+  it('follows the documented curve for waves 1-10, the same for every rival', () => {
+    for (const rival of RIVALS) {
+      expect(waves(1, 10, rival).map((w) => w.total)).toEqual([3, 5, 6, 12, 16, 20, 27, 34, 40, 45]);
+    }
   });
 
-  it('grows every wave until the cap, by roughly 30-70% early on', () => {
-    const list = waves(1, 20);
-    for (let i = 1; i < list.length; i++) {
-      if (list[i - 1].total < WAVE_MAX_UNITS) expect(list[i].total).toBeGreaterThan(list[i - 1].total);
-      else expect(list[i].total).toBe(WAVE_MAX_UNITS);
-    }
-    for (let i = 1; i < 6; i++) {
-      const growth = list[i].total / list[i - 1].total;
-      expect(growth).toBeGreaterThanOrEqual(1.3);
-      expect(growth).toBeLessThanOrEqual(1.7);
-    }
+  it('stays near the old table: elites and the boss trim a few plain units, never more than a third', () => {
+    waves(1, 10).forEach((w, i) => {
+      expect(w.total).toBeLessThanOrEqual(OLD_TOTALS[i]);
+      expect(w.total).toBeGreaterThanOrEqual(Math.floor(OLD_TOTALS[i] * 0.7));
+    });
   });
 
   it('never exceeds the cap; past it the units get slightly stronger instead', () => {
     const list = waves(1, 30);
     for (const w of list) expect(w.total).toBeLessThanOrEqual(WAVE_MAX_UNITS);
-    expect(WAVE_MAX_UNITS).toBeGreaterThanOrEqual(40);
-    expect(WAVE_MAX_UNITS).toBeLessThanOrEqual(60);
-    expect(list.filter((w) => w.total < WAVE_MAX_UNITS).every((w) => w.statScale === 1)).toBe(true);
-    const capped = list.filter((w) => w.total === WAVE_MAX_UNITS);
-    expect(capped.length).toBeGreaterThan(5);
-    for (let i = 1; i < capped.length; i++) expect(capped[i].statScale).toBeGreaterThan(capped[i - 1].statScale);
+    expect(waveComposition(9).statScale).toBe(1);
     expect(waveComposition(10).statScale).toBeLessThan(1.15);
+    for (let n = 12; n <= 30; n++) expect(waveComposition(n).statScale).toBeGreaterThan(waveComposition(n - 1).statScale);
   });
 
-  it('splits every wave into its parts, mixing in stronger types as waves grow', () => {
-    for (const w of waves(1, 30)) {
-      expect(w.youngBeetles + w.beetles + w.drones).toBe(w.total);
-      expect(w.drones).toBeLessThanOrEqual(Math.ceil(w.total * 0.3));
+  it('splits every wave into its parts, the boss counting as one enemy', () => {
+    for (const rival of RIVALS) {
+      for (const w of waves(1, 30, rival)) expect(parts(w)).toBe(w.total);
     }
-    expect(waveComposition(2).beetles).toBeGreaterThan(0);
     expect(waveComposition(2).drones).toBe(0);
     expect(waveComposition(3).drones).toBeGreaterThan(0);
-    const share = (n: number) => {
-      const w = waveComposition(n);
-      return (w.beetles + w.drones) / w.total;
-    };
-    for (let n = 2; n <= 8; n++) expect(share(n)).toBeGreaterThanOrEqual(share(n - 1));
+    expect(waveComposition(1, 'human').drones).toBeGreaterThanOrEqual(2);
+    for (const w of waves(1, 20, 'wildlife')) expect(w.drones).toBe(0);
+  });
+
+  it('brings a mini-boss every third wave, themed by the rival', () => {
+    expect(MINI_BOSS_EVERY).toBe(3);
+    const bossWaves = (rival: WaveRival) => waves(1, 12, rival).filter((w) => w.boss !== null).map((w) => w.wave);
+    for (const rival of RIVALS) expect(bossWaves(rival)).toEqual([3, 6, 9, 12]);
+    expect(miniBossFor(3, 'wildlife')).toBe('colossus');
+    expect(miniBossFor(6, 'crystal')).toBe('prism');
+    expect(miniBossFor(9, 'human')).toBe('colonel');
+    expect(miniBossFor(4, 'human')).toBeNull();
+    expect(waveComposition(6, 'human').boss).toBe('colonel');
+  });
+
+  it('adds elites from wave 3, a growing share of the wave', () => {
+    expect(waveComposition(1).elites).toEqual([]);
+    expect(waveComposition(2).elites).toEqual([]);
+    expect(eliteShare(2)).toBe(0);
+    for (let n = 4; n <= 12; n++) expect(eliteShare(n)).toBeGreaterThanOrEqual(eliteShare(n - 1));
+    expect(eliteShare(20)).toBeLessThanOrEqual(0.35);
+    const counts = waves(3, 10).map((w) => w.elites.length);
+    expect(counts[0]).toBeGreaterThanOrEqual(1);
+    for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeGreaterThanOrEqual(counts[i - 1]);
+    expect(counts).toEqual([1, 1, 3, 5, 9, 13, 16, 17]);
+  });
+
+  it('only turns units the wave really sends into elites', () => {
+    for (const rival of RIVALS) {
+      for (const w of waves(1, 20, rival)) {
+        const of = (unit: string) => w.elites.filter((e) => e.unit === unit).length;
+        expect(of('young')).toBeLessThanOrEqual(w.youngBeetles);
+        expect(of('beetle')).toBeLessThanOrEqual(w.beetles);
+        expect(of('drone')).toBeLessThanOrEqual(w.drones);
+      }
+    }
+    // Against a rival base the raiders get their share of the elites
+    expect(waveComposition(7, 'human').elites.some((e) => e.unit === 'drone')).toBe(true);
+    expect(waveComposition(7, 'crystal').elites.some((e) => e.unit === 'drone')).toBe(true);
+  });
+
+  it('rotates the five affixes deterministically, all five showing by wave 5', () => {
+    expect(ELITE_AFFIX_ORDER).toHaveLength(5);
+    expect(waveComposition(3).elites.map((e) => e.affix)).toEqual(['armored']);
+    expect(waveComposition(4).elites.map((e) => e.affix)).toEqual(['swift']);
+    expect(waveComposition(5).elites.map((e) => e.affix)).toEqual(['furious', 'healer', 'explosive']);
+    const seen = new Set(waves(3, 5).flatMap((w) => w.elites.map((e) => e.affix)));
+    expect(seen).toEqual(new Set(ELITE_AFFIX_ORDER));
+    expect(waveComposition(8, 'human')).toEqual(waveComposition(8, 'human'));
   });
 
   it('is empty for anything but a real wave number', () => {

@@ -78,7 +78,8 @@ describe('the Crystal Hive’s command card', () => {
     expect(slots[1]?.cost).toEqual({ amount: CRYSTAL_STRUCTURES.forge.cost, resource: 'minerales', short: false });
     // No Swarm commands: no breeding, no nest, no colony priorities
     const ids = slots.map((c) => c?.id ?? '');
-    for (const swarm of ['descend', 'gather', 'retreat', 'breed-worker']) expect(ids).not.toContain(swarm);
+    // The Swarm's Defensas page is not the Crystal Hive's either
+    for (const swarm of ['descend', 'gather', 'retreat', 'breed-worker', 'defenses-page']) expect(ids).not.toContain(swarm);
     slots[1]!.run();
     expect(crystal.setBuildMode).toHaveBeenCalledWith('forge');
   });

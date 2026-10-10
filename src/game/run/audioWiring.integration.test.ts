@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setAudioSink, type AudioEvent } from '../../audio/events';
-import { INTRO_CUES } from '../../audio/introCues';
+import { INTRO_CUES, introCuesFor } from '../../audio/introCues';
 import type { ScreenBox } from '../../engine/input/InputManager';
 import { GameManager } from '../GameManager';
 import { AntRole } from '../components/components';
 import { INTRO_TIMELINE as T } from '../render/introTimeline';
 import type { DayNightSystem } from '../systems/DayNightSystem';
-import { finishIntro } from '../../test/gameManagerMocks';
+import { CRYSTAL_RIVAL_SETUP, finishIntro } from '../../test/gameManagerMocks';
+import type { RunSetup } from './RunSetup';
 
 // Real manager and simulation; browser-only adapters are replaced. The input
 // mock keeps the pointer handlers so the tests can drag a box and right-click.
@@ -17,7 +18,7 @@ vi.mock('../../engine/input/InputManager', () => ({ InputManager: class {
 } }));
 vi.mock('../systems/RenderSystem', () => ({ RenderSystem: class {
   setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {}
-  setFarmStatusProvider() {} invalidateTerrain() {} startMeteorIntro() {} skipIntro() {} renderInterpolated() {}
+  setFarmStatusProvider() {} setWaveOverlayProvider() {} invalidateTerrain() {} startMeteorIntro() {} skipIntro() {} renderInterpolated() {}
 } }));
 // The intro-skip listeners hang off window and the canvas; node has neither.
 vi.stubGlobal('window', new EventTarget());
@@ -26,8 +27,8 @@ const FRAME = 1 / 60;
 const heard: AudioEvent[] = [];
 const games: GameManager[] = [];
 
-function setup() {
-  const game = new GameManager(Object.assign(new EventTarget(), { getContext: () => ({}) }) as unknown as HTMLCanvasElement);
+function setup(runSetup?: RunSetup) {
+  const game = new GameManager(Object.assign(new EventTarget(), { getContext: () => ({}) }) as unknown as HTMLCanvasElement, runSetup);
   games.push(game);
   const frame = () => game['render'](0, FRAME);
   const runTo = (t: number) => {
@@ -50,10 +51,18 @@ afterEach(() => {
 
 describe('audio wiring', () => {
   it('plays the intro cues from the single intro clock, in timeline order', () => {
-    const { runTo, frame } = setup();
+    const { runTo, frame } = setup(CRYSTAL_RIVAL_SETUP);
     runTo(T.end);
     frame();
     expect(intro(heard).map(cue)).toEqual(INTRO_CUES.map((c) => c.cue));
+  });
+
+  it('leaves the Crystal Hive\'s chimes, pulse and hum out of the other rivals\' openings', () => {
+    const { runTo, frame } = setup();
+    runTo(T.end);
+    frame();
+    expect(intro(heard).map(cue)).toEqual(introCuesFor('wildlife').map((c) => c.cue));
+    expect(intro(heard).map(cue)).not.toContain('crystal');
   });
 
   it('cuts the intro cues short when the player skips after the impact', () => {
