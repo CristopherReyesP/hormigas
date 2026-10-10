@@ -4,7 +4,7 @@ import { COMPONENT, type HealthComponent } from '../components/components';
 import type { DayNightSystem } from '../systems/DayNightSystem';
 import type { KeyPress } from '../../engine/input/InputManager';
 import { MUTATION_DEFINITIONS, MUTATION_IDS } from './MutationDefinitions';
-import { fakeCanvas } from '../../test/gameManagerMocks';
+import { fakeCanvas, finishIntro } from '../../test/gameManagerMocks';
 
 // Real manager and simulation; browser-only adapters are replaced. The input mock
 // records key handlers so the tests can press the game's hotkeys.
@@ -20,6 +20,7 @@ vi.stubGlobal('window', new EventTarget());
 function manager() {
   keyHandlers.clear();
   const game = new GameManager(fakeCanvas());
+  finishIntro(game);
   const published: GameStats[] = [];
   game.onStats(stats => published.push(stats));
   return { game, published };
