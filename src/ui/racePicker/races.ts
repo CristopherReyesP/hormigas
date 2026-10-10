@@ -142,10 +142,35 @@ export const RIVAL_OPTIONS: readonly RivalInfo[] = [
   },
 ];
 
+/** The Swarm as a rival: no Swarm AI exists yet */
+const SWARM_RIVAL: Omit<RivalInfo, 'available' | 'note'> = {
+  id: 'swarm',
+  name: 'Enjambre',
+  portrait: { source: 'ant', role: AntRole.Soldier, label: 'Soldado' },
+};
+
+/**
+ * The rivals the picker offers to a `player` race: the wildlife, the Crystal
+ * Hive and the Humans (a mirror match for a Human player). A Human player
+ * also sees the Swarm, as "Próximamente" until it has an AI.
+ */
+export function rivalOptionsFor(player: RaceId): RivalInfo[] {
+  if (player === 'swarm') return [...RIVAL_OPTIONS];
+  const options: RivalInfo[] = RIVAL_OPTIONS.map((rival) => {
+    const available = isAvailableRival(rival.id, player);
+    const note = !available ? 'Próximamente' : rival.id === player ? 'Espejo: otra base humana' : rival.note;
+    return { ...rival, available, note };
+  });
+  const swarm = isAvailableRival('swarm', player);
+  options.push({ ...SWARM_RIVAL, available: swarm, note: swarm ? 'Hormigas mutadas' : 'Próximamente' });
+  return options;
+}
+
 export function raceName(id: RaceId): string {
   return RACE_CARDS.find((r) => r.id === id)?.name ?? id;
 }
 
 export function rivalName(id: RivalId): string {
+  if (id === 'swarm') return SWARM_RIVAL.name;
   return RIVAL_OPTIONS.find((r) => r.id === id)?.name ?? id;
 }

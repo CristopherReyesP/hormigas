@@ -6,7 +6,7 @@
 import type { World } from '../../engine/ecs/World';
 import type { EntityId } from '../../shared/types';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
-import { COMPONENT, type OwnerComponent } from '../components/components';
+import { COMPONENT, type OwnerComponent, type PositionComponent } from '../components/components';
 import type { RaceId } from '../run/RunSetup';
 
 /** Small int faction ids, stored in the OWNER component. */
@@ -111,4 +111,31 @@ export class FactionRegistry {
   list(): FactionState[] {
     return [...this.factions.values()];
   }
+}
+
+/**
+ * Where an attack by `owner` heads, as a tile: the nearest base of a faction
+ * it is at war with. A base is a nest (the Swarm) or a faction's registered
+ * core (a Human command center, a Crystal hive), so rival raids find a player
+ * of any race. Null when no enemy base stands.
+ */
+export function nearestEnemyBase(world: World, owner: FactionId, at: { x: number; y: number }): { x: number; y: number } | null {
+  const bases: EntityId[] = [...world.query(COMPONENT.NEST, COMPONENT.POSITION)];
+  for (const faction of world.factions.list()) {
+    if (faction.coreId !== undefined && world.hasEntity(faction.coreId)) bases.push(faction.coreId);
+  }
+  let best: { x: number; y: number } | null = null;
+  let bestDist = Infinity;
+  for (const id of bases) {
+    const baseOwner = ownerOf(world, id);
+    if (baseOwner === null || relation(owner, baseOwner) !== 'enemy') continue;
+    const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+    if (!pos) continue;
+    const dist = Math.hypot(pos.x - at.x, pos.y - at.y);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = { x: Math.round(pos.x), y: Math.round(pos.y) };
+    }
+  }
+  return best;
 }
