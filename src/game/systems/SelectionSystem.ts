@@ -116,6 +116,22 @@ export class SelectionSystem implements System {
     this.setSelection(group, layer);
   }
 
+  /** The own ant drawn right under (tileX, tileY) on `layer`, or null: a tap on it picks it instead of ordering. */
+  antAt(tileX: number, tileY: number, layer: LayerValue): EntityId | null {
+    let best: EntityId | null = null;
+    let bestDist = DIRECT_HIT_RANGE;
+    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.SELECTABLE, COMPONENT.POSITION)) {
+      if (this.layerOf(id) !== layer) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const dist = Math.hypot(pos.x - tileX, pos.y - tileY);
+      if (dist <= bestDist) {
+        bestDist = dist;
+        best = id;
+      }
+    }
+    return best;
+  }
+
   /** Select exactly these own ants on `layer` (a control group recall); anything else is left out. */
   selectAnts(ids: readonly EntityId[], layer: LayerValue): number {
     const group = ids.filter((id, i) => ids.indexOf(id) === i && this.isAnt(id) && this.layerOf(id) === layer);
