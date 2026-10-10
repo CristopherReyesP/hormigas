@@ -1546,3 +1546,451 @@ button:focus-visible {
     animation: none;
   }
 }
+
+/* ════════════════════════════════════════════════════════════
+   RACE PICKER — pre-run skirmish setup (P10)
+   Your race and the rival, then COMENZAR. Race hues mirror the
+   faction ramps in pixelart/palette.ts (swarm, crystal, human).
+   ════════════════════════════════════════════════════════════ */
+
+:root {
+  --race-swarm: #c6ff3d; /* swarm.vein glow */
+  --race-swarm-dim: #5a8a1c;
+  --race-swarm-deep: #1f0b18;
+  --race-crystal: #5ff3ff; /* crystal.shield */
+  --race-crystal-dim: #1b5a73;
+  --race-crystal-deep: #0a1620;
+  --race-human: #a9b0b4; /* human.steel light */
+  --race-human-dim: #56603a;
+  --race-human-deep: #15180f;
+}
+
+.race-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  padding: 16px 24px;
+  overflow-y: auto;
+  background-color: var(--chrome-bg);
+  background-image: repeating-conic-gradient(var(--chrome-panel) 0% 25%, transparent 0% 50%);
+  background-size: 4px 4px;
+}
+
+.race-picker-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(1240px, 100%);
+  margin: auto;
+  animation: evo-panel-in 360ms steps(6) both;
+}
+
+.race-picker-head {
+  text-align: center;
+}
+
+.race-picker-title {
+  font-size: 18px;
+  font-weight: normal;
+  line-height: 1.3;
+  letter-spacing: 2px;
+  color: var(--chrome-accent);
+  text-shadow: 2px 2px 0 var(--chrome-accent-dim), 4px 4px 0 #000;
+}
+
+.race-picker-subtitle {
+  margin-top: 6px;
+  font-size: 9px;
+  color: var(--chrome-dim);
+}
+
+.race-picker-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--chrome-warn);
+  text-shadow: 2px 2px 0 #000;
+}
+
+.race-picker-section::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  background: var(--chrome-border);
+}
+
+.race-cards,
+.rival-options,
+.race-launch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+/* ── Race cards ── */
+.race-card-slot {
+  animation: evo-card-in 420ms steps(6) both;
+  animation-delay: calc(160ms + var(--race-i, 0) * 120ms);
+}
+
+.race-card--swarm { --race-accent: var(--race-swarm); --race-dim: var(--race-swarm-dim); --race-deep: var(--race-swarm-deep); }
+.race-card--crystal { --race-accent: var(--race-crystal); --race-dim: var(--race-crystal-dim); --race-deep: var(--race-crystal-deep); }
+.race-card--human { --race-accent: var(--race-human); --race-dim: var(--race-human-dim); --race-deep: var(--race-human-deep); }
+
+.race-card,
+.rival-option {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  filter: drop-shadow(4px 4px 0 #000);
+  transition: transform 120ms steps(3), filter 120ms steps(3);
+}
+
+.race-card:hover:not(:disabled),
+.race-card:focus-visible {
+  transform: translateY(-6px);
+  filter: drop-shadow(4px 10px 0 #000);
+}
+
+.race-card:focus-visible,
+.rival-option:focus-visible {
+  outline: 2px dashed var(--chrome-accent);
+  outline-offset: 4px;
+}
+
+.race-card:disabled,
+.rival-option:disabled {
+  cursor: not-allowed;
+}
+
+.race-card-plate {
+  --cut: 12px;
+  display: block;
+  height: 100%;
+}
+
+.race-card:hover:not(:disabled) .race-card-plate {
+  background: var(--chrome-border-light);
+}
+
+.race-card[aria-pressed='true'] .race-card-plate {
+  background: var(--race-accent);
+  animation: race-chosen 1.5s steps(2) infinite;
+}
+
+.race-card-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  padding: 10px 14px 12px;
+  background: var(--chrome-panel-light);
+}
+
+.race-card:disabled .race-card-inner {
+  background: var(--chrome-panel);
+}
+
+.race-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.race-card-name {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--race-accent);
+  text-shadow: 2px 2px 0 #000;
+}
+
+.race-badge {
+  padding: 3px 5px 2px;
+  font-size: 8px;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--chrome-bg);
+  box-shadow: 2px 2px 0 #000;
+}
+
+.race-badge--soon {
+  background: var(--chrome-warn);
+}
+
+.race-badge--chosen {
+  background: var(--race-accent);
+}
+
+.race-card-tagline {
+  font-size: 8px;
+  color: var(--chrome-dim);
+}
+
+/* The specimen window: each race's units on its own deep ground tone */
+.race-specimens {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  gap: 6px;
+  height: 140px;
+  padding: 6px 6px 4px;
+  background: var(--race-deep);
+  border: 2px solid var(--chrome-border);
+  border-bottom-color: var(--race-dim);
+  box-shadow: inset 2px 2px 0 #000;
+}
+
+.race-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.race-unit-canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.race-unit-label {
+  font-size: 8px;
+  white-space: nowrap;
+  color: var(--chrome-dim);
+}
+
+.race-traits {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.race-trait {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 6px;
+  font-size: 8px;
+  line-height: 1.6;
+}
+
+.race-trait-label {
+  color: var(--race-accent);
+}
+
+.race-trait-text {
+  color: var(--chrome-text);
+}
+
+.race-card:disabled .race-trait-text {
+  color: var(--chrome-dim);
+}
+
+.race-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 16px;
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 2px solid var(--chrome-border);
+}
+
+.race-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 8px;
+  color: var(--chrome-dim);
+}
+
+.race-pips {
+  display: flex;
+  gap: 3px;
+}
+
+.race-pip {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--chrome-border-light);
+  background: var(--chrome-bg);
+}
+
+.race-pip--on {
+  border-color: var(--race-accent);
+  background: var(--race-accent);
+}
+
+/* ── Rival options: one under each race card ── */
+.rival-option--wildlife { --race-accent: var(--chrome-warn); }
+.rival-option--crystal { --race-accent: var(--race-crystal); }
+.rival-option--human { --race-accent: var(--race-human); }
+
+.rival-plate {
+  --cut: 8px;
+  display: block;
+  height: 100%;
+}
+
+.rival-option:hover:not(:disabled) .rival-plate {
+  background: var(--chrome-border-light);
+}
+
+.rival-option[aria-pressed='true'] .rival-plate {
+  background: var(--race-accent);
+}
+
+.rival-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+  padding: 6px 10px;
+  background: var(--chrome-panel-light);
+}
+
+.rival-option:disabled .rival-inner {
+  background: var(--chrome-panel);
+}
+
+.rival-specimen {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 60px;
+  height: 64px;
+  background: var(--chrome-bg);
+  border: 2px solid var(--chrome-border);
+  box-shadow: inset 2px 2px 0 #000;
+}
+
+.rival-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rival-name {
+  font-size: 9px;
+  line-height: 1.5;
+  color: var(--race-accent);
+}
+
+.rival-note {
+  font-size: 8px;
+  color: var(--chrome-dim);
+}
+
+.rival-note.race-badge {
+  color: var(--chrome-bg);
+}
+
+/* ── Matchup and start ── */
+.race-launch {
+  align-items: center;
+  margin-top: 4px;
+}
+
+.race-matchup {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  font-size: 9px;
+  text-transform: uppercase;
+  color: var(--chrome-text);
+}
+
+.race-matchup-vs {
+  font-size: 12px;
+  color: var(--chrome-danger);
+  text-shadow: 2px 2px 0 #000;
+}
+
+.race-launch-hint {
+  font-size: 8px;
+  color: var(--chrome-dim);
+}
+
+.race-start {
+  width: 100%;
+  padding: 16px 12px 14px;
+  font-family: var(--font-pixel);
+  font-size: 20px;
+  letter-spacing: 3px;
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+  border: 0;
+  cursor: pointer;
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px),
+    calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px);
+  box-shadow: inset -4px -4px 0 var(--chrome-accent-dim), inset 4px 4px 0 var(--chrome-text);
+  animation: race-start-glow 1.2s steps(2) infinite;
+}
+
+.race-start:hover {
+  background: var(--chrome-text);
+}
+
+.race-start:active {
+  transform: translate(2px, 2px);
+}
+
+.race-start:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 4px var(--chrome-bg), inset -4px -4px 0 6px var(--chrome-accent-dim);
+}
+
+@keyframes race-chosen {
+  0%, 60%, 100% { background-color: var(--race-accent); }
+  70% { background-color: var(--race-dim); }
+}
+
+@keyframes race-start-glow {
+  0% { box-shadow: inset -4px -4px 0 var(--chrome-accent-dim), inset 4px 4px 0 var(--chrome-text); }
+  50% { box-shadow: inset -4px -4px 0 var(--chrome-accent-dim), inset 4px 4px 0 var(--chrome-accent); }
+}
+
+@media (max-width: 960px) {
+  .race-cards,
+  .rival-options,
+  .race-launch {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .race-matchup {
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .race-picker-frame,
+  .race-card-slot,
+  .race-card[aria-pressed='true'] .race-card-plate,
+  .race-start {
+    animation: none;
+  }
+
+  .race-card,
+  .rival-option {
+    transition: none;
+  }
+
+  .race-card:hover:not(:disabled),
+  .race-card:focus-visible {
+    transform: none;
+  }
+}
+/* ── end RACE PICKER ── */

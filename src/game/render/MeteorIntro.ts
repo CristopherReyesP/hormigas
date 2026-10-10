@@ -5,7 +5,16 @@ import { drawPixelText, textWidth, GLYPH_H } from '../../engine/renderer/pixelar
 import { CANVAS_WIDTH, CANVAS_HEIGHT, TILE_SIZE } from '../../shared/constants';
 import type { TilePos } from '../run/craterSite';
 import type { CrystalShard } from '../../engine/renderer/alienDecor';
-import { buildDroneFrames, buildSpire, DRONE_FRAME_SIZE, type SpireArt } from './crystalDeployArt';
+import {
+  buildDroneFrames,
+  buildShardFrames,
+  buildSpire,
+  DRONE_CORE_OFFSET,
+  DRONE_FRAME_SIZE,
+  SHARD_CENTER_OFFSET,
+  type ShardArt,
+  type SpireArt,
+} from './crystalDeployArt';
 import {
   INTRO_TIMELINE,
   DRONE_COUNT,
@@ -18,6 +27,7 @@ import {
   crackPulseStep,
   crystalPulseProgress,
   droneState,
+  droneTrail,
   ejectaChunk,
   flashAlpha,
   impactGlowAlpha,
@@ -25,11 +35,14 @@ import {
   meteorAltitude,
   meteorGround,
   meteorProgress,
+  SHARD_COUNT,
   shakeOffset,
+  shardOffset,
   shockwaveProgress,
   spireGrowth,
   sporeMote,
   titleAlpha,
+  type DroneState,
   type Vec2,
 } from './introTimeline';
 
@@ -43,6 +56,10 @@ const CR_CX = CR_RX + CR_PAD;
 const CR_CY = CR_RY + CR_PAD;
 const CRACK_COLORS = [PAL.crystal.shell[2], PAL.crystal.shell[3], PAL.crystal.shield] as const;
 const NO_SHAKE: Vec2 = { x: 0, y: 0 };
+/** Glow of a drone's core per frame (dormant, waking, lit, bright), drawn additively */
+const DRONE_GLOW = [0, 0.25, 0.45, 0.6] as const;
+/** World px of lift above which a drone's shadow shrinks */
+const DRONE_SHADOW_HIGH = 10;
 const SPARKS = 56;
 /** Seconds of flight history the trail is drawn from */
 const TRAIL_SECONDS = 0.32;
@@ -101,6 +118,7 @@ export class MeteorIntro {
   private crystalHalo: OffscreenCanvas | null = null;
   private droneHalo: OffscreenCanvas | null = null;
   private droneFrames: OffscreenCanvas[] = [];
+  private shardFrames: ShardArt[] = [];
   private spires: PlacedSpire[] = [];
   /** Crystal shards around the crater (the Hive's corruption) and their tips */
   private readonly shards: readonly CrystalShard[];
@@ -410,26 +428,84 @@ export class MeteorIntro {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 
-    // Drones: shadow, cyan underglow, the sprite, and a hex shield flash as they open
-    const half = DRONE_FRAME_SIZE / 2;
+    // Drones, back to front
+    const drones: Array<[number, DroneState]> = [];
     for (let i = 0; i < DRONE_COUNT; i++) {
       const d = droneState(i, t, this.impact, this.nest);
-      if (!d) continue;
-      ctx.globalAlpha = 0.5;
-      p.shadow(Math.round(d.x / ART) + 1, Math.round(d.y / ART) + 2, 9, 4, PAL.outline);
+      if (d) drones.push([i, d]);
+    }
+    drones.sort((a, b) => a[1].y - b[1].y);
+    for (const [i, d] of drones) this.drawDrone(ctx, p, i, d);
+  }
+
+  /** World px of drone state `d`'s core art pixel: its frame stands on the ground point, `lift` above it. */
+  private droneCore(d: { x: number; y: number; lift: number }): Vec2 {
+    return { x: even(d.x), y: even(d.y) - d.lift - DRONE_FRAME_SIZE + DRONE_CORE_OFFSET.y };
+  }
+
+  /**
+   * One hovering drone: a soft shadow on the ground, its faint light trail,
+   * the shards on the far half of their orbit, the core's glow, the crystal,
+   * the near shards, and the hex shield flash as it opens. While it is still
+   * pushing up out of the crater floor, everything below the ground line is
+   * cut off.
+   */
+  private drawDrone(ctx: CanvasRenderingContext2D, p: PixelPainter, i: number, d: DroneState): void {
+    const gx = even(d.x);
+    const gy = even(d.y);
+    const sink = even((1 - d.emerge) * DRONE_FRAME_SIZE);
+    const core = this.droneCore(d);
+    core.y += sink;
+
+    if (sink === 0) {
+      // The core lights a pool on the ground; a soft shadow sits in it, smaller the higher it floats
+      const high = d.lift > DRONE_SHADOW_HIGH;
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = 0.45;
+      ctx.globalAlpha = 0.2;
+      p.ellipse(gx / ART, gy / ART, 6, 2, PAL.crystal.shield);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = high ? 0.45 : 0.6;
+      p.shadow(gx / ART, gy / ART, high ? 3 : 4, 1, PAL.crystal.outline);
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    for (const q of droneTrail(i, this.t, this.impact, this.nest)) {
+      const c = this.droneCore(q);
+      const young = q.age < 0.34;
+      const size = young ? 6 : q.age < 0.67 ? 4 : 2;
+      ctx.globalAlpha = young ? 0.55 : q.age < 0.67 ? 0.35 : 0.2;
+      ctx.fillStyle = young ? PAL.crystal.shield : PAL.crystal.shell[3];
+      ctx.fillRect(c.x + 1 - size / 2, c.y + 1 - size / 2, size, size);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+
+    if (sink > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(gx - DRONE_FRAME_SIZE, gy - DRONE_FRAME_SIZE * 2, DRONE_FRAME_SIZE * 2, DRONE_FRAME_SIZE * 2);
+      ctx.clip();
+    }
+    const shards = Array.from({ length: SHARD_COUNT }, (_, k) => shardOffset(k, d.spread, d.orbit));
+    const drawShards = (behind: boolean) => {
+      shards.forEach((o, k) => {
+        if (o.behind !== behind) return;
+        const art = this.shardFrames[k];
+        ctx.drawImage(behind ? art.far : art.near, core.x + o.dx - SHARD_CENTER_OFFSET, core.y + o.dy - SHARD_CENTER_OFFSET);
+      });
+    };
+    drawShards(true);
+    if (d.frame > 0) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = DRONE_GLOW[d.frame];
       const dh = this.droneHalo!.width / 2;
-      ctx.drawImage(this.droneHalo!, even(d.x - dh), even(d.y - dh));
+      ctx.drawImage(this.droneHalo!, core.x + 1 - dh, core.y + 1 - dh);
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
-      ctx.save();
-      ctx.translate(Math.round(d.x), Math.round(d.y));
-      ctx.rotate(d.angle);
-      ctx.drawImage(this.droneFrames[d.frame], -half, -half);
-      ctx.restore();
-      if (d.shieldFlash) this.drawHexShield(ctx, d.x, d.y);
     }
+    ctx.drawImage(this.droneFrames[d.frame], core.x - DRONE_CORE_OFFSET.x, core.y - DRONE_CORE_OFFSET.y);
+    drawShards(false);
+    if (sink > 0) ctx.restore();
+    if (d.shieldFlash) this.drawHexShield(ctx, core.x + 1, core.y + 1);
   }
 
   /** 1-art-px cyan hexagon around a drone: the regenerating shell coming online. */
@@ -437,7 +513,7 @@ export class MeteorIntro {
     const p = new PixelPainter(ctx, ART);
     const cx = Math.round(x / ART);
     const cy = Math.round(y / ART);
-    const R = 15;
+    const R = 12;
     ctx.globalAlpha = 0.85;
     for (let k = 0; k < 6; k++) {
       const a0 = (k / 6) * Math.PI * 2;
@@ -644,10 +720,11 @@ export class MeteorIntro {
       return layer;
     });
     this.crystalHalo = makeHalo(PAL.crystal.shield, 14);
-    this.droneHalo = makeHalo(PAL.crystal.shield, 10);
+    this.droneHalo = makeHalo(PAL.crystal.shield, 7);
     this.buildShardArt();
     this.buildSpires();
     this.droneFrames = buildDroneFrames();
+    this.shardFrames = buildShardFrames();
   }
 
   /**

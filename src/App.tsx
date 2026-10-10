@@ -5,9 +5,11 @@ import { Console } from './ui/console/Console';
 import { ObjectivePanel } from './ui/ObjectivePanel';
 import { GameOverScreen } from './ui/GameOverScreen';
 import { EvolutionChamber } from './ui/EvolutionChamber';
+import { RacePicker } from './ui/RacePicker';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
 import { ColonyPriority } from './game/components/components';
+import { loadRunSetup, saveRunSetup, type RunSetup } from './game/run/RunSetup';
 
 const DEFAULT_STATS: GameStats = {
   antCount: 0,
@@ -55,13 +57,23 @@ const PAUSED_POLL_MS = 250;
 
 export default function App() {
   const [stats, setStats] = useState<GameStats>(DEFAULT_STATS);
-  const [gameKey, setGameKey] = useState(0);
+  // null while the race picker is up; set by COMENZAR. The GameManager does not read it yet.
+  const [runSetup, setRunSetup] = useState<RunSetup | null>(null);
   const gameManagerRef = useRef<GameManager | null>(null);
   const [gameManager, setGameManager] = useState<GameManager | null>(null);
 
-  const handleRestart = useCallback(() => {
+  const handleStart = useCallback((setup: RunSetup) => {
+    saveRunSetup(setup);
     setStats(DEFAULT_STATS);
-    setGameKey((k) => k + 1); // remount GameCanvas → fresh GameManager
+    setRunSetup(setup); // mounts GameCanvas → fresh GameManager, whose meteor intro opens the run
+  }, []);
+
+  const handleRestart = useCallback(() => {
+    // Back to the picker: unmounting GameCanvas stops the old GameManager
+    gameManagerRef.current = null;
+    setGameManager(null);
+    setStats(DEFAULT_STATS);
+    setRunSetup(null);
   }, []);
 
   const handleStatsUpdate = useCallback((newStats: GameStats) => {
@@ -90,14 +102,19 @@ export default function App() {
     gameManagerRef.current?.chooseMutation(id);
   }, []);
 
+  if (!runSetup) {
+    // Shown on first load and after every restart, before any simulation runs
+    return <RacePicker initialSetup={loadRunSetup()} onStart={handleStart} />;
+  }
+
   return (
     <div className="hive-screen">
       {/* The world fills the window; every HUD element floats above it */}
-      <GameCanvas key={gameKey} onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} />
+      <GameCanvas onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} />
       <TopStrip stats={stats} gameManager={gameManager} />
       {/* Defaults carry no objective: wait for the first real snapshot */}
       {stats.tickCount > 0 && <ObjectivePanel objective={stats.objective} />}
-      <Console key={gameKey} stats={stats} gameManager={gameManager} refreshStats={refreshStats} />
+      <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} />
       {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
 
       {/* Dawn mutation pick: full-screen, above the HUD */}

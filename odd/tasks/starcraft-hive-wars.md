@@ -63,7 +63,7 @@ Rules:
 - Only the Swarm keeps the ant body plan (gaster, waist, thorax, head, 6 legs, 2 antennae). Factions differ by color, silhouette and glow at once.
   - Swarm: curved, bulbous gaster, scythe mandibles, 1 px spine bumps, glowing vein.
   - Crystal Hive: no legs, antennae, mandibles or segmented body. Units are hovering geometric crystal forms (prisms, octahedra, obelisks) around a glowing cyan energy core, with orbiting shards and gold filigree. They glide and bob above a soft ground shadow and leave a faint light trail. A hex ring shows while shielded. Tiers:
-    - Drone: a small floating prism with one orbiting shard.
+    - Drone: a small floating octahedron with one or two orbiting shards (the intro drones use two, e86c1c3).
     - Sentinel: a tall hovering obelisk with a shield ring.
     - Crystal Queen: a large floating crystal crown ringed by orbiting crystals. Wildlife: beetle dome, cricket Z-legs, no glow. Roles inside a faction differ by shape. Selection ellipses: green own, red enemy, yellow neutral.
 
@@ -159,7 +159,13 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
       - RED: 8 card layout and speed tests. GREEN: 314/314 tests, tsc, lint, build.
     - Open:
       - `DefenderAISystem` still tells the player "Marcá 🛡️ Defensa" in voseo. It should name Área de defensa (C).
-  - [ ] P2.10 Crystal Hive less insect, more alien (user, 2026-10-09). The intro drones in `src/game/render/crystalDeployArt.ts` "unfold and crawl", which reads as an insect. Redraw them as hovering crystal drones that rise out of the crater, unfold their orbiting shards and glide toward the colony, following the new Crystal Hive art rules. Route: delegated after P2.9.
+  - [x] P2.10 Crystal Hive less insect, more alien (user, 2026-10-09). The intro drones in `src/game/render/crystalDeployArt.ts` "unfold and crawl", which reads as an insect. Redraw them as hovering crystal drones that rise out of the crater, unfold their orbiting shards and glide toward the colony, following the new Crystal Hive art rules. Route: delegated after P2.9.
+    - Route: delegated (Claude subagent, main worktree). Commit: `feat(look): redraw the intro's Crystal drones as hovering crystal beings`.
+    - Look: each drone is a narrow floating octahedron (9×16 art px, 1 art px = 2 world px) with a flush gold girdle, gold tip filigree and a cyan energy core. It has no legs, antennae or mandibles, and it never rotates, so the light stays top-left. Two shards (one gold-banded) orbit it on a tilted ring and pass behind it as a darker far sprite.
+    - Motion: it pushes up out of the crater floor tip first and lifts straight up. Then its core wakes (dormant → waking → lit, then a lit ↔ bright throb) and its docked shards swing out into orbit. Last, it glides toward the colony with a stepped bob above a soft shadow, leaving a faint cyan trail.
+    - Timing: drones start at 4.05 s, 0.12 s apart (emerge 0.2, rise 0.3, unfold 0.35, glide 1.5), so they glide before the camera leaves. Phases, skip and end state are unchanged. The spires already read as crystals and were left as they are.
+    - RED: 10 new tests failed, 4 in the new `crystalDeployArt.test.ts` and 6 in `introTimeline.test.ts`. The old frames failed the one-solid-shape check because their legs left detached pixel runs. GREEN: `npm test` 323/323, tsc, lint, build. Headless Edge frames of the rise, unfold and glide were checked by eye.
+    - Open: the Drone tier rule says "one orbiting shard"; the intro drones carry two, which the task allowed.
   - [ ] P2.4 Mutation marks drawn on ant sprites for applied mutations.
   - [ ] P2.5 Bottom console and UI restyle (`--ui-*` → `--chrome-*`, pixel icons, one font, Spanish only).
   - [ ] P2.6 One art-pixel scale for every unit, 16-direction rotation snapping, zoom steps of 0.5.
@@ -210,6 +216,12 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
     2. The Crystal Hive arrives as the AI rival (P5).
     3. The Crystal Hive becomes playable.
     4. The Humans arrive as AI (P9), then become playable.
+  - [x] Slice 1 done (483a70f, 03aac5e; merged in d91aca7). Route: delegated (Claude subagent in the `../hormigas-picker` worktree, in parallel with P3a and the art pass).
+    - `crystalUnits.ts` bakes the Drone, Sentinel and Crystal Queen frames (hovering, no legs, a cyan core, gold filigree). `humanUnits.ts` bakes the soldier, marksman and tank (`PAL.human`).
+    - `RacePicker` shows on load and on restart. Its race cards carry the 5 identity lines and stat pips. The rival is Fauna salvaje; the other races are "Próximamente".
+    - `RunSetup` lives in App state and persists to localStorage. GameManager is unchanged.
+    - RED was observed for both tasks. The parent ran 353/353 tests and tsc after the merge.
+    - Open: move the shared grid helpers out of `crystalUnits.ts`; re-check the Swarm preview zoom after the P2.6 scale change. The pixel font has no uppercase accented glyphs, so labels avoid CSS uppercase.
   - The picker shows races that are not playable yet as "Próximamente". Each race gets its own intro; today's meteor intro ("EL ENJAMBRE DESPIERTA") is the Swarm's. Cost: expensive.
 - [ ] P6 — Supply cap. The mycelium creep moved to P7.2. Cost: medium.
 - [ ] P7 — Surface base building (user, 2026-10-09: "en StarCraft se agregan como sitios en la superficie porque no hay cueva… expansión de territorio… encontrar minerales para construir armas, defensas"). Food pays for ants; minerals pay for structures. Cost: medium-expensive. Same Explore map:

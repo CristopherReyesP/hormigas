@@ -3,17 +3,18 @@ import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 
 /**
  * Pixel art for the Crystal Hive's arrival in the intro: the spires that
- * grow out of the crater and the drones that unfold and crawl out. Both
- * follow the art direction for the Hive: faceted cyan shell lit up-left,
- * straight gold pincers and bands, crystal-tipped antennae, dark navy outline.
+ * grow out of the crater and the drones that rise out of it. The Hive are
+ * not insects: no legs, antennae, mandibles or segmented body. A drone is a
+ * floating cut gem around a glowing cyan energy core, set in gold filigree,
+ * with two shards that orbit it. Faceted cyan shell lit up-left, dark navy
+ * outline. Drones never rotate, so the light always comes from the top-left.
  */
 
 /** Spires use the crater's art pixel: 1 art px = 2 world px. */
 const SPIRE_PX = 2;
-/** Drones use the ants' current art scale so they read at the same size class. */
-const DRONE_PX = 3;
-const DRONE_GRID = 20;
-/** Drone frames are square so they rotate about their center. */
+/** Drones too (art direction: bigger units get bigger grids, never a bigger scale). */
+const DRONE_PX = 2;
+const DRONE_GRID = 18;
 export const DRONE_FRAME_SIZE = DRONE_GRID * DRONE_PX;
 
 const SH = PAL.crystal.shell;
@@ -115,135 +116,143 @@ export function buildSpire(width: number, height: number, lean: 1 | -1): SpireAr
   return { body, glint: glintCanvas, width, baseX: cx * SPIRE_PX + SPIRE_PX / 2, baseBelow: (SPIRE_SEAT + 1) * SPIRE_PX };
 }
 
-/** Upper-half point on the drone grid; painters mirror it about the body axis. */
-type Px = readonly [number, number];
-const AXIS = 10;
+/** Grid column of the drone's vertical axis, and the rows of its gold girdle and its energy core. */
+const AXIS_X = 9;
+const GIRDLE = 7;
+const CORE_ROW = 10;
 
-/** Paint `pts` and their mirror image across the body axis. */
-function mirrored(p: PixelPainter, pts: readonly Px[], color: string): void {
-  for (const [x, y] of pts) {
-    p.px(x, y, color);
-    p.px(x, AXIS * 2 - y, color);
+/** World px from a drone frame's top-left corner to its core's art pixel. */
+export const DRONE_CORE_OFFSET = { x: AXIS_X * DRONE_PX, y: CORE_ROW * DRONE_PX } as const;
+
+/**
+ * Half-width per row from the top tip (row 1) to the bottom tip (row 16): a
+ * tall, narrow octahedron, its short crown over a long pavilion, like a gem
+ * floating point down. The gold girdle runs flush around its widest rows.
+ */
+const BODY_HW = [0, 1, 1, 2, 2, 3, 4, 4, 3, 3, 3, 2, 2, 1, 1, 0] as const;
+const BODY_TOP = 1;
+
+/** Each row of the body as [y, half-width]. */
+const bodyRows = (): Array<[number, number]> => BODY_HW.map((hw, k) => [BODY_TOP + k, hw]);
+
+/**
+ * Shell facets, lit from the top-left: the crown's upper-left face is the
+ * brightest and its ridge catches the light; the pavilion below sits in
+ * mid tones, darkest on the lower-right.
+ */
+function shellColor(dx: number, y: number, hw: number): string {
+  if (y < GIRDLE) {
+    if (dx === 0) return SH[4];
+    if (dx < 0) return dx === -hw ? SH[4] : SH[3];
+    return dx === hw && hw > 1 ? SH[1] : SH[2];
   }
+  if (dx < 0) return dx === -hw ? SH[3] : SH[2];
+  if (dx === 0) return SH[2];
+  return dx === hw && hw > 1 ? SH[0] : SH[1];
 }
 
-/** Row spans (x0..x1 inclusive) of a shape, keyed by distance from the axis. */
-type Spans = ReadonlyArray<readonly [number, number, number]>; // [|dy|, x0, x1]
-
-function spanRows(spans: Spans): Array<[number, number, number]> {
-  const rows: Array<[number, number, number]> = [];
-  for (const [d, x0, x1] of spans) {
-    rows.push([AXIS - d, x0, x1]);
-    if (d > 0) rows.push([AXIS + d, x0, x1]);
-  }
-  return rows;
+/** The gold girdle: bright on the lit left, dull on the shaded right. */
+function girdleColor(dx: number): string {
+  return dx <= -2 ? GOLD[2] : dx <= 1 ? GOLD[1] : GOLD[0];
 }
 
-/** Outline a shape one px wider on every side, in the Hive's navy. */
-function outlineSpans(p: PixelPainter, spans: Spans): void {
-  for (const [y, x0, x1] of spanRows(spans)) {
-    p.hline(x0 - 1, y - 1, x1 - x0 + 3, OUT);
-    p.hline(x0 - 1, y, x1 - x0 + 3, OUT);
-    p.hline(x0 - 1, y + 1, x1 - x0 + 3, OUT);
-  }
-}
+/** The energy core per frame: a dark seed while dormant, then waking, lit, and throbbing bright. */
+const CORE_LOOKS: ReadonlyArray<{ r: number; rim: string; heart: string }> = [
+  { r: 1, rim: SH[0], heart: SH[1] },
+  { r: 1, rim: SH[2], heart: SH[3] },
+  { r: 1, rim: PAL.crystal.shield, heart: SH[4] },
+  { r: 2, rim: PAL.crystal.shield, heart: SH[4] },
+];
 
-/** Gem shading: lit upper-left quadrant, shaded lower-right, mid tones between. */
-function facetSpans(p: PixelPainter, spans: Spans): void {
-  for (const [y, x0, x1] of spanRows(spans)) {
-    const mid = (x0 + x1) / 2;
-    for (let x = x0; x <= x1; x++) {
-      const left = x <= mid;
-      const c = y < AXIS ? (left ? SH[3] : SH[2]) : y > AXIS ? (left ? SH[2] : SH[1]) : left ? SH[3] : SH[1];
-      p.px(x, y, c);
+/** One drone frame: the gem, its gold filigree and the core in state `frame`. */
+function paintDrone(p: PixelPainter, frame: number): void {
+  // Navy outline one px wider than the shape on every side
+  for (const [y, hw] of bodyRows()) {
+    for (const oy of [-1, 0, 1]) p.hline(AXIS_X - hw - 1, y + oy, hw * 2 + 3, OUT);
+  }
+  for (const [y, hw] of bodyRows()) {
+    for (let dx = -hw; dx <= hw; dx++) {
+      p.px(AXIS_X + dx, y, y === GIRDLE ? girdleColor(dx) : shellColor(dx, y, hw));
+    }
+  }
+  // Gold filigree: a cap on the top tip and a drop on the bottom one
+  p.px(AXIS_X, BODY_TOP, GOLD[2]);
+  p.px(AXIS_X, BODY_TOP + BODY_HW.length - 1, GOLD[1]);
+
+  const { r, rim, heart } = CORE_LOOKS[frame];
+  for (let dy = -r; dy <= r; dy++) {
+    const hw = r - Math.abs(dy);
+    for (let dx = -hw; dx <= hw; dx++) {
+      p.px(AXIS_X + dx, CORE_ROW + dy, Math.abs(dx) + Math.abs(dy) < r ? heart : rim);
     }
   }
 }
 
-/** Diamond gaster, a small thorax and a hex head — the Hive's faceted ant body plan. */
-const GASTER: Spans = [[0, 2, 8], [1, 3, 7], [2, 4, 6], [3, 5, 5]];
-const THORAX: Spans = [[0, 11, 13], [1, 12, 12]];
-const HEAD: Spans = [[0, 14, 16], [1, 14, 16], [2, 15, 15]];
-const CURLED: Spans = [[0, 6, 14], [1, 7, 13], [2, 8, 12], [3, 9, 11], [4, 10, 10]];
-
-/** Legs (upper side): hip, knee, foot. Back leg reaches back, front leg forward. */
-const LEGS: ReadonlyArray<readonly [Px, Px, Px]> = [
-  [[11, 9], [9, 6], [7, 4]],
-  [[12, 9], [12, 6], [12, 3]],
-  [[13, 9], [15, 6], [17, 4]],
-];
-
-/** Tripod gait: legs 0 and 2 on top swing with leg 1 below, then the other three. */
-function legFootShift(frame: number, leg: number, upper: boolean): number {
-  if (frame < 3) return 0;
-  const groupA = upper ? leg !== 1 : leg === 1;
-  return (frame === 3) === groupA ? 1 : -1;
+/** Frames by core state (0 dormant, 1 waking, 2 lit, 3 bright), upright and never rotated. */
+export function buildDroneFrames(): OffscreenCanvas[] {
+  return CORE_LOOKS.map((_, frame) => {
+    const c = new OffscreenCanvas(DRONE_FRAME_SIZE, DRONE_FRAME_SIZE);
+    paintDrone(new PixelPainter(c.getContext('2d')!, DRONE_PX), frame);
+    return c;
+  });
 }
 
-/** Mid-cyan legs (dark teal vanishes on the violet ground) with bright knees and feet. */
-function paintLegs(p: PixelPainter, frame: number, reach: 'tucked' | 'full'): void {
-  LEGS.forEach(([hip, knee, foot], leg) => {
-    for (const upper of [true, false]) {
-      const fy = (y: number) => (upper ? y : AXIS * 2 - y);
-      if (reach === 'tucked') {
-        p.px(hip[0], fy(hip[1] - 1), SH[2]);
-        continue;
-      }
-      const shift = legFootShift(frame, leg, upper);
-      p.line(hip[0], fy(hip[1]), knee[0], fy(knee[1]), SH[2]);
-      p.line(knee[0], fy(knee[1]), foot[0] + shift, fy(foot[1]), SH[2]);
-      p.px(knee[0], fy(knee[1]), SH[4]);
-      p.px(foot[0] + shift, fy(foot[1]), SH[3]);
+const SHARD_GRID = 9;
+const SHARD_AXIS = 4;
+export const SHARD_FRAME_SIZE = SHARD_GRID * DRONE_PX;
+/** World px from a shard frame's top-left corner to its center art pixel. */
+export const SHARD_CENTER_OFFSET = SHARD_AXIS * DRONE_PX;
+
+/** Shard half-widths per row, tip to tip: a long shard with a gold band, and a short one. */
+const SHARD_HW: ReadonlyArray<readonly number[]> = [
+  [0, 1, 1, 1, 1, 1, 0],
+  [0, 1, 1, 1, 0],
+];
+
+export interface ShardArt {
+  /** On the near half of the orbit, in full light */
+  near: OffscreenCanvas;
+  /** On the far half, behind the drone: one ramp step darker */
+  far: OffscreenCanvas;
+}
+
+const darker = (c: string): string => {
+  const s = (SH as readonly string[]).indexOf(c);
+  if (s >= 0) return SH[Math.max(0, s - 1)];
+  const g = (GOLD as readonly string[]).indexOf(c);
+  return g >= 0 ? GOLD[Math.max(0, g - 1)] : c;
+};
+
+/** A slim faceted shard: lit upper-left, shaded right, a white-hot top tip. */
+function paintShard(p: PixelPainter, hws: readonly number[], far: boolean, gold: boolean): void {
+  const top = SHARD_AXIS - (hws.length - 1) / 2;
+  const tone = far ? darker : (c: string) => c;
+  hws.forEach((hw, k) => {
+    for (const oy of [-1, 0, 1]) p.hline(SHARD_AXIS - hw - 1, top + k + oy, hw * 2 + 3, OUT);
+  });
+  hws.forEach((hw, k) => {
+    const upper = k < hws.length / 2;
+    const band = gold && k === Math.floor(hws.length / 2);
+    for (let dx = -hw; dx <= hw; dx++) {
+      let c: string;
+      if (band) c = dx < 0 ? GOLD[2] : dx === 0 ? GOLD[1] : GOLD[0];
+      else if (hw === 0) c = upper ? SH[4] : SH[2];
+      else if (dx < 0) c = upper ? SH[4] : SH[3];
+      else if (dx === 0) c = upper ? SH[3] : SH[2];
+      else c = SH[1];
+      p.px(SHARD_AXIS + dx, top + k, tone(c));
     }
   });
 }
 
-/** One drone frame: 0 curled, 1 half open, 2 standing, 3 and 4 walking. */
-function paintDrone(p: PixelPainter, frame: number): void {
-  if (frame === 0) {
-    // Curled into a faceted gem, pincers tucked, a cyan core showing
-    outlineSpans(p, CURLED);
-    facetSpans(p, CURLED);
-    p.px(15, AXIS - 1, GOLD[1]);
-    p.px(15, AXIS + 1, GOLD[1]);
-    p.px(10, AXIS, PAL.crystal.shield);
-    p.px(8, AXIS - 2, SH[4]);
-    return;
-  }
-  const open = frame >= 2;
-  paintLegs(p, frame, open ? 'full' : 'tucked');
-
-  // Antennae with crystal tips (folded while half open)
-  if (open) {
-    mirrored(p, [[15, 7], [16, 6], [17, 5]], SH[2]);
-    mirrored(p, [[18, 4]], SH[4]);
-  } else {
-    mirrored(p, [[16, 8]], SH[4]);
-  }
-
-  for (const spans of [GASTER, THORAX, HEAD]) outlineSpans(p, spans);
-  p.hline(9, AXIS, 2, SH[1]); // petiole
-  facetSpans(p, GASTER);
-  facetSpans(p, THORAX);
-  facetSpans(p, HEAD);
-  p.px(4, AXIS - 1, SH[4]); // glint on the gaster's lit facet
-  p.px(5, AXIS - 2, SH[4]);
-
-  // Straight gold pincers, bright tips
-  const reach = open ? 18 : 17;
-  for (const y of [AXIS - 1, AXIS + 1]) {
-    p.line(17, y, reach, y, GOLD[1]);
-    p.px(reach + 1, y, open ? GOLD[2] : GOLD[1]);
-  }
-  // Eyes glow shield-cyan
-  mirrored(p, [[15, 9]], PAL.crystal.shield);
-}
-
-/** Five pre-rendered frames facing right (+x), centered for rotation. */
-export function buildDroneFrames(): OffscreenCanvas[] {
-  return [0, 1, 2, 3, 4].map((frame) => {
-    const c = new OffscreenCanvas(DRONE_FRAME_SIZE, DRONE_FRAME_SIZE);
-    paintDrone(new PixelPainter(c.getContext('2d')!, DRONE_PX), frame);
-    return c;
+/** The two orbiting shards, each as a near and a far sprite. */
+export function buildShardFrames(): ShardArt[] {
+  return SHARD_HW.map((hws, k) => {
+    const [near, far] = [false, true].map((isFar) => {
+      const c = new OffscreenCanvas(SHARD_FRAME_SIZE, SHARD_FRAME_SIZE);
+      paintShard(new PixelPainter(c.getContext('2d')!, DRONE_PX), hws, isFar, k === 0);
+      return c;
+    });
+    return { near, far };
   });
 }
