@@ -880,71 +880,116 @@ export class SpriteAtlas {
   }
 
   /**
-   * 40×40 art-pixel tree-stump nest, infested by the Swarm: bark ring, wood
-   * growth rings, dark entrance with a glowing vein rim, flesh nodules
-   * bulging from the bark, root lines.
+   * 40×40 art-pixel Swarm hive mound, the colony's surface den: a dome of
+   * banded chitin plates over living flesh with a dark front wall for
+   * height, a glowing orifice on top, chartreuse veins running down from it,
+   * pustules, bone spines along the crest and creeping flesh tendrils at its
+   * foot. Lit top-left. The orifice sits near the sprite center so the night
+   * glow lands on it.
    */
   private paintNest(p: PixelPainter): void {
+    const F = PAL.swarm.flesh;
+    const V = PAL.swarm.vein;
+    const O = PAL.swarm.outline;
     const cx = 20;
-    const cy = 20;
+    const footY = 24; // footprint center: the dome rises up from here
+    const holeY = 19; // the orifice, on top of the dome
+    const clamp = (v: number) => Math.max(0, Math.min(39, Math.round(v)));
+    /** 1-px elliptical seam on the arc [a0, a1). */
+    const seam = (ecy: number, rx: number, ry: number, color: string, a0: number, a1: number) => {
+      for (let i = 0; i <= 48; i++) {
+        const a = a0 + ((a1 - a0) * i) / 48;
+        p.px(clamp(cx + Math.cos(a) * rx), clamp(ecy + Math.sin(a) * ry), color);
+      }
+    };
 
-    p.shadow(21, 22, 16, 8, PAL.outline);
+    p.shadow(21, 27, 17, 6, PAL.outline);
 
-    // Outer bark
-    this.outlined((dx, dy, c) => p.ellipse(cx + dx, cy + dy, 16, 8.6, c ?? PAL.wood[0]));
-    p.ellipse(cx, cy, 14.6, 7.6, PAL.wood[1]);
+    // Creeping flesh tendrils at the foot: dark underside, lit top, a bead at the tip
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2 + hash2(i, 13) * 0.5;
+      const reach = 17.5 + hash2(i, 17) * 2;
+      const x0 = Math.round(cx + Math.cos(a) * 13);
+      const y0 = Math.round(footY + Math.sin(a) * 13 * 0.5);
+      const x1 = clamp(cx + Math.cos(a) * reach);
+      const y1 = clamp(footY + Math.sin(a) * reach * 0.5);
+      p.line(x0, Math.min(39, y0 + 1), x1, Math.min(39, y1 + 1), O);
+      p.line(x0, y0, x1, y1, F[1]);
+      p.px(x1, y1, i % 2 ? V[0] : F[3]);
+    }
 
-    // Wood cross-section with alternating growth rings
-    p.ellipse(cx, 19, 12, 6.2, PAL.wood[2]);
-    p.ellipse(cx, 19, 10.4, 5.3, PAL.sand[0]);
-    p.ellipse(cx, 19, 8.8, 4.5, PAL.wood[2]);
-    p.ellipse(cx, 19, 7.2, 3.7, PAL.sand[0]);
-    p.ellipse(cx, 19, 5.6, 2.9, PAL.wood[2]);
-    // Top-left sheen on the cut wood
-    p.dither(13, 15, 5, 2, PAL.sand[1], PAL.sand[0]);
+    // Body: dark footprint (the front wall), then plate bands rising toward the light
+    this.outlined((dx, dy, c) => p.ellipse(cx + dx, footY + dy, 15.5, 8.2, c ?? F[0]), O);
+    p.ellipse(cx, 22.8, 14.6, 7.6, F[1]);
+    p.ellipse(19.6, 21.2, 13.2, 6.6, F[2]);
+    p.ellipse(19.2, 19.6, 10.6, 5.4, F[2]);
+    p.dither(9, 17, 10, 4, F[3], F[2]); // the lit upper-left shoulder
+    p.ellipse(18.8, 18.2, 7.4, 3.8, F[3]);
+    p.dither(11, 15, 8, 3, F[4], F[3]); // top-left sheen
+    p.hline(14, 15, 4, F[4]);
+    p.px(13, 16, F[4]);
 
-    // Radial cracks across the rings
+    // Plate edges: dark seams across the front of each band, lit lips on the upper left
+    seam(22.8, 14.6, 7.6, O, Math.PI * 0.05, Math.PI * 0.95);
+    seam(21.2, 13.2, 6.6, F[0], Math.PI * 0.08, Math.PI * 0.92);
+    seam(19.6, 10.6, 5.4, F[1], Math.PI * 0.1, Math.PI * 0.9);
+    seam(21.2, 13.0, 6.4, F[3], Math.PI * 1.08, Math.PI * 1.45);
+    seam(19.6, 10.4, 5.2, F[4], Math.PI * 1.12, Math.PI * 1.4);
+    // Segment joints down the front wall
     for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2 + 0.5;
+      const a = Math.PI * (0.14 + (i / 5) * 0.72);
       p.line(
-        cx + Math.cos(a) * 5, 19 + Math.sin(a) * 2.6,
-        cx + Math.cos(a) * 11, 19 + Math.sin(a) * 5.7,
-        PAL.wood[0],
+        clamp(cx + Math.cos(a) * 13.2), clamp(21.2 + Math.sin(a) * 6.6),
+        clamp(cx + Math.cos(a) * 15.2), clamp(footY + Math.sin(a) * 8.2),
+        F[0],
       );
     }
 
-    // Entrance hole with a 1px glowing vein rim
-    p.ellipse(cx, 19, 4.6, 2.6, PAL.swarm.vein[1]);
-    p.ellipse(cx, 19, 3.8, 2.0, PAL.earth[0]);
-    p.ellipse(cx, 19, 2.2, 1.1, PAL.black);
+    // Glowing veins running from the orifice down the dome, beaded at the end
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI * (0.15 + i * 0.25) + (hash2(i, 31) - 0.5) * 0.3;
+      let x = cx + Math.cos(a) * 5.4;
+      let y = holeY + Math.sin(a) * 2.8;
+      for (let s = 1; s <= 4; s++) {
+        const r = 5.4 + s * 2.3;
+        const wob = (hash2(i * 7 + s, 37) - 0.5) * 0.45;
+        const nx = cx + Math.cos(a + wob) * r;
+        const ny = holeY + Math.sin(a + wob) * r * 0.62;
+        p.line(Math.round(x), Math.round(y), clamp(nx), clamp(ny), s <= 2 ? V[1] : V[0]);
+        x = nx;
+        y = ny;
+      }
+      p.px(clamp(x), clamp(y), V[1]);
+    }
+    // A short vein over the lit shoulder, so the glow wraps the dome
+    p.line(15, 18, 10, 20, V[0]);
+    p.px(10, 20, V[1]);
 
-    // Swarm flesh nodules bulging from the bark ring
-    for (let i = 0; i < 9; i++) {
-      const a = hash2(i, 5) * Math.PI * 2;
-      const d = 13.5 + hash2(i, 9) * 2;
-      const mx = Math.round(cx + Math.cos(a) * d);
-      const my = Math.round(cy + Math.sin(a) * d * 0.52);
-      p.px(mx, my, PAL.swarm.flesh[3]);
-      p.px(mx + 1, my, PAL.swarm.flesh[2]);
+    // Pustules: soft blisters with a pale shine and a glowing core
+    for (const [bx, by] of [[8, 23], [30, 21], [25, 27]] as const) {
+      p.disc(bx, by, 1.4, F[3]);
+      p.px(bx - 1, by - 1, F[4]);
+      p.px(bx, by, V[1]);
     }
 
-    // Roots (dark underline + lit top line)
-    p.line(5, 23, 1, 26, PAL.outline);
-    p.line(5, 22, 1, 25, PAL.wood[1]);
-    p.line(35, 23, 39, 26, PAL.outline);
-    p.line(35, 22, 39, 25, PAL.wood[1]);
-    p.line(13, 28, 9, 31, PAL.outline);
-    p.line(13, 27, 9, 30, PAL.wood[1]);
-    p.line(27, 28, 30, 31, PAL.outline);
-    p.line(27, 27, 30, 30, PAL.wood[1]);
+    // Bone spines along the crest
+    for (let i = 0; i < 7; i++) {
+      const a = Math.PI * (1.12 + (i / 6) * 0.76);
+      const x = clamp(cx + Math.cos(a) * 13.4);
+      const y = clamp(21.2 + Math.sin(a) * 6.6);
+      p.px(x, y - 1, O);
+      p.px(x, y, F[4]);
+    }
 
-    // Soil debris scattered around the stump
-    for (let i = 0; i < 10; i++) {
-      const a = hash2(i, 23) * Math.PI * 2;
-      const d = 17.5 + hash2(i, 41) * 2;
-      const ex = Math.max(0, Math.min(39, Math.round(cx + Math.cos(a) * d)));
-      const ey = Math.max(0, Math.min(39, Math.round(21 + Math.sin(a) * d * 0.5)));
-      p.px(ex, ey, PAL.soil[2]);
+    // The orifice: raised fleshy lip, glowing vein rim, dark throat, pale teeth
+    p.ellipse(cx, holeY + 0.5, 5.8, 3.3, F[0]);
+    p.ellipse(cx, holeY - 0.2, 5.3, 2.9, F[3]);
+    p.ellipse(cx, holeY, 4.6, 2.5, V[1]);
+    p.ellipse(cx, holeY, 3.8, 1.9, F[0]);
+    p.ellipse(cx, holeY, 2.2, 1.1, PAL.black);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2 + 0.2;
+      p.px(Math.round(cx + Math.cos(a) * 5.3), Math.round(holeY + Math.sin(a) * 2.9), F[4]);
     }
   }
 
@@ -1014,11 +1059,14 @@ export class SpriteAtlas {
   ): void {
     if (!this.nestSprite) return;
 
-    const targetSize = radius * TILE_SIZE * 1.3 * 2;
-    const s = targetSize / this.nestSprite.w;
+    // Whole world px per art px, drawn unsmoothed: every art pixel stays a crisp square
+    const artGrid = this.nestSprite.w / NEST_SCALE;
+    const pxPerArt = Math.max(1, Math.round((radius * TILE_SIZE * 1.3 * 2) / artGrid));
+    const s = pxPerArt / NEST_SCALE;
 
     ctx.save();
-    ctx.translate(worldX, worldY);
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(Math.round(worldX), Math.round(worldY));
     ctx.scale(s, s);
     ctx.drawImage(
       this.nestSprite.canvas,

@@ -1,7 +1,7 @@
 import type { GameManager, MinimapEntity, SurfaceMinimapDot } from '../../game/GameManager';
 import { PAL } from '../../engine/renderer/pixelart/palette';
 import { isTileVisible } from '../../engine/renderer/fogVisibility';
-import { TerrainType, UndergroundTerrainType, ChamberType } from '../../simulation/world/types';
+import { TERRAIN_COLORS, TerrainType, UndergroundTerrainType, ChamberType } from '../../simulation/world/types';
 import { UNDERGROUND_HEIGHT, UNDERGROUND_WIDTH, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
 import { fitMinimap, tileToMinimap, viewRectOnMinimap, type MinimapLayout } from './minimapTransform';
 
@@ -33,15 +33,10 @@ function tileCanvas(width: number, height: number): HTMLCanvasElement {
   return canvas;
 }
 
-function surfaceTileColor(terrain: TerrainType, x: number, y: number): string {
-  const light = (x * 7 + y * 13) % 5 === 0;
-  switch (terrain) {
-    case TerrainType.Grass: return light ? PAL.grass[2] : PAL.grass[1];
-    case TerrainType.Sand: return light ? PAL.sand[1] : PAL.sand[0];
-    case TerrainType.Stone: return light ? PAL.stone[2] : PAL.stone[1];
-    case TerrainType.Water: return light ? PAL.water[2] : PAL.water[1];
-    default: return light ? PAL.soil[2] : PAL.soil[1];
-  }
+/** One minimap pixel of surface terrain: the terrain's base shade, flecked with its lighter one. */
+export function surfaceTileColor(terrain: TerrainType, x: number, y: number): string {
+  const colors = TERRAIN_COLORS[terrain] ?? TERRAIN_COLORS[TerrainType.Dirt];
+  return (x * 7 + y * 13) % 5 === 0 ? colors.fleck : colors.base;
 }
 
 function blit(ctx: CanvasRenderingContext2D, source: HTMLCanvasElement, layout: MinimapLayout): void {
