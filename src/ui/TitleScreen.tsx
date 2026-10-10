@@ -2,9 +2,8 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { installAudioUi } from '../audio';
 import { AntRole } from '../game/components/components';
 import { UNIT_ART_PX, drawUnitFrame, type CrystalUnitKind, type UnitFrame, type UnitSheet } from '../engine/renderer/crystalUnits';
-import type { HumanUnitKind } from '../engine/renderer/humanUnits';
 import { getSpriteAtlas } from './sharedAtlas';
-import { crystalSheet, humanSheet } from './racePicker/unitSheets';
+import { crystalSheet } from './racePicker/unitSheets';
 
 interface TitleScreenProps {
   /** INICIAR: on to the race picker */
@@ -74,7 +73,6 @@ export function TitleScreen({ onStart, onTutorial, savedRun }: TitleScreenProps)
 // ── The scene ───────────────────────────────────────────────
 
 const RIGHT = 0;
-const LEFT = Math.PI;
 
 /** Crystal frames baked to canvases once, so the scene blits instead of re-painting runs every frame. */
 const bakedFrames = new Map<UnitFrame, HTMLCanvasElement>();
@@ -102,19 +100,6 @@ function drawSheet(ctx: CanvasRenderingContext2D, sheet: UnitSheet, x: number, y
 
 const drawCrystal = (ctx: CanvasRenderingContext2D, kind: CrystalUnitKind, x: number, y: number, zoom: number, t: number) =>
   drawSheet(ctx, crystalSheet(kind), x, y, zoom, t);
-const drawHuman = (ctx: CanvasRenderingContext2D, kind: HumanUnitKind, x: number, y: number, zoom: number, t: number) =>
-  drawSheet(ctx, humanSheet(kind), x, y, zoom, t);
-
-/** A wildlife critter from the atlas centered on (x, y), `zoom` × its world size. */
-function drawCritter(ctx: CanvasRenderingContext2D, kind: 'beetle' | 'cricket', x: number, y: number, zoom: number, angle: number, phase: number) {
-  const atlas = getSpriteAtlas();
-  ctx.save();
-  ctx.translate(Math.round(x), Math.round(y));
-  ctx.scale(zoom, zoom);
-  if (kind === 'beetle') atlas.drawBeetle(ctx, 0, 0, angle, phase);
-  else atlas.drawCricket(ctx, 0, 0, angle, phase);
-  ctx.restore();
-}
 
 /** An atlas ant (or the queen) centered on (x, y), `zoom` × its world size. */
 function drawAnt(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number, angle: number, phase: number, role: AntRole | 'queen') {
@@ -127,162 +112,120 @@ function drawAnt(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: numb
   ctx.restore();
 }
 
-/** One faceted crystal spike rising from the ground. */
-function drawShard(ctx: CanvasRenderingContext2D, x: number, base: number, w: number, h: number, lean: number) {
-  const tipX = x + lean;
-  ctx.fillStyle = '#1b5a73';
-  ctx.beginPath();
-  ctx.moveTo(x - w / 2, base);
-  ctx.lineTo(tipX, base - h);
-  ctx.lineTo(x + w / 2, base);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = '#5fe3ff';
-  ctx.beginPath();
-  ctx.moveTo(x - w / 2, base);
-  ctx.lineTo(tipX, base - h);
-  ctx.lineTo(x - w / 8, base);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = 'rgba(232, 255, 255, 0.8)';
-  ctx.fillRect(Math.round(tipX - 1), Math.round(base - h + 2), 2, Math.max(2, Math.round(h * 0.25)));
-}
+/** Where the split crosses height `y`: a diagonal from top-right of center to bottom-left of it. */
+const splitX = (w: number, h: number, y: number) => w * 0.56 - (y / h) * w * 0.12;
 
-/** A column of soldiers marching across the backdrop, wrapping at the edges. */
-function marchRow(ctx: CanvasRenderingContext2D, w: number, y: number, zoom: number, speed: number, gap: number, t: number, alpha: number, dir: 1 | -1) {
-  const span = w + gap * 2;
-  const count = Math.ceil(span / gap);
-  const offset = (t * speed) % gap;
+/** One team's half: its color wash, its rank of fighters in a V behind the leader, the leader in front. */
+function paintHalf(ctx: CanvasRenderingContext2D, w: number, h: number, side: 'left' | 'right', t: number, unit: number) {
+  const left = side === 'left';
   ctx.save();
-  ctx.globalAlpha = alpha;
-  for (let i = 0; i < count; i++) {
-    const base = i * gap + offset;
-    const x = dir === 1 ? base - gap : w + gap - base;
-    const bob = Math.sin(t * 6 + i) * zoom * 0.6;
-    drawAnt(ctx, x, y + bob, zoom, dir === 1 ? RIGHT : LEFT, t * 10 + i, i % 4 === 3 ? AntRole.Defender : AntRole.Soldier);
+  ctx.beginPath();
+  if (left) {
+    ctx.moveTo(0, 0);
+    ctx.lineTo(splitX(w, h, 0), 0);
+    ctx.lineTo(splitX(w, h, h), h);
+    ctx.lineTo(0, h);
+  } else {
+    ctx.moveTo(splitX(w, h, 0), 0);
+    ctx.lineTo(w, 0);
+    ctx.lineTo(w, h);
+    ctx.lineTo(splitX(w, h, h), h);
   }
+  ctx.closePath();
+  ctx.clip();
+
+  // Team wash: deep at the outer edge, burning bright toward the split
+  const wash = ctx.createLinearGradient(left ? 0 : w, 0, w * 0.5, 0);
+  wash.addColorStop(0, left ? '#0b1206' : '#04121a');
+  wash.addColorStop(0.75, left ? '#24400c' : '#0f4a5e');
+  wash.addColorStop(1, left ? '#5a8a1c' : '#1b8fb0');
+  ctx.fillStyle = wash;
+  ctx.fillRect(0, 0, w, h);
+
+  // Speed lines rushing toward the center
+  ctx.fillStyle = left ? 'rgba(198, 255, 61, 0.12)' : 'rgba(95, 227, 255, 0.12)';
+  for (let i = 0; i < 18; i++) {
+    const y = ((i * 97.3) % 1) * h + ((i * 53) % h);
+    const len = (60 + ((i * 31) % 140)) * unit;
+    const run = ((t * 300 + i * 211) % (w * 0.7));
+    const x = left ? run - len : w - run;
+    ctx.fillRect(Math.round(x), Math.round(y % h), Math.round(len), Math.max(2, Math.round(2 * unit)));
+  }
+
+  // The army: ranks fanning back from the leader, smaller as they recede
+  const dir = left ? 1 : -1;
+  const leadX = left ? w * 0.27 : w * 0.73;
+  const leadY = h * 0.6;
+  const charge = Math.sin(t * 3) * 4 * unit;
+  const fighter = (x: number, y: number, zoom: number, seed: number) => {
+    const bob = Math.sin(t * 7 + seed) * 2 * unit;
+    if (left) drawAnt(ctx, x + bob, y, zoom, RIGHT, t * 10 + seed, seed % 3 === 0 ? AntRole.Defender : AntRole.Soldier);
+    else drawCrystal(ctx, seed % 2 ? 'sentinel' : 'drone', x - bob, y + bob, zoom * 0.7, t + seed * 0.13);
+  };
+  for (let r = 4; r >= 1; r--) {
+    const depth = 1 - r * 0.15;
+    const count = 3 + r;
+    for (let k = 0; k < count; k++) {
+      const spread = (k - (count - 1) / 2) * (62 - r * 4) * unit;
+      const x = leadX - dir * (r * 58 * unit + Math.abs(spread) * 0.35) + Math.sin(k * 3.7 + r) * 8 * unit;
+      const y = leadY - r * 34 * unit + spread;
+      fighter(x + charge * depth, y, unit * 1.5 * depth, r * 7 + k);
+    }
+  }
+  // Two lieutenants flanking the leader
+  fighter(leadX - dir * 30 * unit + charge, leadY - 70 * unit, unit * 1.7, 1);
+  fighter(leadX - dir * 30 * unit + charge, leadY + 66 * unit, unit * 1.7, 2);
+
+  // The leader, front and center of the team
+  const glow = ctx.createRadialGradient(leadX, leadY, 0, leadX, leadY, 120 * unit);
+  glow.addColorStop(0, left ? 'rgba(198, 255, 61, 0.35)' : 'rgba(95, 227, 255, 0.35)');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(leadX - 130 * unit, leadY - 130 * unit, 260 * unit, 260 * unit);
+  if (left) drawAnt(ctx, leadX + charge, leadY, unit * 2.4, RIGHT, t * 4, 'queen');
+  else drawCrystal(ctx, 'queen', leadX - charge, leadY + Math.sin(t * 2) * 4 * unit, unit * 1.9, t);
+
   ctx.restore();
 }
 
 function paintScene(ctx: CanvasRenderingContext2D, w: number, h: number, t: number) {
-  // Dusk sky: green swarm glow on the left, crystal cyan on the right
-  const sky = ctx.createLinearGradient(0, 0, 0, h);
-  sky.addColorStop(0, '#07040a');
-  sky.addColorStop(0.6, '#160c12');
-  sky.addColorStop(1, '#241420');
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, w, h);
-  const glow = (x: number, color: string) => {
-    const g = ctx.createRadialGradient(x, h * 0.7, 0, x, h * 0.7, Math.max(w, h) * 0.55);
-    g.addColorStop(0, color);
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-  };
-  glow(w * 0.15, 'rgba(198, 255, 61, 0.16)');
-  glow(w * 0.85, 'rgba(95, 227, 255, 0.18)');
+  const unit = Math.max(0.55, Math.min(w / 760, h / 520));
+  paintHalf(ctx, w, h, 'left', t, unit);
+  paintHalf(ctx, w, h, 'right', t, unit);
 
-  // Stars
-  ctx.fillStyle = 'rgba(232, 216, 220, 0.6)';
-  for (let i = 0; i < 60; i++) {
-    const sx = (i * 137.5) % w;
-    const sy = ((i * 89.3) % (h * 0.45));
-    if ((Math.floor(t * 2) + i) % 7 !== 0) ctx.fillRect(Math.round(sx), Math.round(sy), 2, 2);
+  // The split: a crackling white seam with sparks thrown both ways
+  const flicker = 0.7 + 0.3 * Math.sin(t * 17);
+  ctx.strokeStyle = `rgba(255, 255, 255, ${flicker})`;
+  ctx.lineWidth = Math.max(3, Math.round(4 * unit));
+  ctx.beginPath();
+  const segs = 14;
+  for (let i = 0; i <= segs; i++) {
+    const y = (h * i) / segs;
+    const jitter = i === 0 || i === segs ? 0 : Math.sin(Math.floor(t * 10) * 2.3 + i * 5.1) * 6 * unit;
+    const x = splitX(w, h, y) + jitter;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  for (let i = 0; i < 24; i++) {
+    const life = (t * 1.1 + i / 24) % 1;
+    const y = ((i * 0.618) % 1) * h;
+    const x0 = splitX(w, h, y);
+    const toLeft = i % 2 === 0;
+    const x = x0 + (toLeft ? -1 : 1) * life * 90 * unit;
+    ctx.fillStyle = toLeft ? `rgba(198, 255, 61, ${1 - life})` : `rgba(95, 227, 255, ${1 - life})`;
+    const s = Math.max(2, Math.round(4 * unit * (1 - life)));
+    ctx.fillRect(Math.round(x), Math.round(y - life * 30 * unit), s, s);
   }
 
-  const unit = Math.max(0.6, Math.min(w / 640, h / 420));
-  // Tall phone screens: lift the battle above the buttons
-  const ground = h * (h > w * 1.3 ? 0.62 : 0.78);
-
-  // Far ridge with a far column of soldiers, then the near column
-  ctx.fillStyle = '#1a0f16';
-  ctx.fillRect(0, ground - 70 * unit, w, h);
-  marchRow(ctx, w, ground - 62 * unit, unit * 0.45, 22 * unit, 30 * unit, t, 0.45, -1);
-  ctx.fillStyle = '#211219';
-  ctx.fillRect(0, ground - 40 * unit, w, h);
-  marchRow(ctx, w, ground - 30 * unit, unit * 0.7, 34 * unit, 44 * unit, t, 0.7, 1);
-
-  // The Humans' squad dug in on the far ridge, watching the clash
-  const hx = w * 0.5;
-  const hy = ground - 58 * unit;
-  drawHuman(ctx, 'marksman', hx - 70 * unit, hy - 4 * unit, unit * 0.9, t);
-  drawHuman(ctx, 'soldier', hx - 36 * unit, hy, unit * 0.9, t + 0.1);
-  drawHuman(ctx, 'tank', hx + 10 * unit, hy + 2 * unit, unit * 0.9, t);
-  drawHuman(ctx, 'soldier', hx + 56 * unit, hy, unit * 0.9, t + 0.3);
-  drawHuman(ctx, 'soldier', hx + 84 * unit, hy - 2 * unit, unit * 0.9, t + 0.2);
-
-  // Battlefield floor
-  ctx.fillStyle = '#2b1820';
-  ctx.fillRect(0, ground, w, h - ground);
-  ctx.fillStyle = '#3a2030';
-  for (let x = 0; x < w; x += 12 * unit) ctx.fillRect(Math.round(x), Math.round(ground), Math.round(6 * unit), Math.round(2 * unit));
-
-  // The Crystal Hive's side: spikes of crystal
-  const cx = w * 0.78;
-  drawShard(ctx, cx - 120 * unit, ground + 4, 26 * unit, 90 * unit, 6 * unit);
-  drawShard(ctx, cx - 90 * unit, ground + 4, 18 * unit, 56 * unit, -4 * unit);
-  drawShard(ctx, cx + 110 * unit, ground + 4, 30 * unit, 120 * unit, -8 * unit);
-  drawShard(ctx, cx + 140 * unit, ground + 4, 18 * unit, 70 * unit, 5 * unit);
-  drawShard(ctx, w - 10 * unit, ground + 4, 34 * unit, 150 * unit, -10 * unit);
-
-  // The colony's side: queen in the back, soldiers in front
-  const ax = w * 0.22;
-  const step = t * 8;
-  drawAnt(ctx, ax - 60 * unit, ground - 10 * unit, unit * 1.3, RIGHT, step * 0.5, 'queen');
-  drawAnt(ctx, ax + 40 * unit, ground + 4 * unit, unit * 1.2, RIGHT, step, AntRole.Soldier);
-  drawAnt(ctx, ax + 10 * unit, ground + 40 * unit, unit * 1.2, RIGHT, step + 1, AntRole.Soldier);
-  drawAnt(ctx, ax + 80 * unit, ground + 30 * unit, unit, RIGHT, step + 2, AntRole.Defender);
-
-  // The Crystal Hive: queen hovering high, sentinels and drones ahead
-  const hover = (k: number) => Math.sin(t * 2 + k) * 4 * unit;
-  drawCrystal(ctx, 'queen', cx + 40 * unit, ground - 60 * unit + hover(0), unit * 1.6, t);
-  drawCrystal(ctx, 'sentinel', cx - 40 * unit, ground - 8 * unit + hover(1), unit * 1.5, t);
-  drawCrystal(ctx, 'sentinel', cx + 10 * unit, ground + 34 * unit + hover(2), unit * 1.4, t);
-  drawCrystal(ctx, 'drone', cx - 80 * unit, ground - 60 * unit + hover(3), unit * 1.3, t);
-  drawCrystal(ctx, 'drone', cx + 100 * unit, ground + 10 * unit + hover(4), unit * 1.2, t);
-
-  // The wildlife: a beetle lumbering across the front, crickets leaping at the edges
-  const crawl = ((t * 18 * unit) % (w + 120 * unit)) - 60 * unit;
-  drawCritter(ctx, 'beetle', crawl, ground + 70 * unit, unit * 1.1, RIGHT, t * 6);
-  drawCritter(ctx, 'beetle', w * 0.05, ground + 50 * unit, unit, -Math.PI / 4, t * 4);
-  const hop = Math.abs(Math.sin(t * 2.2)) * 18 * unit;
-  drawCritter(ctx, 'cricket', w * 0.95, ground + 66 * unit - hop, unit * 0.65, LEFT, t * 5);
-  drawCritter(ctx, 'cricket', w * 0.62, ground + 80 * unit - Math.abs(Math.sin(t * 2.2 + 1.5)) * 14 * unit, unit * 0.6, LEFT, t * 5 + 2);
-
-  // The clash: crackling energy where both lines meet
-  const mx = w * 0.5;
-  const my = ground + 6 * unit;
-  const pulse = 0.6 + 0.4 * Math.sin(t * 9);
-  const burst = ctx.createRadialGradient(mx, my, 0, mx, my, 70 * unit);
-  burst.addColorStop(0, `rgba(255, 255, 255, ${0.55 * pulse})`);
-  burst.addColorStop(0.35, `rgba(198, 255, 61, ${0.3 * pulse})`);
-  burst.addColorStop(0.7, `rgba(95, 227, 255, ${0.18 * pulse})`);
-  burst.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = burst;
-  ctx.fillRect(mx - 80 * unit, my - 80 * unit, 160 * unit, 160 * unit);
-  const bolt = (from: number, to: number, color: string, seed: number) => {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = Math.max(2, Math.round(2 * unit));
-    ctx.beginPath();
-    ctx.moveTo(from, my);
-    const segs = 6;
-    for (let i = 1; i <= segs; i++) {
-      const x = from + ((to - from) * i) / segs;
-      const jitter = i === segs ? 0 : Math.sin(Math.floor(t * 12) * 3.1 + i * 7.7 + seed) * 10 * unit;
-      ctx.lineTo(x, my + jitter);
-    }
-    ctx.stroke();
-  };
-  bolt(mx - 60 * unit, mx, '#c6ff3d', 0);
-  bolt(mx + 60 * unit, mx, '#5fe3ff', 2);
-
-  // Sparks thrown from the clash
-  for (let i = 0; i < 14; i++) {
-    const life = (t * 1.2 + i / 14) % 1;
-    const a = i * 2.39996;
-    const r = life * 60 * unit;
-    ctx.fillStyle = i % 2 ? `rgba(198, 255, 61, ${1 - life})` : `rgba(95, 227, 255, ${1 - life})`;
-    const s = Math.max(2, Math.round(3 * unit * (1 - life)));
-    ctx.fillRect(Math.round(mx + Math.cos(a) * r), Math.round(my + Math.sin(a) * r * 0.6 - life * 20 * unit), s, s);
-  }
+  // Team banners under the leaders
+  ctx.font = `${Math.round(Math.max(10, 14 * unit))}px 'Press Start 2P', monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#000';
+  ctx.fillText('LA COLONIA', w * 0.24 + 2, h * 0.6 + 110 * unit + 2);
+  ctx.fillText('LOS CRISTALES', w * 0.76 + 2, h * 0.6 + 110 * unit + 2);
+  ctx.fillStyle = '#c6ff3d';
+  ctx.fillText('LA COLONIA', w * 0.24, h * 0.6 + 110 * unit);
+  ctx.fillStyle = '#5fe3ff';
+  ctx.fillText('LOS CRISTALES', w * 0.76, h * 0.6 + 110 * unit);
 }
