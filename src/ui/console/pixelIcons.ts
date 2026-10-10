@@ -287,6 +287,28 @@ const ICON_ART = {
     '.aa..aa.',
     'aa....aa',
   ],
+  /** Move order: an arrow heading for a ground marker */
+  move: [
+    '...a....',
+    '...aa...',
+    'aaaaaa..',
+    'aaaaaaa.',
+    'aaaaaa..',
+    '...aa...',
+    '...a..l.',
+    '.....lll',
+  ],
+  /** Stop order: a red octagon with a white bar */
+  stop: [
+    '..xxxx..',
+    '.xxxxxx.',
+    'xxxxxxxx',
+    'xwwwwwwx',
+    'xwwwwwwx',
+    'xxxxxxxx',
+    '.xxxxxx.',
+    '..xxxx..',
+  ],
   back: [
     '...w....',
     '..ww....',

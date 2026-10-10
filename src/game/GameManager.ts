@@ -358,7 +358,10 @@ export class GameManager {
     const modifiers = createDefaultModifiers();
 
     // Create systems
-    this.renderSystem = new RenderSystem(this.world, this.renderer, this.grid, this.visibilityGrid);
+    this.renderSystem = new RenderSystem(this.world, this.renderer, this.grid, this.visibilityGrid, {
+      getDragBox: () => this.getDragBox(),
+      drainOrderPings: () => this.drainOrderPings(),
+    });
     this.renderSystem.setCamera(this.camera);
     this.renderSystem.setUndergroundContext(
       this.undergroundGrid,

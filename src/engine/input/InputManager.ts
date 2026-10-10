@@ -151,6 +151,8 @@ export class InputManager {
   private onMouseDown = (e: MouseEvent): void => {
     if (this.gesture || this.isDirected()) return;
     if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
+    // A drag that wanders over the HUD must not select its text
+    if (e.button === 0) e.preventDefault();
     this.gesture = new PointerGesture(e.button, e.clientX, e.clientY, performance.now());
     this.pressAt = this.cssToCanvas(e);
     this.pointerAt = this.pressAt;

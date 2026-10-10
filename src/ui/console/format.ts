@@ -72,6 +72,7 @@ export const ANT_STATE_LABEL: Record<string, string> = {
   eating: 'Comiendo',
   hauling: 'Acarreando',
   scavenging: 'Carroñeando',
+  moving: 'En marcha',
 };
 
 export const BEETLE_STATE_LABEL: Record<string, string> = {

@@ -1218,6 +1218,90 @@ button:focus-visible {
   right: 0;
 }
 
+/* Group view (several ants selected): StarCraft wireframe grid + caste counts */
+.info-group {
+  display: grid;
+  grid-template-columns: auto minmax(150px, 220px);
+  gap: 18px;
+  align-items: start;
+  height: 100%;
+}
+
+.group-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 30px);
+  grid-auto-rows: 30px;
+  gap: 3px;
+  align-content: start;
+}
+
+.group-cell {
+  --cell: #5fbf4a; /* PAL.healthGreen: own units, healthy */
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--cell);
+  background: #0f1a0b;
+  border: 2px solid var(--cell);
+  box-shadow: inset 2px 2px 0 #000;
+  cursor: pointer;
+}
+
+.group-cell--hurt { --cell: var(--chrome-warn); background: #24180a; }
+.group-cell--critical { --cell: var(--chrome-danger); background: #2a0a0c; }
+
+.group-cell:hover,
+.group-cell:focus-visible {
+  border-color: var(--chrome-text);
+  outline: none;
+}
+
+.group-cell-hp {
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  max-width: calc(100% - 4px);
+  height: 2px;
+  background: var(--cell);
+}
+
+/* Under a player order: a lit accent pixel in the corner */
+.group-cell--ordered::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 4px;
+  height: 4px;
+  background: var(--chrome-accent);
+}
+
+.group-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--chrome-dim);
+  border: 2px dashed var(--chrome-border);
+}
+
+.group-side {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-right: 22px; /* clear of the close button */
+}
+
+.group-side .hud-label {
+  padding-bottom: 3px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--chrome-border);
+}
+
 .info-stepper {
   display: flex;
   align-items: center;
