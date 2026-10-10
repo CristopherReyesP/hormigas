@@ -126,10 +126,33 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
     - Only Idle, Searching or digging workers count as workforce. Busy porters are never interrupted.
   - RED: 4 ExcavationSystem tests. Result: the 8-tile order takes 18–36 s. Checks: 231/231 tests, tsc, lint, build; the parent re-ran the excavation test.
   - Open: when only haulers are below, the first tile still waits about 15–19 s for a surface worker to walk down. Handing the job to a closer worker partway through that walk would cut it.
-- [ ] P3 — RTS control: drag selection, right-click move/attack, control groups (Ctrl+1–9; digits 1–3 currently set game speed at `src/game/GameManager.ts:346-349`), a `PlayerOrder` component the AI yields to. Cost: medium.
+- [ ] P3 — RTS control (user, 2026-10-09: "los controles como StarCraft, poder seleccionar diferentes hormigas y enviarlas a atacar"). Workers stay autonomous; warriors obey `PlayerOrder` and run the AI only when they have no order. Cost: medium. Map by a Claude Explore subagent (read-only, 2026-10-09):
+  - Input: `InputManager.ts` handles left click only (135-144); right and middle drag pan (104-119), so a tap/drag threshold must tell an order from a pan; key handlers carry no modifiers (79-86). Digits 1–3 set game speed at `GameManager.ts:392-394` → `handleSlotKey` 738-745; the dawn pick must keep digits 1–3. Other window key listeners: `CommandCard.tsx:29-47`, `MinimapPanel.tsx:54`.
+  - Selection holds one id today (`SelectionSystem.ts:25-58`, `SelectedEntityInfo` at `GameManager.ts:118-149`). Selection art is blinking corner brackets (`RenderSystem.ts:311-324`); the art direction wants ellipses.
+  - The AI hook goes in `AntAISystem.update` after the layer skip (131) and before the stall nets (154-183) and the loaded-ant funnel (201-207). Proto-order: `commandTargetId` + GoingToDen (864-949), `dispatchAttackWave` (`GameManager.ts:1806-1851`). Ordered units must be skipped by porter recruiting (`PorterSystem.ts:128-132`) and the invasion draft (`UndergroundInvasionSystem.ts:80-118`).
+  - Risk: A* (`pathfinding/AStar.ts`) scans its open list linearly and caps at 2000 steps; 30 ordered units means 30 runs in one tick. Use a binary heap and one shared path with formation offsets.
+  - [ ] P3a Selection and move: drag box (own ants only), right-click move, a `PlayerOrder` component with an AI early-out, a group info panel. Tests: box selects own ants only; a move order beats the AI and the stall nets until arrival; porters and the draft skip ordered units.
+  - [ ] P3b Attack-move and attack target, reusing `selectSoldierTarget` (`AntAISystem.ts:1049-1074`); fold `dispatchAttackWave` into orders. Tests: attack-move engages an enemy in range, then resumes; an attack target persists.
+  - [ ] P3c Control groups: Ctrl+digit binds, digit recalls; game speed moves to other keys. Tests: bind and recall, dead ids pruned, digits still pick at the dawn offer.
 - [ ] P4 — Factions: ownership component in targeting, damage, vision and economy; faction-filtered fog; remove first-nest assumptions (`src/game/systems/AntAISystem.ts:123-125`). Cost: expensive; foundation for P5.
 - [ ] P5 — Crystal Hive: rival nest on the far side of the map, scripted build order, night waves sourced from it, Crystal Queen boss on night 7, victory on hive destruction. Cost: expensive.
-- [ ] P6 — Supply cap and mycelium (creep). Cost: medium.
+- [ ] P6 — Supply cap. The mycelium creep moved to P7.2. Cost: medium.
+- [ ] P7 — Surface base building (user, 2026-10-09: "en StarCraft se agregan como sitios en la superficie porque no hay cueva… expansión de territorio… encontrar minerales para construir armas, defensas"). Food pays for ants; minerals pay for structures. Cost: medium-expensive. Same Explore map:
+  - Terrain tiles are `{terrain, walkable, pheromones}` (`simulation/world/types.ts:3-19`). The TileGrid seed comes from Math.random (`TileGrid.ts:12`), so new placement must use a seeded rng like `pickCraterSite` (`run/craterSite.ts:50-82`). The visual crystal shards around the crater (`alienDecor.ts:115-145`) mark the natural first mineral field.
+  - About 25 call sites read `query(COMPONENT.NEST)[0]`, so an expansion must not carry the NEST component.
+  - `PorterSystem.asPantryType` (489-491) turns unknown loads into leaf, `HungerSystem` (90-105) eats any load, and the return timeout drops the load (`AntAISystem.ts:643-650`). Minerals need guards in all three.
+  - The build-mode path is `commands.ts` → `Console.tsx:19-27,47` (it forces null on the surface) → the `GameManager.ts:406-449` click router (the surface only selects) → `designate*`.
+  - Combat is instant melee with no projectiles (`CombatSystem.ts:40-168`). `handleDeath` treats anything that isn't wildlife as an ant (185-205). Nothing attacks buildings today. Only ants reveal fog (`FogOfWarSystem.ts:30-51`).
+  - `TerrainRenderer.invalidate` repaints the whole map, so creep needs its own overlay, like `FoliageOverlay`.
+  - [ ] P7.1 Minerals and mining: seeded mineral fields (pure `run/mineralFields.ts`), a MINERAL component (not FOOD_SOURCE), a Mining branch in AntAI, a minerals bank and `mineralsStored` in GameStats and the top strip. Tests: fields are deterministic per seed, reachable and away from the nest; a worker mines and delivers without touching the pantry; ore is never eaten or hauled.
+  - [ ] P7.2 Territory (mycelium creep) and surface placement: `CreepGrid` (sources, radius, growth), a `CreepOverlay`, surface build modes in the click router, and a minerals cost in `CommandDef`. Tests: radius and growth; `canPlace` rejects tiles that are off-creep, unwalkable or occupied.
+  - [ ] P7.3 Spine turret (Espina) and chitin wall (Muro de quitina): a STRUCTURE component with Health, a `TurretSystem`, a structure branch in `handleDeath`, structures revealing fog, and walls toggling `walkable`. Enemies must be able to target structures. Tests: the turret picks the nearest surface enemy in range; a wall blocks A*; a placement that seals the nest is rejected (reuse the `craterSite` flood fill).
+  - [ ] P7.4 Expansion hive (Colmena de expansión): a HIVE drop-off (not NEST) that is a creep source and a fog revealer. Tests: miners deliver to the nearer drop-off; nest-only systems ignore it; killing it removes its creep.
+- [ ] P8 — Warrior roster, Zerg-style (user, 2026-10-09: "diferentes tipos de guerreras, prácticamente StarCraft"). Castes cost food and minerals. Cost: medium.
+  - Every `Record<AntRole>` table needs an entry for a new caste: `SpriteAtlas.ts:62-101,215`, `factories.ts:97-110`, `RenderSystem.ts:318,1225`, `format.ts:17,26`, `InfoPanel.tsx:64-81`, `BREED_ORDER`, `ROLE_BASE_WEIGHTS` (`constants.ts:240`), `getIncubationTime`. Soldier-only checks live at `AntAISystem.ts:387,699,1455,1491` and `GameManager.ts:1746,1822`; the attack range is hardcoded (`combatHelpers.ts:50-65`, `AntAISystem.ts:706,777`).
+  - [ ] R1 Caste data model: a `CASTES` table (range, cooldown, speed, military flag), a shared `isWarrior`, and per-caste range. Tests: every role has a complete entry; spawn stats per caste.
+  - [ ] R2 Rasgadora (fast, cheap melee, zergling) and Escupidora (ranged acid, hydralisk), with range-aware engage and disengage and a visual-only projectile list in `World`. Tests: hits at range without closing in; cooldown; no damage across layers.
+  - [ ] R3 Coloso (heavy, slow, armored, optional cleave, ultralisk): armor in HealthComponent with a floor of 1 damage, a bigger sprite grid. Flyers are deferred (walkability bypasses in MovementSystem and A*).
 
 ## Acceptance criteria
 - A new player recognizes both StarCraft (factions, HUD, control) and ants (silhouette, colony behavior) at a glance.
@@ -153,7 +176,14 @@ When the user says this in a new session, run this plan in order. Each item is o
    - Done (3a36ebc, user request): the objectives panel starts folded into an OBJETIVOS toggle, so it no longer covers the intro. RED: 3 markup tests. Checks: `npm test` 264/264, tsc, lint, build.
    - The terrain build takes ~55 ms and runs twice at startup.
 2. Done: P2.8 cinematic intro v2 (27fe59d), the hive mound and minimap colors (19c6123), and the objectives toggle (3a36ebc).
-3. Next: real window-size rendering: make `CANVAS_WIDTH/HEIGHT` dynamic and rebuild the PostProcessor and FoliageOverlay caches on resize, so the world is not an upscaled 800×600.
+3. Next, gameplay first (user, 2026-10-09). The parent's order:
+   1. Finish P2.9 breeding UI and the Velocidad / Área de defensa / Trono command card change.
+   2. P3a → P3b → P3c (control comes first, so everything after it plays like StarCraft).
+   3. P7.1 → P7.4 (surface base).
+   4. P8 R1 → R3 (warriors that cost minerals).
+   Each step is one work-unit commit, delegated to one writer in the main worktree (the user watches HMR).
+   The graphics items below follow, unless the user reorders.
+4. Real window-size rendering: make `CANVAS_WIDTH/HEIGHT` dynamic and rebuild the PostProcessor and FoliageOverlay caches on resize, so the world is not an upscaled 800×600.
 4. P2.4 mutation marks on sprites, and P2.6 single pixel scale with 16-direction rotation snapping.
 5. Combat and death VFX from the art direction: acid droplets, Swarm goo, crystal shards, wildlife carcass.
 Then T4 wave pacing (`odd/tasks/roguelite-run-loop.md`) and the balance follow-ups:
