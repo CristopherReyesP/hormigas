@@ -3014,8 +3014,12 @@ button:focus-visible {
   height: 100%;
 }
 
+.race-card:not(:disabled) .race-card-plate {
+  background: var(--race-dim);
+}
+
 .race-card:hover:not(:disabled) .race-card-plate {
-  background: var(--chrome-border-light);
+  background: var(--race-accent);
 }
 
 .race-card[aria-pressed='true'] .race-card-plate {
@@ -3168,6 +3172,8 @@ button:focus-visible {
 .rival-option--wildlife { --race-accent: var(--chrome-warn); }
 .rival-option--crystal { --race-accent: var(--race-crystal); }
 .rival-option--human { --race-accent: var(--race-human); }
+.rival-option--swarm { --race-accent: var(--race-swarm); }
+.rival-option { --race-dim: color-mix(in srgb, var(--race-accent, var(--chrome-border)) 45%, #000); }
 
 .rival-plate {
   --cut: 8px;
@@ -3175,8 +3181,12 @@ button:focus-visible {
   height: 100%;
 }
 
+.rival-option:not(:disabled) .rival-plate {
+  background: var(--race-dim);
+}
+
 .rival-option:hover:not(:disabled) .rival-plate {
-  background: var(--chrome-border-light);
+  background: var(--race-accent);
 }
 
 .rival-option[aria-pressed='true'] .rival-plate {
