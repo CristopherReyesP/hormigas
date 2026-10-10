@@ -133,6 +133,21 @@ export const PAL = {
     visor: '#c8a050',
     outline: '#0f1210',
   },
+
+  // ── Alien fungus (giant mushroom, mushroom food) ──────────
+  // A dusky blue-violet cap, bluer and lighter than the violet regolith it
+  // grows on, with mint bioluminescent pores and gills, on a cool mauve-grey
+  // stalk. Duller than the faction flesh and shell so units still pop.
+  fungus: {
+    cap: ['#221c3c', '#382f66', '#544c92', '#776eb6', '#a59ed8'],
+    stalk: ['#2e2838', '#4a4258', '#6c6480', '#948ca6'],
+    glow: ['#3f7a70', '#7cc4ae', '#c4f2e0'], // pore and gill light, dark → bright
+  },
+
+  // ── Alien flesh (wildlife meat): amber ichor pulp ──────────
+  // Warm amber, far from the Swarm's magenta and from raw red meat, so a
+  // carcass never reads as a Swarm body or an Earth steak.
+  alienFlesh: ['#3e2614', '#7a4224', '#b0703a', '#dca456', '#f6d68e'],
 } as const;
 
 /** `#rrggbb` palette token → `rgba()` string for screen-space washes. */
