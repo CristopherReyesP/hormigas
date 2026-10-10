@@ -1,7 +1,7 @@
 // The skirmish setup chosen before a run: the player's race and the rival's.
-// The Swarm and the Humans are playable. The rival is the wildlife alone, the
-// Crystal Hive as an AI rival (P5) or the Humans as an AI base (P9), a mirror
-// match for a Human player. There is no Swarm AI yet. The last choice is
+// The Swarm, the Humans and the Crystal Hive (P10) are playable. The rival is
+// the wildlife alone, the Crystal Hive as an AI rival (P5) or the Humans as an
+// AI base (P9), mirror matches included. There is no Swarm AI yet. The last choice is
 // remembered per browser, best effort.
 
 export type RaceId = 'swarm' | 'crystal' | 'human';
@@ -17,12 +17,12 @@ export interface RunSetup {
 /** The Swarm against the beetles and crickets alone: no Crystal Hive at the crater. */
 export const DEFAULT_RUN_SETUP: RunSetup = { playerRace: 'swarm', rivalRace: 'wildlife' };
 
-const PLAYABLE_RACES: ReadonlySet<string> = new Set<RaceId>(['swarm', 'human']);
+const PLAYABLE_RACES: ReadonlySet<string> = new Set<RaceId>(['swarm', 'human', 'crystal']);
 /** Rivals each playable race can face. No Swarm AI exists yet, so nobody fights a Swarm rival. */
 const RIVALS_FOR: Readonly<Record<RaceId, ReadonlySet<string>>> = {
   swarm: new Set<RivalId>(['wildlife', 'crystal', 'human']),
   human: new Set<RivalId>(['wildlife', 'crystal', 'human']),
-  crystal: new Set<RivalId>(),
+  crystal: new Set<RivalId>(['wildlife', 'crystal', 'human']),
 };
 
 export function isPlayableRace(race: string): race is RaceId {

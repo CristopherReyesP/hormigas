@@ -50,6 +50,9 @@ import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 import { MeteorIntro } from '../render/MeteorIntro';
 import { CrystalRivalArt } from '../render/crystalRivalArt';
+import type { CrystalOverlay } from '../races/crystal/CrystalPlayerController';
+import { drawCrystalOverlay, drawGrowingSpire, drawHiveCrown } from '../races/crystal/crystalPlayerArt';
+import { CRYSTAL_PLAYER_COMPONENT, type ConstructionComponent } from '../races/crystal/crystalPlayerComponents';
 import { FungusFarmArt } from '../render/fungusFarmArt';
 import { carriedFoodSprite } from '../render/fungusGrowth';
 import type { ShieldComponent } from '../rival/crystalShield';
@@ -152,6 +155,8 @@ export interface CommandOverlaySource {
   getDragBox(): ScreenBox | null;
   /** Orders given since the last frame */
   drainOrderPings(): OrderPing[];
+  /** A Crystal player's build ghost and rally line (absent or null for the Swarm) */
+  crystalOverlay?(): CrystalOverlay | null;
 }
 
 /** An ant drawn this frame, replayed by the night glow pass (world px). */
@@ -1031,6 +1036,9 @@ export class RenderSystem {
       drawScoutMarks(ctx, overlay, Layer.Surface, this.animationTime);
       drawGhost(ctx, overlay, this.animationTime);
     }
+    // A Crystal player's build ghost and rally line, over the fog too
+    const crystalOverlay = this.commandOverlay?.crystalOverlay?.() ?? null;
+    if (crystalOverlay) drawCrystalOverlay(ctx, crystalOverlay, this.crystalArt, this.animationTime);
     if (this.camera) this.intro?.drawWorldFx(ctx, this.camera);
     ctx.restore();
     this.postProcessor.setLights(dayPhase?.phase === 'night' ? this.collectSurfaceLights() : []);
@@ -2481,6 +2489,10 @@ export class RenderSystem {
     if (combat?.targetEntityId != null && Math.floor(this.animationTime * 8) % 2 === 0) {
       this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.6, 'crystal');
     }
+    // A Crystal player's own unit: the green ground ellipse when selected
+    if (this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE)?.selected) {
+      this.drawSelectionEllipse(ctx, px, py, kind === 'drone' ? AntRole.Worker : AntRole.Soldier);
+    }
     const top = this.crystalArt.drawUnit(ctx, px, py, kind, entityId, this.animationTime);
     const shield = this.world.getComponent<ShieldComponent>(entityId, COMPONENT.SHIELD);
     if (shield) {
@@ -2505,7 +2517,12 @@ export class RenderSystem {
     const spire = this.world.getComponent<CrystalSpireComponent>(entityId, COMPONENT.CRYSTAL_SPIRE);
     if (!spire) return;
     this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.9, 'crystal');
-    const top = this.crystalArt.drawSpire(ctx, px, py, spire.kind, spire.floors);
+    if (this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE)?.selected) {
+      this.drawSelectionEllipse(ctx, px, py, AntRole.Soldier);
+    }
+    // A Crystal player's structure rises out of the ground while it crystallizes
+    const construction = this.world.getComponent<ConstructionComponent>(entityId, CRYSTAL_PLAYER_COMPONENT.CONSTRUCTION);
+    const top = drawGrowingSpire(ctx, this.crystalArt, px, py, spire.kind, spire.floors, construction, this.animationTime);
     this.drawCrystalBars(ctx, entityId, px, top - 6, 1);
   }
 
@@ -2514,6 +2531,11 @@ export class RenderSystem {
     const px = tileX * TILE_SIZE + TILE_SIZE / 2;
     const py = tileY * TILE_SIZE + TILE_SIZE / 2;
     this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.4, 'crystal');
+    if (this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE)?.selected) {
+      this.drawSelectionBrackets(ctx, px, py - TILE_SIZE * 0.8, TILE_SIZE * 2, 'green');
+    }
+    // Without the meteor intro (a Crystal player's run) no crater draws the hives' spires: draw a crown here
+    if (!this.intro) drawHiveCrown(ctx, this.crystalArt, px, py);
     if (Math.floor(this.animationTime * 2) % 2 === 0) this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.8, 'crystal');
     this.drawCrystalBars(ctx, entityId, px, py - TILE_SIZE * 2.4, 2);
   }

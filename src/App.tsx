@@ -9,6 +9,7 @@ import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
+import { CrystalIntroTitle } from './ui/races/crystal/CrystalIntroTitle';
 import { NestAlert } from './ui/NestAlert';
 import { HumanIntroBanner } from './ui/races/human/HumanIntroBanner';
 import { NextWaveCard } from './ui/NextWaveCard';
@@ -150,6 +151,8 @@ export default function App() {
       {!stats.introPlaying && (
         <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
       )}
+      {/* The Crystal Hive skips the Swarm's meteor intro: a short title instead */}
+      {runSetup.playerRace === 'crystal' && !stats.gameOver && <CrystalIntroTitle />}
       {/* Invaders inside the nest: the banner with "Ir al nido", and the all-clear */}
       {!stats.introPlaying && stats.nestAlert && (
         <NestAlert state={stats.nestAlert} activeLayer={stats.activeLayer} onGoToNest={handleGoToNest} />

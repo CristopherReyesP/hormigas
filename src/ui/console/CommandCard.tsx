@@ -28,7 +28,7 @@ const RESERVED_REASON: Record<string, string> = {
 
 const PRESS_FLASH_MS = 140;
 
-/** Eggs are paid from the pantry, upgrades from farm fungus; a Human player pays rations and minerals */
+/** Eggs are paid from the pantry, upgrades from farm fungus; a Human player pays rations and minerals, the Crystal Hive minerals */
 const COST_ICON: Record<NonNullable<CommandDef['cost']>['resource'], IconName> = {
   comida: 'pantry',
   hongos: 'fungus',

@@ -5,6 +5,7 @@ import { CARD_SLOTS, cardHotkeys } from './commandCardLayout';
 import type { IconName } from './pixelIcons';
 import type { ColonyDetails } from './useColonyDetails';
 import { ROLE_BLURB, ROLE_LABEL, stripEmoji } from './format';
+import { buildCrystalCommands } from '../races/crystal/crystalCommands';
 import { humanCommands } from '../races/human/humanCommands';
 import { DEFENSE_STATS, type DefenseKind } from '../../game/run/defenses';
 import { digLimitMessage, type DigStatus } from '../../game/dig/digStatus';
@@ -81,7 +82,7 @@ export interface CommandContext {
 
 export type NoticeTone = 'hint' | 'danger';
 
-type Slot = CommandDef | null;
+export type Slot = CommandDef | null;
 
 const MAX_GARRISON = 8;
 const MAX_SPEED = 3;
@@ -193,7 +194,7 @@ function digBadge(ctx: CommandContext): Pick<CommandDef, 'badge' | 'badgeTone'> 
   return { badge: `${dig.pending}/${dig.cap}`, badgeTone: tone };
 }
 
-function act(ctx: CommandContext, action: () => void): () => void {
+export function act(ctx: CommandContext, action: () => void): () => void {
   return () => {
     action();
     ctx.refresh();
@@ -234,7 +235,7 @@ function breedCommands(ctx: CommandContext): CommandDef[] {
   });
 }
 
-function timeCommands(ctx: CommandContext): CommandDef[] {
+export function timeCommands(ctx: CommandContext): CommandDef[] {
   const { paused, speed } = ctx.stats;
   return [
     {
@@ -412,14 +413,14 @@ function rally(ctx: CommandContext, ants: string): CommandDef {
 }
 
 /** Mover / Atacar: arm the order; on a touch screen pressing the armed one again cancels it (there is no Esc). */
-function armOrCancel(ctx: CommandContext, target: 'move' | 'attack'): void {
+export function armOrCancel(ctx: CommandContext, target: 'move' | 'attack'): void {
   if (ctx.touch && ctx.stats.commandTarget === target) ctx.gm.cancelCommandTarget();
   else if (target === 'move') ctx.gm.armMoveTarget();
   else ctx.gm.armAttackTarget();
 }
 
 /** Touch stand-in for a left drag: the next finger drag draws a selection box instead of moving the camera. */
-function areaSelect(ctx: CommandContext): CommandDef {
+export function areaSelect(ctx: CommandContext): CommandDef {
   const on = Boolean(ctx.stats.areaSelect);
   return {
     id: 'area-select',
@@ -432,7 +433,7 @@ function areaSelect(ctx: CommandContext): CommandDef {
 }
 
 /** Touch stand-in for Ctrl+digit: opens the page that binds the selection to a group. */
-function groupsButton(ctx: CommandContext): CommandDef {
+export function groupsButton(ctx: CommandContext): CommandDef {
   return {
     id: 'groups-page',
     label: 'Asignar grupo',
@@ -446,7 +447,7 @@ function groupsButton(ctx: CommandContext): CommandDef {
 }
 
 /** Bind the selected ants to a control group: Ctrl+digit, or Shift+digit with Añadir on. */
-function groupsPage(ctx: CommandContext): Slot[] {
+export function groupsPage(ctx: CommandContext): Slot[] {
   const add = Boolean(ctx.groupAdd);
   const bound = new Map((ctx.stats.controlGroups ?? []).map((g) => [g.slot, g.count]));
   const slot = (n: number): CommandDef => ({
@@ -548,7 +549,7 @@ function defensesPage(ctx: CommandContext): Slot[] {
   ];
 }
 
-function deselect(ctx: CommandContext): CommandDef {
+export function deselect(ctx: CommandContext): CommandDef {
   return {
     id: 'deselect',
     label: 'Quitar selección',
@@ -718,9 +719,9 @@ function colonyPage(ctx: CommandContext): Slot[] {
 
 /** The 15 slots of the card for the current layer and page (null = empty slot). */
 export function buildCommands(ctx: CommandContext): Slot[] {
-  // A Human player has a card of their own (units, Construir, production); the Swarm's Defensas page is not on it
-  const slots = ctx.stats.human
-    ? humanCommands(ctx, ctx.stats.human)
+  // A Human or Crystal player has a card of their own; the Swarm's Defensas page is on neither
+  const slots = ctx.stats.crystal ? buildCrystalCommands(ctx)
+    : ctx.stats.human ? humanCommands(ctx, ctx.stats.human)
     : ctx.stats.activeLayer === 'underground'
       ? ctx.page === 'colony' ? colonyPage(ctx) : ctx.page === 'defenses' ? defensesPage(ctx) : nestRoot(ctx)
       : hasUnitSelection(ctx.stats) ? ctx.page === 'groups' ? groupsPage(ctx) : unitPage(ctx)

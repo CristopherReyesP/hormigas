@@ -14,7 +14,8 @@ interface RacePickerProps {
 /**
  * Pre-run skirmish setup, StarCraft style: pick your race and the rival, then
  * COMENZAR. Races that are not playable yet show as "Próximamente" cards so
- * the roster (and its identity) is visible from the first run.
+ * the roster (and its identity) is visible from the first run. The rival list
+ * follows the race: the Crystal Hive also lists the Swarm, coming soon.
  */
 export function RacePicker({ initialSetup, onStart }: RacePickerProps) {
   const [setup, setSetup] = useState(() => sanitizeRunSetup(initialSetup));

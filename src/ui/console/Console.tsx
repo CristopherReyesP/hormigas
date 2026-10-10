@@ -8,6 +8,7 @@ import { InfoPanel } from './InfoPanel';
 import { MinimapPanel } from './MinimapPanel';
 import { useColonyDetails } from './useColonyDetails';
 import { useTouchUi } from '../layout/touch';
+import { crystalBuildHint } from '../races/crystal/crystalCommands';
 import { useHudLayout } from '../layout/useHudLayout';
 import { TouchCommandBar } from './TouchCommandBar';
 import { touchHint } from './touchHint';
@@ -131,7 +132,8 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
 
   const hasSelection = Boolean(stats.selectedEntity || stats.selectedGroup);
   // The groups page belongs to a selection of own ants: it closes when they are gone
-  const hasAnts = stats.activeLayer === 'surface' && Boolean(stats.selectedGroup || stats.selectedEntity?.type === 'ant');
+  const hasAnts = stats.activeLayer === 'surface'
+    && Boolean(stats.selectedGroup || stats.selectedEntity?.type === 'ant' || (stats.selectedEntity?.type === 'crystal_unit' && stats.selectedEntity.owned));
   if (page === 'groups' && !hasAnts) setPage('root');
   // A Human builder's Construir menu closes when no builder is selected any more
   if (page === 'build' && !stats.human?.selectedBuilders) setPage('root');
@@ -139,10 +141,13 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   const onEscape = useCallback(() => {
     if (placing) gameManager?.getHumanPlayer()?.cancelPlacement();
     else if (stats.commandTarget) gameManager?.cancelCommandTarget();
-    else if (buildMode) setBuildMode(null);
+    else if (stats.crystal?.buildMode) {
+      gameManager?.getCrystal()?.setBuildMode(null);
+      refreshStats();
+    } else if (buildMode) setBuildMode(null);
     else if (page !== 'root') setPage('root');
     else if (hasSelection) gameManager?.clearSelection();
-  }, [placing, stats.commandTarget, buildMode, page, hasSelection, gameManager]);
+  }, [placing, stats.commandTarget, stats.crystal?.buildMode, buildMode, page, hasSelection, gameManager, refreshStats]);
 
   const commands = useMemo(
     () =>
@@ -181,9 +186,11 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
     [gameManager, touch, refresh],
   );
 
-  const areaHint = touch && stats.areaSelect ? 'SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus hormigas' : null;
-  // A Human player placing a building: its hint first
-  const placingHint = humanHint(stats, touch);
+  const areaHint = touch && stats.areaSelect
+    ? `SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus ${stats.crystal || stats.human ? 'unidades' : 'hormigas'}`
+    : null;
+  // A Human player placing a building, or a Crystal player's build mode: its hint first
+  const placingHint = humanHint(stats, touch) ?? (stats.crystal?.buildMode ? crystalBuildHint(stats.crystal.buildMode, touch) : null);
   // Excavar: its counter rides with the tool hint; at the limit the hint turns into the refusal
   const digging = buildMode === 'dig' && stats.activeLayer === 'underground' && stats.dig ? stats.dig : null;
   const digLimit = digging ? digHint(digging) : null;
@@ -209,6 +216,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
           gameManager={gameManager}
           activeLayer={stats.activeLayer}
           onSwitchLayer={switchLayer}
+          hideNest={Boolean(stats.crystal)}
           invaders={{ underground: stats.nestAlert?.nestInvaders ?? 0, surface: stats.nestAlert?.surfaceInvaders ?? 0 }}
         />
         <InfoPanel

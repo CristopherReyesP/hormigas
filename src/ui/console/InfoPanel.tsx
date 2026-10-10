@@ -15,6 +15,7 @@ import { infoSummary, selectionHealth, selectionTitle } from './infoSummary';
 import { CRYSTAL_UNIT_BLURB, SPIRE_BLURB } from '../../game/rival/crystalNames';
 import { CRYSTAL_MAX_FLOORS } from '../../game/rival/crystalRival';
 import { useTouchUi } from '../layout/touch';
+import { CrystalInfo } from '../races/crystal/CrystalInfo';
 import { HumanBaseSummary, HumanGroupPanel, HumanProduction } from '../races/human/HumanInfo';
 import {
   ANT_STATE_LABEL, BEETLE_STATE_LABEL, ROLE_BLURB, CARRY_LABEL, CRICKET_STATE_LABEL, ROLE_ICON, ROLE_LABEL, ROLE_PLURAL, formatClock,
@@ -36,7 +37,7 @@ function healthColor(ratio: number): string {
 }
 
 /** One-row bar: icon · label · segmented track · number ('ratio' = value/max, 'value', or none). */
-function Bar({ label, value, max, color, icon, numbers = 'ratio' }: {
+export function Bar({ label, value, max, color, icon, numbers = 'ratio' }: {
   label: string; value: number; max: number; color: string; icon?: IconName; numbers?: 'ratio' | 'value' | 'none';
 }) {
   const ratio = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
@@ -56,7 +57,7 @@ function Bar({ label, value, max, color, icon, numbers = 'ratio' }: {
   );
 }
 
-function Row({ icon, label, value, tone }: { icon: IconName; label: string; value: ReactNode; tone?: string }) {
+export function Row({ icon, label, value, tone }: { icon: IconName; label: string; value: ReactNode; tone?: string }) {
   return (
     <div className="info-row">
       <PixelIcon name={icon} />
@@ -67,7 +68,7 @@ function Row({ icon, label, value, tone }: { icon: IconName; label: string; valu
 }
 
 /** `optional` columns repeat the top strip and give way to the brood readout on narrow screens */
-function Column({ title, children, optional = false }: { title: string; children: ReactNode; optional?: boolean }) {
+export function Column({ title, children, optional = false }: { title: string; children: ReactNode; optional?: boolean }) {
   return (
     <section className={optional ? 'info-col info-col--optional' : 'info-col'}>
       <h3 className="hud-label">{title}</h3>
@@ -192,7 +193,7 @@ const CRYSTAL_STATE_LABEL: Record<string, string> = {
   raiding: 'De incursión en tus minas',
 };
 
-function SelectionBars({ sel }: { sel: SelectedEntityInfo }) {
+export function SelectionBars({ sel }: { sel: SelectedEntityInfo }) {
   const health = selectionHealth(sel);
   return (
     <>
@@ -208,7 +209,7 @@ function SelectionBars({ sel }: { sel: SelectedEntityInfo }) {
   );
 }
 
-function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
+export function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
   return (
     <>
       {sel.type === 'ant' && <div className="info-note">{ROLE_BLURB[sel.role ?? AntRole.Worker]}</div>}
@@ -269,7 +270,7 @@ function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
   );
 }
 
-function SelectionInfo({ stats, gameManager, attackCount, onAttackCountChange }: Omit<InfoPanelProps, 'details'>) {
+export function SelectionInfo({ stats, gameManager, attackCount, onAttackCountChange }: Omit<InfoPanelProps, 'details'>) {
   const sel = stats.selectedEntity!;
   const { name, faction } = selectionTitle(sel);
   const enemy = !sel.human?.own && (sel.type === 'beetle' || sel.type === 'cricket' || sel.type === 'crystal_unit' || sel.type === 'crystal_spire'
@@ -428,7 +429,9 @@ export function InfoPanel(props: InfoPanelProps) {
       </div>
       <div className="chrome-plate console-plate">
       <div className="chrome-plate-inner console-info-inner">
-        {stats.human?.group ? (
+        {stats.crystal ? (
+          <CrystalInfo {...props} crystal={stats.crystal} />
+        ) : stats.human?.group ? (
           <HumanGroupPanel group={stats.human.group} gameManager={props.gameManager} />
         ) : stats.selectedGroup ? (
           <GroupInfo group={stats.selectedGroup} gameManager={props.gameManager} underground={stats.activeLayer === 'underground'} />
