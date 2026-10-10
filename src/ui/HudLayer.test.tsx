@@ -4,9 +4,9 @@ import { HudLayer } from './HudLayer';
 import { ObjectivePanel } from './ObjectivePanel';
 import { NotificationStack } from './NotificationStack';
 
-function hud(introPlaying: boolean): { layer: string; html: string } {
+function hud(introPlaying: boolean, scale?: number): { layer: string; html: string } {
   const html = renderToStaticMarkup(
-    <HudLayer introPlaying={introPlaying}>
+    <HudLayer introPlaying={introPlaying} scale={scale}>
       <header className="top-strip">DÍA 1</header>
       <ObjectivePanel objective={null} />
       <NotificationStack notifications={[]} hint="Elige dónde excavar" />
@@ -34,5 +34,12 @@ describe('HUD layer', () => {
     expect(layer).not.toContain('hud-layer--intro');
     expect(layer).not.toContain('inert');
     expect(html).toContain('OBJETIVOS');
+  });
+});
+
+describe('HUD scale', () => {
+  it('passes the viewport step to the CSS as --hud-scale', () => {
+    expect(hud(false, 2).layer).toContain('--hud-scale:2');
+    expect(hud(false, 1).layer).toContain('--hud-scale:1');
   });
 });
