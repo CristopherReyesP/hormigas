@@ -44,7 +44,12 @@ A fixed-length run (~25 min, 7 × 210 s day/night cycles) gives the game a goal,
   - `hive_mind` (capstone, mark: glowing antenna tips): flanking bonus ×2 (`src/shared/constants.ts:109`); unlocked after 2 picks tagged Tempo or Assault.
   - Offer rules: 3 distinct ids, never past `maxStacks`, the capstone only when unlocked, at least one Assault or Defense mutation per offer when available, extra weight for tags already owned, deterministic with a seeded rng.
 - [x] T3 — Dawn pick flow, staged as the evolution chamber (see `odd/tasks/starcraft-hive-wars.md`): on dawns of days 2–7, pause, offer 3 distinct mutations as cards (upside in green, cost in red, tag chips, a mini ant preview with its mark, stack count), pixel panel and not glass; the dialog captures keys 1–3, which are game-speed hotkeys today; apply the choice and resume; no offer on the final dawn. The victory screen lists the mutation build and its button reads "NUEVA PARTIDA" instead of "REINTENTAR" (`src/ui/GameOverScreen.tsx:86-97`).
-- [ ] T4 — Wave pacing: arm waves by night number, send a 1-unit scout wave on night 1, use a rising curve (2, 3, 4, 5, 6, 8) instead of 1, 1, 2, 2, 3, 3, and make the HUD count down to the real attack instead of the arming time (`src/ui/HUD.tsx:81-84`, `src/game/systems/UndergroundInvasionSystem.ts:106,139-159`). Moved into scope by the design audit under the user's creative license. Route: delegated (Claude subagent while Codex is out of quota).
+- [x] T4 done (7f4cb79, merged through `integrate/wave1` in 485ed6d).
+  - One wave per nightfall, sized `[1,2,3,4,5,6,8]`, armed 60 s before dusk; the countdown targets the real spawn.
+  - Boss slot `INVASION_BOSS_NIGHT = 7`. Responders capped at 9 (4b5b846).
+  - `scripts/check-wave-timing.ts` prints "OK: 7 oleadas".
+  - Surface beetles and crickets spawn continuously; they are not waves.
+  - Original scope: Wave pacing: arm waves by night number, send a 1-unit scout wave on night 1, use a rising curve (2, 3, 4, 5, 6, 8) instead of 1, 1, 2, 2, 3, 3, and make the HUD count down to the real attack instead of the arming time (`src/ui/HUD.tsx:81-84`, `src/game/systems/UndergroundInvasionSystem.ts:106,139-159`). Moved into scope by the design audit under the user's creative license. Route: delegated (Claude subagent while Codex is out of quota).
 
 ## Acceptance criteria
 - The run ends in victory exactly at the start of day 8 when the queen is alive, and never earlier.

@@ -122,7 +122,8 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
       - RED: 22 timeline, 3 camera and the IntroDirector suite failed before GREEN.
       - Checks: `npm test` 258/258, tsc, lint, build. Frames checked by eye in headless Edge.
     - Decision (writer, creative license): the fireball lights the ground it crosses and the crater (`revealCircle`), so that strip stays explored: a scorched trail on the minimap that points at the crater, where the Hive rises in P5.
-    - Open: the camera and art run two `IntroClock`s fed the same dt, because `RenderSystem` (outside this writer's surface) keeps its `MeteorIntro` private. A `RenderSystem.getIntroClock()` would let them share one clock. The HUD stays up during the cinematic, so the letterbox bars sit inside the visible band; hiding the HUD needs `App.tsx`/`index.css`.
+    - Closed: GameManager owns one `IntroClock` that drives both the camera and the art (2751d5d). The HUD is hidden and inert during the intro, then fades in over 400 ms while the camera eases back to the HUD band (076a099, `HudLayer.tsx`, `hudMetrics.ts`). Route: delegated (Claude subagent, main worktree). RED was observed for both.
+      - Open: command-card hotkeys still fire while the HUD is hidden, and the click that skips the intro also selects whatever is under the cursor.
   - [x] P2.9 Breeding UI clarity (user, 2026-10-09: "mejorar la interfaz de crianza que se entienda más"). Evidence from a headless screenshot:
     - The breed row (A–G) is five dimmed icons with no label, no visible cost and no reason why they are disabled.
     - The top strip shows 34 leaves while the pantry reads 0/450.
@@ -166,9 +167,18 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
     - Timing: drones start at 4.05 s, 0.12 s apart (emerge 0.2, rise 0.3, unfold 0.35, glide 1.5), so they glide before the camera leaves. Phases, skip and end state are unchanged. The spires already read as crystals and were left as they are.
     - RED: 10 new tests failed, 4 in the new `crystalDeployArt.test.ts` and 6 in `introTimeline.test.ts`. The old frames failed the one-solid-shape check because their legs left detached pixel runs. GREEN: `npm test` 323/323, tsc, lint, build. Headless Edge frames of the rise, unfold and glide were checked by eye.
     - Open: the Drone tier rule says "one orbiting shard"; the intro drones carry two, which the task allowed.
-  - [ ] P2.4 Mutation marks drawn on ant sprites for applied mutations.
+  - [x] P2.4 Mutation marks drawn on ant sprites (4f3be39).
+    - All 10 mutations leave a mark that grows with stacks (1–3) and combines with the others: acid jaws, vein flood, swollen sacs, bone spurs, stitches, dark rings, spore blisters, head plate, wing stubs, antenna glow.
+    - Marks are baked per caste by mark set, and a pick rebakes only the affected castes (about 19 ms). The game and the UI share one atlas.
+    - Route: delegated (Claude subagent in the `../hormigas-art` worktree). RED: 10 pixel probes.
   - [ ] P2.5 Bottom console and UI restyle (`--ui-*` → `--chrome-*`, pixel icons, one font, Spanish only).
-  - [ ] P2.6 One art-pixel scale for every unit, 16-direction rotation snapping, zoom steps of 0.5.
+  - [x] P2.6 One art-pixel scale and 16 baked directions (f7d8308).
+    - Every sprite is drawn at 2 world px per art px. Grids: ant 24, beetle 28, cricket 48, queen 52, food 16, dens 40, mushroom 32.
+    - Each recipe is re-rasterized in 16 directions. The light and the shadow are applied after the turn, so the highlight no longer rotates.
+    - `Camera.PERSPECTIVE_Y_SCALE` went from 0.85 to 1, because the squash made art pixels 2×1.7. The 0.5 zoom steps already existed.
+    - The cricket is drawn at 96 world px, down from 192; its gameplay size is unchanged.
+    - Merged through `integrate/wave1` (485ed6d).
+    - Follow-up in progress: Portrait, EvolutionChamber and spritePreview still use the old scales.
 - [x] Bug — ants pile up at the nest entrance (user report, 2026-10-09). User hypothesis: entrance healing. User design decision: remove healing at the entrance; ants heal by eating. Diagnosed and fixed by a Claude subagent in an isolated worktree, then applied here.
   - Repro: `npx tsx scripts/repro-entrance-jam.ts [days] [seed] [workers] [soldiers] [scouts]` (full-system headless run, stuck-ant histogram by role:state@layer). The existing scripts never showed the jam.
   - The hypothesis was ruled out: Healing or heading-to-heal ants were 0.0% of stuck ant-seconds in 7 runs.
@@ -203,7 +213,11 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
   - Selection holds one id today (`SelectionSystem.ts:25-58`, `SelectedEntityInfo` at `GameManager.ts:118-149`). Selection art is blinking corner brackets (`RenderSystem.ts:311-324`); the art direction wants ellipses.
   - The AI hook goes in `AntAISystem.update` after the layer skip (131) and before the stall nets (154-183) and the loaded-ant funnel (201-207). Proto-order: `commandTargetId` + GoingToDen (864-949), `dispatchAttackWave` (`GameManager.ts:1806-1851`). Ordered units must be skipped by porter recruiting (`PorterSystem.ts:128-132`) and the invasion draft (`UndergroundInvasionSystem.ts:80-118`).
   - Risk: A* (`pathfinding/AStar.ts`) scans its open list linearly and caps at 2000 steps; 30 ordered units means 30 runs in one tick. Use a binary heap and one shared path with formation offsets.
-  - [ ] P3a Selection and move: drag box (own ants only), right-click move, a `PlayerOrder` component with an AI early-out, a group info panel. Tests: box selects own ants only; a move order beats the AI and the stall nets until arrival; porters and the draft skip ordered units.
+  - [x] P3a done (f0337f3, 424bf28, a98e0d1; merged in 485ed6d). The bench measured 30 ants at 41.8 → 1.62 ms worst tick and 60 ants at 57.8 → 1.54 ms. Tests went from 314 to 358.
+    - A* uses a binary heap, route-identical to the old one and about 6× faster. `referenceAStar.ts` stays for the tests.
+    - Ordered ants share a cap of 6 path searches per tick.
+    - Ctrl-click selects the whole caste on screen. The group panel shows 24 cells. The unit card has Mover (Q), Detener (S) and Quitar selección (B).
+    Original scope: Selection and move: drag box (own ants only), right-click move, a `PlayerOrder` component with an AI early-out, a group info panel. Tests: box selects own ants only; a move order beats the AI and the stall nets until arrival; porters and the draft skip ordered units.
   - [ ] P3b Attack-move and attack target, reusing `selectSoldierTarget` (`AntAISystem.ts:1049-1074`); fold `dispatchAttackWave` into orders. Tests: attack-move engages an enemy in range, then resumes; an attack target persists.
   - [ ] P3c Control groups: Ctrl+digit binds, digit recalls; game speed moves to other keys. Tests: bind and recall, dead ids pruned, digits still pick at the dawn offer.
 - [ ] P4 — Factions: ownership component in targeting, damage, vision and economy; faction-filtered fog; remove first-nest assumptions (`src/game/systems/AntAISystem.ts:123-125`). Cost: expensive; foundation for P5.
