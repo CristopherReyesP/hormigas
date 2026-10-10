@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GameManager, GameStats } from '../../game/GameManager';
 import type { QuickSelectKind } from '../../game/systems/helpers/quickSelect';
 import { NotificationStack } from '../NotificationStack';
-import { buildCommands, buildModeHint, commandTargetHint, isDefenseMode, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
+import { buildCommands, buildModeHint, commandTargetHint, digHint, isDefenseMode, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
 import { CommandCard } from './CommandCard';
 import { InfoPanel } from './InfoPanel';
 import { MinimapPanel } from './MinimapPanel';
@@ -15,6 +15,7 @@ import { TouchFeedback, type CasteBurst, type OrderToast } from './TouchFeedback
 import { CoachMarks } from './CoachMarks';
 import { HAPTIC_PATTERN, feedbackText, hapticFor, vibrate } from './feedbackText';
 import { humanHint } from '../races/human/humanCommands';
+import { DigMeter } from './DigMeter';
 
 interface ConsoleProps {
   stats: GameStats;
@@ -183,15 +184,23 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   const areaHint = touch && stats.areaSelect ? 'SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus hormigas' : null;
   // A Human player placing a building: its hint first
   const placingHint = humanHint(stats, touch);
+  // Excavar: its counter rides with the tool hint; at the limit the hint turns into the refusal
+  const digging = buildMode === 'dig' && stats.activeLayer === 'underground' && stats.dig ? stats.dig : null;
+  const digLimit = digging ? digHint(digging) : null;
+  const toolHint = buildMode ? (digLimit?.text ?? buildModeHint(buildMode, touch)) : areaHint;
   // The compact HUD's hint line already says what the mode does: the feed only carries notices there
-  const modeHint = compact ? null : placingHint ?? commandTargetHint(stats.commandTarget, touch) ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint);
+  const modeHint = compact ? null : placingHint ?? commandTargetHint(stats.commandTarget, touch) ?? toolHint;
   const hint = notice?.text ?? modeHint;
-  const lineHint = touchHint({ ...stats, buildMode, touch, toolHint: placingHint });
+  const hintTone = notice?.tone ?? (digLimit && hint === digLimit.text ? digLimit.tone : undefined);
+  const hintExtra = digging && !compact && hint === toolHint ? <DigMeter status={digging} /> : null;
+  const lineHint = touchHint({ ...stats, buildMode, touch, toolHint: placingHint ?? digLimit?.text ?? null });
+  const lineExtra = digging && compact && !placingHint ? <DigMeter status={digging} /> : null;
+  const lineRefused = Boolean(digLimit && lineHint.text === digLimit.text);
   const overlayOpen = Boolean(stats.mutationOffer || stats.gameOver);
 
   return (
     <>
-      <NotificationStack notifications={stats.notifications} hint={hint} hintTone={notice?.tone} />
+      <NotificationStack notifications={stats.notifications} hint={hint} hintTone={hintTone} hintExtra={hintExtra} hideMessage={digLimit?.text} />
       <footer className="hive-console">
         <div className="console-deck" aria-hidden="true">
           <div className="console-vein" />
@@ -214,6 +223,8 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
         <TouchCommandBar
           stats={stats}
           hint={lineHint}
+          hintExtra={lineExtra}
+          hintRefused={lineRefused}
           infoOpen={infoOpen}
           onToggleInfo={() => setInfoOpen((o) => !o)}
           onQuickSelect={quickSelect}

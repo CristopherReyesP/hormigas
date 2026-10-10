@@ -57,6 +57,7 @@ import { combatVfxFor } from '../vfx/CombatVfx';
 import { drawCombatVfx } from '../vfx/drawCombatVfx';
 import { HumanRenderer } from './HumanRenderer';
 import { drawDefenses, drawGhost, drawScoutMarks, drawWaveFx, drawWaveUnits, type WaveOverlay } from '../render/waveFunArt';
+import { drawDigOverlay, type DigOverlay } from '../render/digOverlayArt';
 import type { IntroClock, Vec2 } from '../render/introTimeline';
 import type { IntroArrival } from '../render/introArrival';
 import { LeapTracker, type LeapDraw } from '../render/leapMotion';
@@ -677,6 +678,13 @@ export class RenderSystem {
   /** The defense build ghost and the scouted breach, from the GameManager */
   setWaveOverlayProvider(fn: () => WaveOverlay): void {
     this.getWaveOverlay = fn;
+  }
+
+  private getDigOverlay: (() => DigOverlay | null) | null = null;
+
+  /** The dig tool's diggable area, queue order and stroke preview (null while it is off) */
+  setDigOverlayProvider(fn: () => DigOverlay | null): void {
+    this.getDigOverlay = fn;
   }
 
   setFarmStatusProvider(fn: () => string): void {
@@ -1306,6 +1314,10 @@ export class RenderSystem {
       }
     }
     ctx.globalAlpha = 1;
+
+    // === PASS 3.2: Dig tool overlay (only while Excavar is on) ===
+    const digOverlay = this.getDigOverlay?.() ?? null;
+    if (digOverlay) drawDigOverlay(ctx, digOverlay, startX, startY, endX, endY);
 
     // === PASS 3.5: Underground ambient particles ===
     // Update particle timer and spawn new particles
