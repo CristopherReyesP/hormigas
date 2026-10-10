@@ -17,11 +17,19 @@ export function selectionTitle(sel: SelectedEntityInfo): { name: string; faction
     case 'crystal_hive': return { name: 'Colmena de Cristal', faction: 'Colmena rival · base' };
     case 'crystal_unit': return { name: CRYSTAL_UNIT_NAME[sel.crystalKind ?? 'drone'], faction: 'Colmena de Cristal' };
     case 'crystal_spire': return { name: SPIRE_NAME[sel.spireKind ?? 'forge'], faction: 'Colmena de Cristal · aguja' };
-    case 'food': return { name: FOOD_LABEL[sel.foodType ?? 'leaf'] ?? 'Comida', faction: 'Recurso' };
+    case 'food': return { name: FOOD_LABEL[sel.foodType ?? 'leaf'] ?? 'Comida', faction: 'Recurso · comida' };
+    case 'mineral': return { name: 'Cristal mineral', faction: 'Recurso · yacimiento' };
     case 'human_unit':
     case 'human_building':
       return { name: sel.human?.name ?? 'Humano', faction: sel.human?.faction ?? 'Humanos' };
   }
+}
+
+/** "180/250": what a food source or mineral node has left of what it held. */
+export function resourceAmountText(sel: SelectedEntityInfo): string {
+  const left = Math.round((sel.type === 'mineral' ? sel.mineralAmount : sel.foodAmount) ?? 0);
+  const max = Math.round((sel.type === 'mineral' ? sel.mineralMax : sel.foodMax) ?? left);
+  return `${left}/${Math.max(left, max)}`;
 }
 
 /** The health bar a selected entity shows, whatever kind it is. */
@@ -43,7 +51,7 @@ export function infoSummary(stats: GameStats, details: ColonyDetails): string {
     const health = selectionHealth(sel);
     const shield = sel.shield ? ` · ESCUDO ${Math.round(sel.shield.current)}/${Math.round(sel.shield.max)}` : '';
     if (health) return `${name}${shield} · VIDA ${Math.round(health.current)}/${Math.round(health.max)}`;
-    if (sel.type === 'food') return `${name} · ${Math.round(sel.foodAmount ?? 0)}`;
+    if (sel.type === 'food' || sel.type === 'mineral') return `${name} · ${resourceAmountText(sel)}`;
     return name;
   }
   if (stats.activeLayer === 'underground') {

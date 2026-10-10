@@ -75,16 +75,19 @@ function PantryStock({ stored, capacity, incoming }: { stored: number; capacity:
   );
 }
 
-/** The minerals bank: ore the miners delivered, the currency for structures (never food). */
-function MineralStock({ stored }: { stored: number }) {
+/** The minerals bank: ore the miners delivered, the currency for structures (never food), and who is mining. */
+function MineralStock({ stored, miners }: { stored: number; miners: number }) {
   const flash = useFlashOnChange(stored);
   return (
     <span
       className="strip-item strip-minerals"
-      title="Minerales: cristal que extraen las obreras de los yacimientos. Paga las estructuras; no se come."
+      title={`Minerales ${stored} · ${miners} ${miners === 1 ? 'minera' : 'mineras'}. Cristal que extraen las obreras de los yacimientos. Paga las estructuras; no se come.`}
     >
       <PixelIcon name="mineral" />
-      <span className={`strip-value ${flash}`}>{stored}</span>
+      <span className={`strip-value strip-minerals-value ${flash}`}>{stored}</span>
+      <span className="strip-miners" aria-label={`${miners} ${miners === 1 ? 'minera' : 'mineras'}`}>
+        <PixelIcon name="worker" />{miners}
+      </span>
     </span>
   );
 }
@@ -131,7 +134,7 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
         <FoodResource icon="fungus" value={stats.mushroomStored} label="Hongos" active={eatFirst === 'mushroom'} onSelect={select('mushroom')} />
         <FoodResource icon="meat" value={stats.meatStored} label="Carne" active={eatFirst === 'meat'} onSelect={select('meat')} />
         <PantryStock stored={stats.pantryStored} capacity={stats.pantryCapacity} incoming={stats.entranceFoodStored ?? 0} />
-        <MineralStock stored={stats.mineralsStored ?? 0} />
+        <MineralStock stored={stats.mineralsStored ?? 0} miners={stats.miners?.count ?? 0} />
         <span className="strip-sep" aria-hidden="true" />
         <span className="strip-pop">
         <Resource icon="ant" value={stats.antCount} label="Población total" tone="var(--chrome-text)" />

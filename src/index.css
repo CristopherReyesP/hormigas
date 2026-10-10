@@ -145,6 +145,26 @@ button:focus-visible {
 .flash-a { animation: stat-flash-a 0.3s steps(2, end); }
 .flash-b { animation: stat-flash-b 0.3s steps(2, end); }
 
+/* Ore banked: the minerals counter blinks cyan, longer than the other stats */
+@keyframes mineral-flash-a {
+  0%, 24%, 50%, 74% { color: #7fe8f0; text-shadow: 0 0 4px #2fa3b8; }
+  25%, 49%, 75%, 100% { color: inherit; text-shadow: none; }
+}
+@keyframes mineral-flash-b {
+  0%, 24%, 50%, 74% { color: #7fe8f0; text-shadow: 0 0 4px #2fa3b8; }
+  25%, 49%, 75%, 100% { color: inherit; text-shadow: none; }
+}
+.strip-minerals-value.flash-a { animation: mineral-flash-a 0.8s steps(1, end); }
+.strip-minerals-value.flash-b { animation: mineral-flash-b 0.8s steps(1, end); }
+.strip-miners {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  color: #9a8088;
+  font-size: 0.85em;
+}
+.strip-miners .pixel-icon { width: 12px; height: 12px; }
+
 /* ── Dithered overlay (checkerboard, no smooth alpha blur) ── */
 .dither-overlay {
   background-image: repeating-conic-gradient(
@@ -1821,7 +1841,7 @@ button:focus-visible {
 
 /* Portrait closed: leaves, the pantry and the wave countdown */
 .hud-layer--phone-portrait .top-strip:not(.top-strip--open) :is(
-  .strip-food--fungus, .strip-food--meat, .strip-food-badge, .strip-minerals, .strip-day, .strip-phase, .strip-time
+  .strip-food--fungus, .strip-food--meat, .strip-food-badge, .strip-miners, .strip-day, .strip-phase, .strip-time
 ) {
   display: none;
 }

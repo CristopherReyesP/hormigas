@@ -295,7 +295,7 @@ describe('nest command card', () => {
     expect(commands.map((c) => c?.id ?? null)).toEqual([
       'garrison-down', 'garrison-up', 'diet-leaf', 'diet-mushroom', 'diet-meat',
       'upgrade-carry', 'upgrade-damage', null, null, null,
-      null, 'defenses-page', null, null, 'back',
+      null, 'defenses-page', 'miners-down', 'miners-up', 'back',
     ]);
     commands[1]!.run();
     expect(gm.setGarrisonSize).toHaveBeenCalledWith(3);

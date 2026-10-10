@@ -42,6 +42,18 @@ import {
   soundRetreatHorn,
   stopAnts,
 } from './systems/helpers/playerOrders';
+import {
+  findResourceAt,
+  foodOrderNoun,
+  issueGatherOrders,
+  issueMineOrders,
+  isFoodSource,
+  isMineralNode,
+  minersOn,
+  workersNoun,
+  workersOrderedTo,
+} from './systems/helpers/resourceOrders';
+import type { MinerStatus } from './economy/minerAllocation';
 import { FoodRespawnSystem } from './systems/FoodRespawnSystem';
 import { FogOfWarSystem } from './systems/FogOfWarSystem';
 import { EggIncubationSystem } from './systems/EggIncubationSystem';
@@ -101,6 +113,7 @@ import {
   type HungerComponent,
   type CarryingComponent,
   type FoodSourceComponent,
+  type MineralComponent,
   type HealthComponent,
   type BeetleComponent,
   type BeetleDenComponent,
@@ -168,6 +181,9 @@ import {
 
 /** Mixed into the run seed so the crater does not share the dawn offers' draws. */
 const CRATER_SEED_SALT = 0x9e3779b9;
+/** Tiles of known ground around the home mineral field, past its nodes */
+const HOME_FIELD_REVEAL_MARGIN = 2;
+
 /** Mixed into the run seed so the mineral fields draw from their own stream. */
 const MINERAL_SEED_SALT = 0x85ebca6b;
 /** Mixed into the run seed so the Human base site draws from its own stream. */
@@ -177,12 +193,12 @@ const HUMAN_SITE_CRATER_DISTANCE = 30;
 /** Tiles around the Human command center that must be walkable */
 const HUMAN_SITE_CLEAR_RADIUS = 4;
 
-/** A command card order that waits for a click: Mover (Q) or Atacar (A). */
-export type CommandTarget = 'move' | 'attack';
+/** A command card order that waits for a click: Mover (Q), Atacar (A), Recolectar or Minar. */
+export type CommandTarget = 'move' | 'attack' | 'gather' | 'mine';
 
 export interface SelectedEntityInfo {
   entityId: EntityId;
-  type: 'ant' | 'food' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'crystal_hive' | 'crystal_unit' | 'crystal_spire'
+  type: 'ant' | 'food' | 'mineral' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'crystal_hive' | 'crystal_unit' | 'crystal_spire'
     | 'human_unit' | 'human_building';
   position: { x: number; y: number };
   // Ant-specific
@@ -194,6 +210,13 @@ export interface SelectedEntityInfo {
   // Food-specific
   foodAmount?: number;
   foodType?: string;
+  /** What the source held when it appeared */
+  foodMax?: number;
+  // Mineral node: ore left of its total
+  mineralAmount?: number;
+  mineralMax?: number;
+  /** Food source or mineral node: workers gathering or mining it now */
+  workers?: number;
   // Nest-specific
   foodStored?: number;
   mushroomStored?: number;
@@ -349,6 +372,8 @@ export interface GameStats {
   entranceFoodStored: number;
   /** The minerals bank: what miners delivered, the currency for structures */
   mineralsStored: number;
+  /** Workers on the mineral fields and the colony's miner target (Mineras: N) */
+  miners?: { count: number; target: number; auto: boolean; ordered: number };
   beetleCount: number;
   beetleDenCount: number;
   cricketCount: number;
@@ -806,8 +831,9 @@ export class GameManager {
       return;
     }
     if (this.armedCommand) {
-      // Mover or Atacar was pressed: this click is the order's target
+      // Mover, Atacar, Recolectar or Minar was pressed: this click is the order's target
       if (this.armedCommand === 'attack') this.attackAt(screenX, screenY);
+      else if (this.armedCommand === 'gather' || this.armedCommand === 'mine') this.resourceOrderAt(screenX, screenY, this.armedCommand);
       else this.commandAt(screenX, screenY);
       return;
     }
@@ -1100,6 +1126,14 @@ export class GameManager {
     for (const field of fields) {
       for (const node of field.nodes) createMineral(this.world, node.x, node.y);
     }
+    // The colony knows its home field from the start: the seeded field nearest
+    // the nest is on the map (explored), so the miners have somewhere to go
+    // and the player sees where the crystal is. Fields farther out still have
+    // to be found by scouts and foragers.
+    const home = fields
+      .filter((field) => !field.natural)
+      .sort((a, b) => Math.hypot(a.center.x - nest.x, a.center.y - nest.y) - Math.hypot(b.center.x - nest.x, b.center.y - nest.y))[0];
+    if (home) this.visibilityGrid.revealCircle(home.center.x, home.center.y, MINERAL_FIELD_RADIUS + HOME_FIELD_REVEAL_MARGIN);
   }
 
   /** Tile where the meteorite struck (crater center); fixed for the whole run. */
@@ -1556,6 +1590,16 @@ export class GameManager {
     this.armCommand('attack');
   }
 
+  /** Recolectar: arm a gather order; the next click or tap on a food source is its target. */
+  armGatherTarget(): void {
+    this.armCommand('gather');
+  }
+
+  /** Minar: arm a mine order; the next click or tap on a mineral node is its target. */
+  armMineTarget(): void {
+    this.armCommand('mine');
+  }
+
   private armCommand(command: CommandTarget): void {
     this.armedCommand = this.activeLayer === 'surface' && this.selectionSystem.getSelectedAnts().length > 0 ? command : null;
     this.publishStats();
@@ -1600,6 +1644,55 @@ export class GameManager {
     this.orderPings.push({ ...result.target, kind: 'attack', targetId });
     this.publishStats();
     return result.ordered.length;
+  }
+
+  /**
+   * Minar: the selected workers mine `nodeId` in a loop until ordered
+   * otherwise. Returns how many took the order.
+   */
+  orderSelectedMine(nodeId: EntityId): number {
+    const ants = this.selectedAntsForOrder();
+    if (ants.length === 0 || !isMineralNode(this.world, nodeId)) return 0;
+    const ordered = issueMineOrders(this.world, ants, nodeId, this.transitSystem);
+    this.acknowledgeResourceOrder(ordered.length, nodeId, 'mine', 'minar');
+    return ordered.length;
+  }
+
+  /**
+   * Recolectar: the selected workers carry food from `foodId` to the pantry
+   * and come back, until it is empty. Returns how many took the order.
+   */
+  orderSelectedGather(foodId: EntityId): number {
+    const ants = this.selectedAntsForOrder();
+    if (ants.length === 0 || !isFoodSource(this.world, foodId)) return 0;
+    const ordered = issueGatherOrders(this.world, ants, foodId, this.transitSystem);
+    const type = this.world.getComponent<FoodSourceComponent>(foodId, COMPONENT.FOOD_SOURCE)?.resourceType;
+    this.acknowledgeResourceOrder(ordered.length, foodId, 'gather', `recolectar ${foodOrderNoun(type)}`);
+    return ordered.length;
+  }
+
+  /** The marker on the target and the toast ("3 obreras → minar"); a refusal when no worker took it. */
+  private acknowledgeResourceOrder(count: number, targetId: EntityId, kind: 'gather' | 'mine', verb: string): void {
+    if (count === 0) {
+      this.world.pushNotification('warning', kind === 'mine' ? 'Solo las obreras pueden minar.' : 'Solo las obreras pueden recolectar.', 'resource-order-refused', 1200);
+      this.publishStats();
+      return;
+    }
+    const at = this.world.getComponent<PositionComponent>(targetId, COMPONENT.POSITION);
+    if (at) this.orderPings.push({ x: Math.round(at.x), y: Math.round(at.y), kind, targetId });
+    this.world.pushNotification('info', `${workersNoun(count)} → ${verb}`);
+    emitAudio({ type: 'order', kind: 'move' });
+    this.publishStats();
+  }
+
+  /** Mineras: N, the autonomous miners the colony keeps on its fields (null: automatic). */
+  setMinerTarget(target: number | null): void {
+    this.antAISystem.setMinerTarget(target);
+    this.publishStats();
+  }
+
+  getMinerStatus(): MinerStatus {
+    return this.antAISystem.getMinerStatus();
   }
 
   /** Mantener posición: the selected ants stand still and fight only what is in reach. */
@@ -1661,14 +1754,53 @@ export class GameManager {
     this.publishStats();
   }
 
-  /** Right tap (or a click with Mover armed): attack the enemy under the pointer, else move there. */
+  /**
+   * Right tap (or a click with Mover armed): attack the enemy under the
+   * pointer, mine the mineral node or gather from the food source under it,
+   * else move there.
+   */
   private commandAt(screenX: number, screenY: number): void {
     // Orders run on the surface only for now; right-click does nothing below
     if (this.activeLayer !== 'surface') return;
     const at = this.screenToEntity(screenX, screenY);
-    const enemy = this.armedCommand === 'move' ? null : this.enemyAt(at);
-    if (enemy !== null) this.orderSelectedAttack(enemy);
-    else this.orderSelectedMove(Math.round(at.x), Math.round(at.y));
+    const moveOnly = this.armedCommand === 'move';
+    const enemy = moveOnly ? null : this.enemyAt(at);
+    if (enemy !== null) {
+      this.orderSelectedAttack(enemy);
+      return;
+    }
+    const resource = moveOnly ? null : this.resourceAt(at);
+    if (resource !== null && this.selectionHasWorkers()) {
+      if (isMineralNode(this.world, resource)) this.orderSelectedMine(resource);
+      else this.orderSelectedGather(resource);
+      return;
+    }
+    this.orderSelectedMove(Math.round(at.x), Math.round(at.y));
+  }
+
+  /** A click or tap with Recolectar or Minar armed: the source under the pointer, or a hint when it missed. */
+  private resourceOrderAt(screenX: number, screenY: number, kind: 'gather' | 'mine'): void {
+    const at = this.screenToEntity(screenX, screenY);
+    const resource = this.resourceAt(at);
+    const fits = resource !== null && (kind === 'mine' ? isMineralNode(this.world, resource) : isFoodSource(this.world, resource));
+    if (!fits) {
+      // Keep the order armed: the player can try again
+      this.world.pushNotification('warning', kind === 'mine' ? 'Toca un yacimiento de cristal.' : 'Toca una fuente de comida.', 'resource-order-miss', 1200);
+      this.publishStats();
+      return;
+    }
+    if (kind === 'mine') this.orderSelectedMine(resource);
+    else this.orderSelectedGather(resource);
+  }
+
+  /** The mineral node or food source drawn under the pointer, on explored ground. */
+  private resourceAt(at: { x: number; y: number }): EntityId | null {
+    const fog = this.visibilityGrid;
+    return findResourceAt(this.world, at, (x, y) => fog.isExplored(x, y));
+  }
+
+  private selectionHasWorkers(): boolean {
+    return this.selectionSystem.getSelectedAnts().some((id) => this.world.getComponent<AntComponent>(id, COMPONENT.ANT)?.role === AntRole.Worker);
   }
 
   /** A click with Atacar armed: the enemy under the pointer, or an attack-move to the ground. */
@@ -2659,6 +2791,21 @@ export class GameManager {
         position: { x: Math.round(pos.x), y: Math.round(pos.y) },
         foodAmount: food.amount,
         foodType: food.resourceType || 'leaf',
+        foodMax: Math.max(food.amount, food.maxAmount ?? food.amount),
+        workers: this.gatherersOf(selectedId),
+      };
+    }
+
+    // A mineral node: ore left and the workers mining it
+    const mineral = this.world.getComponent<MineralComponent>(selectedId, COMPONENT.MINERAL);
+    if (mineral) {
+      return {
+        entityId: selectedId,
+        type: 'mineral',
+        position: { x: Math.round(pos.x), y: Math.round(pos.y) },
+        mineralAmount: mineral.amount,
+        mineralMax: mineral.maxAmount,
+        workers: minersOn(this.world, selectedId),
       };
     }
 
@@ -2678,6 +2825,20 @@ export class GameManager {
     }
 
     return null;
+  }
+
+  /** Workers taking food from this source now: on a Recolectar order or walking to it on their own. */
+  private gatherersOf(foodId: EntityId): number {
+    let n = workersOrderedTo(this.world, foodId, 'gather');
+    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.PATH)) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      if (ant.resourceOrder === 'gather' || ant.state !== AntState.GoingToFood) continue;
+      const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH)!;
+      const goal = path.waypoints[path.waypoints.length - 1];
+      const at = this.world.getComponent<PositionComponent>(foodId, COMPONENT.POSITION);
+      if (goal && at && Math.hypot(goal.x - at.x, goal.y - at.y) < 1.5) n++;
+    }
+    return n;
   }
 
   getStats(): GameStats {
@@ -2753,6 +2914,7 @@ export class GameManager {
       entranceFoodStored: Math.floor(entranceFoodStored),
       pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
       mineralsStored: Math.floor(this.world.minerals.stored),
+      miners: this.minerStats(),
       beetleCount: this.world.query(COMPONENT.BEETLE).length,
       beetleDenCount: this.world.query(COMPONENT.BEETLE_DEN).length,
       cricketCount: this.world.query(COMPONENT.CRICKET).length,
@@ -2787,6 +2949,11 @@ export class GameManager {
       lastMutationPick: this.lastMutationPick,
       introPlaying: this.introClock.isPlaying(),
     };
+  }
+
+  private minerStats(): GameStats['miners'] {
+    const status = this.antAISystem.getMinerStatus();
+    return { count: status.miners, target: status.target, auto: status.auto, ordered: status.ordered };
   }
 
   /** Prune expired notifications and return the live ones (newest last) */

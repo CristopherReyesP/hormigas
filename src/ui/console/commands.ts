@@ -74,6 +74,7 @@ export type NoticeTone = 'hint' | 'danger';
 type Slot = CommandDef | null;
 
 const MAX_GARRISON = 8;
+const MAX_MINERS = 30;
 const MAX_SPEED = 3;
 
 const BREED_ORDER: ReadonlyArray<{ role: AntRole; icon: IconName }> = [
@@ -284,6 +285,16 @@ function buildTool(ctx: CommandContext, tool: BuildToolDef, badge?: number): Com
 
 /** Hint above the console while a card order waits for its target click. */
 export function commandTargetHint(target: GameStats['commandTarget'], touch = false): string | null {
+  if (target === 'gather') {
+    return touch
+      ? 'RECOLECTAR: toca una fuente de comida · toca Recolectar otra vez para cancelar'
+      : 'RECOLECTAR: haz clic en una fuente de comida · el clic derecho también sirve · Esc cancela';
+  }
+  if (target === 'mine') {
+    return touch
+      ? 'MINAR: toca un yacimiento de cristal · toca Minar otra vez para cancelar'
+      : 'MINAR: haz clic en un yacimiento de cristal · el clic derecho también sirve · Esc cancela';
+  }
   if (touch) {
     if (target === 'move') return 'MOVER: toca el destino · toca Mover otra vez para cancelar';
     if (target === 'attack') return 'ATACAR: toca un enemigo para atacarlo, o el suelo para avanzar peleando · toca Atacar otra vez para cancelar';
@@ -321,8 +332,28 @@ function unitPage(ctx: CommandContext): Slot[] {
       active: ctx.stats.commandTarget === 'move',
       run: act(ctx, () => armOrCancel(ctx, 'move')),
     },
-    null,
-    null,
+    {
+      id: 'gather-order',
+      label: 'Recolectar',
+      icon: 'leaf',
+      description: ctx.touch
+        ? `Pulsa Recolectar y toca una hoja, un hongo o carne: las obreras de la selección la llevan a la despensa y vuelven por más hasta agotarla. También puedes tocar la comida directamente.`
+        : `Pulsa Recolectar y haz clic en una hoja, un hongo o carne: las obreras de la selección la llevan a la despensa y vuelven por más hasta agotarla. El clic derecho sobre la comida hace lo mismo.`,
+      altKeys: ctx.touch ? 'tocar la comida' : 'clic derecho en la comida',
+      active: ctx.stats.commandTarget === 'gather',
+      run: act(ctx, () => armOrCancel(ctx, 'gather')),
+    },
+    {
+      id: 'mine-order',
+      label: 'Minar',
+      icon: 'mineral',
+      description: ctx.touch
+        ? `Pulsa Minar y toca un cristal: las obreras de la selección lo minan y llevan el mineral al nido sin parar, hasta que les des otra orden. También puedes tocar el cristal directamente.`
+        : `Pulsa Minar y haz clic en un cristal: las obreras de la selección lo minan y llevan el mineral al nido sin parar, hasta que les des otra orden. El clic derecho sobre el cristal hace lo mismo.`,
+      altKeys: ctx.touch ? 'tocar el cristal' : 'clic derecho en el cristal',
+      active: ctx.stats.commandTarget === 'mine',
+      run: act(ctx, () => armOrCancel(ctx, 'mine')),
+    },
     null,
     ctx.touch ? groupsButton(ctx) : null,
     {
@@ -341,7 +372,7 @@ function unitPage(ctx: CommandContext): Slot[] {
       id: 'stop',
       label: 'Detener',
       icon: 'stop',
-      description: 'Cancela las órdenes que diste a la selección: mover, atacar, mantener posición y la guardia. Las hormigas vuelven a su trabajo.',
+      description: 'Cancela las órdenes que diste a la selección: mover, atacar, recolectar, minar, mantener posición y la guardia. Las hormigas vuelven a su trabajo.',
       run: act(ctx, () => {
         const stopped = ctx.gm.stopSelectedAnts();
         ctx.notify(stopped > 0 ? `${stopped} ${stopped === 1 ? 'hormiga se detiene' : 'hormigas se detienen'}` : 'No hay órdenes que cancelar.');
@@ -366,11 +397,58 @@ function unitPage(ctx: CommandContext): Slot[] {
   ];
 }
 
-/** Mover / Atacar: arm the order; on a touch screen pressing the armed one again cancels it (there is no Esc). */
-function armOrCancel(ctx: CommandContext, target: 'move' | 'attack'): void {
-  if (ctx.touch && ctx.stats.commandTarget === target) ctx.gm.cancelCommandTarget();
+/** Mover / Atacar / Recolectar / Minar: arm the order; pressing the armed one again cancels it (touch has no Esc). */
+function armOrCancel(ctx: CommandContext, target: 'move' | 'attack' | 'gather' | 'mine'): void {
+  if (ctx.stats.commandTarget === target && (ctx.touch || target === 'gather' || target === 'mine')) ctx.gm.cancelCommandTarget();
   else if (target === 'move') ctx.gm.armMoveTarget();
+  else if (target === 'gather') ctx.gm.armGatherTarget();
+  else if (target === 'mine') ctx.gm.armMineTarget();
   else ctx.gm.armAttackTarget();
+}
+
+/** Mineras: N. The miner target the colony keeps on its fields, with big − and + buttons. */
+function minerTargetButtons(ctx: CommandContext): [CommandDef, CommandDef] {
+  const miners = ctx.stats.miners ?? { count: 0, target: 0, auto: true, ordered: 0 };
+  const about = `Mineras: ${miners.target}${miners.auto ? ' (automático)' : ''}. Obreras que la colonia mantiene minando por su cuenta en los yacimientos descubiertos; ahora hay ${miners.count} minando. Las que mandas a Minar no cuentan.`;
+  return [
+    {
+      id: 'miners-down',
+      label: 'Menos mineras',
+      icon: 'minus',
+      description: about,
+      badge: String(miners.target),
+      disabled: miners.target <= 0,
+      disabledReason: 'Ya no hay mineras automáticas.',
+      run: act(ctx, () => ctx.gm.setMinerTarget(miners.target - 1)),
+    },
+    {
+      id: 'miners-up',
+      label: 'Más mineras',
+      icon: 'plus',
+      description: about,
+      badge: String(miners.target),
+      disabled: miners.target >= MAX_MINERS,
+      run: act(ctx, () => ctx.gm.setMinerTarget(miners.target + 1)),
+    },
+  ];
+}
+
+/** A mineral node is selected: its card sets the miner target. */
+function isMineralSelected(stats: GameStats): boolean {
+  return stats.activeLayer === 'surface' && stats.selectedEntity?.type === 'mineral';
+}
+
+/** Mineral node card: Menos / Más mineras, time controls and Quitar selección. */
+function mineralPage(ctx: CommandContext): Slot[] {
+  const [down, up] = minerTargetButtons(ctx);
+  return [
+    down, up, null, null, null,
+    null, null, null, null, null,
+    ...timeCommands(ctx),
+    null,
+    null,
+    deselect(ctx),
+  ];
 }
 
 /** Touch stand-in for a left drag: the next finger drag draws a selection box instead of moving the camera. */
@@ -658,8 +736,7 @@ function colonyPage(ctx: CommandContext): Slot[] {
     diet('meat', 'carne', 'meat'),
     ...[0, 1, 2, 3, 4, 5].map((i) => upgradeCommand(ctx, upgrades[i])),
     defensesButton(ctx),
-    null,
-    null,
+    ...minerTargetButtons(ctx),
     {
       id: 'back',
       label: 'Volver',
@@ -678,6 +755,7 @@ export function buildCommands(ctx: CommandContext): Slot[] {
       ? ctx.page === 'colony' ? colonyPage(ctx) : ctx.page === 'defenses' ? defensesPage(ctx) : nestRoot(ctx)
       : hasUnitSelection(ctx.stats) ? ctx.page === 'groups' ? groupsPage(ctx) : unitPage(ctx)
       : isDenSelected(ctx.stats) ? denPage(ctx)
+      : isMineralSelected(ctx.stats) ? mineralPage(ctx)
       : ctx.page === 'defenses' ? defensesPage(ctx)
       : surfaceRoot(ctx);
   return Array.from({ length: CARD_SLOTS }, (_, i) => slots[i] ?? null);

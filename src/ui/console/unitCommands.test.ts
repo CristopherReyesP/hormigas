@@ -78,7 +78,7 @@ describe('unit command card', () => {
     const { ctx } = context({ selectedGroup: GROUP });
     const slots = ids(ctx);
     expect(slots).toEqual([
-      'move', null, null, null, null,
+      'move', 'gather-order', 'mine-order', null, null,
       'attack', 'stop', 'hold', null, null,
       'pause', 'speed', null, null, 'deselect',
     ]);
@@ -164,7 +164,7 @@ describe('the card on a touch screen', () => {
 
   it('adds Seleccionar área and Asignar grupo to the unit card, and Seleccionar área to the colony card', () => {
     expect(ids(touch({ selectedGroup: GROUP }).ctx)).toEqual([
-      'move', null, null, null, 'groups-page',
+      'move', 'gather-order', 'mine-order', null, 'groups-page',
       'attack', 'stop', 'hold', null, null,
       'pause', 'speed', 'area-select', null, 'deselect',
     ]);
