@@ -92,6 +92,7 @@ import { FungusFarmSystem } from './systems/FungusFarmSystem';
 import { farmGrowthProgress, farmTileStatusLabel, isFarmTileReady } from './render/fungusGrowth';
 import { UndergroundHealingSystem } from './systems/UndergroundHealingSystem';
 import { resolveRunOutcome, type RunOutcome } from './run/RunOutcome';
+import { CoreDamageLedger, coreKindOf, type DeathCause } from './run/deathCause';
 import { nightMilestone } from './run/nightMilestones';
 import { loadBestNight, recordNight } from './run/nightRecord';
 import { DayNightSystem } from './systems/DayNightSystem';
@@ -166,6 +167,7 @@ import {
 } from './components/components';
 import {
   INITIAL_ANTS,
+  QUEEN_STARVATION_DAMAGE,
   INITIAL_FOOD_CLUSTERS,
   FOOD_PER_CLUSTER_MIN,
   FOOD_PER_CLUSTER_MAX,
@@ -347,6 +349,10 @@ export interface GameOverStats {
   rivalCoreDestroyed?: 'crystal' | 'human';
   /** The race the player played, when it is not the Swarm (the end screen speaks for it) */
   playerRace?: RaceId;
+  /** A defeat: what took the core (the queen, the command center, the Hive) down */
+  cause?: DeathCause;
+  /** A defeat: the day and the phase it happened in ("Noche 4") */
+  diedOn?: { day: number; phase: 'day' | 'night' };
   /** A Crystal player's run: units crystallized and structures raised */
   crystal?: { unitsMade: number; structuresBuilt: number };
   /** Nights the colony lived through (the night on now does not count) */
@@ -563,6 +569,8 @@ export class GameManager {
   private invasionSystem!: UndergroundInvasionSystem;
   /** Watches the nest for invaders and raises the alerts the player must not miss on the surface */
   private readonly nestAlert = new NestAlertTracker();
+  /** What is taking the core's health away (hunger, which enemies), for the end screen */
+  private coreLedger: CoreDamageLedger | null = null;
   private nestAlertClock = 0;
   /** The tutorial holds the calm: no wave, no defenses firing, no nest alarm */
   private tutorialCalm = false;
@@ -1711,6 +1719,8 @@ export class GameManager {
     // them, so the surface came back empty
     if (this.introClock.isPlaying()) return;
     const previousPhase = this.dayNightSystem.getPhase();
+    const ledger = this.coreLedgerNow();
+    ledger?.begin(this.world, this.coreEntity(), this.queenStarving());
     try {
       // Managers stubbed without the stream (tests) tick on the plain Math.random
       if (this.simRandom) this.simRandom.run(() => this.world.update(dt));
@@ -1719,6 +1729,7 @@ export class GameManager {
       console.error('[GameManager] System update error:', e);
     }
 
+    ledger?.end(this.world, dt, this.queenStarving(), QUEEN_STARVATION_DAMAGE);
     this.updateNestAlert(dt);
     this.checkGameOver();
     const dayPhase = this.dayNightSystem.getPhase();
@@ -1791,6 +1802,28 @@ export class GameManager {
     return true;
   }
 
+  /** The ledger of the run's core; managers built without fields (tests) get one on first use */
+  private coreLedgerNow(): CoreDamageLedger | null {
+    if (!this.world) return null;
+    this.coreLedger ??= new CoreDamageLedger(coreKindOf(this.runSetup?.playerRace ?? 'swarm'));
+    return this.coreLedger;
+  }
+
+  /** The run's life: the queen, the command center or the Hive (null once gone) */
+  private coreEntity(): EntityId | null {
+    if (this.humanPlayer) return this.humanPlayer.coreId;
+    if (this.crystal) return this.crystal.system.hive();
+    return this.world.query(COMPONENT.QUEEN_ENTITY)[0] ?? null;
+  }
+
+  /** The Swarm queen's hunger is at 0: she is losing health to it */
+  private queenStarving(): boolean {
+    if (this.humanPlayer || this.crystal) return false;
+    const id = this.world.query(COMPONENT.QUEEN_ENTITY)[0];
+    const queen = id !== undefined ? this.world.getComponent<QueenEntityComponent>(id, COMPONENT.QUEEN_ENTITY) : undefined;
+    return queen !== undefined && queen.hunger <= 0;
+  }
+
   /** Queen death takes precedence over the rival core falling on the same tick. */
   private checkGameOver(): void {
     if (this.gameOver) return;
@@ -1820,6 +1853,12 @@ export class GameManager {
       build: summarizeMutationBuild(this.runModifiers.getAppliedMutations()),
       ...(this.humanPlayer ? { playerRace: 'human' as const } : {}),
       ...(this.crystal ? { playerRace: 'crystal' as const, crystal: this.crystal.system.stats() } : {}),
+      ...(outcome === 'defeat'
+        ? {
+          cause: this.coreLedgerNow()?.cause() ?? { kind: 'unknown' as const, core: coreKindOf(this.runSetup?.playerRace ?? 'swarm') },
+          diedOn: { day: this.dayNightSystem.getDayNumber(), phase: this.dayNightSystem.getPhase() },
+        }
+        : {}),
       ...(outcome === 'victory' && coreDestroyed
         ? { rivalCoreDestroyed: this.rivalRace === 'human' ? 'human' as const : 'crystal' as const, ...(this.rivalRace === 'crystal' ? { hiveDestroyed: true as const } : {}) }
         : {}),
