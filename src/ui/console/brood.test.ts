@@ -74,6 +74,11 @@ describe('brood pipeline', () => {
     expect(pipeline.issues[0].text).toBe('Faltan 3 de comida en la despensa para un huevo');
   });
 
+  it('adds the entrance pile to the missing amount when food is still on its way down', () => {
+    const pipeline = deriveBroodPipeline(snapshot({ pantry: { stored: 12.7, capacity: 450, tiles: 9 }, surfaceStock: 30 }), KEYS);
+    expect(pipeline.issues[0].text).toBe('Faltan 3 de comida en la despensa para un huevo (30 en la entrada)');
+  });
+
   it('points at the Storage tool when there is no pantry at all', () => {
     const pipeline = deriveBroodPipeline(snapshot({ pantry: { stored: 0, capacity: 0, tiles: 0 }, surfaceStock: 20 }), KEYS);
     expect(pipeline.issues[0].text).toBe('Sin despensa: marca casillas con Almacén (U) en el nido');
@@ -194,7 +199,21 @@ describe('breed button state', () => {
 
   it('is disabled with the missing amount when the pantry cannot pay', () => {
     const state = breedButtonState(AntRole.Soldier, snapshot({ pantry: { stored: 12.9, capacity: 450, tiles: 9 } }));
-    expect(state).toMatchObject({ affordable: false, disabled: true, reason: 'Falta comida en la despensa: hay 12 de 35.' });
+    expect(state).toMatchObject({
+      affordable: false,
+      disabled: true,
+      reason: 'Falta comida en la despensa: hay 12 de 35. Recolecta comida en la superficie.',
+    });
+  });
+
+  it('says the food the top bar counts is still at the entrance, on its way down', () => {
+    const state = breedButtonState(AntRole.Worker, snapshot({ pantry: { stored: 0, capacity: 450, tiles: 9 }, surfaceStock: 49 }));
+    expect(state.reason).toBe('Falta comida en la despensa: hay 0 de 20. Hay 49 en la entrada: las obreras la bajan a la despensa.');
+  });
+
+  it('points at the storage designation when there is no pantry at all', () => {
+    const state = breedButtonState(AntRole.Worker, snapshot({ pantry: { stored: 0, capacity: 0, tiles: 0 }, surfaceStock: 49 }));
+    expect(state.reason).toBe('Falta comida en la despensa: hay 0 de 20. Marca casillas de Almacén en el nido.');
   });
 
   it('treats a fractional pantry the way the game charges it', () => {

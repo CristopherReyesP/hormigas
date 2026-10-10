@@ -114,7 +114,7 @@ describe('surface command card', () => {
     expect(commands[6]).toMatchObject({
       cost: { amount: 35, resource: 'comida', short: true },
       disabled: true,
-      disabledReason: 'Falta comida en la despensa: hay 30 de 35.',
+      disabledReason: 'Falta comida en la despensa: hay 30 de 35. Recolecta comida en la superficie.',
     });
   });
 
@@ -129,7 +129,7 @@ describe('surface command card', () => {
     const { gm, ctx } = context();
     gm.queueBreed.mockReturnValue(false);
     buildCommands(ctx)[6]!.run();
-    expect(ctx.notify).toHaveBeenCalledWith('Falta comida en la despensa: hay 30 de 35.', 'danger');
+    expect(ctx.notify).toHaveBeenCalledWith('Falta comida en la despensa: hay 30 de 35. Recolecta comida en la superficie.', 'danger');
   });
 
   it('marks a full queue on the badge', () => {

@@ -31,7 +31,7 @@ function FoodResource({ icon, value, label, active, onSelect }: {
   onSelect?: () => void;
 }) {
   const flash = useFlashOnChange(value);
-  const where = `${label}: total de la colonia, en la entrada y en la despensa.`;
+  const where = `${label}: total de la colonia, en la entrada y en la despensa. Los huevos se pagan solo con la despensa.`;
   const title = active
     ? `${where} La colonia come esto primero.`
     : `${where} Clic para que la colonia coma esto primero.`;
@@ -51,19 +51,25 @@ function FoodResource({ icon, value, label, active, onSelect }: {
   );
 }
 
-/** The underground stock that pays for eggs, labeled so it never reads as the food totals beside it. */
-function PantryStock({ stored, capacity }: { stored: number; capacity: number }) {
+/**
+ * The underground stock that pays for eggs, labeled so it never reads as the
+ * food totals beside it. Food still at the entrance shows as "+N": the totals
+ * count it, but it buys no egg until the porters carry it down.
+ */
+function PantryStock({ stored, capacity, incoming }: { stored: number; capacity: number; incoming: number }) {
   const flash = useFlashOnChange(stored);
+  const base = 'Despensa: comida guardada bajo tierra que paga los huevos y alimenta a la reina, las nodrizas y las larvas.';
+  const title = incoming > 0
+    ? `${base} Hay ${incoming} más en la entrada: las obreras la bajan a la despensa.`
+    : base;
   return (
-    <span
-      className="strip-item strip-pantry"
-      title="Despensa: comida guardada bajo tierra que paga los huevos y alimenta a la reina, las nodrizas y las larvas."
-    >
+    <span className="strip-item strip-pantry" title={title}>
       <PixelIcon name="pantry" />
       <span className="strip-pantry-label">DESPENSA</span>
       <span className={`strip-value ${flash}`} style={stored < 1 ? { color: 'var(--chrome-warn)' } : undefined}>
         {stored}/{capacity}
       </span>
+      {incoming > 0 && <span className="strip-pantry-incoming">+{incoming} en la entrada</span>}
     </span>
   );
 }
@@ -118,7 +124,7 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
         <FoodResource icon="leaf" value={leaves} label="Hojas" active={eatFirst === 'leaf'} onSelect={select('leaf')} />
         <FoodResource icon="fungus" value={stats.mushroomStored} label="Hongos" active={eatFirst === 'mushroom'} onSelect={select('mushroom')} />
         <FoodResource icon="meat" value={stats.meatStored} label="Carne" active={eatFirst === 'meat'} onSelect={select('meat')} />
-        <PantryStock stored={stats.pantryStored} capacity={stats.pantryCapacity} />
+        <PantryStock stored={stats.pantryStored} capacity={stats.pantryCapacity} incoming={stats.entranceFoodStored ?? 0} />
         <MineralStock stored={stats.mineralsStored ?? 0} />
         <span className="strip-sep" aria-hidden="true" />
         <Resource icon="ant" value={stats.antCount} label="Población total" tone="var(--chrome-text)" />

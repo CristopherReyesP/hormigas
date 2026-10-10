@@ -89,7 +89,19 @@ function pantryIssue(s: BroodSnapshot, keys: BroodKeys): BroodIssue | null {
       ? blocked(`Despensa vacía: las obreras deben bajar comida (${s.surfaceStock} en la entrada)`)
       : blocked('Despensa vacía: recolecta comida en la superficie');
   }
-  return blocked(`Faltan ${cheapest - stored} de comida en la despensa para un huevo`);
+  const missing = `Faltan ${cheapest - stored} de comida en la despensa para un huevo`;
+  return blocked(s.surfaceStock >= 1 ? `${missing} (${s.surfaceStock} en la entrada)` : missing);
+}
+
+/**
+ * Where the missing food is: the top bar counts the entrance pile too, so a
+ * "no food" message must say that food is still on its way down.
+ */
+function pantryShortfall(stored: number, cost: number, s: BroodSnapshot): string {
+  const short = `Falta comida en la despensa: hay ${stored} de ${cost}.`;
+  if (s.pantry.tiles === 0) return `${short} Marca casillas de Almacén en el nido.`;
+  if (s.surfaceStock >= 1) return `${short} Hay ${s.surfaceStock} en la entrada: las obreras la bajan a la despensa.`;
+  return `${short} Recolecta comida en la superficie.`;
 }
 
 function layingIssue(s: BroodSnapshot): BroodIssue | null {
@@ -224,6 +236,6 @@ export function breedButtonState(role: AntRole, s: BroodSnapshot): BreedButtonSt
   if (full) {
     return { ...state, disabled: true, reason: `Cola llena: ya hay ${queued} huevos de ${ROLE_LABEL[role].toLowerCase()} en espera.` };
   }
-  if (!affordable) return { ...state, disabled: true, reason: `Falta comida en la despensa: hay ${stored} de ${cost}.` };
+  if (!affordable) return { ...state, disabled: true, reason: pantryShortfall(stored, cost, s) };
   return state;
 }
