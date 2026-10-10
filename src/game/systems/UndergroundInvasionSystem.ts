@@ -557,6 +557,13 @@ export class UndergroundInvasionSystem implements System {
     return out;
   }
 
+  /** Held (the tutorial): no wave is armed, warned of or launched; a wave already on plays out */
+  private held = false;
+
+  setHeld(held: boolean): void {
+    this.held = held;
+  }
+
   update(dt: number): void {
     // Prune dead invaders and dead draftees
     for (const id of [...this.invaders]) {
@@ -605,13 +612,13 @@ export class UndergroundInvasionSystem implements System {
     }
 
     // Late in the day, ARM tonight's wave (never while one is still inside)
-    if (phase === 'day' && !this.waveActive && !this.waveArmed
+    if (!this.held && phase === 'day' && !this.waveActive && !this.waveArmed
         && this.dayNight.getPhaseRemaining() <= INVASION_ARM_LEAD) {
       this.armWave();
     }
 
     // Half a minute out, the big warning banner
-    if (phase === 'day' && !this.waveActive && !this.warned
+    if (!this.held && phase === 'day' && !this.waveActive && !this.warned
         && this.dayNight.getPhaseRemaining() <= WAVE_WARNING_LEAD) {
       this.warnWave();
     }
@@ -623,11 +630,11 @@ export class UndergroundInvasionSystem implements System {
     }
 
     // Nightfall LAUNCHES it; the !waveActive guard means waves never stack.
-    if (nightfall && !this.waveActive) {
+    if (nightfall && !this.waveActive && !this.held) {
       this.launchWave();
     }
     // The boss night: the Crystal Queen joins whatever wave is on
-    if (nightfall && isBossNight(this.dayNight.getDayNumber())) this.launchBoss();
+    if (nightfall && !this.held && isBossNight(this.dayNight.getDayNumber())) this.launchBoss();
 
     // Drive invaders and defenders (throttled — pathfinding is not free)
     this.repathTimer -= dt;

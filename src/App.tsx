@@ -23,6 +23,14 @@ import { GameMenu } from './ui/save/GameMenu';
 import { SaveToasts } from './ui/save/SaveToasts';
 import { StartSaves } from './ui/save/StartSaves';
 import { restoreFactory, useAutosave } from './ui/save/useRunSaves';
+import { TUTORIAL_SETUP } from './game/tutorial/createTutorialGame';
+import { TutorialOverlay } from './ui/tutorial/TutorialOverlay';
+import { TutorialOffer } from './ui/tutorial/TutorialOffer';
+import { HelpCard } from './ui/tutorial/HelpCard';
+import { firstVisit } from './ui/tutorial/firstVisit';
+import { coachStorage, markCoachSeen } from './ui/console/coachMarks';
+import { deviceOf } from './ui/tutorial/steps';
+import { useTouchUi } from './ui/layout/touch';
 
 const DEFAULT_STATS: GameStats = {
   antCount: 0,
@@ -79,25 +87,76 @@ export default function App() {
   const [runSetup, setRunSetup] = useState<RunSetup | null>(null);
   const gameManagerRef = useRef<GameManager | null>(null);
   const [gameManager, setGameManager] = useState<GameManager | null>(null);
+  // Tutorial: the run is the guided one while true; the overlay shows until it is finished or left
+  const [tutorial, setTutorial] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [offerTutorial, setOfferTutorial] = useState(() => firstVisit.shouldOffer());
+  const [helpOpen, setHelpOpen] = useState(false);
+  const touch = useTouchUi();
   // Builds a run loaded from a save (undefined for a new run); `runKey` remounts the canvas for each run
   const [createGame, setCreateGame] = useState<((canvas: HTMLCanvasElement) => GameManager) | undefined>(undefined);
   const [runKey, setRunKey] = useState(0);
   const saveStorage = getSaveStorage();
-  const autosaveNow = useAutosave(gameManager, saveStorage);
+  // The tutorial's run is never autosaved: it must not take the slot of the player's real run
+  const autosaveNow = useAutosave(tutorial ? null : gameManager, saveStorage);
 
   const handleStart = useCallback((setup: RunSetup) => {
     saveRunSetup(setup);
     setStats(DEFAULT_STATS);
+    setTutorial(false);
+    setTutorialOpen(false);
     setCreateGame(undefined);
     setRunKey((k) => k + 1);
     setRunSetup(setup); // mounts GameCanvas → fresh GameManager, whose meteor intro opens the run
   }, []);
+
+  /** The guided tutorial: a fresh calm run with Hormi (from the picker, the first-visit offer or the help card) */
+  const handleTutorial = useCallback(() => {
+    firstVisit.remember('done');
+    // The tutorial teaches what the touch coach marks point at: they need not show after it either
+    markCoachSeen(coachStorage());
+    setOfferTutorial(false);
+    setHelpOpen(false);
+    gameManagerRef.current = null;
+    setGameManager(null);
+    setStats(DEFAULT_STATS);
+    setTutorial(true);
+    setTutorialOpen(true);
+    setCreateGame(undefined);
+    setRunKey((k) => k + 1);
+    setRunSetup(TUTORIAL_SETUP);
+  }, []);
+
+  const declineTutorial = useCallback(() => {
+    firstVisit.remember('skipped');
+    setOfferTutorial(false);
+  }, []);
+
+  const closeTutorial = useCallback(() => setTutorialOpen(false), []);
+
+  // The help card pauses the run while it is open
+  const [resumeAfterHelp, setResumeAfterHelp] = useState(false);
+  const openHelp = useCallback(() => {
+    const gm = gameManagerRef.current;
+    const pause = Boolean(gm && !gm.isPaused());
+    if (pause) gm?.setPaused(true);
+    setResumeAfterHelp(pause);
+    setHelpOpen(true);
+  }, []);
+  const closeHelp = useCallback(() => {
+    setHelpOpen(false);
+    if (resumeAfterHelp) gameManagerRef.current?.setPaused(false);
+    setResumeAfterHelp(false);
+  }, [resumeAfterHelp]);
 
   const handleRestart = useCallback(() => {
     // Back to the picker: unmounting GameCanvas stops the old GameManager
     gameManagerRef.current = null;
     setGameManager(null);
     setStats(DEFAULT_STATS);
+    setTutorial(false);
+    setTutorialOpen(false);
+    setHelpOpen(false);
     setCreateGame(undefined);
     setRunSetup(null);
   }, []);
@@ -107,6 +166,9 @@ export default function App() {
     gameManagerRef.current = null;
     setGameManager(null);
     setStats({ ...DEFAULT_STATS, introPlaying: false });
+    setTutorial(false);
+    setTutorialOpen(false);
+    setHelpOpen(false);
     setCreateGame(() => restoreFactory(save, handleRestart));
     setRunKey((k) => k + 1);
     setRunSetup(sanitizeRunSetup(save.state.setup));
@@ -167,8 +229,10 @@ export default function App() {
         <RacePicker
           initialSetup={loadRunSetup()}
           onStart={handleStart}
+          onTutorial={handleTutorial}
           savedRun={<StartSaves storage={saveStorage} onLoad={handleLoadSave} />}
         />
+        {offerTutorial && <TutorialOffer onAccept={handleTutorial} onDecline={declineTutorial} />}
         <SaveToasts />
       </>
     );
@@ -180,6 +244,7 @@ export default function App() {
       <GameCanvas
         key={runKey}
         setup={runSetup}
+        tutorial={tutorial}
         createGame={createGame}
         onStatsUpdate={handleStatsUpdate}
         onGameManager={handleGameManager}
@@ -187,12 +252,12 @@ export default function App() {
       />
       {/* Hidden during the opening cinematic, then it fades in */}
       <HudLayer introPlaying={stats.introPlaying}>
-        <TopStrip stats={stats} gameManager={gameManager} />
+        <TopStrip stats={stats} gameManager={gameManager} onHelp={openHelp} />
         {/* Defaults carry no objective: wait for the first real snapshot */}
         {stats.tickCount > 0 && !stats.human && <ObjectivePanel objective={stats.objective} />}
         {/* Scouting: the coming wave's mix, elites, boss and breach, all day */}
         {stats.tickCount > 0 && <NextWaveCard invasion={stats.invasion} />}
-        <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} />
+        <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} tutorialRunning={tutorialOpen} />
       </HudLayer>
       {/* Night-wave alerts: outside the scaled HUD, over the whole screen; none during the intro */}
       {!stats.introPlaying && (
@@ -207,11 +272,16 @@ export default function App() {
       {/* A Human expedition's landing line (the Swarm opens with the meteor cinematic instead) */}
       {stats.human?.intro && !stats.gameOver && <HumanIntroBanner title={stats.human.intro} />}
       {/* Pause menu: save, load, back to the start screen */}
-      {!stats.introPlaying && !stats.gameOver && gameManager && (
+      {/* Hidden while Hormi teaches: the tutorial has its own Salir, and nothing of it is saved */}
+      {!stats.introPlaying && !stats.gameOver && gameManager && !tutorialOpen && (
         <GameMenu game={gameManager} storage={saveStorage} onLoad={handleLoadSave} onExit={handleExitToMenu} />
       )}
       <SaveToasts />
       {!stats.introPlaying && !stats.gameOver && <MilestoneBanner milestone={stats.milestone} />}
+      {tutorialOpen && gameManager && !stats.introPlaying && !stats.gameOver && (
+        <TutorialOverlay gameManager={gameManager} onExit={closeTutorial} onFinish={closeTutorial} />
+      )}
+      {helpOpen && <HelpCard device={deviceOf(touch)} onClose={closeHelp} onReplayTutorial={handleTutorial} />}
       {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} onContinue={handleContinue} />}
 
       {/* Dawn mutation pick: full-screen, above the HUD */}

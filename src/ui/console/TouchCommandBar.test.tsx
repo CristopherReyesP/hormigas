@@ -38,6 +38,12 @@ describe('quick-select bar', () => {
     expect(html).toMatch(/quick-chip-label">Todas</);
   });
 
+  it('tags each chip with its kind, so the tutorial can point at «Soldados»', () => {
+    const html = render({});
+    expect(html).toMatch(/data-quick-chip="soldier"[^>]*aria-label="Soldados: 5"|aria-label="Soldados: 5"[^>]*data-quick-chip="soldier"/);
+    expect(html).toContain('data-quick-chip="all"');
+  });
+
   it('lights the chip that is the selection, and greys out an empty caste', () => {
     const html = render({});
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);

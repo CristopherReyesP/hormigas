@@ -124,6 +124,7 @@ import type { HumanUnitType } from './rival/humanBase';
 import { humanSelection, type HumanSelection } from './rival/humanInfo';
 import { pickHumanBaseSite } from './rival/humanSite';
 import { FactionId, FactionRegistry, defaultFactions, isHostileTo, ownerOf } from './factions/factions';
+import type { TutorialStage } from './tutorial/stage';
 import { NestAlertTracker, type NestAlertState, type NestSample } from './run/nestAlert';
 import { HUMAN_GROUP_ROLE, HumanPlayerRun, type HumanPlayerStats } from './races/human/HumanPlayerRun';
 import { drawHumanPlayerOverlay } from './races/human/humanOverlay';
@@ -563,6 +564,8 @@ export class GameManager {
   /** Watches the nest for invaders and raises the alerts the player must not miss on the surface */
   private readonly nestAlert = new NestAlertTracker();
   private nestAlertClock = 0;
+  /** The tutorial holds the calm: no wave, no defenses firing, no nest alarm */
+  private tutorialCalm = false;
   /** A Humans run (setup.playerRace 'human'): the player's base, its systems and its clicks; null for the Swarm */
   private humanPlayer: HumanPlayerRun | null = null;
   private gameOver: GameOverStats | null = null;
@@ -1498,6 +1501,23 @@ export class GameManager {
       .filter((field) => !field.natural)
       .sort((a, b) => Math.hypot(a.center.x - nest.x, a.center.y - nest.y) - Math.hypot(b.center.x - nest.x, b.center.y - nest.y))[0];
     if (home) this.visibilityGrid.revealCircle(home.center.x, home.center.y, MINERAL_FIELD_RADIUS + HOME_FIELD_REVEAL_MARGIN);
+  }
+
+  /** The tutorial's handle on this run (src/game/tutorial): the world to stage its lessons on and the day clock to hold. */
+  getTutorialStage(): TutorialStage {
+    return {
+      world: this.world,
+      grid: this.grid,
+      nest: { x: Math.floor(WORLD_WIDTH / 2), y: Math.floor(WORLD_HEIGHT / 2) },
+      reveal: (x, y, radius) => this.visibilityGrid.revealArea(x, y, radius),
+      holdCalm: (held) => {
+        this.tutorialCalm = held;
+        this.dayNightSystem.setHeld(held);
+        this.eventSystem.setHeld(held);
+        this.invasionSystem.setHeld(held);
+        this.defenseSystem.setHeld(held);
+      },
+    };
   }
 
   /** Tile where the meteorite struck (crater center); fixed for the whole run. */
@@ -3094,7 +3114,7 @@ export class GameManager {
   /** Feed the nest alert; a new alert sounds the alarm and flashes the screen edge */
   private updateNestAlert(dt: number): void {
     // Harnesses that build a bare manager have no invasion system to watch
-    if (!this.invasionSystem || !this.nestAlert || this.humanPlayer || this.crystal) return; // no nest to alert about
+    if (!this.invasionSystem || !this.nestAlert || this.humanPlayer || this.crystal || this.tutorialCalm) return; // no nest to alert about, or the tutorial's calm
     // A few looks a second is plenty for an alert, and keeps the queries off every tick
     this.nestAlertClock += dt;
     if (this.nestAlertClock < NEST_SAMPLE_SECONDS) return;

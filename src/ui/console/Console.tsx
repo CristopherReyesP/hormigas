@@ -26,6 +26,8 @@ interface ConsoleProps {
   gameManager: GameManager | null;
   /** Pull a fresh stats snapshot (the sim stops pushing while paused) */
   refreshStats: () => void;
+  /** The guided tutorial is running: it teaches the same controls, so the coach marks stay away */
+  tutorialRunning?: boolean;
 }
 
 const NOTICE_MS = 3000;
@@ -47,7 +49,7 @@ function applyBuildMode(gm: GameManager | null, mode: BuildMode | null, layer: '
 }
 
 /** StarCraft-style bottom console: minimap · info panel · command card, plus the message feed. */
-export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
+export function Console({ stats, gameManager, refreshStats, tutorialRunning = false }: ConsoleProps) {
   const [details, refreshDetails] = useColonyDetails(gameManager);
   const [page, setPage] = useState<CardPage>('root');
   const [buildMode, setBuildMode] = useState<BuildMode | null>(null);
@@ -283,7 +285,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
         />
       )}
       {touch && <TouchFeedback toast={toast} burst={burst} />}
-      {touch && compact && <CoachMarks active={!stats.introPlaying && !overlayOpen} race={stats.human ? 'human' : 'swarm'} />}
+      {touch && compact && <CoachMarks active={!stats.introPlaying && !overlayOpen && !tutorialRunning} race={stats.human ? 'human' : 'swarm'} />}
     </>
   );
 }
