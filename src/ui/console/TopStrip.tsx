@@ -68,6 +68,20 @@ function PantryStock({ stored, capacity }: { stored: number; capacity: number })
   );
 }
 
+/** The minerals bank: ore the miners delivered, the currency for structures (never food). */
+function MineralStock({ stored }: { stored: number }) {
+  const flash = useFlashOnChange(stored);
+  return (
+    <span
+      className="strip-item strip-minerals"
+      title="Minerales: cristal que extraen las obreras de los yacimientos. Paga las estructuras; no se come."
+    >
+      <PixelIcon name="mineral" />
+      <span className={`strip-value ${flash}`}>{stored}</span>
+    </span>
+  );
+}
+
 function WaveStatus({ stats }: { stats: GameStats }) {
   const { invasion } = stats;
   if (invasion.active) {
@@ -105,6 +119,7 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
         <FoodResource icon="fungus" value={stats.mushroomStored} label="Hongos" active={eatFirst === 'mushroom'} onSelect={select('mushroom')} />
         <FoodResource icon="meat" value={stats.meatStored} label="Carne" active={eatFirst === 'meat'} onSelect={select('meat')} />
         <PantryStock stored={stats.pantryStored} capacity={stats.pantryCapacity} />
+        <MineralStock stored={stats.mineralsStored ?? 0} />
         <span className="strip-sep" aria-hidden="true" />
         <Resource icon="ant" value={stats.antCount} label="Población total" tone="var(--chrome-text)" />
         <Resource icon="worker" value={stats.workerCount} label="Obreras" />

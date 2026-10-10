@@ -25,8 +25,16 @@ export interface CraterSiteInput {
   farFraction: number;
 }
 
-/** Tiles reachable from the nest over walkable ground (4-connected flood fill). */
-function floodFromNest(input: CraterSiteInput): Uint8Array {
+/** The map a flood fill needs: its size, the start tile and what can be walked on. */
+export interface FloodInput {
+  width: number;
+  height: number;
+  nest: TilePos;
+  isWalkable: (x: number, y: number) => boolean;
+}
+
+/** Tiles reachable from the nest over walkable ground (4-connected flood fill); 1 = reached. */
+export function floodFromNest(input: FloodInput): Uint8Array {
   const { width, height, nest, isWalkable } = input;
   const reached = new Uint8Array(width * height);
   const queue: number[] = [nest.y * width + nest.x];

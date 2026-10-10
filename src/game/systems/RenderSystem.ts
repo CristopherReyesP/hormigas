@@ -32,6 +32,7 @@ import {
   type CombatComponent,
   type SelectableComponent,
   type FoodSourceComponent,
+  type MineralComponent,
   type HealthComponent,
   type BeetleComponent,
   type CricketComponent,
@@ -1632,6 +1633,7 @@ export class RenderSystem {
 
     // Separate entities by type for proper render order
     const foodEntities: Array<{ id: number; pos: PositionComponent; radius: number }> = [];
+    const mineralEntities: Array<{ id: number; pos: PositionComponent }> = [];
     const nestEntities: Array<{ id: number; pos: PositionComponent; radius: number }> = [];
     const denEntities: Array<{ id: number; pos: PositionComponent }> = [];
     const cricketDenEntities: Array<{ id: number; pos: PositionComponent }> = [];
@@ -1651,7 +1653,7 @@ export class RenderSystem {
       // Cull only the high-count, dependency-free shapes (ants + food piles);
       // crickets stay — the nest "being robbed" check reads them even offscreen
       if (
-        (render.shape === 'ant' || render.shape === 'food') &&
+        (render.shape === 'ant' || render.shape === 'food' || render.shape === 'mineral') &&
         (pos.x < cull.minX || pos.x > cull.maxX || pos.y < cull.minY || pos.y > cull.maxY)
       ) continue;
 
@@ -1659,6 +1661,8 @@ export class RenderSystem {
         foodEntities.push({ id, pos, radius: render.radius });
       } else if (render.shape === 'food') {
         foodEntities.push({ id, pos, radius: render.radius });
+      } else if (render.shape === 'mineral') {
+        mineralEntities.push({ id, pos });
       } else if (render.shape === 'nest') {
         nestEntities.push({ id, pos, radius: render.radius });
       } else if (render.shape === 'beetle_den') {
@@ -1674,7 +1678,11 @@ export class RenderSystem {
       }
     }
 
-    // Render order: food → nest → beetle_dens → cricket_dens → beetles → crickets → ants
+    // Render order: minerals → food → nest → beetle_dens → cricket_dens → beetles → crickets → ants
+    for (const { id, pos } of mineralEntities) {
+      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
+      this.drawMineral(ctx, pos.x, pos.y, id);
+    }
     for (const { id, pos } of foodEntities) {
       if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
@@ -1953,6 +1961,33 @@ export class RenderSystem {
     this.drawShadow(ctx, px + 2, py + 3, TILE_SIZE * 0.28, TILE_SIZE * 0.14);
 
     this.spriteAtlas.drawAnt(ctx, px, py, facing, legPhase, role, isCarrying);
+  }
+
+  /** A mineral node: a cluster of cyan crystal shards that shrinks as it is mined out. */
+  private drawMineral(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number): void {
+    const node = this.world.getComponent<MineralComponent>(entityId, COMPONENT.MINERAL);
+    const left = node && node.maxAmount > 0 ? node.amount / node.maxAmount : 1;
+    const px = tileX * TILE_SIZE + TILE_SIZE / 2;
+    const py = tileY * TILE_SIZE + TILE_SIZE / 2;
+    this.drawShadow(ctx, px + 1.5, py + 5.5, TILE_SIZE * 0.3, TILE_SIZE * 0.1);
+
+    // Art grid: 2 screen px per art px, base line 4 art px under the tile center
+    const p = new PixelPainter(ctx, 2, Math.round(px), Math.round(py + 8));
+    const shell = PAL.crystal.shell;
+    // Three shards (left, tall middle, right); heights scale with the ore left
+    const shards: Array<[number, number]> = [[-5, 5], [-1, 9], [3, 6]];
+    shards.forEach(([x, h], i) => {
+      const height = Math.max(2, Math.round(h * (0.4 + 0.6 * left)));
+      const lean = (entityId + i) % 3 === 0 ? 1 : 0;
+      p.rect(x, -height, 3, height, shell[1]);
+      p.vline(x + 1, -height, height - 1, shell[3]);
+      p.vline(x + 2, -height + 1, height - 1, shell[2]);
+      p.px(x + 1 + lean, -height - 1, shell[4]);
+    });
+    p.hline(-6, 0, 13, PAL.crystal.outline);
+
+    const selectable = this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE);
+    if (selectable && selectable.selected) this.drawSelectionBrackets(ctx, px, py, TILE_SIZE * 0.45, 'amber');
   }
 
   private drawFood(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number): void {

@@ -1,7 +1,7 @@
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
-import { COMPONENT, type HungerComponent, type PositionComponent, type AntComponent, type QueenEntityComponent, type HealthComponent, type CarryingComponent } from '../components/components';
+import { COMPONENT, isOreLoad, type HungerComponent, type PositionComponent, type AntComponent, type QueenEntityComponent, type HealthComponent, type CarryingComponent } from '../components/components';
 import { QUEEN_STARVATION_DAMAGE, HUNGER_EAT_RATE, HUNGER_PER_FOOD, HEAL_HP_PER_FOOD, HURT_EAT_HEALTH_RATIO } from '../../shared/constants';
 
 /**
@@ -104,7 +104,8 @@ export class HungerSystem implements System {
       // covers haulers waiting out a full pantry with the load in their jaws.
       if (hunger.current < hunger.max * 0.3) {
         const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING);
-        if (carrying && carrying.amount > 0) {
+        // Ore is not food: a miner never eats its load
+        if (carrying && carrying.amount > 0 && !isOreLoad(carrying.resourceType)) {
           const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
           eat(this.world, hunger, health, dt, (want) => {
             const bite = Math.min(want, carrying.amount);

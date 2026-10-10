@@ -33,6 +33,10 @@ const COLORS: Record<string, string> = {
   T: '#a0a0aa',
   h: '#6b4a2c', // wood
   H: '#8f6a3e',
+  q: '#0e2a3a', // crystal ramp (PAL.crystal.shell)
+  c: '#2fa3b8',
+  C: '#7fe8f0',
+  Q: '#e8ffff',
 };
 
 const ICON_ART = {
@@ -215,6 +219,17 @@ const ICON_ART = {
     '...h....',
     '...h....',
     '........',
+  ],
+  /** A cluster of crystal shards: the minerals bank */
+  mineral: [
+    '...Q....',
+    '..qCc...',
+    '..qCc.Q.',
+    'Q.qCcqC.',
+    'Cqqcc.qc',
+    'CcqccqCc',
+    'qcqqcqcq',
+    '.qqqqqq.',
   ],
   /** Underground chamber holding a mixed food pile: the stock that pays for eggs */
   pantry: [

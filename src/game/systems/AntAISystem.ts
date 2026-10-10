@@ -11,11 +11,14 @@ import {
   FoodType,
   Layer,
   OrderKind,
+  ORE_LOAD,
+  isOreLoad,
   type AntComponent,
   type PositionComponent,
   type CarryingComponent,
   type PathComponent,
   type FoodSourceComponent,
+  type MineralComponent,
   type RoleStatsComponent,
   type CombatComponent,
   type HealthComponent,
@@ -71,10 +74,16 @@ import {
   ORDER_CHASE_REPATH_SECONDS,
   GUARD_LEASH_RADIUS,
   GUARD_HOME_RADIUS,
+  MINERAL_TRIP_AMOUNT,
+  MINERAL_MINE_SECONDS,
+  MINER_MAX_SHARE,
 } from '../../shared/constants';
 
+/** A miner that has not reached its node in this long gives up and looks for other work */
+const MINING_GIVE_UP_SECONDS = 40;
+
 interface ActionCandidate {
-  action: 'chase' | 'gather' | 'explore' | 'patrol';
+  action: 'chase' | 'gather' | 'mine' | 'explore' | 'patrol';
   score: number;
   targetId?: EntityId;
 }
@@ -104,6 +113,11 @@ export class AntAISystem implements System {
   private attackerByTarget: Map<EntityId, EntityId> = new Map();
   private enemySnapshot: Array<{ id: EntityId; x: number; y: number }> = [];
   private foodSnapshot: Array<{ id: EntityId; x: number; y: number; type?: FoodType }> = [];
+  /** Surface mineral nodes that still hold ore */
+  private mineralSnapshot: Array<{ id: EntityId; x: number; y: number }> = [];
+  /** Surface workers bound to a mineral node, and all surface workers (the miner cap) */
+  private minerCount = 0;
+  private surfaceWorkerCount = 0;
   /** enemy id -> how many ants are already biting it (focus fire + flanking synergy) */
   private antsEngaging: Map<EntityId, number> = new Map();
   /** Recomputed once per tick — the hunger checks consult it per ant */
@@ -253,6 +267,10 @@ export class AntAISystem implements System {
 
         case AntState.ReturningHome:
           this.handleReturningHome(id, ant, pos, path, carrying);
+          break;
+
+        case AntState.Mining:
+          this.handleMining(id, ant, pos, path, carrying, dt);
           break;
 
         case AntState.Fleeing:
@@ -612,6 +630,25 @@ export class AntAISystem implements System {
       const source = this.world.getComponent<FoodSourceComponent>(id, COMPONENT.FOOD_SOURCE);
       this.foodSnapshot.push({ id, x: pos.x, y: pos.y, type: source?.resourceType as FoodType | undefined });
     }
+
+    this.mineralSnapshot.length = 0;
+    for (const id of this.world.query(COMPONENT.MINERAL, COMPONENT.POSITION)) {
+      const node = this.world.getComponent<MineralComponent>(id, COMPONENT.MINERAL)!;
+      if (node.amount <= 0) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      this.mineralSnapshot.push({ id, x: pos.x, y: pos.y });
+    }
+
+    this.minerCount = 0;
+    this.surfaceWorkerCount = 0;
+    for (const id of this.world.query(COMPONENT.ANT)) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      if (ant.role !== AntRole.Worker) continue;
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+      if (layer && layer.layer !== Layer.Surface) continue;
+      this.surfaceWorkerCount++;
+      if (ant.mineralTargetId != null) this.minerCount++;
+    }
   }
 
   private handleSearching(
@@ -805,6 +842,10 @@ export class AntAISystem implements System {
             }
             break;
           }
+          case 'mine': {
+            if (chosen.targetId !== undefined) this.startMining(ant, pos, path, chosen.targetId);
+            break;
+          }
           case 'explore': {
             const exploreTrail = this.generateScoredPath(pos, ant, 'explore');
             if (exploreTrail.length > 0) {
@@ -926,7 +967,14 @@ export class AntAISystem implements System {
     const dist = this.distance(pos, nestPos);
     if (dist < ANT_DEPOSIT_RANGE) {
       ant.stateTimer = 0;
-      if (carrying.amount > 0 && ant.role === AntRole.Worker) {
+      if (carrying.amount > 0 && isOreLoad(carrying.resourceType)) {
+        // ORE IS NOT FOOD: it goes straight to the minerals bank at the
+        // entrance, never down the shaft and never into the pantry
+        this.world.minerals.deposit(carrying.amount);
+        carrying.amount = 0;
+        carrying.resourceType = null;
+        this.afterOreDelivery(_id, ant, pos, path);
+      } else if (carrying.amount > 0 && ant.role === AntRole.Worker) {
         // FOOD IS ONLY STORED UNDERGROUND: the load is already in stored units
         // (converted at harvest) — carry it down to the pantry. PorterSystem's
         // Hauling drives the rest; if the pantry is full the ant holds the food.
@@ -956,6 +1004,15 @@ export class AntAISystem implements System {
     // keeps walking its route (re-pathing it here EVERY tick froze the ant: an
     // A* route starts at the ant's own tile, so each tick it snapped back there).
     if (ant.stateTimer > RETURNING_HOME_DROP_TIMEOUT && dist >= ANT_DEPOSIT_RANGE * 3) {
+      if (isOreLoad(carrying.resourceType)) {
+        // Ore never spoils and is never eaten: dropping it would just destroy
+        // minerals. The miner keeps it and tries a fresh route home.
+        ant.stateTimer = 0;
+        path.waypoints = [];
+        path.currentIndex = 0;
+        this.pathToNest(pos, path);
+        return;
+      }
       carrying.amount = 0;
       carrying.resourceType = null;
       ant.state = AntState.Searching;
@@ -969,6 +1026,132 @@ export class AntAISystem implements System {
     if (path.currentIndex >= path.waypoints.length) {
       this.pathToNest(pos, path);
     }
+  }
+
+  /** Bind a worker to a mineral node and send it there */
+  private startMining(ant: AntComponent, pos: PositionComponent, path: PathComponent, nodeId: EntityId): void {
+    ant.state = AntState.Mining;
+    ant.stateTimer = 0;
+    ant.mineralTargetId = nodeId;
+    ant.miningProgress = 0;
+    this.pathToEntity(pos, nodeId, path);
+  }
+
+  /** Release a worker from mining: it goes back to the colony's scoring */
+  private stopMining(ant: AntComponent): void {
+    ant.mineralTargetId = null;
+    ant.miningProgress = 0;
+  }
+
+  /**
+   * Mining: walk to the bound node, chip at it for MINERAL_MINE_SECONDS, then
+   * carry MINERAL_TRIP_AMOUNT of ore home (handleReturningHome banks it).
+   */
+  private handleMining(
+    id: EntityId,
+    ant: AntComponent,
+    pos: PositionComponent,
+    path: PathComponent,
+    carrying: CarryingComponent,
+    dt: number
+  ): void {
+    // Never chip on top of a held load: deliver it first
+    if (carrying.amount > 0) {
+      ant.state = AntState.ReturningHome;
+      ant.stateTimer = 0;
+      this.pathToNest(pos, path);
+      return;
+    }
+
+    // Under attack: drop to the ordinary worker reaction (fight near home, flee far away)
+    if (this.attackerByTarget.has(id)) {
+      ant.state = AntState.Searching;
+      ant.stateTimer = 0;
+      this.handleSearching(id, ant, pos, path, dt);
+      return;
+    }
+
+    const nodeId = ant.mineralTargetId ?? null;
+    const node = nodeId !== null ? this.world.getComponent<MineralComponent>(nodeId, COMPONENT.MINERAL) : undefined;
+    const nodePos = nodeId !== null ? this.world.getComponent<PositionComponent>(nodeId, COMPONENT.POSITION) : undefined;
+    if (nodeId === null || !node || !nodePos || node.amount <= 0) {
+      // Node mined out: move on to the nearest node in sight, if any
+      const next = this.findNearestMineral(id, pos);
+      if (next) {
+        this.startMining(ant, pos, path, next.id);
+      } else {
+        this.stopMining(ant);
+        ant.state = AntState.Searching;
+        ant.stateTimer = 0;
+      }
+      return;
+    }
+
+    if (this.distance(pos, nodePos) < ANT_HARVEST_RANGE) {
+      path.waypoints = [];
+      path.currentIndex = 0;
+      ant.stateTimer = 0; // working, not lost
+      ant.miningProgress = (ant.miningProgress ?? 0) + dt;
+      if (ant.miningProgress < MINERAL_MINE_SECONDS) return;
+
+      const take = Math.min(MINERAL_TRIP_AMOUNT, node.amount);
+      node.amount -= take;
+      carrying.amount = take;
+      carrying.resourceType = ORE_LOAD;
+      ant.miningProgress = 0;
+      if (node.amount <= 0) this.world.destroyEntity(nodeId);
+
+      ant.state = AntState.ReturningHome;
+      ant.stateTimer = 0;
+      this.pathToNest(pos, path);
+      return;
+    }
+
+    if (ant.stateTimer > MINING_GIVE_UP_SECONDS) {
+      // Could not reach the node: forget it and look for other work
+      this.stopMining(ant);
+      ant.state = AntState.Searching;
+      ant.stateTimer = 0;
+      path.waypoints = [];
+      path.currentIndex = 0;
+      return;
+    }
+
+    if (path.currentIndex >= path.waypoints.length) {
+      this.pathToEntity(pos, nodeId, path);
+    }
+  }
+
+  /** Ore banked: a hungry miner goes down to eat, otherwise it walks back to its node */
+  private afterOreDelivery(id: EntityId, ant: AntComponent, pos: PositionComponent, path: PathComponent): void {
+    if (this.isHungry(id) && this.undergroundFoodAvailable && this.transitSystem) {
+      this.stopMining(ant);
+      ant.state = AntState.Healing;
+      this.transitSystem.requestTransit(id, 'enter');
+      return;
+    }
+    const nodeId = ant.mineralTargetId ?? null;
+    const node = nodeId !== null ? this.world.getComponent<MineralComponent>(nodeId, COMPONENT.MINERAL) : undefined;
+    if (ant.role === AntRole.Worker && nodeId !== null && node && node.amount > 0) {
+      this.startMining(ant, pos, path, nodeId);
+      return;
+    }
+    this.stopMining(ant);
+    ant.state = AntState.Searching;
+  }
+
+  /** Nearest surface mineral node with ore in this ant's vision (predator-guarded nodes skipped) */
+  private findNearestMineral(id: EntityId, pos: PositionComponent): { id: EntityId; dist: number } | null {
+    const roleStats = this.world.getComponent<RoleStatsComponent>(id, COMPONENT.ROLE_STATS);
+    const visionRange = roleStats ? roleStats.visionRange : 10;
+    let best: { id: EntityId; dist: number } | null = null;
+    for (const m of this.mineralSnapshot) {
+      const dist = Math.hypot(m.x - pos.x, m.y - pos.y);
+      if (dist >= visionRange || (best && dist >= best.dist)) continue;
+      if (this.enemySnapshot.length > 0 && this.isGuardedByPredator(m.x, m.y)) continue;
+      best = { id: m.id, dist };
+    }
+    return best;
   }
 
   private handleFleeing(
@@ -1711,6 +1894,17 @@ export class AntAISystem implements System {
         const score = (foodPhero / PHEROMONE_MAX) * ACTION_SCORE.PHEROMONE_TRAIL_BONUS
                       * roleWeights.food * priorityMult.food;
         candidates.push({ action: 'gather', score });
+      }
+    }
+
+    // MINE action (workers only): a mineral node in sight, while the miner
+    // share leaves enough workers foraging food
+    if (ant.role === AntRole.Worker) {
+      const minerCap = Math.max(1, Math.ceil(this.surfaceWorkerCount * MINER_MAX_SHARE));
+      const node = this.minerCount < minerCap ? this.findNearestMineral(id, pos) : null;
+      if (node) {
+        const score = ACTION_SCORE.MINERAL_VISION_BONUS * roleWeights.food * priorityMult.food;
+        candidates.push({ action: 'mine', score, targetId: node.id });
       }
     }
 

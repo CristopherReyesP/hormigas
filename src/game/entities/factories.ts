@@ -16,6 +16,7 @@ import {
   type PathComponent,
   type RenderComponent,
   type FoodSourceComponent,
+  type MineralComponent,
   type NestComponent,
   type SelectableComponent,
   type RoleStatsComponent,
@@ -35,6 +36,7 @@ import {
 } from '../components/components';
 import { FactionId } from '../factions/factions';
 import {
+  MINERAL_NODE_AMOUNT,
   ROLE_STATS,
   BEETLE_STATS,
   BEETLE_DEN_STATS,
@@ -182,6 +184,16 @@ export function createFood(
 
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer });
 
+  return entity;
+}
+
+/** A crystal mineral node on the surface: workers mine it, nothing eats it (P7.1). */
+export function createMineral(world: World, x: number, y: number, amount: number = MINERAL_NODE_AMOUNT): EntityId {
+  const entity = world.createEntity();
+  world.addComponent<PositionComponent>(entity, COMPONENT.POSITION, { x, y, prevX: x, prevY: y });
+  world.addComponent<MineralComponent>(entity, COMPONENT.MINERAL, { amount, maxAmount: amount });
+  world.addComponent<RenderComponent>(entity, COMPONENT.RENDER, { color: '#2fa3b8', radius: 0.4, shape: 'mineral' });
+  world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
   return entity;
 }
 
