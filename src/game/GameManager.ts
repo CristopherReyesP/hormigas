@@ -1551,7 +1551,7 @@ export class GameManager {
     if (tile.chamberType === ChamberType.FungusFarm && tile.food && tile.food.amount > 0) {
       this.world.pushNotification(
         'warning',
-        '🍄 No podés quitar una granja con hongos — esperá a que se coman',
+        '🍄 No puedes quitar una granja con hongos: espera a que se coman',
         'farm-undesignate',
         3000
       );
@@ -1581,7 +1581,7 @@ export class GameManager {
       if (tile.food && tile.food.amount > 0) {
         this.world.pushNotification(
           'warning',
-          '🍖 No podés quitar un almacén con comida — esperá a que se vacíe',
+          '🍖 No puedes quitar un almacén con comida: espera a que se vacíe',
           'storage-undesignate',
           3000
         );
