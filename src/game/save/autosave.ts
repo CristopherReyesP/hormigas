@@ -75,7 +75,7 @@ export class Autosaver {
   }
 
   private onTick(dt: number): void {
-    // The tick that ends the run: a lost or won run is not continued, so its autosave goes
+    // The tick that ends the run: a defeat deletes the autosave, a victory saves it
     if (this.run.gameOver) {
       this.saveNow();
       return;
@@ -99,12 +99,13 @@ export class Autosaver {
     this.saveNow('segundo-plano');
   };
 
-  /** Write the autosave now; never throws. A finished run deletes it instead. */
+  /** Write the autosave now; never throws. A lost run deletes it instead. */
   saveNow(reason: AutosaveReason = 'manual'): void {
     this.elapsed = 0;
     try {
       if (this.run.introClock.isPlaying()) return;
-      if (this.run.gameOver) {
+      // A lost run is over; a won one can go on (endless mode), so it stays saved
+      if (this.run.gameOver && (this.run.gameOver as { outcome?: string }).outcome !== 'victory') {
         void this.storage.remove(AUTOSAVE_SLOT).catch(() => false);
         return;
       }

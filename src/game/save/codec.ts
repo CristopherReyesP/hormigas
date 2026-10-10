@@ -208,7 +208,8 @@ export class Encoder {
       return tag({ $m: [...value].map(([k, v]) => [this.encode(k), this.encode(v)]) });
     }
     if (value instanceof Set) {
-      return tag({ $s: [...value].map((item) => this.encode(item)) });
+      // A Set of callbacks (listeners) is wiring: those members are left out
+      return tag({ $s: [...value].filter((item) => !this.omitted(item)).map((item) => this.encode(item)) });
     }
     if (isTypedArray(value)) {
       return tag(encodeTyped(value) as Record<string, Encoded>);
@@ -399,8 +400,10 @@ export class Decoder {
       const target = hint instanceof Set ? hint : new Set();
       this.register(id, target);
       const items = (e.$s as unknown[]).map((item) => this.decode(item, undefined));
+      // Callbacks the save never writes stay subscribed
+      const wiring = [...target].filter((item) => typeof item === 'function');
       target.clear();
-      for (const item of items) target.add(item);
+      for (const item of [...wiring, ...items]) target.add(item);
       return target;
     }
     if ('$t' in e) {

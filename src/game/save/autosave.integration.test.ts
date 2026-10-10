@@ -156,6 +156,17 @@ describe('Autosaver', () => {
     game.stop();
   });
 
+  it('a won run is saved, not deleted: endless mode can go on from it', () => {
+    const { game, saver, writes, removed } = setup();
+    run(game, 1);
+    (game as unknown as { gameOver: unknown }).gameOver = { outcome: 'victory' };
+    saver.saveNow();
+    expect(removed).toEqual([]);
+    expect(writes).toHaveLength(1);
+    saver.detach();
+    game.stop();
+  });
+
   it('the tick that ends the run deletes the autosave', () => {
     const { game, saver, writes, removed } = setup();
     run(game, 1);

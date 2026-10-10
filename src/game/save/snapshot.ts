@@ -31,7 +31,10 @@ const DENY_FIELDS: Record<string, readonly string[]> = {
     'renderSystem', 'gameLoop', 'statsCallback', 'statsTicks', 'tickListeners', 'runSetup',
     'activeLayer', 'farmMode', 'throneMode', 'defenseMode', 'digMode', 'incubationMode', 'storageMode',
     'viewportConfigured', 'areaSelect', 'paintStroke', 'armedCommand', 'orderPings',
-    'defenseBuild', 'ghostTile',
+    'defenseBuild', 'ghostTile', 'touchInput', 'feedbackListeners', 'farmFocus',
+    // A highlighted dawn card is cleared on load (the offer itself is saved and reopens);
+    // the milestone banner is a few seconds of UI, its reward is already paid
+    'mutationSelection', 'milestone',
   ],
   // A building being placed and its ghost are a tool in the player's hand, not run state
   HumanPlayerRun: ['placing', 'ghost'],
