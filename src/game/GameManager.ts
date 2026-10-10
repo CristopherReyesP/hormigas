@@ -779,6 +779,10 @@ export class GameManager {
   private update(dt: number): void {
     // A frame can contain more fixed updates after the loop has been paused.
     if (this.gameOver || this.mutationOffer) return;
+    // The world waits for the opening cinematic: ticking under it let every
+    // starting worker forage and ride the shaft down before the player saw
+    // them, so the surface came back empty
+    if (this.introClock.isPlaying()) return;
     const previousPhase = this.dayNightSystem.getPhase();
     try {
       this.world.update(dt);
