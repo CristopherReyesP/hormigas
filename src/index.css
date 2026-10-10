@@ -1048,6 +1048,45 @@ button:focus-visible {
   border-color: var(--chrome-accent-dim);
 }
 
+/* Invaders on the layer the player is NOT watching: the tab throbs red */
+.minimap-tab {
+  position: relative;
+}
+
+.minimap-tab--alert {
+  color: #fff;
+  animation: minimap-tab-alert 0.8s steps(2, jump-none) infinite;
+}
+
+@keyframes minimap-tab-alert {
+  0% { background: #5a1414; border-color: var(--chrome-danger, #ff3b3b); box-shadow: 0 0 6px rgba(255, 59, 59, 0.7); }
+  100% { background: var(--chrome-bg); border-color: #7a2020; box-shadow: none; }
+}
+
+/* How many are attacking there: "⚔ 4" on the tab's corner (desktop and phone) */
+.minimap-tab-badge {
+  position: absolute;
+  top: -7px;
+  right: -3px;
+  padding: 1px 3px;
+  font-size: 9px;
+  line-height: 1;
+  white-space: nowrap;
+  color: #fff;
+  background: var(--chrome-danger, #ff3b3b);
+  border: 1px solid #0e080b;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .minimap-tab--alert {
+    animation: none;
+    background: #5a1414;
+    border-color: var(--chrome-danger, #ff3b3b);
+  }
+}
+
 .minimap-box {
   position: relative;
   width: 174px;
@@ -2158,6 +2197,12 @@ button:focus-visible {
 
 .hud-layer--phone .minimap-tab-label {
   display: none;
+}
+
+.hud-layer--phone .minimap-tab-badge {
+  top: 2px;
+  right: 2px;
+  font-size: 9px;
 }
 
 .hud-layer--phone .minimap-tab-icon {
