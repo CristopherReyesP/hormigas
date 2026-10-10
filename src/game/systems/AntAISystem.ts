@@ -138,6 +138,11 @@ export class AntAISystem implements System {
   private antsEngaging: Map<EntityId, number> = new Map();
   /** Recomputed once per tick — the hunger checks consult it per ant */
   private undergroundFoodAvailable = false;
+  /**
+   * Per tick: which food types a pantry pile can still take. While a type has
+   * no room nobody starts a trip for it (the loads would only wait below).
+   */
+  private pantryRoom: Record<PantryFoodType, boolean> = { leaf: true, mushroom: true, meat: true };
   /** A* runs left this tick for ordered ants: a 40-ant order routes over a few frames, not in one */
   private orderRoutesLeft = 0;
 
@@ -671,6 +676,9 @@ export class AntAISystem implements System {
   private buildTickSnapshots(): void {
     this.attackerByTarget = buildAttackerMap(this.world);
     this.undergroundFoodAvailable = this.computeUndergroundFood();
+    for (const type of ['leaf', 'mushroom', 'meat'] as const) {
+      this.pantryRoom[type] = !this.undergroundGrid || this.undergroundGrid.hasDepositSpace([type]);
+    }
 
     // SURFACE predators only. Invasion beetles live underground on the SAME
     // coordinate space, so an unfiltered scan made surface soldiers charge at
@@ -1152,6 +1160,9 @@ export class AntAISystem implements System {
         // Re-fetch: another ant may have depleted this source earlier this tick
         const food = this.world.getComponent<FoodSourceComponent>(f.id, COMPONENT.FOOD_SOURCE);
         if (!food || food.amount <= 0) continue;
+        // The pantry filled up on the way: no new load the colony cannot store
+        // (a player's Recolectar order still runs; its loads wait below)
+        if (ant.resourceOrder !== 'gather' && !this.pantryRoom[pantryTypeOf(food.resourceType)]) continue;
         const foodId = f.id;
         // Harvest and convert to STORED UNITS right here (nutrition multipliers
         // apply once, at the source) — loads are pantry-typed everywhere, so no
@@ -1213,17 +1224,11 @@ export class AntAISystem implements System {
         carrying.amount = 0;
         carrying.resourceType = null;
         this.afterOreDelivery(_id, ant, pos, path);
-      } else if (carrying.amount > 0 && ant.role === AntRole.Worker && !this.pantryHasRoomFor(carrying.resourceType)) {
-        // The pantry is full: riding down only to come back up still holding
-        // the load kept every worker shuttling in the shaft, with nobody left
-        // to forage or mine. The load goes on the entrance pile (porters carry
-        // it down once there is room) and the worker gets back to work.
-        this.dropAtStockpile(carrying);
-        ant.state = AntState.Searching;
       } else if (carrying.amount > 0 && ant.role === AntRole.Worker) {
         // FOOD IS ONLY STORED UNDERGROUND: the load is already in stored units
         // (converted at harvest) — carry it down to the pantry. PorterSystem's
-        // Hauling drives the rest; if the pantry is full the ant holds the food.
+        // Hauling drives the rest; if the pantry is full the worker waits
+        // below with the load until there is room (never on the entrance pile).
         ant.state = AntState.Hauling;
         if (this.transitSystem) this.transitSystem.requestTransit(_id, 'enter');
       } else if (carrying.amount > 0) {
@@ -1625,13 +1630,6 @@ export class AntAISystem implements System {
     return hunger !== undefined && hunger.current < hunger.max * HUNGER_EAT_THRESHOLD;
   }
 
-  /** Whether the pantry can take a load of this type (no underground wired: assume it can). */
-  private pantryHasRoomFor(resourceType: string | null): boolean {
-    if (!this.undergroundGrid) return true;
-    const type: PantryFoodType = resourceType === 'mushroom' || resourceType === 'meat' ? resourceType : 'leaf';
-    return this.undergroundGrid.hasDepositSpace([type]);
-  }
-
   /** Hand a load to the nest's surface stockpile — worker porters haul it below */
   private dropAtStockpile(carrying: CarryingComponent): void {
     const nest = this.world.getComponent<NestComponent>(this.nestEntityId!, COMPONENT.NEST);
@@ -1677,6 +1675,8 @@ export class AntAISystem implements System {
       if (dist >= visionRange) continue;
 
       if (avoidGuarded && this.isGuardedByPredator(f.x, f.y)) continue;
+      // No pile can take this food right now: leave it where it is
+      if (!this.pantryRoom[pantryTypeOf(f.type)]) continue;
 
       // Mushrooms are "perceived" as closer (more desirable)
       const effectiveDist = f.type === FoodType.Mushroom ? dist * MUSHROOM_PREFERENCE_MULTIPLIER : dist;
@@ -2152,12 +2152,15 @@ export class AntAISystem implements System {
       }
     }
 
-    // GATHER action
-    const nearbyFood = this.findNearestFoodEntity(id, pos, ant);
+    // GATHER action: none while the pantry has no room for any food (the
+    // loads would only wait below); otherwise only food a pile can still take
+    // (workers mine, dig, carry or explore instead)
+    const anyRoom = this.pantryRoom.leaf || this.pantryRoom.mushroom || this.pantryRoom.meat;
+    const nearbyFood = anyRoom ? this.findNearestFoodEntity(id, pos, ant) : null;
     if (nearbyFood) {
       const score = ACTION_SCORE.FOOD_VISION_BONUS * roleWeights.food * priorityMult.food;
       candidates.push({ action: 'gather', score, targetId: nearbyFood.entityId });
-    } else {
+    } else if (anyRoom) {
       const foodPhero = this.sampleFoodPheromone(pos, 3);
       if (foodPhero > 1.0) {
         const score = (foodPhero / PHEROMONE_MAX) * ACTION_SCORE.PHEROMONE_TRAIL_BONUS
@@ -2203,4 +2206,11 @@ export class AntAISystem implements System {
     }
     return candidates[candidates.length - 1];
   }
+}
+
+/** The pantry pile type a food source fills (what its load is stored as). */
+function pantryTypeOf(type: FoodType | string | undefined): PantryFoodType {
+  if (type === FoodType.Mushroom || type === FoodType.GiantMushroom) return 'mushroom';
+  if (type === FoodType.BeetleMeat || type === FoodType.CricketMeat) return 'meat';
+  return 'leaf';
 }

@@ -4,6 +4,7 @@ import type { World } from '../../engine/ecs/World';
 import type { Camera } from '../../engine/camera/Camera';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import type { PathGrid } from '../../simulation/pathfinding/AStar';
+import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import {
   AntRole,
   AntState,
@@ -68,6 +69,9 @@ describe('the gather order', () => {
     const { game, world, selection, spot, workers, run, ant, lastToast } = setup();
     const at = spot(7, -2);
     const food = createFood(world, at.x, at.y, 400, FoodType.Leaf);
+    // Room for the whole source: with a full pantry the loads would wait below
+    // for space (the designer's rule) and this loop is about the order itself
+    (game['undergroundGrid'] as UndergroundGrid).setPantryTileCapacityBonus(500);
     const team = workers(2);
     selection.selectAnts(team, Layer.Surface);
     expect(game.orderSelectedGather(food)).toBe(2);

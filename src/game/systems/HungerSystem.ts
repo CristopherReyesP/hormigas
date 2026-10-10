@@ -1,8 +1,8 @@
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
-import { COMPONENT, isOreLoad, type HungerComponent, type PositionComponent, type AntComponent, type QueenEntityComponent, type HealthComponent, type CarryingComponent } from '../components/components';
-import { QUEEN_STARVATION_DAMAGE, HUNGER_EAT_RATE, HUNGER_PER_FOOD, HEAL_HP_PER_FOOD, HURT_EAT_HEALTH_RATIO } from '../../shared/constants';
+import { AntState, COMPONENT, isOreLoad, type HungerComponent, type PositionComponent, type AntComponent, type QueenEntityComponent, type HealthComponent, type CarryingComponent } from '../components/components';
+import { QUEEN_STARVATION_DAMAGE, HUNGER_EAT_RATE, HUNGER_EAT_THRESHOLD, HUNGER_PER_FOOD, HEAL_HP_PER_FOOD, HURT_EAT_HEALTH_RATIO } from '../../shared/constants';
 import { tallyDeath } from '../upgrades/applyUpgrades';
 
 /**
@@ -101,9 +101,12 @@ export class HungerSystem implements System {
       hunger.current -= hunger.decayRate * this.modifiers.hungerDecayMultiplier * this.world.runModifiers.hungerDecayMult * dt;
 
       // SURVIVAL LOGIC: a hungry ant carrying food EATS FROM ITS OWN MOUTH
-      // before ever starving — no ant dies while holding a meal. This also
-      // covers haulers waiting out a full pantry with the load in their jaws.
-      if (hunger.current < hunger.max * 0.3) {
+      // before ever starving — no ant dies while holding a meal. A worker
+      // waiting out a full pantry ("si tienen hambre, se comen la comida que
+      // tienen cargando") eats as soon as it is hungry, like any ant would go
+      // eat: it has nowhere else to go, and its load is its meal.
+      const waiting = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)?.state === AntState.WaitingForPantry;
+      if (hunger.current < hunger.max * (waiting ? HUNGER_EAT_THRESHOLD : 0.3)) {
         const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING);
         // Ore is not food: a miner never eats its load
         if (carrying && carrying.amount > 0 && !isOreLoad(carrying.resourceType)) {

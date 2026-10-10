@@ -428,6 +428,8 @@ export interface GameStats {
   foodInTransit: number;
   /** No pantry tile can take the food on its way (or any food at all): more Almacén tiles are needed */
   pantryFull: boolean;
+  /** Workers below ground holding a load the full pantry cannot take yet ("N obreras esperando") */
+  antsWaitingForPantry: number;
   /** The minerals bank: what miners delivered, the currency for structures */
   mineralsStored: number;
   /** Workers on the mineral fields and the colony's miner target (Mineras: N) */
@@ -3679,10 +3681,12 @@ export class GameManager {
     let scoutCount = 0;
     let nurseCount = 0;
     let defenderCount = 0;
+    let antsWaitingForPantry = 0;
 
     for (const id of ants) {
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT);
       if (ant) {
+        if (ant.state === AntState.WaitingForPantry) antsWaitingForPantry++;
         switch (ant.role) {
           case AntRole.Worker:
             workerCount++;
@@ -3724,6 +3728,7 @@ export class GameManager {
       entranceFoodStored: Math.floor(transit.entrance),
       foodInTransit: Math.floor(transit.entrance + transit.carried),
       pantryFull: !this.undergroundGrid.hasDepositSpace() || transit.types.some((type) => !this.undergroundGrid.hasDepositSpace([type])),
+      antsWaitingForPantry,
       pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
       mineralsStored: Math.floor(this.world.minerals.stored),
       miners: this.minerStats(),
