@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GameManager, GameStats } from '../../game/GameManager';
 import { NotificationStack } from '../NotificationStack';
-import { buildCommands, buildModeHint, commandTargetHint, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
+import { buildCommands, buildModeHint, commandTargetHint, isDefenseMode, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
 import { CommandCard } from './CommandCard';
 import { InfoPanel } from './InfoPanel';
 import { MinimapPanel } from './MinimapPanel';
@@ -17,8 +17,11 @@ interface ConsoleProps {
 
 const NOTICE_MS = 3000;
 
-function applyBuildMode(gm: GameManager | null, mode: BuildMode | null): void {
+/** Nest tools only work underground; the defense tools on both layers */
+function applyBuildMode(gm: GameManager | null, mode: BuildMode | null, layer: 'surface' | 'underground'): void {
   if (!gm) return;
+  gm.setDefenseBuild(isDefenseMode(mode) ? mode : null);
+  if (layer !== 'underground' || isDefenseMode(mode)) mode = null;
   gm.setDigMode(mode === 'dig');
   gm.setIncubationMode(mode === 'incubation');
   gm.setFarmMode(mode === 'farm');
@@ -47,7 +50,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
 
   // Build modes live in the GameManager; keep them in step with the card
   useEffect(() => {
-    applyBuildMode(gameManager, stats.activeLayer === 'underground' ? buildMode : null);
+    applyBuildMode(gameManager, buildMode, stats.activeLayer);
   }, [gameManager, buildMode, stats.activeLayer]);
 
   useEffect(() => {

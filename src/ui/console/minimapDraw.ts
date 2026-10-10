@@ -88,6 +88,31 @@ function drawWavePings(
   }
 }
 
+/** The scouted next wave (its breach, the raiders' origin): an amber diamond, all day */
+function drawScoutPings(
+  ctx: CanvasRenderingContext2D,
+  layout: MinimapLayout,
+  marks: ReadonlyArray<{ x: number; y: number }>,
+  unit: number,
+  blink: boolean,
+): void {
+  if (marks.length === 0) return;
+  ctx.fillStyle = blink ? '#ffe27a' : '#f0b541';
+  const r = unit * 3;
+  for (const m of marks) {
+    const p = tileToMinimap(layout, m.x, m.y);
+    const x = Math.round(p.x);
+    const y = Math.round(p.y);
+    ctx.beginPath();
+    ctx.moveTo(x, y - r);
+    ctx.lineTo(x + r, y);
+    ctx.lineTo(x, y + r);
+    ctx.lineTo(x - r, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
 const DOT_ORDER: Record<SurfaceMinimapDot['kind'], number> = { food: 0, den: 1, ant: 2, enemy: 3, nest: 4 };
 
 /** Surface: terrain under fog of war, colony and visible enemies, nest, camera box. */
@@ -148,6 +173,7 @@ export function drawSurfaceMinimap(
     }
   }
 
+  drawScoutPings(ctx, layout, gm.getScoutMarks?.('surface') ?? [], unit, blink);
   drawWavePings(ctx, layout, gm.getWaveThreats('surface'), unit, blink);
   strokeView(ctx, layout, gm.getSurfaceView(), unit);
   return layout;
@@ -237,6 +263,7 @@ export function drawUndergroundMinimap(
     square(ctx, layout, e.x, e.y, unit * 4, UNDERGROUND_DOT[e.kind], CHROME_BG);
   }
 
+  drawScoutPings(ctx, layout, gm.getScoutMarks?.('underground') ?? [], unit, blink);
   drawWavePings(ctx, layout, gm.getWaveThreats('underground'), unit, blink);
   strokeView(ctx, layout, gm.getUndergroundView(), unit);
   return layout;
