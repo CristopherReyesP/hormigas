@@ -143,6 +143,7 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked, tou
                   aria-label={`${command.label} (${key})`}
                   aria-keyshortcuts={key}
                   data-sfx="command"
+                  data-cmd={command.id}
                   aria-pressed={command.active ?? undefined}
                   onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
                   onFocus={() => {

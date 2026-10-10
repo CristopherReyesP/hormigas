@@ -8,6 +8,8 @@ interface RacePickerProps {
   /** The last choice (or the default); anything not available yet falls back to the default. */
   initialSetup: RunSetup;
   onStart: (setup: RunSetup) => void;
+  /** Start the guided tutorial instead */
+  onTutorial?: () => void;
 }
 
 /**
@@ -15,7 +17,7 @@ interface RacePickerProps {
  * COMENZAR. Races that are not playable yet show as "Próximamente" cards so
  * the roster (and its identity) is visible from the first run.
  */
-export function RacePicker({ initialSetup, onStart }: RacePickerProps) {
+export function RacePicker({ initialSetup, onStart, onTutorial }: RacePickerProps) {
   const [setup, setSetup] = useState(() => sanitizeRunSetup(initialSetup));
   // The first screen: from here on every button ticks and taps, and the first click unlocks audio
   useEffect(() => installAudioUi(), []);
@@ -68,6 +70,11 @@ export function RacePicker({ initialSetup, onStart }: RacePickerProps) {
             COMENZAR
           </button>
           <p className="race-launch-hint">Tu elección se recordará en la próxima partida</p>
+          {onTutorial && (
+            <button type="button" className="race-tutorial" data-tutorial-start="" title="¿Primera vez? Aprende a jugar con Hormi" onClick={onTutorial}>
+              TUTORIAL
+            </button>
+          )}
         </div>
       </div>
     </div>

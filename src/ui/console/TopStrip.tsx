@@ -11,6 +11,8 @@ type FoodType = 'leaf' | 'mushroom' | 'meat';
 interface TopStripProps {
   stats: GameStats;
   gameManager?: GameManager | null;
+  /** Opens the help card (controls and Repetir tutorial) */
+  onHelp?: () => void;
 }
 
 function Resource({ icon, value, label, tone }: { icon: IconName; value: number; label: string; tone?: string }) {
@@ -64,7 +66,7 @@ function PantryStock({ stored, capacity, incoming }: { stored: number; capacity:
     ? `${base} Hay ${incoming} más en la entrada: las obreras la bajan a la despensa.`
     : base;
   return (
-    <span className="strip-item strip-pantry" title={title}>
+    <span className="strip-item strip-pantry" title={title} data-hud="pantry">
       <PixelIcon name="pantry" />
       <span className="strip-pantry-label">DESPENSA</span>
       <span className={`strip-value ${flash}`} style={stored < 1 ? { color: 'var(--chrome-warn)' } : undefined}>
@@ -81,6 +83,7 @@ function MineralStock({ stored }: { stored: number }) {
   return (
     <span
       className="strip-item strip-minerals"
+      data-hud="minerals"
       title="Minerales: cristal que extraen las obreras de los yacimientos. Paga las estructuras; no se come."
     >
       <PixelIcon name="mineral" />
@@ -117,7 +120,7 @@ function WaveStatus({ stats }: { stats: GameStats }) {
  * control right. The compact HUD keeps only the key readouts on it and folds
  * the rest into a drawer that Más datos (strip-more, phones only) opens.
  */
-export function TopStrip({ stats, gameManager }: TopStripProps) {
+export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
   const leaves = Math.max(0, stats.foodStored - stats.mushroomStored - stats.meatStored);
   const night = stats.dayPhase === 'night';
   const eatFirst = gameManager?.getConsumptionPriority();
@@ -176,6 +179,19 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
           {stats.paused ? 'PAUSA' : `×${stats.speed}`}
         </button>
         <SoundToggle />
+        {onHelp && (
+          <button
+            type="button"
+            className="strip-item strip-help"
+            data-hud="help"
+            aria-label="Ayuda y controles"
+            title="Ayuda y controles"
+            onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+            onClick={onHelp}
+          >
+            ?
+          </button>
+        )}
       </div>
       <button
         type="button"

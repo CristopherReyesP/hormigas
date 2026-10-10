@@ -12,6 +12,13 @@ import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
 import { ColonyPriority } from './game/components/components';
 import { loadRunSetup, saveRunSetup, type RunSetup } from './game/run/RunSetup';
+import { TUTORIAL_SETUP } from './game/tutorial/createTutorialGame';
+import { TutorialOverlay } from './ui/tutorial/TutorialOverlay';
+import { TutorialOffer } from './ui/tutorial/TutorialOffer';
+import { HelpCard } from './ui/tutorial/HelpCard';
+import { firstVisit } from './ui/tutorial/firstVisit';
+import { deviceOf } from './ui/tutorial/steps';
+import { useTouchUi } from './ui/layout/touch';
 
 const DEFAULT_STATS: GameStats = {
   antCount: 0,
@@ -66,18 +73,68 @@ export default function App() {
   const [runSetup, setRunSetup] = useState<RunSetup | null>(null);
   const gameManagerRef = useRef<GameManager | null>(null);
   const [gameManager, setGameManager] = useState<GameManager | null>(null);
+  // Tutorial: the run is the guided one while true; the overlay shows until it is finished or left
+  const [tutorial, setTutorial] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  /** Bumped per run so a replayed tutorial gets a fresh GameCanvas */
+  const [runId, setRunId] = useState(0);
+  const [offerTutorial, setOfferTutorial] = useState(() => firstVisit.shouldOffer());
+  const [helpOpen, setHelpOpen] = useState(false);
+  const touch = useTouchUi();
 
   const handleStart = useCallback((setup: RunSetup) => {
     saveRunSetup(setup);
     setStats(DEFAULT_STATS);
+    setTutorial(false);
+    setTutorialOpen(false);
+    setRunId((n) => n + 1);
     setRunSetup(setup); // mounts GameCanvas → fresh GameManager, whose meteor intro opens the run
   }, []);
+
+  /** The guided tutorial: a fresh calm run with Hormi (from the picker, the first-visit offer or the help card) */
+  const handleTutorial = useCallback(() => {
+    firstVisit.remember('done');
+    setOfferTutorial(false);
+    setHelpOpen(false);
+    gameManagerRef.current = null;
+    setGameManager(null);
+    setStats(DEFAULT_STATS);
+    setTutorial(true);
+    setTutorialOpen(true);
+    setRunId((n) => n + 1);
+    setRunSetup(TUTORIAL_SETUP);
+  }, []);
+
+  const declineTutorial = useCallback(() => {
+    firstVisit.remember('skipped');
+    setOfferTutorial(false);
+  }, []);
+
+  const closeTutorial = useCallback(() => setTutorialOpen(false), []);
+
+  // The help card pauses the run while it is open
+  const [resumeAfterHelp, setResumeAfterHelp] = useState(false);
+  const openHelp = useCallback(() => {
+    const gm = gameManagerRef.current;
+    const pause = Boolean(gm && !gm.isPaused());
+    if (pause) gm?.setPaused(true);
+    setResumeAfterHelp(pause);
+    setHelpOpen(true);
+  }, []);
+  const closeHelp = useCallback(() => {
+    setHelpOpen(false);
+    if (resumeAfterHelp) gameManagerRef.current?.setPaused(false);
+    setResumeAfterHelp(false);
+  }, [resumeAfterHelp]);
 
   const handleRestart = useCallback(() => {
     // Back to the picker: unmounting GameCanvas stops the old GameManager
     gameManagerRef.current = null;
     setGameManager(null);
     setStats(DEFAULT_STATS);
+    setTutorial(false);
+    setTutorialOpen(false);
+    setHelpOpen(false);
     setRunSetup(null);
   }, []);
 
@@ -109,16 +166,28 @@ export default function App() {
 
   if (!runSetup) {
     // Shown on first load and after every restart, before any simulation runs
-    return <RacePicker initialSetup={loadRunSetup()} onStart={handleStart} />;
+    return (
+      <>
+        <RacePicker initialSetup={loadRunSetup()} onStart={handleStart} onTutorial={handleTutorial} />
+        {offerTutorial && <TutorialOffer onAccept={handleTutorial} onDecline={declineTutorial} />}
+      </>
+    );
   }
 
   return (
     <div className="hive-screen">
       {/* The world fills the window; every HUD element floats above it */}
-      <GameCanvas setup={runSetup} onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} introPlaying={stats.introPlaying} />
+      <GameCanvas
+        key={runId}
+        setup={runSetup}
+        tutorial={tutorial}
+        onStatsUpdate={handleStatsUpdate}
+        onGameManager={handleGameManager}
+        introPlaying={stats.introPlaying}
+      />
       {/* Hidden during the opening cinematic, then it fades in */}
       <HudLayer introPlaying={stats.introPlaying}>
-        <TopStrip stats={stats} gameManager={gameManager} />
+        <TopStrip stats={stats} gameManager={gameManager} onHelp={openHelp} />
         {/* Defaults carry no objective: wait for the first real snapshot */}
         {stats.tickCount > 0 && <ObjectivePanel objective={stats.objective} />}
         <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} />
@@ -127,6 +196,10 @@ export default function App() {
       {!stats.introPlaying && (
         <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
       )}
+      {tutorialOpen && gameManager && !stats.introPlaying && !stats.gameOver && (
+        <TutorialOverlay gameManager={gameManager} onExit={closeTutorial} onFinish={closeTutorial} />
+      )}
+      {helpOpen && <HelpCard device={deviceOf(touch)} onClose={closeHelp} onReplayTutorial={handleTutorial} />}
       {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
 
       {/* Dawn mutation pick: full-screen, above the HUD */}

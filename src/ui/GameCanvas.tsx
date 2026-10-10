@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from 'react';
 import { GameManager } from '../game/GameManager';
 import type { GameStats } from '../game/GameManager';
 import type { RunSetup } from '../game/run/RunSetup';
+import { createTutorialGame } from '../game/tutorial/createTutorialGame';
 import { fitCanvasToWindow, pickDefaultZoom, visibleCanvasRect, type CanvasFit } from './layout/canvasFit';
 import { HUD_FADE_MS, hudInsets, hudLayout, hudScale } from './layout/hudMetrics';
 import { readSafeArea } from './layout/safeArea';
@@ -13,6 +14,8 @@ interface GameCanvasProps {
   onGameManager: (gm: GameManager) => void;
   /** True while the opening cinematic plays and the HUD is hidden */
   introPlaying: boolean;
+  /** The guided tutorial: its own calm, seeded map (the setup is ignored) */
+  tutorial?: boolean;
 }
 
 /**
@@ -24,7 +27,7 @@ interface GameCanvasProps {
  * During the intro the HUD is hidden and that band is the whole window; as
  * the HUD fades in, the band eases back so the camera glides instead of jumping.
  */
-export function GameCanvas({ setup, onStatsUpdate, onGameManager, introPlaying }: GameCanvasProps) {
+export function GameCanvas({ setup, onStatsUpdate, onGameManager, introPlaying, tutorial = false }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const gameManagerRef = useRef<GameManager | null>(null);
@@ -38,7 +41,8 @@ export function GameCanvas({ setup, onStatsUpdate, onGameManager, introPlaying }
     if (!canvasRef.current) return;
     if (gameManagerRef.current) return; // prevent double init in strict mode
 
-    const gm = new GameManager(canvasRef.current, setup);
+    const canvas = canvasRef.current;
+    const gm = tutorial ? createTutorialGame((s) => new GameManager(canvas, s)) : new GameManager(canvas, setup);
     gameManagerRef.current = gm;
 
     gm.onStats(onStatsUpdate);
