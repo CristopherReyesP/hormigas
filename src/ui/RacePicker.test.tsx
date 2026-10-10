@@ -62,15 +62,16 @@ describe('race picker', () => {
     }
   });
 
-  it('lets you fight the wildlife now; the other rivals are coming soon', () => {
+  it('lets you fight the wildlife or the Humans now; the Crystal Hive is coming soon', () => {
     expect(RIVAL_OPTIONS.map((r) => r.name)).toEqual(['Fauna salvaje', 'Colmena de Cristal', 'Humanos']);
     const wildlife = buttonTag(html, 'data-rival="wildlife"');
     expect(wildlife).not.toContain('disabled');
     expect(wildlife).toContain('aria-pressed="true"');
-    for (const id of ['crystal', 'human']) {
-      expect(buttonTag(html, `data-rival="${id}"`)).toContain('disabled=""');
-      expect(cardHtml(html, `data-rival="${id}"`)).toContain('Próximamente');
-    }
+    expect(buttonTag(html, 'data-rival="crystal"')).toContain('disabled=""');
+    expect(cardHtml(html, 'data-rival="crystal"')).toContain('Próximamente');
+    const humans = buttonTag(html, 'data-rival="human"');
+    expect(humans).not.toContain('disabled');
+    expect(cardHtml(html, 'data-rival="human"')).not.toContain('Próximamente');
   });
 
   it('spells out the matchup next to the start button', () => {
@@ -82,6 +83,6 @@ describe('race picker', () => {
       <RacePicker initialSetup={{ playerRace: 'crystal', rivalRace: 'human' }} onStart={noop} />,
     );
     expect(buttonTag(out, 'data-race="swarm"')).toContain('aria-pressed="true"');
-    expect(buttonTag(out, 'data-rival="wildlife"')).toContain('aria-pressed="true"');
+    expect(buttonTag(out, 'data-rival="human"')).toContain('aria-pressed="true"');
   });
 });

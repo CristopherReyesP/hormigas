@@ -78,9 +78,11 @@ export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
         )}
         <div style={{ color: 'var(--chrome-dim)', marginBottom: 18 }}>
           {victory
-            ? stats.hiveDestroyed
-              ? 'La colonia destruyó la Colmena de Cristal.'
-              : `La colonia sobrevivió ${RUN_NIGHTS_TO_WIN} noches.`
+            ? stats.rivalCoreDestroyed === 'human'
+              ? 'La colonia destruyó el Centro de Mando humano.'
+              : stats.hiveDestroyed || stats.rivalCoreDestroyed === 'crystal'
+                ? 'La colonia destruyó la Colmena de Cristal.'
+                : `La colonia sobrevivió ${RUN_NIGHTS_TO_WIN} noches.`
             : 'Sin reina no hay colonia.'}
         </div>
 

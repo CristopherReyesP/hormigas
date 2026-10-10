@@ -5,6 +5,7 @@ import { LEAPER_NAME } from '../../shared/wildlifeNames';
 import { PixelIcon } from './PixelIcon';
 import type { IconName } from './pixelIcons';
 import { Portrait } from './Portrait';
+import { HumanPortrait } from './HumanPortrait';
 import type { ColonyDetails } from './useColonyDetails';
 import { deriveBroodPipeline } from './brood';
 import { BroodReadout } from './BroodReadout';
@@ -161,7 +162,14 @@ function NestSummary({ details }: { details: ColonyDetails }) {
   );
 }
 
-const DEN_KIND = new Set<SelectedEntityInfo['type']>(['beetle_den', 'cricket_den', 'crystal_hive']);
+const DEN_KIND = new Set<SelectedEntityInfo['type']>(['beetle_den', 'cricket_den', 'crystal_hive', 'human_building']);
+
+/** What the attack-wave note calls the selected base */
+function attackLabel(type: SelectedEntityInfo['type']): string {
+  if (type === 'crystal_hive') return 'Atacar colmena';
+  if (type === 'human_building') return 'Atacar edificio';
+  return 'Atacar guarida';
+}
 
 function SelectionBars({ sel }: { sel: SelectedEntityInfo }) {
   const health = selectionHealth(sel);
@@ -208,6 +216,14 @@ function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
       {sel.type === 'cricket_den' && (
         <div className="info-line">{LEAPER_NAME.many} activos: <strong>{sel.cricketDenActiveCrickets}</strong></div>
       )}
+      {sel.human && (
+        <>
+          <div className="info-note">{sel.human.blurb}</div>
+          {sel.human.facts.map((fact) => (
+            <div key={fact} className="info-line">{fact}</div>
+          ))}
+        </>
+      )}
     </>
   );
 }
@@ -215,12 +231,16 @@ function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
 function SelectionInfo({ stats, gameManager, attackCount, onAttackCountChange }: Omit<InfoPanelProps, 'details'>) {
   const sel = stats.selectedEntity!;
   const { name, faction } = selectionTitle(sel);
-  const enemy = sel.type === 'beetle' || sel.type === 'cricket' || DEN_KIND.has(sel.type);
+  const enemy = sel.type === 'beetle' || sel.type === 'cricket' || sel.type === 'human_unit' || DEN_KIND.has(sel.type);
   const maxAttack = Math.min(30, stats.availableSoldiers);
   const sending = Math.min(attackCount, maxAttack);
   return (
     <div className="info-selection">
-      <Portrait kind={sel.type} role={sel.role} foodType={sel.foodType} carrying={Boolean(sel.carrying?.type)} />
+      {sel.human ? (
+        <HumanPortrait human={sel.human} />
+      ) : (
+        <Portrait kind={sel.type} role={sel.role} foodType={sel.foodType} carrying={Boolean(sel.carrying?.type)} />
+      )}
       <div className="info-unit">
         <div className={`info-name${enemy ? ' info-name--enemy' : ''}`}>{name.toUpperCase()}</div>
         <div className="info-note">{faction} · ({sel.position.x}, {sel.position.y})</div>
@@ -240,7 +260,7 @@ function SelectionInfo({ stats, gameManager, attackCount, onAttackCountChange }:
               <span className="info-stepper-value">{sending}</span>
               <button type="button" className="hud-btn" disabled={sending >= maxAttack} onClick={() => onAttackCountChange(Math.min(30, sending + 5))}>+5</button>
             </div>
-            <div className="info-note">Envíalos con {sel.type === 'crystal_hive' ? 'Atacar colmena' : 'Atacar guarida'} (A)</div>
+            <div className="info-note">Envíalos con {attackLabel(sel.type)} (A)</div>
           </>
         )}
       </div>

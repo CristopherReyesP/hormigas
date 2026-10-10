@@ -51,7 +51,10 @@ export function portraitSprite(kind: SelectedEntityInfo['type'], foodType?: stri
     case 'beetle_den':
     case 'cricket_den':
     case 'crystal_hive':
+    case 'human_building':
       return 'den';
+    case 'human_unit':
+      return 'beetle'; // a stand-in: InfoPanel shows HumanPortrait for Humans
     case 'food':
       return foodType === 'giant_mushroom' ? 'giantMushroom' : 'food';
     default:
