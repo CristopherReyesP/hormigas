@@ -2,7 +2,7 @@ import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
 import { COMPONENT, type HungerComponent, type PositionComponent, type AntComponent, type QueenEntityComponent, type HealthComponent, type CarryingComponent } from '../components/components';
-import { QUEEN_STARVATION_DAMAGE, HUNGER_EAT_RATE, HUNGER_PER_FOOD, HEAL_HP_PER_FOOD } from '../../shared/constants';
+import { QUEEN_STARVATION_DAMAGE, HUNGER_EAT_RATE, HUNGER_PER_FOOD, HEAL_HP_PER_FOOD, HURT_EAT_HEALTH_RATIO } from '../../shared/constants';
 
 /**
  * The one way an ant eats, wherever the food comes from (its own load, a
@@ -33,6 +33,18 @@ export function eat(
   if (hunger) hunger.current = Math.min(hunger.max, hunger.current + toHunger * HUNGER_PER_FOOD);
   if (health && eaten > toHunger) health.current = Math.min(health.max, health.current + (eaten - toHunger) * hpPerFood);
   return eaten;
+}
+
+/** Wounded enough that an eating trip is worth it (eating is how ants heal) */
+export function isHurt(health: HealthComponent | undefined): boolean {
+  return health !== undefined && health.current > 0 && health.current < health.max * HURT_EAT_HEALTH_RATIO;
+}
+
+/** A meal still does something: hunger is not yet ~full, or HP is not full */
+export function needsMeal(hunger: HungerComponent | undefined, health: HealthComponent | undefined): boolean {
+  const needsFood = hunger !== undefined && hunger.current < hunger.max * 0.95;
+  const needsHeal = health !== undefined && health.current > 0 && health.current < health.max;
+  return needsFood || needsHeal;
 }
 
 const ROLE_NAMES: Record<string, string> = {

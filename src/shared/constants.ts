@@ -124,6 +124,7 @@ export const QUEEN_STARVATION_DAMAGE = 5;    // HP/s drained while hunger is at 
 // Healing — ants heal by EATING: whatever a meal holds beyond what hunger
 // needs turns into HP. There is no healing trip to the nest.
 export const HEAL_HP_PER_FOOD = 2; // 1 food unit restores 2 HP (costs more food to heal)
+export const HURT_EAT_HEALTH_RATIO = 0.7; // nurses and defenders live next to the pantry: below this HP they go eat to heal
 
 // Feeding (hunger restoration)
 export const HUNGER_EAT_THRESHOLD = 0.5; // go eat at nest when below 50% hunger
