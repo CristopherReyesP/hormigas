@@ -7,6 +7,7 @@ import { GameOverScreen } from './ui/GameOverScreen';
 import { MilestoneBanner } from './ui/MilestoneBanner';
 import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
+import { TitleScreen } from './ui/TitleScreen';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
 import { NestAlert } from './ui/NestAlert';
@@ -87,6 +88,9 @@ export default function App() {
   const [stats, setStats] = useState<GameStats>(DEFAULT_STATS);
   // null while the race picker is up; set by COMENZAR. The GameManager builds its rival from it.
   const [runSetup, setRunSetup] = useState<RunSetup | null>(null);
+  // The title screen opens the game and every return to the menu; INICIAR leads to the race picker
+  const [titleOpen, setTitleOpen] = useState(true);
+  const closeTitle = useCallback(() => setTitleOpen(false), []);
   const gameManagerRef = useRef<GameManager | null>(null);
   const [gameManager, setGameManager] = useState<GameManager | null>(null);
   // Tutorial: the run is the guided one while true; the overlay shows until it is finished or left
@@ -161,6 +165,7 @@ export default function App() {
     setHelpOpen(false);
     setCreateGame(undefined);
     setRunSetup(null);
+    setTitleOpen(true);
   }, []);
 
   const handleLoadSave = useCallback((save: SaveFile) => {
@@ -224,13 +229,12 @@ export default function App() {
     gameManagerRef.current?.confirmMutation();
   }, []);
 
-  if (!runSetup) {
-    // Shown on first load and after every restart, before any simulation runs
+  if (!runSetup && titleOpen) {
+    // Shown on first load and after every restart: saves and the tutorial start right from here
     return (
       <>
-        <RacePicker
-          initialSetup={loadRunSetup()}
-          onStart={handleStart}
+        <TitleScreen
+          onStart={closeTitle}
           onTutorial={handleTutorial}
           savedRun={<StartSaves storage={saveStorage} onLoad={handleLoadSave} />}
         />
@@ -238,6 +242,11 @@ export default function App() {
         <SaveToasts />
       </>
     );
+  }
+
+  if (!runSetup) {
+    // INICIAR on the title: pick the races for a new run
+    return <RacePicker initialSetup={loadRunSetup()} onStart={handleStart} />;
   }
 
   return (
