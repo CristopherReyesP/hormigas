@@ -216,6 +216,12 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
     2. The Crystal Hive arrives as the AI rival (P5).
     3. The Crystal Hive becomes playable.
     4. The Humans arrive as AI (P9), then become playable.
+  - [x] Slice 1 done (483a70f, 03aac5e; merged in d91aca7). Route: delegated (Claude subagent in the `../hormigas-picker` worktree, in parallel with P3a and the art pass).
+    - `crystalUnits.ts` bakes the Drone, Sentinel and Crystal Queen frames (hovering, no legs, a cyan core, gold filigree). `humanUnits.ts` bakes the soldier, marksman and tank (`PAL.human`).
+    - `RacePicker` shows on load and on restart. Its race cards carry the 5 identity lines and stat pips. The rival is Fauna salvaje; the other races are "Próximamente".
+    - `RunSetup` lives in App state and persists to localStorage. GameManager is unchanged.
+    - RED was observed for both tasks. The parent ran 353/353 tests and tsc after the merge.
+    - Open: move the shared grid helpers out of `crystalUnits.ts`; re-check the Swarm preview zoom after the P2.6 scale change. The pixel font has no uppercase accented glyphs, so labels avoid CSS uppercase.
   - The picker shows races that are not playable yet as "Próximamente". Each race gets its own intro; today's meteor intro ("EL ENJAMBRE DESPIERTA") is the Swarm's. Cost: expensive.
 - [ ] P6 — Supply cap. The mycelium creep moved to P7.2. Cost: medium.
 - [ ] P7 — Surface base building (user, 2026-10-09: "en StarCraft se agregan como sitios en la superficie porque no hay cueva… expansión de territorio… encontrar minerales para construir armas, defensas"). Food pays for ants; minerals pay for structures. Cost: medium-expensive. Same Explore map:
