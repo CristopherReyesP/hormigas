@@ -55,6 +55,7 @@ import { combatVfxFor } from '../vfx/CombatVfx';
 import { drawCombatVfx } from '../vfx/drawCombatVfx';
 import { HumanRenderer } from './HumanRenderer';
 import type { IntroClock, Vec2 } from '../render/introTimeline';
+import type { IntroArrival } from '../render/introArrival';
 import { LeapTracker, type LeapDraw } from '../render/leapMotion';
 import type { TilePos } from '../run/craterSite';
 import type { EntityId } from '../../shared/types';
@@ -587,14 +588,19 @@ export class RenderSystem {
     this.getDayPhase = fn;
   }
 
-  /** Stage the run's opening: the meteor strikes `impactTile` and leaves its crater there. GameManager advances `clock`. */
-  startMeteorIntro(impactTile: TilePos, nestTile: TilePos, clock: IntroClock): void {
+  /**
+   * Stage the run's opening: the crater (with its shard field) sits at
+   * `impactTile`, and `arrival` says what comes down and where (the meteor on
+   * the crater by default; the Humans' dropship on their base). GameManager
+   * advances `clock`.
+   */
+  startMeteorIntro(impactTile: TilePos, nestTile: TilePos, clock: IntroClock, arrival?: IntroArrival): void {
     // The Hive's corruption: crystal shards on the ground around the impact
     const shards = crystalShardsAround(impactTile, DECOR_SEED, (x, y) => {
       const tile = this.grid.getTile(x, y);
       return tile !== null && tile.terrain !== TerrainType.Water;
     });
-    this.intro = new MeteorIntro(impactTile, nestTile, clock, shards);
+    this.intro = new MeteorIntro(impactTile, nestTile, clock, shards, arrival);
     this.craterTile = { x: impactTile.x, y: impactTile.y };
   }
 
@@ -1807,8 +1813,9 @@ export class RenderSystem {
       this.drawCrystalDrone(ctx, x, y, id);
     }
 
-    // The Human rival: buildings on explored ground, troops where the colony sees now, gunfire
-    this.humanRenderer.draw(ctx, interpolation, this.animationTime, (c, px, py, current, max, always, scale, yOffset) =>
+    // The Human rival: buildings on explored ground, troops where the colony sees now, gunfire.
+    // While their arrival plays, the intro draws the base unfolding instead
+    if (!this.intro?.hidesRivalBase()) this.humanRenderer.draw(ctx, interpolation, this.animationTime, (c, px, py, current, max, always, scale, yOffset) =>
       this.drawHealthBar(c, px, py, current, max, always, scale, yOffset));
 
     for (const { id, pos } of antEntities) {
