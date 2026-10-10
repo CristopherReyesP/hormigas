@@ -37,6 +37,8 @@ export const AntState = {
   Healing: 'healing', // went below to eat — eating is what heals (UndergroundHealingSystem)
   FeedingQueen: 'feeding_queen',
   TendingEgg: 'tending_egg',
+  /** A free nurse attending an incubating larva so it grows faster (BROOD_CARE_SPEEDUP) */
+  GroomingBrood: 'grooming_brood',
   FetchingFood: 'fetching_food',
   GoingToDigSite: 'going_to_dig_site',
   Excavating: 'excavating',
