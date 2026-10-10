@@ -126,3 +126,21 @@ describe('alien leapers (the cricket) are called Saltador in the UI', () => {
     expect(den).not.toMatch(/grillo/i);
   });
 });
+
+describe('the Crystal Hive card', () => {
+  it('names the hive, shows its health and the attack wave stepper, like a den', () => {
+    const html = render({
+      ...STATS,
+      availableSoldiers: 6,
+      selectedEntity: {
+        entityId: 12, type: 'crystal_hive', position: { x: 20, y: 30 },
+        hiveHealth: { current: 1200, max: 1500 },
+      },
+    } as GameStats);
+    expect(html).toContain('COLMENA DE CRISTAL');
+    expect(html).toContain('Vida');
+    expect(html).toContain('1200');
+    expect(html).toContain('OLEADA DE ATAQUE');
+    expect(html).toContain('Atacar colmena (A)');
+  });
+});

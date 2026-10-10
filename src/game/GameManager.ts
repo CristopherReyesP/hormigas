@@ -155,7 +155,7 @@ export type CommandTarget = 'move' | 'attack';
 
 export interface SelectedEntityInfo {
   entityId: EntityId;
-  type: 'ant' | 'food' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den';
+  type: 'ant' | 'food' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'crystal_hive';
   position: { x: number; y: number };
   // Ant-specific
   role?: AntRole;
@@ -184,6 +184,8 @@ export interface SelectedEntityInfo {
   // Cricket den-specific
   cricketDenHealth?: { current: number; max: number };
   cricketDenActiveCrickets?: number;
+  // Crystal Hive-specific
+  hiveHealth?: { current: number; max: number };
 }
 
 /** Several own ants selected: what the StarCraft-style group panel shows. */
@@ -2153,6 +2155,17 @@ export class GameManager {
         position: { x: Math.round(pos.x), y: Math.round(pos.y) },
         cricketDenHealth: { current: cricketDen.health, max: cricketDen.maxHealth },
         cricketDenActiveCrickets: cricketDen.activeCrickets,
+      };
+    }
+
+    // The rival's base: same card as a den (health and the attack wave)
+    if (this.world.getComponent(selectedId, COMPONENT.CRYSTAL_HIVE)) {
+      const health = this.world.getComponent<HealthComponent>(selectedId, COMPONENT.HEALTH);
+      return {
+        entityId: selectedId,
+        type: 'crystal_hive',
+        position: { x: Math.round(pos.x), y: Math.round(pos.y) },
+        hiveHealth: health ? { current: health.current, max: health.max } : undefined,
       };
     }
 

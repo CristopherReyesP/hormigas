@@ -64,6 +64,7 @@ export const ANT_STATE_LABEL: Record<string, string> = {
   healing: 'Curándose',
   feeding_queen: 'Alimentando a la reina',
   tending_egg: 'Cuidando huevos',
+  grooming_brood: 'Atendiendo larvas',
   fetching_food: 'Buscando comida en la despensa',
   going_to_dig_site: 'Yendo a excavar',
   excavating: 'Excavando',

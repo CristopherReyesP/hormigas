@@ -12,6 +12,7 @@ import { formatClock, ROLE_LABEL } from './format';
  * - The egg is paid up front from the underground pantry (pantry + farm piles).
  * - The queen lays queued eggs one at a time; she pauses while starving.
  * - Only nurses carry a laid egg to a free incubation slot, and it only grows there.
+ * - A free nurse attending a larva makes it grow faster (one nurse per larva).
  * - A grown larva hatches once a nurse has fed it from the pantry.
  */
 
@@ -68,7 +69,7 @@ const MAX_EGG_CHIPS = 3;
 const STAGE_BLURB: Record<StageId, string> = {
   pantry: 'Comida guardada bajo tierra. Paga cada huevo al encargarlo.',
   laying: 'Huevos encargados: la reina los pone de a uno.',
-  incubating: 'Las nodrizas llevan los huevos al área de incubación y los alimentan.',
+  incubating: 'Las nodrizas llevan los huevos al área de incubación y los alimentan; las que quedan libres atienden a las larvas, que crecen el doble de rápido.',
   hatch: 'Tiempo hasta la próxima eclosión.',
 };
 

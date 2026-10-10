@@ -169,26 +169,28 @@ function timeCommands(ctx: CommandContext): CommandDef[] {
 
 function isDenSelected(stats: GameStats): boolean {
   const type = stats.selectedEntity?.type;
-  return stats.activeLayer === 'surface' && (type === 'beetle_den' || type === 'cricket_den');
+  return stats.activeLayer === 'surface' && (type === 'beetle_den' || type === 'cricket_den' || type === 'crystal_hive');
 }
 
 function attackDen(ctx: CommandContext): CommandDef {
   const selected = ctx.stats.selectedEntity;
   const count = Math.min(ctx.attackCount, ctx.stats.availableSoldiers);
   const ready = count > 0;
+  const hive = selected?.type === 'crystal_hive';
+  const base = hive ? 'la colmena' : 'la guarida';
   return {
     id: 'attack-den',
-    label: 'Atacar guarida',
+    label: hive ? 'Atacar colmena' : 'Atacar guarida',
     icon: 'sword',
-    description: 'Ordena a los soldados libres más cercanos atacar la guarida seleccionada hasta destruirla. Ajusta cuántos en el panel central.',
+    description: `Ordena a los soldados libres más cercanos atacar ${base} seleccionada hasta destruirla. Ajusta cuántos en el panel central.`,
     badge: ready ? String(count) : undefined,
     tone: 'danger',
     disabled: !ready,
-    disabledReason: 'No hay soldados libres. Cría soldados, o selecciona hormigas y haz clic derecho en la guarida.',
+    disabledReason: `No hay soldados libres. Cría soldados, o selecciona hormigas y haz clic derecho en ${base}.`,
     run: act(ctx, () => {
       if (!selected || !ready) return;
       const sent = ctx.gm.dispatchAttackWave(selected.entityId, count);
-      ctx.notify(`¡${sent} soldados en camino a la guarida!`);
+      ctx.notify(`¡${sent} soldados en camino a ${base}!`);
     }),
   };
 }
@@ -245,7 +247,7 @@ function unitPage(ctx: CommandContext): Slot[] {
       id: 'attack',
       label: 'Atacar',
       icon: 'attack',
-      description: `Pulsa Atacar y haz clic. Sobre un enemigo, ${ants} lo persiguen hasta matarlo. En el suelo, avanzan y pelean con cada enemigo que ven en el camino. Las guerreras se quedan de guardia al terminar.`,
+      description: `Pulsa Atacar y haz clic. Sobre un enemigo, ${ants} lo persiguen hasta matarlo. En el suelo, avanzan, pelean con cada enemigo que ven en el camino y, al llegar, atacan la guarida o la colmena que haya allí. Al terminar, vuelven a su trabajo y defienden el nido si hace falta.`,
       altKeys: 'clic derecho en un enemigo',
       tone: 'danger',
       active: ctx.stats.commandTarget === 'attack',

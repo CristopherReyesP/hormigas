@@ -5,11 +5,12 @@ import { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { TerrainType } from '../../simulation/world/types';
 import { createDefaultModifiers } from '../events/GlobalModifiers';
-import { createAnt, createBeetle, createBeetleDen, createNest } from '../entities/factories';
+import { createAnt, createBeetle, createBeetleDen, createCricketDen, createCrystalHive, createNest } from '../entities/factories';
 import {
   AntRole,
   AntState,
   COMPONENT,
+  ColonyPriority,
   Layer,
   OrderKind,
   type AntComponent,
@@ -84,12 +85,12 @@ function setup() {
     healthOf(id).current = health;
     return id;
   };
-  return { world, surface, transit, run, antOf, posOf, orderOf, combatOf, healthOf, place, dist, beetle };
+  return { world, surface, transit, ai, run, antOf, posOf, orderOf, combatOf, healthOf, place, dist, beetle };
 }
 
 describe('attack-target order', () => {
-  it('chases its target past a closer enemy until it dies, then the warrior holds there', () => {
-    const { world, surface, run, antOf, orderOf, combatOf, healthOf, dist, beetle } = setup();
+  it('chases its target past a closer enemy until it dies, then goes to defend the nest', () => {
+    const { world, surface, run, antOf, orderOf, combatOf, healthOf, beetle } = setup();
     const soldier = createAnt(world, NX, NY, AntRole.Soldier);
     const target = beetle(NX + 10, NY, 30);
     const closer = beetle(NX - 3, NY, 30);
@@ -106,16 +107,28 @@ describe('attack-target order', () => {
     expect(world.hasEntity(target)).toBe(false);
     expect(healthOf(closer).current).toBe(30);
 
-    // The kill leaves the warrior on guard where it stood, not back at its job
+    // The attack is done: no guard post out there, the colony AI takes over
+    // and answers the predator sitting at the nest
     run(TICK * 2);
-    const post = { ...orderOf(soldier)!.target };
-    expect(orderOf(soldier)?.kind).toBe(OrderKind.Guard);
-    expect(dist(soldier, NX + 10, NY)).toBeLessThanOrEqual(SOLDIER_ATTACK_RANGE + 0.2);
-    run(15);
-    expect(orderOf(soldier)?.kind).toBe(OrderKind.Guard);
-    expect(antOf(soldier).state).toBe(AntState.Guarding);
-    expect(dist(soldier, post.x, post.y)).toBeLessThanOrEqual(GUARD_HOME_RADIUS);
-    expect(healthOf(closer).current).toBe(30);
+    expect(orderOf(soldier)).toBeUndefined();
+    expect(antOf(soldier).state).not.toBe(AntState.Guarding);
+    run(15, () => combatOf(soldier)?.targetEntityId === closer);
+    expect(combatOf(soldier)?.targetEntityId).toBe(closer);
+  });
+
+  it('with Defend on, a soldier whose target died walks back to patrol the nest', () => {
+    const { world, surface, ai, run, antOf, orderOf, dist, beetle } = setup();
+    ai.colonyPriority = ColonyPriority.Defend;
+    const soldier = createAnt(world, NX + 16, NY, AntRole.Soldier);
+    const target = beetle(NX + 22, NY, 10);
+    issueAttackOrders(world, surface, [soldier], target);
+    run(20, () => !world.hasEntity(target));
+    expect(world.hasEntity(target)).toBe(false);
+    run(TICK * 2);
+    expect(orderOf(soldier)).toBeUndefined();
+    run(30, () => antOf(soldier).state === AntState.PatrollingNest && dist(soldier, NX, NY) < 8);
+    expect(antOf(soldier).state).toBe(AntState.PatrollingNest);
+    expect(dist(soldier, NX, NY)).toBeLessThan(8);
   });
 
   it('a worker goes back to its job once the target is dead', () => {
@@ -185,7 +198,7 @@ describe('an ordered soldier commits to a far target', () => {
 
 describe('attack-move order', () => {
   it('fights an enemy that comes into view, then resumes the walk and arrives', () => {
-    const { world, surface, run, orderOf, combatOf, dist, beetle } = setup();
+    const { world, surface, run, antOf, orderOf, combatOf, dist, beetle } = setup();
     const soldier = createAnt(world, NX - 12, NY, AntRole.Soldier);
     const slot = { x: NX + 12, y: NY };
     const prey = beetle(NX, NY + 4, 20);
@@ -200,9 +213,33 @@ describe('attack-move order', () => {
     expect(world.hasEntity(prey)).toBe(false);
     expect(orderOf(soldier)?.kind).toBe(OrderKind.AttackMove);
 
-    run(30, () => orderOf(soldier)?.kind === OrderKind.Guard);
-    expect(orderOf(soldier)?.kind).toBe(OrderKind.Guard);
-    expect(dist(soldier, slot.x, slot.y)).toBeLessThanOrEqual(ORDER_SETTLE_RADIUS);
+    // Arrived with nothing left to fight: the order is done, no guard post
+    run(30, () => !orderOf(soldier));
+    expect(orderOf(soldier)).toBeUndefined();
+    expect(dist(soldier, slot.x, slot.y)).toBeLessThanOrEqual(ORDER_SETTLE_RADIUS + 1);
+    expect(antOf(soldier).state).not.toBe(AntState.Guarding);
+  });
+
+  it('onto a den: attacks the den on arrival until it falls, then the order ends', () => {
+    const { world, surface, run, orderOf, antOf } = setup();
+    const den = createBeetleDen(world, NX + 12, NY);
+    const denComp = world.getComponent<BeetleDenComponent>(den, COMPONENT.BEETLE_DEN)!;
+    denComp.health = 40;
+    const soldiers = [createAnt(world, NX - 12, NY, AntRole.Soldier), createAnt(world, NX - 12, NY + 1, AntRole.Soldier)];
+    issueMoveOrders(world, surface, soldiers, { x: NX + 12, y: NY }, null, OrderKind.AttackMove);
+
+    let attackedDen = false;
+    run(40, () => !world.hasEntity(den), () => {
+      if (soldiers.some((id) => orderOf(id)?.kind === OrderKind.Attack && orderOf(id)?.targetId === den)) attackedDen = true;
+      for (const id of soldiers) expect(orderOf(id)?.kind).not.toBe(OrderKind.Guard);
+    });
+    expect(attackedDen).toBe(true);
+    expect(world.hasEntity(den)).toBe(false);
+    run(TICK * 2);
+    for (const id of soldiers) {
+      expect(orderOf(id)).toBeUndefined();
+      expect(antOf(id).state).not.toBe(AntState.Guarding);
+    }
   });
 
   it('a plain move walks past the same enemy', () => {
@@ -381,5 +418,30 @@ describe('picking the enemy under a right-click', () => {
     expect(findEnemyAt(world, { x: NX + 5, y: NY + 6 }, canSee)).toBeNull();
     expect(findEnemyAt(world, { x: NX + 9, y: NY - 7 }, canSee)).toBeNull();
     expect(world.hasEntity(hidden)).toBe(true);
+  });
+
+  // Player report: "sigo sin poder atacar bases". Bases are big sprites (a den
+  // spans 2.5 tiles, the hive's spires rise about 3.5 tiles above its core),
+  // but only a click within 1.5 tiles of the center hit them: a click on the
+  // rest of the sprite became a plain move, and the soldiers never attacked.
+  it('a click anywhere on a base sprite hits the base, not the ground next to it', () => {
+    const { world } = setup();
+    const beetleDen = createBeetleDen(world, NX - 10, NY);
+    const cricketDen = createCricketDen(world, NX + 10, NY);
+    const hive = createCrystalHive(world, NX, NY + 12);
+    const canSee = () => true;
+
+    for (const [den, x] of [[beetleDen, NX - 10], [cricketDen, NX + 10]] as const) {
+      // The corners of the 2.5-tile sprite
+      expect(findEnemyAt(world, { x: x + 1.15, y: NY - 1.15 }, canSee)).toBe(den);
+      expect(findEnemyAt(world, { x: x - 1.15, y: NY + 1.15 }, canSee)).toBe(den);
+      expect(findEnemyAt(world, { x: x + 2.5, y: NY }, canSee)).toBeNull();
+    }
+    // The hive's crown of spires above it, and its crater rim at the sides
+    expect(findEnemyAt(world, { x: NX + 0.5, y: NY + 12 - 3.2 }, canSee)).toBe(hive);
+    expect(findEnemyAt(world, { x: NX - 1.8, y: NY + 12 - 0.5 }, canSee)).toBe(hive);
+    expect(findEnemyAt(world, { x: NX + 1.5, y: NY + 12 + 1.2 }, canSee)).toBe(hive);
+    expect(findEnemyAt(world, { x: NX, y: NY + 12 + 3 }, canSee)).toBeNull();
+    expect(findEnemyAt(world, { x: NX + 3.5, y: NY + 12 }, canSee)).toBeNull();
   });
 });

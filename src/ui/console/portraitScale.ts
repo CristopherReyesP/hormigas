@@ -50,6 +50,7 @@ export function portraitSprite(kind: SelectedEntityInfo['type'], foodType?: stri
   switch (kind) {
     case 'beetle_den':
     case 'cricket_den':
+    case 'crystal_hive':
       return 'den';
     case 'food':
       return foodType === 'giant_mushroom' ? 'giantMushroom' : 'food';

@@ -3,12 +3,14 @@ import type { World } from '../../engine/ecs/World';
 import type { EntityId } from '../../shared/types';
 import {
   COMPONENT,
+  Layer,
   type AntComponent,
   type LayerComponent,
   type LayerValue,
   type SelectableComponent,
   type PositionComponent,
 } from '../components/components';
+import { findStructureAt } from './helpers/playerOrders';
 
 /** A rectangle in entity-position space (tile units, fractional). */
 export interface SelectionBox {
@@ -27,6 +29,8 @@ export interface ClickOptions {
 
 /** Click reach: the nearest selectable within this many tiles is picked. */
 const CLICK_RANGE = 2;
+/** A selectable this close to the click is right under the cursor: it beats a base drawn behind it. */
+const DIRECT_HIT_RANGE = 0.75;
 /** Box slack (tiles) so an ant whose body straddles the edge still counts. */
 const BOX_SLACK = 0.3;
 
@@ -156,7 +160,22 @@ export class SelectionSystem implements System {
     return caught;
   }
 
+  /**
+   * What a click at (tileX, tileY) picks: something right under the cursor,
+   * else a base whose big sprite covers the spot (a den, the hive), else the
+   * nearest selectable within CLICK_RANGE.
+   */
   private nearestAt(tileX: number, tileY: number, layer?: LayerValue): EntityId | null {
+    const nearest = this.nearestPoint(tileX, tileY, layer);
+    if (nearest !== null && nearest.dist <= DIRECT_HIT_RANGE) return nearest.id;
+    if (layer === undefined || layer === Layer.Surface) {
+      const base = findStructureAt(this.world, { x: tileX, y: tileY });
+      if (base !== null && this.world.getComponent(base, COMPONENT.SELECTABLE)) return base;
+    }
+    return nearest?.id ?? null;
+  }
+
+  private nearestPoint(tileX: number, tileY: number, layer?: LayerValue): { id: EntityId; dist: number } | null {
     let nearest: EntityId | null = null;
     let nearestDist = CLICK_RANGE;
     for (const id of this.world.query(COMPONENT.SELECTABLE, COMPONENT.POSITION)) {
@@ -168,7 +187,7 @@ export class SelectionSystem implements System {
         nearest = id;
       }
     }
-    return nearest;
+    return nearest === null ? null : { id: nearest, dist: nearestDist };
   }
 
   private setSelection(ids: EntityId[], layer: LayerValue | null): void {

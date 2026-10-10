@@ -180,6 +180,17 @@ describe('den card', () => {
     expect(buildCommands(ctx)[5]?.id).toBe('attack-den');
     expect(buildCommands(context().ctx).some((c) => c?.id === 'attack-den')).toBe(false);
   });
+
+  it('the Crystal Hive gets the same card: its attack command sends the free soldiers at it', () => {
+    const { gm, ctx } = context();
+    ctx.stats = { ...ctx.stats, selectedEntity: { entityId: 12, type: 'crystal_hive', position: { x: 5, y: 5 } }, availableSoldiers: 3 } as GameStats;
+    const attack = buildCommands(ctx)[5]!;
+    expect(attack.id).toBe('attack-den');
+    expect(attack.label).toBe('Atacar colmena');
+    expect(attack.disabled).toBe(false);
+    attack.run();
+    expect(gm.dispatchAttackWave).toHaveBeenCalledWith(12, 3);
+  });
 });
 
 describe('speed button', () => {
