@@ -17,7 +17,7 @@ import {
   type HealthComponent,
   type EggComponent,
 } from '../components/components';
-import { MAX_EGGS_PER_INCUBATION_TILE } from '../../shared/constants';
+import { BROOD_CARE_BOUT, BROOD_CARE_SPEEDUP, MAX_EGGS_PER_INCUBATION_TILE } from '../../shared/constants';
 import { eat, isHurt, needsMeal } from './HungerSystem';
 
 // Sub-tile slots so up to 4 eggs on one incubation tile don't overlap visually
@@ -65,6 +65,9 @@ export class NurseAISystem implements System {
           break;
         case AntState.TendingEgg:
           this.handleTendingEgg(id, ant, pos);
+          break;
+        case AntState.GroomingBrood:
+          this.handleGroomingBrood(id, ant, pos, dt);
           break;
         case AntState.FetchingFood:
           this.handleFetchingFood(id, ant, pos);
@@ -180,7 +183,7 @@ export class NurseAISystem implements System {
         this.clearPath(id);
         return;
       }
-      if (foodAvailable && fetchers < 3) {
+      if (foodAvailable && fetchers < this.larvaFetchCap(id)) {
         ant.state = AntState.FetchingFood;
         ant.stateTimer = 0;
         this.clearPath(id);
@@ -216,6 +219,18 @@ export class NurseAISystem implements System {
           return;
         }
       }
+    }
+
+    // Priority 5: Brood care — a nurse with nothing else to do attends a growing
+    // larva so it hatches sooner. Without this, brood speed was fixed by timers
+    // and every nurse past the few needed for carrying and feeding sat idle.
+    const larva = this.findLarvaToGroom(id, pos);
+    if (larva !== null) {
+      ant.state = AntState.GroomingBrood;
+      ant.stateTimer = 0;
+      ant.commandTargetId = larva;
+      this.clearPath(id);
+      return;
     }
 
     // Idle: hold a personal post in a ring around the queen instead of piling on top of her.
@@ -445,6 +460,71 @@ export class NurseAISystem implements System {
     }
   }
 
+  /** Stand by the claimed larva and speed its growth; re-decide after each bout */
+  private handleGroomingBrood(id: number, ant: AntComponent, pos: PositionComponent, dt: number): void {
+    const eggId = ant.commandTargetId;
+    const egg = eggId !== null && this.world.hasEntity(eggId)
+      ? this.world.getComponent<EggComponent>(eggId, COMPONENT.EGG)
+      : undefined;
+    const eggPos = egg ? this.world.getComponent<PositionComponent>(eggId!, COMPONENT.POSITION) : undefined;
+    if (!egg || !eggPos || !this.isGrowing(egg, eggPos)) {
+      this.releaseEgg(id, ant);
+      return;
+    }
+
+    const dx = eggPos.x - pos.x;
+    const dy = eggPos.y - pos.y;
+    if (Math.sqrt(dx * dx + dy * dy) >= 1.0) {
+      this.setPath(id, pos, eggPos.x, eggPos.y);
+      return;
+    }
+
+    this.clearPath(id);
+    egg.hatchTimer = Math.max(0, egg.hatchTimer - BROOD_CARE_SPEEDUP * dt);
+    ant.stateTimer += dt;
+    // Short bouts: decideNextAction gets a regular say, so a new egg to carry,
+    // a hungry larva or the queen still outrank grooming. Re-decide in the same
+    // tick so another nurse can't take over this larva while she walks off.
+    if (ant.stateTimer >= BROOD_CARE_BOUT) {
+      this.releaseEgg(id, ant);
+      this.decideNextAction(id, ant, pos);
+    }
+  }
+
+  /** Still incubating: on an incubation tile with growth left */
+  private isGrowing(egg: EggComponent, eggPos: PositionComponent): boolean {
+    if (egg.hatchTimer <= 0) return false;
+    const tile = this.grid.getTile(Math.floor(eggPos.x), Math.floor(eggPos.y));
+    return tile?.chamberType === ChamberType.Incubation;
+  }
+
+  /** Nearest growing larva no other nurse is attending */
+  private findLarvaToGroom(nurseId: number, pos: PositionComponent): number | null {
+    const attended = new Set<number>();
+    for (const antId of this.world.query(COMPONENT.ANT)) {
+      if (antId === nurseId) continue;
+      const other = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT)!;
+      if (other.state === AntState.GroomingBrood && other.commandTargetId !== null) attended.add(other.commandTargetId);
+    }
+
+    let best: number | null = null;
+    let bestDistSq = Infinity;
+    for (const eggId of this.world.query(COMPONENT.EGG, COMPONENT.POSITION)) {
+      if (attended.has(eggId)) continue;
+      const egg = this.world.getComponent<EggComponent>(eggId, COMPONENT.EGG)!;
+      const eggPos = this.world.getComponent<PositionComponent>(eggId, COMPONENT.POSITION)!;
+      if (!this.isGrowing(egg, eggPos)) continue;
+      const dx = eggPos.x - pos.x;
+      const dy = eggPos.y - pos.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < bestDistSq) {
+        bestDistSq = distSq;
+        best = eggId;
+      }
+    }
+    return best;
+  }
+
   private releaseEgg(id: number, ant: AntComponent): void {
     ant.state = AntState.Idle;
     ant.commandTargetId = null;
@@ -468,6 +548,22 @@ export class NurseAISystem implements System {
       }
     }
     return claimed;
+  }
+
+  /**
+   * How many nurses may be pantry-bound for larvae at once: one per unclaimed
+   * hungry larva (each trip carries one larva's meal), never fewer than 3. A flat
+   * cap of 3 left every other nurse idle while a backlog of larvae starved.
+   */
+  private larvaFetchCap(nurseId: number): number {
+    const claimed = this.getClaimedEggs(nurseId);
+    let hungry = 0;
+    for (const eggId of this.world.query(COMPONENT.EGG)) {
+      if (claimed.has(eggId)) continue;
+      const egg = this.world.getComponent<EggComponent>(eggId, COMPONENT.EGG)!;
+      if (egg.fedAmount < egg.requiredFood) hungry++;
+    }
+    return Math.max(3, hungry);
   }
 
   /** Nearest larva still short of food, skipping ones another nurse already claimed */

@@ -238,6 +238,14 @@ export const EGG_INCUBATION_NURSE = 16;
 export const EGG_FOOD_REQUIRED = 10;
 export const MAX_EGGS_PER_TYPE = 5;
 export const MAX_EGGS_PER_INCUBATION_TILE = 4;
+/**
+ * Brood care: a free nurse attending an incubating larva adds this many seconds
+ * of growth per second (1 → the larva grows twice as fast). One nurse per larva,
+ * so extra nurses speed the brood up to one per incubating larva, no further.
+ */
+export const BROOD_CARE_SPEEDUP = 1;
+/** Seconds a nurse attends a larva before re-deciding, so urgent work can pull her away */
+export const BROOD_CARE_BOUT = 2;
 export const INCUBATION_CHAMBER_SIZE = 3;
 
 // Scoring Decision System — Role base weights
