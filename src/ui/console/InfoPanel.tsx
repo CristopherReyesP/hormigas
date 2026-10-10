@@ -15,6 +15,7 @@ import { infoSummary, selectionHealth, selectionTitle } from './infoSummary';
 import { CRYSTAL_UNIT_BLURB, SPIRE_BLURB } from '../../game/rival/crystalNames';
 import { CRYSTAL_MAX_FLOORS } from '../../game/rival/crystalRival';
 import { useTouchUi } from '../layout/touch';
+import type { UpgradeTab } from '../upgrades/upgradeUi';
 import { HumanBaseSummary, HumanGroupPanel, HumanProduction } from '../races/human/HumanInfo';
 import {
   ANT_STATE_LABEL, BEETLE_STATE_LABEL, ROLE_BLURB, CARRY_LABEL, CRICKET_STATE_LABEL, ROLE_ICON, ROLE_LABEL, ROLE_PLURAL, formatClock,
@@ -26,6 +27,8 @@ interface InfoPanelProps {
   gameManager: GameManager | null;
   attackCount: number;
   onAttackCountChange: (count: number) => void;
+  /** Opens the Mejoras panel on a tab (the Swarm only) */
+  onOpenUpgrades?: (tab?: UpgradeTab) => void;
 }
 
 function healthColor(ratio: number): string {
@@ -124,7 +127,7 @@ const FARM_STATUS: Record<string, string> = {
 };
 
 /** Underground, nothing selected: queen, pantry, farm, brood. */
-function NestSummary({ details }: { details: ColonyDetails }) {
+function NestSummary({ details, onOpenUpgrades }: { details: ColonyDetails; onOpenUpgrades?: (tab?: UpgradeTab) => void }) {
   const { queen, food, farm, garrison } = details;
   const pantryMax = Math.max(food.total, 1);
   const diet = { leaf: 'hojas', mushroom: 'hongos', meat: 'carne' }[details.eatFirst];
@@ -136,6 +139,16 @@ function NestSummary({ details }: { details: ColonyDetails }) {
             <Bar label="Vida" icon="heart" value={queen.health} max={queen.maxHealth} color={healthColor(queen.health / Math.max(1, queen.maxHealth))} />
             <Bar label="Saciedad" icon="bowl" value={queen.hunger} max={queen.maxHunger} color="var(--chrome-accent)" />
             <div className="info-note">{queen.isLaying ? 'Poniendo huevos' : 'Descansando'} · guarnición {garrison.current}/{garrison.target}</div>
+            {onOpenUpgrades && (
+              <button
+                type="button"
+                className="hud-btn info-upgrade-queen"
+                onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+                onClick={() => onOpenUpgrades('queen')}
+              >
+                <PixelIcon name="crown" size={8} /> Mejorar reina
+              </button>
+            )}
           </>
         ) : (
           <div className="info-note info-note--danger">Sin reina</div>
@@ -206,6 +219,16 @@ function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
       {sel.type === 'ant' && <div className="info-note">{ROLE_BLURB[sel.role ?? AntRole.Worker]}</div>}
       {sel.type === 'ant' && (
         <div className="info-line">Estado: <strong>{ANT_STATE_LABEL[sel.state ?? ''] ?? sel.state}</strong></div>
+      )}
+      {sel.type === 'ant' && sel.antStats && sel.antStats.length > 0 && (
+        <div className="info-line info-ant-stats">
+          {sel.antStats.map((line) => (
+            <span key={line.label} className="info-ant-stat">
+              {line.label} <strong>{line.value}</strong>
+              {line.bonus !== 0 && <span className={line.bonus > 0 ? 'info-bonus' : 'info-bonus info-bonus--down'}> ({line.bonus > 0 ? '+' : ''}{line.bonus})</span>}
+            </span>
+          ))}
+        </div>
       )}
       {sel.type === 'ant' && sel.carrying && (
         <div className="info-line">
@@ -421,7 +444,7 @@ export function InfoPanel(props: InfoPanelProps) {
         ) : stats.selectedEntity ? (
           <SelectionInfo {...props} />
         ) : stats.activeLayer === 'underground' ? (
-          <NestSummary details={details} />
+          <NestSummary details={details} onOpenUpgrades={props.onOpenUpgrades} />
         ) : stats.human ? (
           <HumanBaseSummary human={stats.human} stats={stats} />
         ) : (

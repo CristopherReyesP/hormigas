@@ -113,6 +113,7 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked, tou
               command.active ? 'cmd-btn--active' : '',
               command.tone === 'danger' ? 'cmd-btn--danger' : '',
               command.disabled ? 'cmd-btn--disabled' : '',
+              command.glow ? 'cmd-btn--glow' : '',
               pressed === i ? 'cmd-btn--pressed' : '',
             ].filter(Boolean).join(' ');
             return (
