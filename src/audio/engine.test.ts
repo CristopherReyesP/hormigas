@@ -10,7 +10,7 @@ const SURFACE: Listener = { layer: 'surface', view: VIEW };
 
 /** A one-note recipe set, so the routing tests do not depend on the sound design */
 const blip = (v: Parameters<typeof tone>[0]) => tone(v, { freq: 440, dur: 0.1, peak: 0.5 });
-const RECIPES = { acidHit: blip, deathAnt: blip, waveAlarm: blip, uiClick: blip };
+const RECIPES = { acidHit: blip, deathAnt: blip, waveAlarm: blip, uiClick: blip, introHum: blip, introImpact: blip };
 
 function setup() {
   const fake = new FakeAudioContext();
@@ -108,5 +108,37 @@ describe('audio engine', () => {
     expect(() => engine.handle({ type: 'ui', sound: 'click' })).not.toThrow();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it('brings the music bed in when the intro ends, on the music bus', () => {
+    vi.useFakeTimers();
+    const { engine } = setup();
+    engine.handle({ type: 'intro', cue: 'hum', duration: 3 });
+    expect(engine.musicPlaying).toBe(false);
+    engine.handle({ type: 'intro', cue: 'end' });
+    expect(engine.musicPlaying).toBe(true);
+  });
+
+  it('cuts the intro sounds on a skip but lets the impact ring, and starts the music', () => {
+    vi.useFakeTimers();
+    const { engine } = setup();
+    engine.handle({ type: 'intro', cue: 'impact' });
+    engine.handle({ type: 'intro', cue: 'hum', duration: 3 });
+    expect(engine.activeVoices()).toBe(2);
+    engine.handle({ type: 'introSkip' });
+    expect(engine.activeVoices()).toBe(1);
+    expect(engine.musicPlaying).toBe(true);
+  });
+
+  it('remembers the night for a bed that starts later, and a new run starts by day in silence', () => {
+    vi.useFakeTimers();
+    const { fake, engine } = setup();
+    engine.handle({ type: 'phase', phase: 'night' });
+    engine.startMusic();
+    const biquads = fake.ofKind<FakeNode & { frequency: { events: Array<[string, number, number]> } }>('biquad');
+    const cutoff = biquads[0].frequency.events.filter(([kind]) => kind === 'target').at(-1)?.[1];
+    expect(cutoff).toBeLessThan(600);
+    engine.startRun();
+    expect(engine.musicPlaying).toBe(false);
   });
 });

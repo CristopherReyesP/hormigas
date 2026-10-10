@@ -1,8 +1,9 @@
 import type { AudioEvent } from './events';
 import { VoiceLimiter } from './limiter';
 import { planVoice, type VoicePlan } from './mixer';
+import { MusicBed } from './music';
 import type { busLevels } from './settings';
-import { SOUND_SPECS, type BusName, type SoundId, type SoundParams } from './sounds';
+import { INTRO_SOUNDS, SOUND_SPECS, type BusName, type SoundId, type SoundParams } from './sounds';
 import type { Listener } from './spatial';
 import { RECIPES, type Recipe } from './synth/recipes';
 import { gainNode } from './synth/primitives';
@@ -38,6 +39,8 @@ function softClipCurve(samples = 1024, drive = 1.2): Float32Array<ArrayBuffer> {
  * ui) feeds the master gain, then a compressor and a soft clipper, so a
  * pile-up of sounds gets denser, never harsher. Events go through the pure
  * mixer plan (layer, distance, voice budget) before any node is built.
+ * Control events steer the music bed: it comes in when the intro ends (or
+ * is skipped) and turns dark and pulsing at night.
  */
 export class AudioEngine {
   readonly ctx: BaseAudioContext;
@@ -48,6 +51,9 @@ export class AudioEngine {
   private readonly recipes: Partial<Record<SoundId, Recipe>>;
   private listener: () => Listener | null = () => null;
   private readonly rng: () => number;
+  /** The ambient bed, built the first time it plays */
+  private music: MusicBed | null = null;
+  private night = false;
 
   constructor(ctx: BaseAudioContext, options: { recipes?: Partial<Record<SoundId, Recipe>>; rng?: () => number } = {}) {
     this.ctx = ctx;
@@ -89,6 +95,7 @@ export class AudioEngine {
 
   /** One game event: heard or not, and how, is the mixer's call. */
   handle(event: AudioEvent): void {
+    this.steer(event);
     const plan = planVoice(event, this.listener(), this.ctx.currentTime, this.limiter);
     if (!plan) return;
     if (plan.evicted !== null) this.fadeVoice(plan.evicted);
@@ -112,9 +119,39 @@ export class AudioEngine {
     return this.voices.size;
   }
 
-  /** Forget the voice budget's cooldowns (a new run). */
-  resetLimiter(): void {
+  get musicPlaying(): boolean {
+    return this.music?.playing ?? false;
+  }
+
+  /** A new run: fresh cooldowns, day again, and silence until its intro ends. */
+  startRun(): void {
     this.limiter.reset();
+    this.night = false;
+    this.music?.stop(0.8);
+  }
+
+  /** The run is over: everything fades out. */
+  endRun(): void {
+    this.stopVoices(() => true, 0.3);
+    this.music?.stop(2);
+  }
+
+  /** Bring the music bed in (the intro is over). */
+  startMusic(): void {
+    (this.music ??= new MusicBed(this.ctx, this.buses.music, this.rng)).start(this.night);
+  }
+
+  /** Control beats: the day/night mood and the intro's end or skip. */
+  private steer(event: AudioEvent): void {
+    if (event.type === 'phase') {
+      this.night = event.phase === 'night';
+      this.music?.setNight(this.night);
+    } else if (event.type === 'introSkip') {
+      this.stopVoices((sound) => INTRO_SOUNDS.has(sound), 0.4);
+      this.startMusic();
+    } else if (event.type === 'intro' && event.cue === 'end') {
+      this.startMusic();
+    }
   }
 
   private startVoice(plan: VoicePlan): number {

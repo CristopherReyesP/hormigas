@@ -1,5 +1,6 @@
 import { AudioEngine } from './engine';
 import { emitAudio, setAudioSink, type UiSound } from './events';
+import { IntroCueTracker } from './introCues';
 import { audioSettings, busLevels } from './settings';
 import type { Listener } from './spatial';
 
@@ -15,6 +16,7 @@ export type { Listener, ViewRect } from './spatial';
 
 let engine: AudioEngine | null = null;
 let listener: (() => Listener) | null = null;
+const introCues = new IntroCueTracker();
 
 type AudioContextCtor = new (options?: AudioContextOptions) => AudioContext;
 
@@ -49,6 +51,8 @@ export function unlockAudio(): AudioEngine | null {
     live.applyLevels(busLevels(audioSettings.get()));
     audioSettings.subscribe(() => live.applyLevels(busLevels(audioSettings.get())));
     setAudioSink((event) => live.handle(event));
+    // Unlocked mid-run, after the intro: the bed would otherwise wait for a cue that already passed
+    if (listener && introCues.finished) live.startMusic();
     // iOS Safari only unlocks after a sound starts inside the gesture: one silent sample
     const ctx = live.ctx;
     const blip = ctx.createBufferSource();
@@ -64,13 +68,22 @@ export function unlockAudio(): AudioEngine | null {
 /** A run began: world sounds are heard from this view (the viewed layer and its camera). */
 export function audioRunStarted(view: () => Listener): void {
   listener = view;
-  engine?.resetLimiter();
+  introCues.reset();
+  engine?.startRun();
 }
 
 /** The run is over (restart, unmount): world sounds stop being heard. */
 export function audioRunEnded(): void {
   listener = null;
-  engine?.stopVoices(() => true, 0.3);
+  engine?.endRun();
+}
+
+/**
+ * Once per rendered frame with the run's single intro clock: fires the
+ * intro's sound cues as the clock passes them (see introCues.ts).
+ */
+export function audioIntroFrame(introTime: number, dt: number): void {
+  for (const event of introCues.frame(introTime, dt)) emitAudio(event);
 }
 
 /** A chrome sound (hover, click, a command press, a refused command). */

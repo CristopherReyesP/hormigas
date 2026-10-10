@@ -80,6 +80,8 @@ export interface ToneSpec {
   peak: number;
   /** Cents */
   detune?: number;
+  /** Pitch wobble: rate (Hz) and depth (Hz), for wet, organic notes */
+  vibrato?: { freq: number; depth: number };
   filter?: FilterSpec;
   dest?: AudioNode;
 }
@@ -95,6 +97,13 @@ export function tone(v: Voice, s: ToneSpec): number {
   osc.type = s.type ?? 'sine';
   if (s.detune) osc.detune.value = s.detune;
   sweep(osc.frequency, s.freq, s.to ?? s.freq, t0, t1);
+  if (s.vibrato) {
+    const wobble = ctx.createOscillator();
+    wobble.frequency.value = s.vibrato.freq;
+    wobble.connect(gainNode(ctx, s.vibrato.depth)).connect(osc.frequency);
+    wobble.start(t0);
+    wobble.stop(t1 + 0.02);
+  }
   const g = gainNode(ctx, 0);
   envelope(g.gain, t0, s.peak, attack, t1 - t0 - attack - hold, hold);
   let head: AudioNode = osc;
