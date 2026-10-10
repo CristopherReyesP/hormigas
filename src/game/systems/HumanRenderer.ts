@@ -59,9 +59,14 @@ export class HumanRenderer {
     this.fog = fog;
   }
 
-  draw(ctx: Ctx, interpolation: number, time: number, healthBar: HealthBarDrawer): void {
-    const buildings = this.world.query(HUMAN_COMPONENT.BUILDING, COMPONENT.POSITION);
-    const units = this.world.query(HUMAN_COMPONENT.UNIT, COMPONENT.POSITION);
+  /** `hide`: entities to leave out this frame (a Human player's base while their opening raises it). */
+  draw(ctx: Ctx, interpolation: number, time: number, healthBar: HealthBarDrawer, hide?: (id: EntityId) => boolean): void {
+    let buildings = this.world.query(HUMAN_COMPONENT.BUILDING, COMPONENT.POSITION);
+    let units = this.world.query(HUMAN_COMPONENT.UNIT, COMPONENT.POSITION);
+    if (hide) {
+      buildings = buildings.filter((id) => !hide(id));
+      units = units.filter((id) => !hide(id));
+    }
     if (buildings.length === 0 && units.length === 0 && humanShotsFor(this.world).live().length === 0) return;
     ctx.imageSmoothingEnabled = false;
 

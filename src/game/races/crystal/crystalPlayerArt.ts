@@ -16,7 +16,7 @@ type Ctx = CanvasRenderingContext2D;
 const center = (tile: number): number => tile * TILE_SIZE + TILE_SIZE / 2;
 
 /** The Hive's crown: a tall central prism among smaller towers, back to front */
-const CROWN: ReadonlyArray<{ dx: number; dy: number; kind: CrystalStructureKind; floors: number }> = [
+export const HIVE_CROWN: ReadonlyArray<{ dx: number; dy: number; kind: CrystalStructureKind; floors: number }> = [
   { dx: -20, dy: -8, kind: 'forge', floors: 2 },
   { dx: 20, dy: -8, kind: 'forge', floors: 2 },
   { dx: 0, dy: -4, kind: 'prism', floors: 3 },
@@ -26,7 +26,7 @@ const CROWN: ReadonlyArray<{ dx: number; dy: number; kind: CrystalStructureKind;
 
 /** The Hive drawn as a cluster of crystal towers around its core (px, py are world px) */
 export function drawHiveCrown(ctx: Ctx, art: CrystalRivalArt, px: number, py: number): void {
-  for (const spire of CROWN) art.drawSpire(ctx, px + spire.dx, py + spire.dy, spire.kind, spire.floors);
+  for (const spire of HIVE_CROWN) art.drawSpire(ctx, px + spire.dx, py + spire.dy, spire.kind, spire.floors);
 }
 
 /**

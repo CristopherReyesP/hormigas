@@ -4,7 +4,6 @@ import type { GameOverStats, GameStats } from '../../../game/GameManager';
 import type { HumanPlayerStats } from '../../../game/races/human/HumanPlayerRun';
 import { TopStrip } from '../../console/TopStrip';
 import { GameOverScreen } from '../../GameOverScreen';
-import { HumanIntroBanner } from './HumanIntroBanner';
 import { HumanBaseSummary, HumanProduction } from './HumanInfo';
 
 const HUMAN: HumanPlayerStats = {
@@ -20,7 +19,6 @@ const HUMAN: HumanPlayerStats = {
   placing: null,
   selected: null,
   group: null,
-  intro: null,
 };
 
 const STATS = {
@@ -87,11 +85,6 @@ describe('the Human HUD', () => {
     const html = renderToStaticMarkup(<HumanProduction selected={core} />);
     expect(html).toContain('Entrena: Constructor · Soldado · Tirador · Tanque');
     expect(html).toMatch(/Tanque[^]*Fábrica/);
-  });
-
-  it('the landing banner shows the expedition line', () => {
-    const html = renderToStaticMarkup(<HumanIntroBanner title="LA EXPEDICIÓN ATERRIZA" />);
-    expect(html).toContain('LA EXPEDICIÓN ATERRIZA');
   });
 
   it('the end screen speaks for the expedition, not for the queen', () => {
