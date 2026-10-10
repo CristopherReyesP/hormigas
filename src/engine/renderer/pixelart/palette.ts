@@ -137,6 +137,11 @@ export const PAL = {
     stalk: ['#2e2838', '#4a4258', '#6c6480', '#948ca6'],
     glow: ['#3f7a70', '#7cc4ae', '#c4f2e0'], // pore and gill light, dark → bright
   },
+
+  // ── Alien flesh (wildlife meat): amber ichor pulp ──────────
+  // Warm amber, far from the Swarm's magenta and from raw red meat, so a
+  // carcass never reads as a Swarm body or an Earth steak.
+  alienFlesh: ['#3e2614', '#7a4224', '#b0703a', '#dca456', '#f6d68e'],
 } as const;
 
 /** `#rrggbb` palette token → `rgba()` string for screen-space washes. */

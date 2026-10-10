@@ -9,7 +9,7 @@ import { PAL, hash2 } from '../pixelart/palette';
 import type { PixelPainter } from '../pixelart/PixelPainter';
 import { SPRITE_GRID } from './spriteScale';
 
-/** Food variants in the atlas: 0-1 leaves (1 is turned a quarter), 2 mushroom, 3 beetle meat, 4 cricket meat. */
+/** Food variants in the atlas: 0 leaf frond, 1 leaf pods, 2 mushroom, 3 beetle meat, 4 cricket meat. */
 export const FOOD_VARIANTS = 5;
 export const FOOD_SIZE_LEVELS = 5;
 
@@ -23,33 +23,44 @@ export interface FoodSpriteSpec {
 export function paintFood({ variant, sizeLevel, direction }: FoodSpriteSpec): ArtGrid {
   const grid = new ArtGrid(SPRITE_GRID.food);
   const sl = Math.min(FOOD_SIZE_LEVELS - 1, Math.max(0, sizeLevel));
-  const p = new ArtPen(grid, directionAngle(direction + (variant === 1 ? 4 : 0)));
-  if (variant === 2) paintMushroomFood(p, sl);
-  else if (variant === 3) paintMeat(p, sl, PAL.meat, false);
-  else if (variant === 4) paintMeat(p, sl, PAL.cricket, true);
-  else paintLeaf(p, sl);
+  const p = new ArtPen(grid, directionAngle(direction));
+  if (variant === 1) paintPods(p, sl);
+  else if (variant === 2) paintMushroomFood(p, sl);
+  else if (variant === 3) paintBeetleMeat(p, sl);
+  else if (variant === 4) paintCricketMeat(p, sl);
+  else paintFrond(p, sl);
   return grid;
 }
 
-/** Pointed alien frond with a 1-px midrib and side veins. */
-function paintLeaf(p: ArtPen, sl: number): void {
+/** Alien frond: three tapering lobes fanning from one root, with glowing beads at the tips. */
+function paintFrond(p: ArtPen, sl: number): void {
   const L = PAL.leaf;
-  const rx = [1.6, 2.2, 2.8, 3.4, 4.0][sl];
-  const ry = [1.4, 1.7, 2.0, 2.4, 2.7][sl];
-  const tip = [3, 3, 4, 5, 5][sl];
+  const reach = [2.6, 3.2, 3.6, 4, 4.4][sl];
+  const spread = [1.4, 1.8, 2.2, 2.6, 3][sl];
+  const r = [0.6, 0.7, 0.8, 0.9, 1][sl];
+  const bx = 8 - Math.round(reach / 2);
+  const tips: Array<[number, number]> = [[bx + reach + 0.6, 8], [bx + reach - 0.6, 8 - spread], [bx + reach - 0.6, 8 + spread]];
   p.outlined(pen => {
-    pen.ellipse(8, 8, rx, ry, L[1]);
-    pen.line(8 - tip, 8, 8 + tip, 8, L[1]);
+    for (const [tx, ty] of tips) pen.capsule(bx, 8, tx, ty, r, L[1]);
   }, PAL.outline);
-  p.hline(8 - tip + 1, 8, tip * 2 - 1, L[0]);
-  if (sl >= 2) {
-    for (const vx of sl >= 3 ? [6, 9] : [8]) {
-      p.px(vx + 1, 7, L[0]);
-      p.px(vx + 1, 9, L[0]);
-    }
-  }
+  if (sl >= 3) for (const [tx, ty] of tips) p.line(bx + 1, 8 + Math.sign(ty - 8), tx - 1, ty, L[0]); // dark midribs
   p.shade([L]);
-  p.sheen(8, 8, 1, L[2]);
+  for (const [tx, ty] of tips) p.px(Math.round(tx), Math.round(ty), L[2]);
+}
+
+/** Alien pod cluster: plump seed pods, each outlined on its own, on a short stalk; every pod has a glowing tip. */
+function paintPods(p: ArtPen, sl: number): void {
+  const L = PAL.leaf;
+  const d = [0, 1.5, 1.8, 2.2, 2.5][sl];
+  const pr = [1.3, 1.1, 1.3, 1.2, 1.4][sl];
+  // Back to front: the lower pods overlap the ones behind them
+  const pods: Array<[number, number]> = sl === 0 ? [[9, 8]]
+    : sl <= 2 ? [[9, 8 - d], [9, 8 + d]]
+      : [[8, 8 - d], [10.5, 8], [8, 8 + d]];
+  p.outlined(pen => pen.line(5, 8, 7, 8, L[0]), PAL.outline);
+  for (const [x, y] of pods) p.outlined(pen => pen.ellipse(x, y, pr * 1.3, pr, L[1]), PAL.outline);
+  p.shade([L]);
+  for (const [x, y] of pods) p.px(Math.round(x + pr), Math.round(y), L[2]);
 }
 
 /** Small alien fungus: blue-violet cap with mint glowing pores on a mauve stalk. */
@@ -71,19 +82,42 @@ function paintMushroomFood(p: ArtPen, sl: number): void {
   p.shade([F.cap, F.stalk]);
 }
 
-/** Chunky irregular meat blob with fat marbling; ramp = [dark, base, highlight]. */
-function paintMeat(p: ArtPen, sl: number, ramp: readonly string[], fleck: boolean): void {
+/** A cracked half of olive beetle shell cupping bulging amber ichor pulp with bubbled cells. */
+function paintBeetleMeat(p: ArtPen, sl: number): void {
+  const F = PAL.alienFlesh;
+  const B = PAL.beetle;
   const rx = [1.8, 2.4, 3.0, 3.6, 4.2][sl];
   const ry = rx * 0.8;
   p.outlined(pen => {
-    pen.ellipse(8, 8, rx, ry, ramp[1]);
-    pen.ellipse(9, 9, rx * 0.55, ry * 0.55, ramp[1]);
-    pen.px(8 - Math.round(rx), 7, ramp[1]); // irregular lump
+    if (sl >= 1) pen.ellipse(9, 9, rx * 0.8, ry * 0.8, B[1]); // shell half
+    pen.ellipse(8, 8, rx * (sl >= 1 ? 0.8 : 1), ry * (sl >= 1 ? 0.8 : 1), F[2]); // pulp bulging out
+    pen.px(8 - Math.round(rx * 0.8), 7, F[2]); // irregular lump
   }, PAL.outline);
-  if (sl >= 2) p.line(7, 7, 9, 8, ramp[2]); // fat marbling
-  if (sl >= 3) p.line(8, 10, 10, 9, ramp[0]);
-  if (fleck) p.px(9, 8, PAL.meat[2]); // raw-flesh fleck on cricket meat
-  p.shade([ramp]);
+  if (sl >= 2) p.line(8, Math.round(8 + ry * 0.8), Math.round(8 + rx * 0.8), 8, B[2]); // the shell's cracked rim
+  if (sl >= 3) p.line(7, 8, 9, 7, F[1]); // ichor vein
+  p.shade([F, B]);
+  p.px(7, 7, F[4]); // bubbled cells
+  if (sl >= 3) p.px(9, 6, F[3]);
+  if (sl >= 4) p.px(6, 9, F[3]);
+}
+
+/** A torn straw cricket leg with its amber ichor flesh bulging from the broken end. */
+function paintCricketMeat(p: ArtPen, sl: number): void {
+  const F = PAL.alienFlesh;
+  const C = PAL.cricket;
+  const len = [2, 3, 3.5, 4, 4.5][sl];
+  const r = [1, 1, 1.2, 1.4, 1.6][sl];
+  const fr = [1.3, 1.5, 1.8, 2.1, 2.4][sl];
+  const x0 = 8 - len * 0.6;
+  const x1 = 8 + len * 0.3;
+  p.outlined(pen => {
+    pen.capsule(x0, 9, x1, 8, r, C[1]); // femur club
+    pen.ellipse(x1 + fr * 0.6, 8, fr, fr * 0.85, F[2]); // torn flesh end
+  }, PAL.outline);
+  if (sl >= 2) p.line(x0, 9 - r * 0.5, x1 - 1, 8 - r * 0.5, C[2]); // femur ridge
+  p.shade([C, F]);
+  if (sl >= 1) p.px(Math.round(x1 + fr * 0.6), 8, F[4]); // glistening ichor
+  if (sl >= 3) p.px(Math.round(x1 + fr), 9, F[1]);
 }
 
 // ─── Static props (PixelPainter at ART_PX, light baked top-left) ───
@@ -98,63 +132,152 @@ function outlined(draw: (dx: number, dy: number, color: string | null) => void, 
   draw(0, 0, null);
 }
 
-/**
- * 40×40 art-pixel dirt mound den: radial branching cracks, a dark hole with
- * a rim, pebbles. The cricket variant adds grass tufts and mossy dither.
- */
-export function paintDen(p: PixelPainter, grassy: boolean): void {
-  const S = PAL.soil;
-  p.shadow(20, 27, 16, 6, PAL.outline);
-
-  outlined((dx, dy, c) => p.ellipse(20 + dx, 20 + dy, 15, 11, c ?? S[1]));
-  p.dither(10, 12, 10, 6, S[2], S[1]);
-  p.dither(12, 11, 6, 2, S[3], S[2]);
-  p.dither(22, 26, 10, 4, S[0], S[1]);
-  if (grassy) {
-    p.dither(12, 10, 8, 4, PAL.grass[1], S[1], 1);
-    p.dither(24, 22, 6, 4, PAL.grass[0], S[1]);
-  }
-
-  // Radial cracks with a short branch each
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 + 0.3;
-    const mx = 20 + Math.cos(a) * 9.4;
-    const my = 20 + Math.sin(a) * 7;
-    p.line(20 + Math.cos(a) * 6.4, 20 + Math.sin(a) * 4.8, 20 + Math.cos(a) * 12.4, 20 + Math.sin(a) * 9.2, S[0]);
-    p.line(mx, my, mx + Math.cos(a + 0.7) * 2.5, my + Math.sin(a + 0.7) * 2, S[0]);
-  }
-
-  // Entrance hole with a dark rim and a lit far lip
-  p.ellipse(20, 20, 6.8, 4.8, S[0]);
-  p.hline(16, 15, 9, S[2]);
-  p.ellipse(20, 20, 5.2, 3.4, PAL.earth[0]);
-  p.ellipse(20, 20, 2.8, 1.8, PAL.black);
-
-  // Pebbles around the mound
-  for (let i = 0; i < 9; i++) {
-    const a = hash2(i, grassy ? 31 : 17) * Math.PI * 2;
-    const x = Math.round(20 + Math.cos(a) * 13);
-    const y = Math.round(20 + Math.sin(a) * 9.6);
-    p.rect(x, y, 2, 2, i % 2 === 0 ? PAL.stone[1] : PAL.stone[0]);
-    p.px(x, y, i % 2 === 0 ? PAL.stone[3] : PAL.stone[2]);
-  }
-
-  // Grass tufts (cricket den only)
-  if (grassy) {
-    const blades: Array<[number, number]> = [[8, 8], [30, 8], [4, 18], [34, 16], [16, 4], [24, 6]];
-    for (const [bx, by] of blades) {
-      p.vline(bx, by, 4, PAL.grass[2]);
-      p.px(bx, by - 1, PAL.grass[3]);
-      p.vline(bx + 1, by + 1, 3, PAL.grass[1]);
-    }
-  }
-}
-
 /** Whether art pixel (x, y) is inside PixelPainter.ellipse(cx, cy, rx, ry). */
 function inEllipse(x: number, y: number, cx: number, cy: number, rx: number, ry: number): boolean {
   const nx = (x - cx) / (rx + 0.25);
   const ny = (y - cy) / (ry + 0.25);
   return nx * nx + ny * ny <= 1;
+}
+
+/** Checkerboard dither clipped to a silhouette, so lighting never paints over its outline. */
+function ditherInside(
+  p: PixelPainter, x: number, y: number, w: number, h: number, a: string, b: string,
+  inside: (x: number, y: number) => boolean,
+): void {
+  for (let iy = 0; iy < h; iy++) {
+    for (let ix = 0; ix < w; ix++) {
+      if (inside(x + ix, y + iy)) p.px(x + ix, y + iy, (ix + iy) % 2 === 0 ? a : b);
+    }
+  }
+}
+
+/** 40×40 art-pixel den: the beetle's burrow mound, or the cricket's resonant hollow. */
+export function paintDen(p: PixelPainter, cricket: boolean): void {
+  if (cricket) paintResonantHollow(p);
+  else paintBurrowMound(p);
+}
+
+/**
+ * Beetle den: a lumpy regolith mound ribbed like a vent, breathing spiracles
+ * on its flanks, a lipped burrow mouth with two amber beetle eyes glinting in
+ * the dark, and angular outcrop chips around its foot.
+ */
+function paintBurrowMound(p: PixelPainter): void {
+  const S = PAL.soil;
+  const R = PAL.stone;
+  const inMound = (x: number, y: number): boolean =>
+    inEllipse(x, y, 20, 20, 13, 10) || inEllipse(x, y, 9, 24, 6, 5) || inEllipse(x, y, 31, 23, 6, 5);
+  p.shadow(20, 28, 16, 6, PAL.outline);
+
+  // Lumpy mound: a main dome shouldered by two side lobes, lit top-left
+  outlined((dx, dy, c) => {
+    p.ellipse(20 + dx, 20 + dy, 13, 10, c ?? S[1]);
+    p.ellipse(9 + dx, 24 + dy, 6, 5, c ?? S[1]);
+    p.ellipse(31 + dx, 23 + dy, 6, 5, c ?? S[1]);
+  });
+  ditherInside(p, 9, 11, 13, 7, S[2], S[1], inMound);
+  ditherInside(p, 12, 10, 7, 3, S[3], S[2], inMound);
+  ditherInside(p, 4, 20, 6, 3, S[2], S[1], inMound);
+  ditherInside(p, 21, 26, 17, 6, S[0], S[1], inMound);
+
+  // Radial ribs from the mouth to the foot: lit crest, dark trough beside it
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + 0.2;
+    const lit = Math.cos(a) + Math.sin(a) < 0; // ribs facing the top-left light
+    const x0 = 20 + Math.cos(a) * 8;
+    const y0 = 19 + Math.sin(a) * 5.6;
+    const x1 = 20 + Math.cos(a) * 12;
+    const y1 = 20 + Math.sin(a) * 8.6;
+    p.line(x0 + 1, y0 + 1, x1 + 1, y1, S[0]);
+    p.line(x0, y0, x1, y1, lit ? S[3] : S[2]);
+  }
+  p.line(8, 23, 12, 20, PAL.outcropVein); // faint outcrop veins through the crust
+  p.line(27, 14, 30, 18, PAL.outcropVein);
+
+  // Breathing spiracles on the flanks
+  for (const [x, y] of [[8, 25], [31, 24], [25, 27]] as const) {
+    p.hline(x, y - 1, 2, S[3]);
+    p.hline(x, y, 2, PAL.earth[0]);
+  }
+
+  // Burrow mouth: a raised lip, the far inner wall, the throat and amber eyes in the dark
+  p.ellipse(20, 19, 7.6, 5.2, S[2]);
+  ditherInside(p, 12, 13, 17, 2, S[3], S[2], (x, y) => inEllipse(x, y, 20, 19, 7.6, 5.2));
+  p.ellipse(20, 19, 6, 4, S[0]);
+  p.ellipse(20, 20, 5, 3, PAL.earth[0]);
+  p.ellipse(20, 21, 3, 1.8, PAL.black);
+  p.px(18, 21, PAL.beetleEye);
+  p.px(21, 21, PAL.beetleEye);
+
+  // Angular outcrop chips and pale mineral flecks around the foot
+  for (let i = 0; i < 7; i++) {
+    const a = 0.3 + (i / 7) * Math.PI + (hash2(i, 17) - 0.5) * 0.5; // front half, jittered
+    const x = Math.round(20 + Math.cos(a) * 15);
+    const y = Math.round(23 + Math.sin(a) * 9);
+    p.rect(x, y - 1, 2, 2, R[1]);
+    p.px(x, y - 1, R[2]);
+    p.px(x, y - 2, R[3]);
+  }
+  for (const [x, y] of [[15, 15], [26, 22], [11, 21], [22, 26]] as const) p.px(x, y, PAL.mineralFleck);
+}
+
+/**
+ * Cricket den: a resonant hollow, a wide terraced bowl sunk into the regolith
+ * with resonance ripples etched around it, hollow ash pipes standing on its
+ * rim, and a cricket's antennae poking out of the dark throat.
+ */
+function paintResonantHollow(p: PixelPainter): void {
+  const S = PAL.soil;
+  const D = PAL.dust;
+  const E = PAL.earth;
+  const C = PAL.cricket;
+  const inRim = (x: number, y: number): boolean => inEllipse(x, y, 20, 21, 15, 9.5);
+  p.shadow(20, 28, 16, 6, PAL.outline);
+
+  // Resonance ripples etched in the regolith around the hollow
+  for (const [rx, ry, n] of [[18.5, 11.2, 44], [17, 10.4, 40]] as const) {
+    for (let i = 0; i < n; i++) {
+      if (i % 4 === 3) continue;
+      const a = (i / n) * Math.PI * 2;
+      p.px(Math.round(20 + Math.cos(a) * rx), Math.round(21 + Math.sin(a) * ry), rx > 18 ? S[2] : S[3]);
+    }
+  }
+
+  // Low rim, lit on its top-left shoulder
+  outlined((dx, dy, c) => p.ellipse(20 + dx, 21 + dy, 15, 9.5, c ?? S[2]));
+  ditherInside(p, 6, 12, 14, 5, S[3], S[2], inRim);
+  ditherInside(p, 24, 27, 12, 5, S[1], S[2], inRim);
+
+  // Terraced bowl stepping down to a dark throat; inner walls facing the light are lit
+  const terraces: Array<[number, number, number, string, string]> = [
+    [21, 12.5, 7.4, S[1], S[3]],
+    [22, 9.5, 5.4, S[0], S[2]],
+    [22, 6, 3.4, E[1], S[1]],
+  ];
+  for (const [cy, rx, ry, fill, lip] of terraces) {
+    p.ellipse(20, cy, rx, ry, fill);
+    for (let i = 0; i <= 10; i++) {
+      const a = (i / 10) * (Math.PI / 2) + 0.15; // bottom-right arc
+      p.px(Math.round(20 + Math.cos(a) * rx), Math.round(cy + Math.sin(a) * ry), lip);
+    }
+  }
+  p.ellipse(20, 23, 3.4, 2, E[0]);
+  p.ellipse(20, 23, 1.8, 1, PAL.black);
+
+  // A cricket's long antennae swept out of the throat
+  p.line(19, 22, 17, 18, C[0]);
+  p.line(17, 18, 13, 15, C[1]);
+  p.line(21, 22, 24, 18, C[0]);
+  p.line(24, 18, 28, 16, C[1]);
+
+  // Hollow ash pipes standing on the rim, open at the top
+  const pipes: Array<[number, number, number]> = [[7, 18, 5], [11, 14, 7], [17, 12, 4], [26, 12, 6], [31, 15, 7], [34, 21, 4]];
+  for (const [x, y, h] of pipes) {
+    outlined((dx, dy, c) => p.rect(x + dx, y - h + dy, 2, h + 1, c ?? D[1]));
+    p.vline(x, y - h + 1, h, D[2]);
+    p.hline(x, y - h, 2, E[0]);
+    p.px(x + 2, y + 1, S[0]);
+  }
 }
 
 /**
