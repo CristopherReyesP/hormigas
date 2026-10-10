@@ -5,6 +5,7 @@ import {
   FoodType,
   Layer,
   OrderKind,
+  type AntComponent,
   type BeetleDenComponent,
   type CombatComponent,
   type HealthComponent,
@@ -31,7 +32,8 @@ const FOOD_OFFSETS = [{ x: -1, y: -7 }, { x: 0, y: -8 }, { x: 1, y: -7 }];
 const FOOD_AMOUNT = 80;
 const PRACTICE_OFFSET = { x: 0, y: 9 };
 
-export type FocusKind = 'nest' | 'den' | 'minerals' | 'food' | 'practice' | 'soldiers';
+/** `worker`: one surface worker near the nest, kept while it stays up there (the ant to pick) */
+export type FocusKind = 'nest' | 'worker' | 'den' | 'minerals' | 'food' | 'practice' | 'soldiers';
 
 /**
  * Stages the tutorial's calm map on a real run: the far beetle dens go, a
@@ -47,6 +49,7 @@ export class TutorialScenario {
   private practiceIds: EntityId[] = [];
   private soldierIds: EntityId[] = [];
   private gifted = false;
+  private workerId: EntityId | null = null;
   private waveSent = false;
 
   constructor(stage: TutorialStage) {
@@ -56,7 +59,7 @@ export class TutorialScenario {
   /** Clear the wild dens and place the lessons' den, minerals and food. Holds the day clock. */
   setup(): void {
     const { world, nest } = this.stage;
-    this.stage.holdDayClock(true);
+    this.stage.holdCalm(true);
     // A calm map: no real dens and none of their beetles
     for (const id of world.query(COMPONENT.BEETLE_DEN)) world.destroyEntity(id);
     for (const id of world.query(COMPONENT.BEETLE)) world.destroyEntity(id);
@@ -82,14 +85,27 @@ export class TutorialScenario {
     });
   }
 
+  /**
+   * Keep the map calm while the tutorial runs: wildlife that wanders in from
+   * the map edge (or a cricket den that pops up) leaves before it can scare
+   * anyone. The practice wave's beetles stay.
+   */
+  keepCalm(): void {
+    const { world } = this.stage;
+    const practice = new Set(this.practiceIds);
+    for (const id of world.query(COMPONENT.BEETLE)) if (!practice.has(id)) world.destroyEntity(id);
+    for (const id of world.query(COMPONENT.CRICKET)) world.destroyEntity(id);
+    for (const id of world.query(COMPONENT.CRICKET_DEN)) world.destroyEntity(id);
+  }
+
   /** Stop the day clock (again) */
   hold(): void {
-    this.stage.holdDayClock(true);
+    this.stage.holdCalm(true);
   }
 
   /** The tutorial is over (finished or left): the clock runs again */
   release(): void {
-    this.stage.holdDayClock(false);
+    this.stage.holdCalm(false);
   }
 
   /** Hormi lends a squad of soldiers by the nest (once) */
@@ -138,7 +154,25 @@ export class TutorialScenario {
         return this.centerOf(this.practiceIds);
       case 'soldiers':
         return this.centerOf(this.soldierIds);
+      case 'worker':
+        return this.centerOf(this.pickWorker());
     }
+  }
+
+  /** The surface worker Hormi points at: the one closest to the nest, kept until it leaves the surface */
+  private pickWorker(): EntityId[] {
+    const { world, nest } = this.stage;
+    if (this.workerId !== null && this.centerOf([this.workerId])) return [this.workerId];
+    let best: { id: EntityId; d: number } | null = null;
+    for (const id of world.query(COMPONENT.ANT, COMPONENT.POSITION)) {
+      if (world.getComponent<AntComponent>(id, COMPONENT.ANT)!.role !== AntRole.Worker) continue;
+      if ((world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer ?? Layer.Surface) !== Layer.Surface) continue;
+      const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const d = Math.hypot(pos.x - nest.x, pos.y - nest.y);
+      if (!best || d < best.d) best = { id, d };
+    }
+    this.workerId = best?.id ?? null;
+    return best ? [best.id] : [];
   }
 
   /** World facts for the goals */

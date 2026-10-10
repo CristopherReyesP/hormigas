@@ -941,7 +941,10 @@ export class GameManager {
       grid: this.grid,
       nest: { x: Math.floor(WORLD_WIDTH / 2), y: Math.floor(WORLD_HEIGHT / 2) },
       reveal: (x, y, radius) => this.visibilityGrid.revealArea(x, y, radius),
-      holdDayClock: (held) => this.dayNightSystem.setHeld(held),
+      holdCalm: (held) => {
+        this.dayNightSystem.setHeld(held);
+        this.eventSystem.setHeld(held);
+      },
     };
   }
 

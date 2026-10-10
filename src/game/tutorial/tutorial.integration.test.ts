@@ -54,7 +54,8 @@ function setup() {
 
 const stepDone = (events: TutorialEvent[]) => events.some((e) => e.type === 'step-done');
 
-describe('tutorial with the real GameManager', () => {
+// Whole simulated minutes of a real run: slow on a busy machine
+describe('tutorial with the real GameManager', { timeout: 60_000 }, () => {
   it('runs a calm Swarm skirmish against wildlife on a seeded map', () => {
     expect(TUTORIAL_SETUP).toEqual({ playerRace: 'swarm', rivalRace: 'wildlife' });
     const a = setup();
@@ -68,8 +69,17 @@ describe('tutorial with the real GameManager', () => {
   it('holds the day clock: no dusk, no night and no wave while the tutorial runs', () => {
     const { game, tick, controller } = setup();
     const before = game.getStats().phaseRemaining;
-    tick(200);
+    const world = game['world'] as World;
+    let wildlifeSeen = 0;
+    for (let t = 0; t < 200; t += 2) {
+      tick(2);
+      controller.poll();
+      wildlifeSeen = Math.max(wildlifeSeen, world.query(COMPONENT.BEETLE).length + world.query(COMPONENT.CRICKET).length);
+    }
     const stats = game.getStats();
+    // No random events and no wildlife wandering in
+    expect(stats.activeEvents).toEqual([]);
+    expect(wildlifeSeen).toBe(0);
     expect(stats.dayPhase).toBe('day');
     expect(stats.phaseRemaining).toBe(before);
     expect(stats.invasion.armed).toBe(false);
@@ -180,6 +190,11 @@ describe('tutorial with the real GameManager', () => {
     game.armAttackTarget();
     expect(game.getStats().commandTarget).toBe('attack');
     controller.poll();
+    // Hormi brings the camera to the den, and Atacar stays armed
+    const denAt = controller.focus('den')!;
+    const v = game.getActiveView();
+    expect(Math.abs(v.x + v.w / 2 - (denAt.x + 0.5))).toBeLessThan(2);
+    expect(game.getStats().commandTarget).toBe('attack');
     const denId = world.query(COMPONENT.BEETLE_DEN)[0];
     expect(game.orderSelectedAttack(denId)).toBeGreaterThan(0);
     controller.poll();

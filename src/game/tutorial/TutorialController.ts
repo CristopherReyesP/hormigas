@@ -8,8 +8,19 @@ import { AntRole } from '../components/components';
 /** The parts of the GameManager the tutorial reads (all public, so a test can drive a real run) */
 export type TutorialGame = Pick<
   GameManager,
-  'getStats' | 'getTutorialStage' | 'getActiveView' | 'getUndergroundDigOrders' | 'getStorageTileCount' | 'getBroodSnapshot'
+  | 'getStats' | 'getTutorialStage' | 'getActiveView' | 'getUndergroundDigOrders' | 'getStorageTileCount' | 'getBroodSnapshot'
+  | 'getActiveLayer' | 'centerSurfaceOn'
 >;
+
+/**
+ * Goals whose target may be off screen on a small phone: when one begins,
+ * Hormi brings the camera to it (the selection and an armed Atacar stay).
+ */
+const CAMERA_ON_GOAL: Partial<Record<GoalId, readonly FocusKind[]>> = {
+  'attack-den': ['den'],
+  // Between the beetles and the soldiers, so both fit on screen when they can
+  'repel-wave': ['practice', 'soldiers'],
+};
 
 /**
  * Runs the tutorial on a live run: stages the scenario, reads a snapshot of
@@ -29,6 +40,8 @@ export class TutorialController {
   private lastFood: number | null = null;
   private started = false;
   private released = false;
+  /** The goal the camera was last brought to, so it moves once per goal */
+  private framedGoal: string | null = null;
 
   constructor(game: TutorialGame, plan: readonly StepPlan[] = TUTORIAL_PLAN) {
     this.game = game;
@@ -51,6 +64,7 @@ export class TutorialController {
     this.started = true;
     this.scenario.setup();
     this.enterStep();
+    this.frameGoal();
     this.emit();
   }
 
@@ -69,6 +83,7 @@ export class TutorialController {
   /** Read the run and judge the current goal */
   poll(): TutorialEvent[] {
     if (!this.started) return [];
+    if (!this.released) this.scenario.keepCalm();
     return this.handle(this.machine.update(this.snapshot()));
   }
 
@@ -157,6 +172,7 @@ export class TutorialController {
       if (event.type === 'step-start') this.enterStep();
       if (event.type === 'finished' || event.type === 'exited') this.release();
     }
+    this.frameGoal();
     for (const event of events) for (const listener of this.eventListeners) listener(event);
     if (events.length > 0) this.emit();
     return events;
@@ -167,6 +183,23 @@ export class TutorialController {
     const enter = this.machine.step?.enter;
     if (enter === 'gift-soldiers') this.scenario.giftSoldiers();
     if (enter === 'practice-wave') this.scenario.sendPracticeWave();
+  }
+
+  /** Bring the camera to the new goal's target, once */
+  private frameGoal(): void {
+    const state = this.machine.state;
+    const goal = this.machine.goal;
+    if (state.phase !== 'active' || !goal) return;
+    const key = `${state.stepIndex}/${goal}`;
+    if (key === this.framedGoal) return;
+    this.framedGoal = key;
+    const kinds = CAMERA_ON_GOAL[goal];
+    if (!kinds || this.game.getActiveLayer() !== 'surface') return;
+    const points = kinds.map((k) => this.scenario.focus(k)).filter((p): p is { x: number; y: number } => p !== null);
+    if (points.length === 0) return;
+    const x = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+    const y = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+    this.game.centerSurfaceOn(x + 0.5, y + 0.5);
   }
 
   private release(): void {

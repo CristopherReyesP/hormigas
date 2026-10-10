@@ -24,6 +24,13 @@ export class EventSystem implements System {
     this.modifiers = modifiers;
   }
 
+  /** Held (the tutorial): no new random event starts */
+  private held = false;
+
+  setHeld(held: boolean): void {
+    this.held = held;
+  }
+
   get active(): ActiveEvent[] {
     return this.activeEvents;
   }
@@ -51,7 +58,7 @@ export class EventSystem implements System {
     // Check for new events periodically
     if (this.checkTimer >= this.checkInterval) {
       this.checkTimer = 0;
-      this.tryTriggerEvent();
+      if (!this.held) this.tryTriggerEvent();
     }
 
     // Recalculate modifiers from active events
