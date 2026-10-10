@@ -107,6 +107,19 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
   - Open:
     - Combat deaths rose in the large colony (5 → 28) because hurt soldiers no longer retreat. This needs a balance review.
     - Nurses and defenders do not heal by eating yet (`NurseAISystem`, `DefenderAISystem`).
+- [x] Bug: workers took 20–45 s per tile to answer an Excavar order, and an 8-tile order took 107–156 s (user report, 2026-10-09: "tardan mucho en ponerse a excavar"). Fixed in 43a9bbd. Route: delegated (Claude subagent in an isolated worktree), fast-forwarded into `feat/hive-look`.
+  - Repro: `npx tsx scripts/repro-dig-latency.ts` (per-tile wait, travel, dig and total times, plus the assignee's distance).
+  - Root causes:
+    - PorterSystem (priority 4) puts every worker that goes Idle underground on an exit transit before ExcavationSystem (priority 6) runs. ExcavationSystem skipped ants in transit, so each job waited for a surface recruit to walk about 32 tiles.
+    - The connectivity set is stale for up to 0.5 s, so a finished digger saw no work and left.
+    - Busy haulers below counted as dig workforce, which blocked recruiting.
+  - Fix:
+    - `TransitSystem.isExiting/cancelExit` let idle workers on their way out be reclaimed.
+    - Each job goes to the closest candidate that has a route.
+    - Connectivity is rebuilt right after a tile opens.
+    - Only Idle, Searching or digging workers count as workforce. Busy porters are never interrupted.
+  - RED: 4 ExcavationSystem tests. Result: the 8-tile order takes 18–36 s. Checks: 231/231 tests, tsc, lint, build; the parent re-ran the excavation test.
+  - Open: when only haulers are below, the first tile still waits about 15–19 s for a surface worker to walk down. Handing the job to a closer worker partway through that walk would cut it.
 - [ ] P3 — RTS control: drag selection, right-click move/attack, control groups (Ctrl+1–9; digits 1–3 currently set game speed at `src/game/GameManager.ts:346-349`), a `PlayerOrder` component the AI yields to. Cost: medium.
 - [ ] P4 — Factions: ownership component in targeting, damage, vision and economy; faction-filtered fog; remove first-nest assumptions (`src/game/systems/AntAISystem.ts:123-125`). Cost: expensive; foundation for P5.
 - [ ] P5 — Crystal Hive: rival nest on the far side of the map, scripted build order, night waves sourced from it, Crystal Queen boss on night 7, victory on hive destruction. Cost: expensive.
@@ -124,7 +137,7 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
 - Feasibility mapped by Codex (read-only, 2026-10-09): rendering, input, unit control, structures and HUD are medium cost; factions and the rival map setup are expensive.
 
 - Design audit (Claude subagent, read-only, 2026-10-09): art direction and mechanics notes recorded above; its P1 items became T2b, T3 details and T4 in `odd/tasks/roguelite-run-loop.md`.
-- Engram mirror (`odd/starcraft-hive-wars/tasks`): synced 2026-10-09.
+- Engram mirror (`odd/starcraft-hive-wars/tasks`): synced 2026-10-09 after 32d7c89 (P2.8, the hive mound, the objectives toggle and the dig fix). The parent re-ran `npm test`: 264/264.
 
 ## Next step: "continuemos con la mejora gráfica"
 When the user says this in a new session, run this plan in order. Each item is one work-unit commit on `feat/hive-look`, delegated to one writer with a headless-Edge screenshot check.
