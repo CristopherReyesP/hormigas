@@ -96,3 +96,33 @@ describe('threats column wave countdown', () => {
     expect(render()).toContain('Oleada 1 en 2:00');
   });
 });
+
+describe('alien leapers (the cricket) are called Saltador in the UI', () => {
+  it('counts them as Saltadores in the threats column', () => {
+    const html = render({ ...STATS, cricketCount: 2 } as GameStats);
+    expect(html).toContain('Saltadores');
+    expect(html).not.toMatch(/grillo/i);
+  });
+
+  it('names a selected leaper and its den Saltador', () => {
+    const leaper = render({
+      ...STATS,
+      selectedEntity: {
+        entityId: 9, type: 'cricket', position: { x: 4, y: 4 },
+        cricketState: 'going_to_nest', cricketHealth: { current: 300, max: 600 },
+      },
+    } as GameStats);
+    expect(leaper).toContain('SALTADOR');
+    expect(leaper).not.toMatch(/grillo/i);
+    const den = render({
+      ...STATS,
+      selectedEntity: {
+        entityId: 10, type: 'cricket_den', position: { x: 4, y: 4 },
+        cricketDenHealth: { current: 600, max: 600 }, cricketDenActiveCrickets: 1,
+      },
+    } as GameStats);
+    expect(den).toMatch(/guarida de saltadores/i);
+    expect(den).toContain('Saltadores activos');
+    expect(den).not.toMatch(/grillo/i);
+  });
+});

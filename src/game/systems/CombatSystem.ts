@@ -28,6 +28,7 @@ import {
   FLANKING_BONUS_PER_ALLY,
   FLANKING_MAX_ALLIES,
 } from '../../shared/constants';
+import { LEAPER_NOTICE } from '../../shared/wildlifeNames';
 import { combatVfxFor, type BodyKind, type CombatVfx, type VictimKind } from '../vfx/CombatVfx';
 
 export class CombatSystem implements System {
@@ -324,7 +325,7 @@ export class CombatSystem implements System {
   }
 
   private destroyCricketDen(denId: EntityId): void {
-    this.world.pushNotification('success', '💥 ¡Nido de grillos destruido!');
+    this.world.pushNotification('success', LEAPER_NOTICE.denDestroyed);
     this.world.metrics.densDestroyed++;
     const pos = this.world.getComponent<PositionComponent>(denId, COMPONENT.POSITION);
     if (pos) this.vfx.denCollapse(pos.x, pos.y, this.layerOf(denId), 'cricketDen');
