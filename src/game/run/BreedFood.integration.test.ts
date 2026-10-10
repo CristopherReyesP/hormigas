@@ -21,27 +21,23 @@ function run(game: GameManager, seconds: number) {
 }
 
 // Player report: "dice que no hay comida cuando sí hay cuando quiero criar
-// hormigas". At the start the food sits on the pile at the entrance: the top
-// bar counts it, but eggs are paid only from the pantry below, and the porters
-// need some twenty seconds to carry the first loads down.
-describe('breeding while the food is still at the entrance', () => {
-  it('tells the player the food the top bar counts is on its way to the pantry', () => {
+// hormigas". The starting food sat on the entrance pile, which the top bar
+// counts, while eggs are paid only from the pantry below. Food is only stored
+// underground, so the starting stock now begins in the pantry.
+describe('breeding with the starting food', () => {
+  it('starts the food in the pantry, so the queen can breed right away', () => {
     const game = manager();
     const stats = game.getStats();
     const brood = game.getBroodSnapshot();
 
-    expect(stats.foodStored).toBeGreaterThan(0);
-    expect(stats.pantryStored).toBe(0);
-    expect(stats.entranceFoodStored).toBe(stats.foodStored);
-    expect(brood.surfaceStock).toBe(stats.entranceFoodStored);
-
-    expect(game.queueBreed(AntRole.Worker)).toBe(false);
-    const state = breedButtonState(AntRole.Worker, brood);
-    expect(state.disabled).toBe(true);
-    expect(state.reason).toContain(`Hay ${brood.surfaceStock} en la entrada: las obreras la bajan a la despensa.`);
+    expect(stats.entranceFoodStored).toBe(0);
+    expect(stats.pantryStored).toBe(stats.foodStored);
+    expect(brood.pantry.stored).toBeGreaterThanOrEqual(brood.costs[AntRole.Worker]);
+    expect(breedButtonState(AntRole.Worker, brood).disabled).toBe(false);
+    expect(game.queueBreed(AntRole.Worker)).toBe(true);
   });
 
-  it('lets the queen breed once the porters have carried the food down', () => {
+  it('keeps breeding possible once the foragers bring food home', () => {
     const game = manager();
     run(game, 60);
 

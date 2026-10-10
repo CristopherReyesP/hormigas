@@ -683,6 +683,19 @@ export class GameManager {
     return { x: this.craterSite.x, y: this.craterSite.y };
   }
 
+  /** Food is only stored underground: the starting stock begins in the pantry, not on the entrance pile. */
+  private stockStartingPantry(nestId: EntityId): void {
+    const nest = this.world.getComponent<NestComponent>(nestId, COMPONENT.NEST);
+    if (!nest) return;
+    while (nest.foodStored > 0) {
+      const tile = this.undergroundGrid.findDepositTile('leaf');
+      if (!tile) break;
+      const accepted = this.undergroundGrid.depositFood(tile.x, tile.y, 'leaf', nest.foodStored);
+      if (accepted <= 0) break;
+      nest.foodStored -= accepted;
+    }
+  }
+
   private spawnInitialEntities(): void {
     // Spawn nest at center
     const nestX = Math.floor(WORLD_WIDTH / 2);
@@ -709,7 +722,8 @@ export class GameManager {
     this.clearCorridor(nestX, nestY, 0, 1);   // south
     this.clearCorridor(nestX, nestY, 0, -1);  // north
 
-    createNest(this.world, nestX, nestY);
+    const nestId = createNest(this.world, nestX, nestY);
+    this.stockStartingPantry(nestId);
 
     // Spawn queen in underground (center of underground grid)
     // Underground tiles are corner-anchored: centers sit at +0.5
