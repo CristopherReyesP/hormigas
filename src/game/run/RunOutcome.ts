@@ -1,25 +1,19 @@
-import { RUN_NIGHTS_TO_WIN } from '../../shared/constants';
-import type { DayPhase } from '../systems/DayNightSystem';
-
 export type RunOutcome = 'victory' | 'defeat';
 
 /**
- * Resolve after all systems update so queen death takes precedence at dawn.
- * Two ways to win: survive the final night, or destroy the Crystal Hive.
+ * The run is endless: surviving nights never ends it (nightMilestones.ts
+ * celebrates them instead). Resolve after all systems update, so the queen's
+ * death takes precedence over the rival core falling on the same tick.
+ * - The queen dies: defeat.
+ * - The rival core is destroyed: victory (the player may keep playing).
  */
 export function resolveRunOutcome(
   currentOutcome: RunOutcome | null,
   queenAlive: boolean,
-  previousPhase: DayPhase,
-  phase: DayPhase,
-  dayNumber: number,
-  hiveDestroyed = false,
+  coreDestroyed = false,
 ): RunOutcome | null {
   if (currentOutcome) return currentOutcome;
   if (!queenAlive) return 'defeat';
-  if (hiveDestroyed) return 'victory';
-  if (previousPhase === 'night' && phase === 'day' && dayNumber >= RUN_NIGHTS_TO_WIN + 1) {
-    return 'victory';
-  }
+  if (coreDestroyed) return 'victory';
   return null;
 }

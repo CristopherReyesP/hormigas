@@ -34,6 +34,7 @@ import { ControlGroups } from './systems/ControlGroups';
 import {
   dispatchDenAttack,
   findEnemyAt,
+  findStructureAt,
   hasActiveOrder,
   isFreeSoldier,
   isPlayerUnit,
@@ -43,6 +44,17 @@ import {
   soundRetreatHorn,
   stopAnts,
 } from './systems/helpers/playerOrders';
+import {
+  HUMAN_QUICK_SELECT_KINDS,
+  QUICK_SELECT_KINDS,
+  quickSelectIds,
+  quickSelectInfo,
+  sameMembers,
+  type QuickSelectInfo,
+  type QuickSelectKind,
+} from './systems/helpers/quickSelect';
+import { touchPickRadiusTiles } from './systems/helpers/touchPick';
+import { countHumanTypes, countRoles, feedbackTargetOf, type CommandFeedback, type OrderFeedbackKind } from './commandFeedback';
 import { FoodRespawnSystem } from './systems/FoodRespawnSystem';
 import { FogOfWarSystem } from './systems/FogOfWarSystem';
 import { EggIncubationSystem } from './systems/EggIncubationSystem';
@@ -54,9 +66,12 @@ import { ObjectiveSystem, type ObjectiveState } from './systems/ObjectiveSystem'
 import { UndergroundInvasionSystem, type InvasionInfo, type WaveThreat } from './systems/UndergroundInvasionSystem';
 import { SpoilageSystem } from './systems/SpoilageSystem';
 import { FungusFarmSystem } from './systems/FungusFarmSystem';
+import { farmGrowthProgress, farmTileStatusLabel, isFarmTileReady } from './render/fungusGrowth';
 import { UndergroundHealingSystem } from './systems/UndergroundHealingSystem';
 import { resolveRunOutcome, type RunOutcome } from './run/RunOutcome';
-import { DayNightSystem, type DayPhase } from './systems/DayNightSystem';
+import { nightMilestone } from './run/nightMilestones';
+import { loadBestNight, recordNight } from './run/nightRecord';
+import { DayNightSystem } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
 import { IntroDirector } from './render/IntroDirector';
 import { IntroClock, introRivalLine, introVariantFor } from './render/introTimeline';
@@ -307,7 +322,27 @@ export interface GameOverStats {
   rivalCoreDestroyed?: 'crystal' | 'human';
   /** The race the player played, when it is not the Swarm (the end screen speaks for it) */
   playerRace?: RaceId;
+  /** Nights the colony lived through (the night on now does not count) */
+  nightsSurvived: number;
+  /** The local record, this run included */
+  bestNight: number;
+  /** This run beat the record the browser had when it started */
+  newRecord: boolean;
 }
+
+/** A night milestone of the endless run, while its banner is up */
+export interface MilestoneInfo {
+  night: number;
+  title: string;
+  /** What it paid */
+  minerals: number;
+  food: number;
+  /** What the food share is called: the Swarm's pantry food, or a Human expedition's rations */
+  foodUnit: 'comida' | 'raciones';
+}
+
+/** Game seconds the milestone banner stays up */
+const MILESTONE_BANNER_SECONDS = 8;
 
 /** One dot on the underground minimap */
 export interface MinimapEntity {
@@ -381,18 +416,24 @@ export interface GameStats {
   areaSelect?: boolean;
   /** Bound control groups, by digit */
   controlGroups?: ControlGroupInfo[];
+  /** The phone quick-select bar: ants per caste on the layer in view, and the chip that is the selection */
+  quickSelect?: QuickSelectInfo[];
   notifications: GameNotification[];
   objective: ObjectiveState | null;
   invasion: InvasionInfo;
   /** Invaders inside the nest: the view tabs' badges, the alert banner and the "Nido despejado" toast */
   nestAlert?: NestAlertState;
   gameOver: GameOverStats | null;
+  /** The night milestone just reached (endless run), while its banner is up */
+  milestone?: MilestoneInfo | null;
   activeEvents: Array<{ icon: string; name: string; remaining: number }>;
   dayPhase: 'day' | 'night';
   dayNumber: number;
   phaseRemaining: number; // seconds left in the current phase
   /** Pending dawn pick; the simulation stays paused while it is set. */
   mutationOffer: MutationOffer | null;
+  /** The card the player has selected in the pending offer; only confirming it applies it. */
+  mutationSelection: MutationId | null;
   lastMutationPick: MutationId | null;
   /** True while the opening cinematic plays: the HUD stays hidden and the world takes the whole window. */
   introPlaying: boolean;
@@ -435,6 +476,7 @@ export class GameManager {
   private readonly runSeed = Math.floor(Math.random() * 0x100000000);
   private readonly offerRng = createSeededRng(this.runSeed);
   private mutationOffer: MutationOffer | null = null;
+  private mutationSelection: MutationId | null = null;
   private lastMutationPick: MutationId | null = null;
   /**
    * Where the opening meteorite struck: a reachable clearing on the far side
@@ -442,7 +484,7 @@ export class GameManager {
    * minimap marks it, and the Crystal Hive rises from it (P5).
    */
   private readonly craterSite: TilePos;
-  /** The rival's core (the Crystal Hive, or the Human command center); destroying it wins the run */
+  /** The rival's core (the Crystal Hive, or the Human command center); destroying it is a victory (the run may go on) */
   private rivalCoreId: EntityId | null = null;
   /** The player's race and the rival picked before the run */
   private readonly runSetup: RunSetup;
@@ -484,6 +526,10 @@ export class GameManager {
   /** A Humans run (setup.playerRace 'human'): the player's base, its systems and its clicks; null for the Swarm */
   private humanPlayer: HumanPlayerRun | null = null;
   private gameOver: GameOverStats | null = null;
+  /** The milestone banner up now and the game seconds it has left */
+  private milestone: { info: MilestoneInfo; remaining: number } | null = null;
+  /** The local record when this run started, to tell a new record */
+  private runStartBest = loadBestNight();
   private upgradeLevels: Record<UpgradeId, number> = { carry: 0, damage: 0, storage: 0, dig: 0, porters: 0, heal: 0 };
   private fungusFarmSystem!: FungusFarmSystem;
   private dayNightSystem!: DayNightSystem;
@@ -505,6 +551,10 @@ export class GameManager {
   private orderPings: OrderPing[] = [];
   /** Ctrl+digit groups of own ants */
   private readonly controlGroups = new ControlGroups();
+  /** A finger tap is being handled: its orders get the big phone marker and count as touch feedback */
+  private touchInput = false;
+  /** HUD listeners for order and long-press feedback (toast, haptics, burst) */
+  private readonly feedbackListeners = new Set<(event: CommandFeedback) => void>();
   /** Nest defenses: placement and the turrets, traps and walls themselves */
   private defenseSystem!: DefenseSystem;
   /** The defense the build tool places, or null */
@@ -654,6 +704,9 @@ export class GameManager {
     this.renderSystem.setFarmStatusProvider(() => this.fungusFarmSystem.getStatus().status);
     // A Humans run swaps the colony systems for the Human base's
     this.humanPlayer?.install();
+    // Anything that takes mushrooms off a farm tile plays the pluck; a tapped farm shows its growth bars
+    this.undergroundGrid.setFarmTakeListener((x, y) => this.renderSystem.queueFarmHarvest(x, y));
+    this.renderSystem.setFarmFocusProvider(() => this.farmFocus);
     // The defense build ghost and the scouted breach, drawn in the world
     this.renderSystem.setWaveOverlayProvider(() => this.waveOverlay());
 
@@ -839,6 +892,12 @@ export class GameManager {
         // Clicking the throne she already occupies falls through to selection.
         if (!this.sendQueenToThroneAt(tile.x, tile.y)) {
           this.clickSelect(screenX, screenY, mods);
+          // A tap on bare farm ground (no ant there) shows that tile's growth
+          if (this.selectionSystem.getSelectedEntityId() === null && this.selectionSystem.getSelectedAnts().length === 0) {
+            this.focusFarmTile(tile.x, tile.y);
+          } else {
+            this.farmFocus = null;
+          }
         }
       }
       return;
@@ -854,22 +913,11 @@ export class GameManager {
       else this.commandAt(screenX, screenY);
       return;
     }
+    // A click on the already-selected nest goes down into it
     const tile = this.camera.screenToTile(screenX, screenY);
-    // Check if clicking on already-selected nest → enter underground
-    const currentSelected = this.selectionSystem.getSelectedEntityId();
-    if (currentSelected !== null && !mods.shift && !mods.ctrl) {
-      const nest = this.world.getComponent<NestComponent>(currentSelected, COMPONENT.NEST);
-      if (nest) {
-        const pos = this.world.getComponent<PositionComponent>(currentSelected, COMPONENT.POSITION);
-        if (pos) {
-          const dx = Math.abs(tile.x - Math.round(pos.x));
-          const dy = Math.abs(tile.y - Math.round(pos.y));
-          if (dx <= 2 && dy <= 2) {
-            this.enterUnderground();
-            return;
-          }
-        }
-      }
+    if (!mods.shift && !mods.ctrl && this.tapsSelectedNest(tile)) {
+      this.enterUnderground();
+      return;
     }
     this.clickSelect(screenX, screenY, mods);
   }
@@ -881,6 +929,15 @@ export class GameManager {
    * (select, an armed order's target, or a build tool below).
    */
   private handleTap(screenX: number, screenY: number): void {
+    this.touchInput = true;
+    try {
+      this.tapAt(screenX, screenY);
+    } finally {
+      this.touchInput = false;
+    }
+  }
+
+  private tapAt(screenX: number, screenY: number): void {
     if (this.defenseBuild) {
       // Touch: the first tap shows the ghost there, a second tap on the same tile builds
       const tile = this.screenToBuildTile(screenX, screenY);
@@ -907,14 +964,128 @@ export class GameManager {
       }
       return;
     }
+    if (this.fingerPick(screenX, screenY)) return;
     this.handleClick(screenX, screenY, NO_MODIFIERS);
   }
 
-  /** A finger held on an own ant: it and every ant of its caste on screen (Ctrl+click). */
+  /**
+   * A tap on the surface with no order to give: the own ant nearest the
+   * finger, within a reach that is a fixed size on screen (so a small ant
+   * on a zoomed-out map is still easy to hit). An enemy or a base under
+   * the finger, food or the nest right under it, and a second tap on the
+   * selected nest keep the click behavior. Returns true when it picked.
+   */
+  private fingerPick(screenX: number, screenY: number): boolean {
+    if (this.activeLayer !== 'surface' || this.armedCommand || this.gameOver) return false;
+    const at = this.screenToEntity(screenX, screenY);
+    if (this.enemyAt(at) !== null || findStructureAt(this.world, at) !== null || this.tapsSelectedNest(at)) return false;
+    const reach = touchPickRadiusTiles(this.camera.getZoom(), this.camera.getPixelRatio());
+    const ant = this.selectionSystem.nearestOwnAnt(at.x, at.y, Layer.Surface, reach);
+    if (ant === null) return false;
+    const under = this.selectionSystem.directHitAt(at.x, at.y, Layer.Surface);
+    if (under !== null && under !== ant && !this.world.getComponent(under, COMPONENT.ANT)) return false;
+    this.selectionSystem.selectOnly(ant);
+    this.armedCommand = null;
+    emitAudio(selectionAudio(this.world, [ant]));
+    this.publishStats();
+    return true;
+  }
+
+  /** The nest is the selection and `at` (tile or entity space) is on it: the click or tap that goes down. */
+  private tapsSelectedNest(at: { x: number; y: number }): boolean {
+    const id = this.selectionSystem.getSelectedEntityId();
+    if (id === null || !this.world.getComponent<NestComponent>(id, COMPONENT.NEST)) return false;
+    const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+    if (!pos) return false;
+    return Math.abs(Math.round(at.x) - Math.round(pos.x)) <= 2 && Math.abs(Math.round(at.y) - Math.round(pos.y)) <= 2;
+  }
+
+  /** A finger held on an own ant: it and every ant of its caste on screen (Ctrl+click); the HUD shows what it took. */
   private handleLongPress(screenX: number, screenY: number): void {
     if (this.gameOver) return;
     this.armedCommand = null;
     this.clickSelect(screenX, screenY, { shift: false, ctrl: true });
+    const ants = this.selectionSystem.getSelectedAnts();
+    if (ants.length === 0) return;
+    const pixelRatio = this.activeCamera().getPixelRatio();
+    const humanType = this.world.getComponent<HumanUnitComponent>(ants[0], HUMAN_COMPONENT.UNIT)?.type;
+    const role = humanType ? HUMAN_GROUP_ROLE[humanType] : this.world.getComponent<AntComponent>(ants[0], COMPONENT.ANT)?.role;
+    if (role === undefined) return;
+    this.emitFeedback({ type: 'caste-select', x: screenX, y: screenY, pixelRatio, count: ants.length, role, ...(humanType ? { humanType } : {}) });
+  }
+
+  /** Listen for order and long-press feedback; returns the unsubscribe. */
+  onCommandFeedback(listener: (event: CommandFeedback) => void): () => void {
+    this.feedbackListeners.add(listener);
+    return () => {
+      this.feedbackListeners.delete(listener);
+    };
+  }
+
+  private emitFeedback(event: CommandFeedback): void {
+    for (const listener of this.feedbackListeners) listener(event);
+  }
+
+  private emitOrderFeedback(order: OrderFeedbackKind, ids: readonly EntityId[], targetId: EntityId | null = null): void {
+    this.emitFeedback({
+      type: 'order',
+      order,
+      count: ids.length,
+      byRole: countRoles(this.world, ids),
+      byHuman: countHumanTypes(this.world, ids),
+      target: targetId === null ? null : feedbackTargetOf(this.world, targetId),
+      touch: this.touchInput,
+    });
+  }
+
+  /** Where Volver al nido sends units: the nest, or a Human player's command center */
+  private homePosition(): { x: number; y: number } | null {
+    if (this.humanPlayer) return this.humanPlayer.corePosition();
+    const nest = this.world.query(COMPONENT.NEST, COMPONENT.POSITION)[0];
+    return nest === undefined ? null : this.world.getComponent<PositionComponent>(nest, COMPONENT.POSITION) ?? null;
+  }
+
+  /** The order ping's phone extras: a finger order gets the big marker and lines from its units. */
+  private pingExtras(ids: readonly EntityId[], big = this.touchInput): Pick<OrderPing, 'big' | 'units'> {
+    return big ? { big: true, units: [...ids] } : {};
+  }
+
+  /**
+   * The quick-select bar: every own ant of `kind` on the layer in view,
+   * across the map. When they already are the selection (a second tap on
+   * the chip) the camera centers on them instead. An empty caste changes
+   * nothing.
+   */
+  quickSelect(kind: QuickSelectKind): { selected: number; centered: boolean } {
+    if (this.gameOver) return { selected: 0, centered: false };
+    const layer = this.activeLayerValue();
+    const ids = quickSelectIds(this.world, kind, layer);
+    if (ids.length === 0) return { selected: 0, centered: false };
+    const again = sameMembers(ids, this.selectionSystem.getSelectedAnts());
+    this.selectionSystem.selectAnts(ids, layer);
+    this.armedCommand = null;
+    this.areaSelect = false;
+    if (again) this.centerOnAnts(ids);
+    else emitAudio(selectionAudio(this.world, ids));
+    this.publishStats();
+    return { selected: ids.length, centered: again };
+  }
+
+  /**
+   * Volver al nido (Volver a la base for a Human player): the selected surface
+   * units walk back to the nest entrance, or the command center (a move order there).
+   */
+  returnSelectedToNest(): number {
+    const ants = this.selectedAntsForOrder();
+    const pos = this.homePosition();
+    if (ants.length === 0 || pos === null) return 0;
+    const result = issueMoveOrders(this.world, this.grid, ants, { x: Math.round(pos.x), y: Math.round(pos.y) }, this.transitSystem);
+    if (!result) return 0;
+    this.orderPings.push({ ...result.target, kind: 'move', ...this.pingExtras(result.ordered, true) });
+    emitAudio({ type: 'order', kind: 'move' });
+    this.emitOrderFeedback('rally', result.ordered);
+    this.publishStats();
+    return result.ordered.length;
   }
 
   /** What a one-finger drag does now: paint with a build tool on, a box while Seleccionar área is on, else pan. */
@@ -1353,8 +1524,10 @@ export class GameManager {
     }
 
     this.updateNestAlert(dt);
-    this.checkGameOver(previousPhase);
+    this.checkGameOver();
     const dayPhase = this.dayNightSystem.getPhase();
+    if (this.milestone && (this.milestone.remaining -= dt) <= 0) this.milestone = null;
+    if (!this.gameOver && previousPhase === 'night' && dayPhase === 'day') this.celebrateDawn();
     // The dawn mutation pick is the Swarm's: a Human expedition does not mutate
     if (!this.humanPlayer && shouldOfferMutation(previousPhase, dayPhase, this.dayNightSystem.getDayNumber(), this.gameOver !== null)) {
       this.openMutationOffer();
@@ -1372,8 +1545,56 @@ export class GameManager {
     }
   }
 
-  /** Queen death takes precedence over surviving the final night. */
-  private checkGameOver(previousPhase: DayPhase): void {
+  /** Nights the colony has lived through: the night on now does not count yet */
+  private nightsSurvived(): number {
+    return Math.max(0, this.dayNightSystem.getDayNumber() - 1);
+  }
+
+  /**
+   * A night survived. The run is endless: the record moves on and some dawns
+   * are milestones (night 7, then every 5) that pay a reward and celebrate.
+   */
+  private celebrateDawn(): void {
+    const nights = this.nightsSurvived();
+    recordNight(nights);
+    const milestone = nightMilestone(nights);
+    if (!milestone) return;
+    // The Swarm stocks the food in its pantry; a Human expedition banks it as rations
+    const paid = this.waves().pay(milestone.reward);
+    const foodUnit = this.humanPlayer ? 'raciones' : 'comida';
+    const info: MilestoneInfo = { night: nights, title: milestone.title, minerals: paid.minerals, food: paid.food, foodUnit };
+    this.milestone = { info, remaining: MILESTONE_BANNER_SECONDS };
+    emitAudio({ type: 'waveFx', kind: 'perfect' });
+    this.world.pushNotification(
+      'success',
+      `🏆 ${milestone.title} +${paid.minerals} minerales${paid.food > 0 ? ` · +${paid.food} ${foodUnit}` : ''}`,
+    );
+  }
+
+  /**
+   * "Seguir jugando" after destroying the rival core: the run goes on, endless,
+   * with no rival base. Its units cannot come without the base, so from now on
+   * every wave is the wildlife's (beetles and the Acorazado Colosal).
+   * Only a victory can be continued; returns whether the run resumed.
+   */
+  continueAfterVictory(): boolean {
+    if (this.gameOver?.outcome !== 'victory') return false;
+    this.gameOver = null;
+    this.rivalCoreId = null; // the core is gone: no second victory
+    this.waves().setRaidSource(null);
+    this.world.pushNotification(
+      'success',
+      this.humanPlayer
+        ? '🏆 La expedición sigue creciendo: ahora las oleadas vienen de la fauna salvaje'
+        : '🏆 La colonia sigue creciendo: ahora las oleadas vienen de la fauna salvaje',
+    );
+    this.gameLoop.setPaused(false);
+    this.publishStats();
+    return true;
+  }
+
+  /** Queen death takes precedence over the rival core falling on the same tick. */
+  private checkGameOver(): void {
     if (this.gameOver) return;
 
     const queens = this.world.query(COMPONENT.QUEEN_ENTITY);
@@ -1383,18 +1604,13 @@ export class GameManager {
       if (health && health.current <= 0) queenDead = true;
     }
     const coreDestroyed = this.rivalCoreId != null && !this.world.hasEntity(this.rivalCoreId);
-    // A Human player's life is the command center, not a queen
+    // A Human player's life is the command center, not a queen. Every run is endless:
+    // only losing that life or destroying the rival core ends it
     const alive = this.humanPlayer ? this.humanPlayer.isCoreAlive() : !queenDead;
-    const outcome = resolveRunOutcome(
-      null,
-      alive,
-      // A Human run is endless: surviving the nights never ends it (no dawn edge for the 7-night win)
-      this.humanPlayer ? this.dayNightSystem.getPhase() : previousPhase,
-      this.dayNightSystem.getPhase(),
-      this.dayNightSystem.getDayNumber(),
-      coreDestroyed,
-    );
+    const outcome = resolveRunOutcome(null, alive, coreDestroyed);
     if (!outcome) return;
+
+    const nightsSurvived = this.nightsSurvived();
 
     this.gameOver = {
       outcome,
@@ -1408,7 +1624,11 @@ export class GameManager {
       ...(outcome === 'victory' && coreDestroyed
         ? { rivalCoreDestroyed: this.rivalRace === 'human' ? 'human' as const : 'crystal' as const, ...(this.rivalRace === 'crystal' ? { hiveDestroyed: true as const } : {}) }
         : {}),
+      nightsSurvived,
+      bestNight: recordNight(nightsSurvived),
+      newRecord: nightsSurvived > 0 && nightsSurvived > this.runStartBest,
     };
+    this.milestone = null;
     this.gameLoop.setPaused(true);
 
     // Push final stats immediately so the UI shows the game-over screen without waiting
@@ -1426,13 +1646,14 @@ export class GameManager {
     if (ids.length === 0) return; // every mutation is at maxStacks
     const dayNumber = this.dayNightSystem.getDayNumber();
     this.mutationOffer = buildMutationOffer(dayNumber, ids, id => this.runModifiers.getStacks(id));
+    this.mutationSelection = null;
     emitAudio({ type: 'dawnOffer' });
     this.gameLoop.setPaused(true);
     this.publishStats();
   }
 
   /**
-   * Digit keys. While the evolution chamber is open, 1-3 pick a card and
+   * Digit keys. While the evolution chamber is open, 1-3 select a card and
    * nothing else happens. Otherwise Ctrl+digit binds the selected ants to that
    * control group, Shift+digit adds them, and the digit alone recalls it. A
    * held key's auto-repeat is ignored.
@@ -1441,7 +1662,7 @@ export class GameManager {
     if (press.repeat) return;
     if (this.mutationOffer) {
       const option = this.mutationOffer.options[slot - 1];
-      if (option && !press.ctrl && !press.shift) this.chooseMutation(option.id);
+      if (option && !press.ctrl && !press.shift) this.selectMutation(option.id);
       return;
     }
     if (this.gameOver) return;
@@ -1602,6 +1823,7 @@ export class GameManager {
 
   clearSelection(): void {
     this.selectionSystem.clearSelection();
+    this.farmFocus = null;
     this.armedCommand = null;
     this.publishStats();
   }
@@ -1659,8 +1881,9 @@ export class GameManager {
     const kind = attack ? OrderKind.AttackMove : OrderKind.Move;
     const result = issueMoveOrders(this.world, this.grid, ants, { x: tileX, y: tileY }, this.transitSystem, kind);
     if (!result) return 0;
-    this.orderPings.push({ ...result.target, kind: attack ? 'attack' : 'move' });
+    this.orderPings.push({ ...result.target, kind: attack ? 'attack' : 'move', ...this.pingExtras(result.ordered) });
     emitAudio({ type: 'order', kind: attack ? 'attack' : 'move' });
+    this.emitOrderFeedback(attack ? 'attack-move' : 'move', result.ordered);
     this.publishStats();
     return result.ordered.length;
   }
@@ -1671,7 +1894,8 @@ export class GameManager {
     if (ants.length === 0) return 0;
     const result = issueAttackOrders(this.world, this.grid, ants, targetId, this.transitSystem);
     if (!result) return 0;
-    this.orderPings.push({ ...result.target, kind: 'attack', targetId });
+    this.orderPings.push({ ...result.target, kind: 'attack', targetId, ...this.pingExtras(result.ordered) });
+    this.emitOrderFeedback('attack', result.ordered, targetId);
     this.publishStats();
     return result.ordered.length;
   }
@@ -1886,11 +2110,30 @@ export class GameManager {
     const option = this.mutationOffer?.options.find(candidate => candidate.id === id);
     if (!option || this.gameOver || !this.applyMutation(option.id)) return false;
     this.mutationOffer = null;
+    this.mutationSelection = null;
     this.lastMutationPick = option.id;
     emitAudio({ type: 'mutationChosen' });
     this.gameLoop.setPaused(false);
     this.publishStats();
     return true;
+  }
+
+  /**
+   * Select a card of the pending offer without applying it (null clears the
+   * selection). False (no change) with no offer pending or an id outside it.
+   */
+  selectMutation(id: string | null): boolean {
+    if (!this.mutationOffer || this.gameOver) return false;
+    const option = id === null ? null : this.mutationOffer.options.find(candidate => candidate.id === id);
+    if (option === undefined) return false;
+    this.mutationSelection = option?.id ?? null;
+    this.publishStats();
+    return true;
+  }
+
+  /** Apply the selected card of the pending offer and resume; false when none is selected. */
+  confirmMutation(): boolean {
+    return this.mutationSelection !== null && this.chooseMutation(this.mutationSelection);
   }
 
   getAppliedMutations(): MutationId[] {
@@ -2110,6 +2353,37 @@ export class GameManager {
 
   getConsumptionPriority(): 'leaf' | 'mushroom' | 'meat' {
     return this.undergroundGrid.getConsumptionPriority();
+  }
+
+  /** The farm tile the player tapped (info card line and growth bars), if any */
+  private farmFocus: { x: number; y: number } | null = null;
+
+  /** Point the info card at a farm tile; any other tile lets go. True when it is a farm tile. */
+  focusFarmTile(tileX: number, tileY: number): boolean {
+    const tile = this.undergroundGrid.getTile(tileX, tileY);
+    const isFarm = tile !== null && tile.walkable && tile.chamberType === ChamberType.FungusFarm;
+    this.farmFocus = isFarm ? { x: tileX, y: tileY } : null;
+    return isFarm;
+  }
+
+  /** Growth of the tapped farm tile, for the info card */
+  getFocusedFarmTile(): { x: number; y: number; progress: number; ready: boolean; label: string } | null {
+    const focus = this.farmFocus;
+    if (!focus) return null;
+    const tile = this.undergroundGrid.getTile(focus.x, focus.y);
+    if (!tile || tile.chamberType !== ChamberType.FungusFarm) {
+      this.farmFocus = null;
+      return null;
+    }
+    const amount = tile.food?.type === 'mushroom' ? tile.food.amount : 0;
+    const capacity = this.undergroundGrid.getPantryTileCapacity();
+    return {
+      x: focus.x,
+      y: focus.y,
+      progress: farmGrowthProgress(amount, capacity),
+      ready: isFarmTileReady(amount, capacity),
+      label: farmTileStatusLabel(amount, capacity),
+    };
   }
 
   /** Farm state for the UI: production rate, stall reason, and fill level */
@@ -2334,6 +2608,7 @@ export class GameManager {
 
   exitUnderground(): void {
     this.dropAntSelection();
+    this.farmFocus = null;
     this.activeLayer = 'surface';
     this.input.setCamera(this.camera);
   }
@@ -2938,11 +3213,18 @@ export class GameManager {
       areaSelect: this.areaSelect,
       defenseBuild: this.defenseBuild,
       controlGroups: this.getControlGroups(),
+      quickSelect: quickSelectInfo(
+        this.world,
+        this.activeLayerValue(),
+        this.selectionSystem.getSelectedAnts(),
+        this.humanPlayer ? HUMAN_QUICK_SELECT_KINDS : QUICK_SELECT_KINDS,
+      ),
       notifications: this.getActiveNotifications(),
       objective: this.humanPlayer ? null : this.objectiveSystem.getState(),
       invasion: this.waves().getInfo(),
       nestAlert: this.humanPlayer ? undefined : this.nestAlert.getState(),
       gameOver: this.gameOver,
+      milestone: this.milestone?.info ?? null,
       activeEvents: this.eventSystem.active.map((e) => ({
         icon: e.definition.icon,
         name: e.definition.name,
@@ -2952,6 +3234,7 @@ export class GameManager {
       dayNumber: this.dayNightSystem.getDayNumber(),
       phaseRemaining: Math.ceil(this.dayNightSystem.getPhaseRemaining()),
       mutationOffer: this.mutationOffer,
+      mutationSelection: this.mutationSelection,
       lastMutationPick: this.lastMutationPick,
       introPlaying: this.introClock.isPlaying(),
       human: this.humanPlayer?.stats() ?? null,
@@ -2982,7 +3265,10 @@ export class GameManager {
     if (sent.length > 0 && den) {
       this.orderPings.push({ x: Math.round(den.x), y: Math.round(den.y), kind: 'attack', targetId: targetEntityId });
     }
-    if (sent.length > 0) emitAudio({ type: 'order', kind: 'attack' });
+    if (sent.length > 0) {
+      emitAudio({ type: 'order', kind: 'attack' });
+      this.emitOrderFeedback('attack', sent, targetEntityId);
+    }
     return sent.length;
   }
 }

@@ -26,6 +26,9 @@ interface InfoPanelProps {
   gameManager: GameManager | null;
   attackCount: number;
   onAttackCountChange: (count: number) => void;
+  /** Compact HUD: the panel is open over the map (the hint line's details button drives it when given) */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function healthColor(ratio: number): string {
@@ -157,6 +160,11 @@ function NestSummary({ details }: { details: ColonyDetails }) {
               {FARM_STATUS[farm.status] ?? farm.status}
               {farm.status === 'produciendo' ? ` · +${farm.rate.toFixed(1)}/s` : ''}
             </div>
+            {details.farmTile && (
+              <div className={`info-note${details.farmTile.ready ? ' info-note--good' : ''}`}>
+                <strong>{details.farmTile.label}</strong>
+              </div>
+            )}
           </>
         )}
       </Column>
@@ -382,7 +390,13 @@ function GroupInfo({ group, gameManager, underground }: { group: SelectedGroupIn
  */
 export function InfoPanel(props: InfoPanelProps) {
   const { stats, details } = props;
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = props.open ?? ownOpen;
+  const setOpen = (next: (o: boolean) => boolean) => {
+    const value = next(open);
+    if (props.onOpenChange) props.onOpenChange(value);
+    else setOwnOpen(value);
+  };
   const selected = Boolean(stats.selectedGroup || stats.selectedEntity);
   return (
     <section className={open ? 'console-info console-info--open' : 'console-info'} aria-label="Información">
