@@ -7,6 +7,13 @@
 //  - No alpha gradients on sprites: shading is done with ramp steps + dithering.
 //  - Each material has a ramp ordered dark → light (index 0 = darkest).
 
+// Alien fungus ramps, hoisted so the farm-crop tokens can share them
+const FUNGUS = {
+  cap: ['#221c3c', '#382f66', '#544c92', '#776eb6', '#a59ed8'],
+  stalk: ['#2e2838', '#4a4258', '#6c6480', '#948ca6'],
+  glow: ['#3f7a70', '#7cc4ae', '#c4f2e0'], // pore and gill light, dark → bright
+} as const;
+
 export const PAL = {
   // ── Neutrals ──────────────────────────────────────────────
   black: '#000000',
@@ -85,11 +92,11 @@ export const PAL = {
   // ── Flora & food ──────────────────────────────────────────
   // Alien fronds: still the food-leaf shape, pale teal-lime, brighter than moss
   leaf: ['#2c5a48', '#5cb890', '#aeeccb'],
-  // Muted rust cap (panther-cap Amanita): food must not out-shout units, and
-  // must never be mistaken for the UI danger red.
-  shroomCap: '#93583a',
-  shroomCapLight: '#b5794f',
-  shroomStem: '#e8d8b8',
+  // Underground farm crops: the alien fungus ramp (dusky blue-violet caps on
+  // mauve-grey stalks), never a brown Earth mushroom or the UI danger red.
+  shroomCap: FUNGUS.cap[2],
+  shroomCapLight: FUNGUS.cap[3],
+  shroomStem: FUNGUS.stalk[3],
   meat: ['#6e2f2f', '#8a3b3b', '#b8625a'],
   wood: ['#4a3220', '#6b4a2c', '#8f6a3e'],
 
@@ -139,11 +146,7 @@ export const PAL = {
   // A dusky blue-violet cap, bluer and lighter than the violet regolith it
   // grows on, with mint bioluminescent pores and gills, on a cool mauve-grey
   // stalk. Duller than the faction flesh and shell so units still pop.
-  fungus: {
-    cap: ['#221c3c', '#382f66', '#544c92', '#776eb6', '#a59ed8'],
-    stalk: ['#2e2838', '#4a4258', '#6c6480', '#948ca6'],
-    glow: ['#3f7a70', '#7cc4ae', '#c4f2e0'], // pore and gill light, dark → bright
-  },
+  fungus: FUNGUS,
 
   // ── Alien flesh (wildlife meat): amber ichor pulp ──────────
   // Warm amber, far from the Swarm's magenta and from raw red meat, so a

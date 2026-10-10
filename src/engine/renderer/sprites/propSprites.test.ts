@@ -12,6 +12,11 @@ const MUSHROOM_FOOD = 2;
 const BEETLE_MEAT = 3;
 const CRICKET_MEAT = 4;
 
+/** The old Earth toadstool: rust cap, its light step and the cream stalk. */
+const EARTH_CAP = '#93583a';
+const EARTH_CAP_LIGHT = '#b5794f';
+const EARTH_STEM = '#e8d8b8';
+
 function hsl(hex: string): { h: number; s: number; l: number } {
   const n = parseInt(hex.slice(1), 16);
   const r = ((n >> 16) & 255) / 255;
@@ -140,7 +145,7 @@ describe('prop sprite frames', () => {
 describe('alien fungus (giant mushroom and mushroom food)', () => {
   it('drops the Earth toadstool: no brown cap, cream stalk or white warts on the giant mushroom', () => {
     const colors = new Set(staticColors(giantMushroom()));
-    for (const old of [PAL.shroomCap, PAL.shroomCapLight, PAL.shroomStem, PAL.white, PAL.sand[1]]) {
+    for (const old of [EARTH_CAP, EARTH_CAP_LIGHT, EARTH_STEM, PAL.white, PAL.sand[1]]) {
       expect(colors.has(old), old).toBe(false);
     }
     for (const c of colors) {
@@ -169,7 +174,7 @@ describe('alien fungus (giant mushroom and mushroom food)', () => {
     eachFoodFrame((grid, label) => {
       for (const c of gridColors(grid)) {
         if (c === PAL.outline) continue;
-        expect(c === PAL.white || c === PAL.shroomStem || c === PAL.shroomCap, `${label} ${c}`).toBe(false);
+        expect(c === PAL.white || c === EARTH_STEM || c === EARTH_CAP, `${label} ${c}`).toBe(false);
         expect(isEarthToadstoolTone(c), `${label} ${c} reads as an Earth toadstool`).toBe(false);
       }
     }, [MUSHROOM_FOOD]);
