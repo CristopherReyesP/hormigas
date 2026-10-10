@@ -48,7 +48,9 @@ export function WaveAlert({ invasion, activeLayer, view }: WaveAlertProps) {
 
   return (
     <div className="wave-alert" aria-live="assertive">
-      {banner?.kind === 'arrival' && <div key={banner.id} className="wave-edge-pulse" aria-hidden="true" />}
+      {banner?.kind === 'arrival' && (
+        <div key={`pulse-${banner.id}`} className={banner.boss ? 'wave-edge-pulse wave-edge-pulse--boss' : 'wave-edge-pulse'} aria-hidden="true" />
+      )}
       {view && threats.length > 0 && <Markers threats={threats} view={view} />}
 
       {warning && banner && (
@@ -64,15 +66,23 @@ export function WaveAlert({ invasion, activeLayer, view }: WaveAlertProps) {
         </div>
       )}
 
-      {banner?.kind === 'arrival' && (
-        <div key={banner.id} className="wave-announce">
+      {banner?.kind === 'arrival' && banner.boss && (
+        <div key={`announce-${banner.id}`} className="wave-announce wave-announce--boss">
+          <span className="wave-announce-title">LA REINA DE CRISTAL</span>
+          <span className="wave-announce-sub">Oleada {banner.wave} · {plural(banner.count, 'enemigo', 'enemigos')}</span>
+          <span className="wave-announce-sub">Su aura recarga los escudos de su escolta y su pulso daña a quien se acerca.</span>
+        </div>
+      )}
+
+      {banner?.kind === 'arrival' && !banner.boss && (
+        <div key={`announce-${banner.id}`} className="wave-announce">
           <span className="wave-announce-title">OLEADA {banner.wave}</span>
           <span className="wave-announce-sub">{plural(banner.count, 'enemigo', 'enemigos')}</span>
         </div>
       )}
 
       {banner?.kind === 'cleared' && (
-        <div key={banner.id} className="wave-announce wave-announce--cleared">
+        <div key={`announce-${banner.id}`} className="wave-announce wave-announce--cleared">
           <span className="wave-announce-title">¡Oleada {banner.wave} superada!</span>
         </div>
       )}

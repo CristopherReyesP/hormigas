@@ -40,6 +40,8 @@ import {
   type EggComponent,
   type NestComponent,
   type PlayerOrderComponent,
+  type CrystalUnitComponent,
+  type CrystalSpireComponent,
 } from '../components/components';
 import { TILE_SIZE, PHEROMONE_MAX, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
 import { UndergroundTerrainType, ChamberType, TerrainType } from '../../simulation/world/types';
@@ -47,7 +49,8 @@ import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 import { MeteorIntro } from '../render/MeteorIntro';
-import { CRYSTAL_FRAME_MS, UNIT_ART_PX, bakeCrystalUnit, drawUnitFrame } from '../../engine/renderer/crystalUnits';
+import { CrystalRivalArt } from '../render/crystalRivalArt';
+import type { ShieldComponent } from '../rival/crystalShield';
 import { combatVfxFor } from '../vfx/CombatVfx';
 import { drawCombatVfx } from '../vfx/drawCombatVfx';
 import type { IntroClock, Vec2 } from '../render/introTimeline';
@@ -193,7 +196,8 @@ export class RenderSystem {
   private fxHealthFrame!: OffscreenCanvas;
   private fxPheroStamps!: Record<'home' | 'food' | 'danger', OffscreenCanvas[]>;
   private fxGlows = new Map<string, OffscreenCanvas>();
-  private crystalDroneFrames: OffscreenCanvas[] | null = null;
+  /** The Crystal Hive rival's units, spires and shields */
+  private crystalArt = new CrystalRivalArt();
   /** Green selection ellipses under own ants: small castes and big ones */
   private fxSelectEllipse!: { small: OffscreenCanvas; large: OffscreenCanvas };
   /** Red-orange ellipses that flash under an enemy an attack order just named */
@@ -1653,6 +1657,7 @@ export class RenderSystem {
     const antEntities: Array<{ id: number; pos: PositionComponent }> = [];
     const hiveEntities: Array<{ id: number; pos: PositionComponent }> = [];
     const crystalEntities: Array<{ id: number; pos: PositionComponent }> = [];
+    const spireEntities: Array<{ id: number; pos: PositionComponent }> = [];
 
     const entities = this.world.query(COMPONENT.POSITION, COMPONENT.RENDER);
     for (const id of entities) {
@@ -1692,6 +1697,8 @@ export class RenderSystem {
         hiveEntities.push({ id, pos });
       } else if (render.shape === 'crystal_drone') {
         crystalEntities.push({ id, pos });
+      } else if (render.shape === 'crystal_spire') {
+        spireEntities.push({ id, pos });
       }
     }
 
@@ -1744,6 +1751,12 @@ export class RenderSystem {
       if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
       this.drawTargetFlash(ctx, id, pos.x, pos.y, 'cricket');
       this.drawCrystalHive(ctx, pos.x, pos.y, id);
+    }
+    // Its spires, remembered on explored ground like the dens
+    for (const { id, pos } of spireEntities) {
+      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
+      this.drawTargetFlash(ctx, id, pos.x, pos.y, 'den');
+      this.drawCrystalSpire(ctx, pos.x, pos.y, id);
     }
 
     // Moving wildlife hides under fog: drawn only where the colony sees RIGHT
@@ -2249,34 +2262,42 @@ export class RenderSystem {
     }
   }
 
-  /** Baked hover cycle of the Crystal drone, one canvas per frame (built on first use) */
-  private droneFrames(): OffscreenCanvas[] {
-    if (!this.crystalDroneFrames) {
-      const sheet = bakeCrystalUnit('drone');
-      this.crystalDroneFrames = sheet.frames.map((frame) => {
-        const canvas = new OffscreenCanvas(frame.width * UNIT_ART_PX, frame.height * UNIT_ART_PX);
-        drawUnitFrame(canvas.getContext('2d')!, frame, 0, 0);
-        return canvas;
-      });
-    }
-    return this.crystalDroneFrames;
-  }
-
+  /** A Crystal unit: its hover cycle, the hex ring while shielded, and its shield and health bars */
   private drawCrystalDrone(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number): void {
     const px = tileX * TILE_SIZE + TILE_SIZE / 2;
     const py = tileY * TILE_SIZE + TILE_SIZE / 2;
+    const kind = this.world.getComponent<CrystalUnitComponent>(entityId, COMPONENT.CRYSTAL_UNIT)?.kind ?? 'drone';
     const combat = this.world.getComponent<CombatComponent>(entityId, COMPONENT.COMBAT);
+    if (kind === 'queen') this.drawGlowStamp(ctx, px, py - TILE_SIZE, TILE_SIZE * 1.6, 'crystal');
     if (combat?.targetEntityId != null && Math.floor(this.animationTime * 8) % 2 === 0) {
       this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.6, 'crystal');
     }
-    const frames = this.droneFrames();
-    // Per-entity phase so a wave does not bob in lockstep
-    const index = (Math.floor((this.animationTime * 1000) / CRYSTAL_FRAME_MS) + entityId) % frames.length;
-    const frame = frames[index];
-    // The sprite's shadow sits at its bottom: anchor that on the tile center
-    ctx.drawImage(frame, Math.round(px - frame.width / 2), Math.round(py - frame.height + TILE_SIZE * 0.35));
+    const top = this.crystalArt.drawUnit(ctx, px, py, kind, entityId, this.animationTime);
+    const shield = this.world.getComponent<ShieldComponent>(entityId, COMPONENT.SHIELD);
+    if (shield) {
+      const radius = (py - top) * 0.55;
+      this.crystalArt.drawShieldRing(ctx, px, py - (py - top) * 0.35, radius, shield.current / Math.max(1, shield.max), shield.sinceHit < 0.3);
+    }
+    this.drawCrystalBars(ctx, entityId, px, top - 6, kind === 'queen' ? 2 : 1);
+  }
+
+  /** Shield bar (cyan) over the health bar, always shown for the rival's units and structures */
+  private drawCrystalBars(ctx: CanvasRenderingContext2D, entityId: number, px: number, y: number, scale: number): void {
     const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
-    if (health) this.drawHealthBar(ctx, px, py, health.current, health.max, false, 1, -TILE_SIZE * 1.3);
+    const shield = this.world.getComponent<ShieldComponent>(entityId, COMPONENT.SHIELD);
+    if (health) this.drawHealthBar(ctx, px, 0, health.current, health.max, true, scale, y);
+    if (shield) this.crystalArt.drawShieldBar(ctx, this.fxHealthFrame, px, y - 5 * scale, shield.current, shield.max, scale);
+  }
+
+  /** A spire of the Crystal Hive: taller with each floor */
+  private drawCrystalSpire(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number): void {
+    const px = tileX * TILE_SIZE + TILE_SIZE / 2;
+    const py = tileY * TILE_SIZE + TILE_SIZE / 2;
+    const spire = this.world.getComponent<CrystalSpireComponent>(entityId, COMPONENT.CRYSTAL_SPIRE);
+    if (!spire) return;
+    this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.9, 'crystal');
+    const top = this.crystalArt.drawSpire(ctx, px, py, spire.kind, spire.floors);
+    this.drawCrystalBars(ctx, entityId, px, top - 6, 1);
   }
 
   /** The hive's energy core pulsing among its spires, and its health bar, always shown */
@@ -2285,8 +2306,7 @@ export class RenderSystem {
     const py = tileY * TILE_SIZE + TILE_SIZE / 2;
     this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.4, 'crystal');
     if (Math.floor(this.animationTime * 2) % 2 === 0) this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.8, 'crystal');
-    const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
-    if (health) this.drawHealthBar(ctx, px, py, health.current, health.max, true, 2, -TILE_SIZE * 2.4);
+    this.drawCrystalBars(ctx, entityId, px, py - TILE_SIZE * 2.4, 2);
   }
 
   private drawCricketDen(

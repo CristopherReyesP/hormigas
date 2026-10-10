@@ -29,6 +29,7 @@ import { findEnemyAt, issueAttackOrders, isSurfaceEnemy } from '../systems/helpe
 import { buildAttackerMap } from '../systems/helpers/combatHelpers';
 import { CRYSTAL_DRONE_STATS, CRYSTAL_HIVE_STATS } from './crystalHive';
 import { resolveRunOutcome } from '../run/RunOutcome';
+import type { ShieldComponent } from './crystalShield';
 
 const NX = Math.floor(WORLD_WIDTH / 2);
 const NY = Math.floor(WORLD_HEIGHT / 2);
@@ -204,6 +205,8 @@ describe('drones and the player fight each other', () => {
   it('an attack order on the hive destroys it', () => {
     const { world, surface, hive, healthOf, run } = setup();
     healthOf(hive).current = 20;
+    // Its shield is down too: the hits land on the hull
+    world.getComponent<ShieldComponent>(hive, COMPONENT.SHIELD)!.current = 0;
     const soldier = createAnt(world, HX - 4, HY, AntRole.Soldier);
     expect(issueAttackOrders(world, surface, [soldier], hive)?.ordered).toEqual([soldier]);
     run(20, () => !world.hasEntity(hive));

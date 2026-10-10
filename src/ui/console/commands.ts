@@ -223,7 +223,7 @@ function timeCommands(ctx: CommandContext): CommandDef[] {
 
 function isDenSelected(stats: GameStats): boolean {
   const type = stats.selectedEntity?.type;
-  return stats.activeLayer === 'surface' && (type === 'beetle_den' || type === 'cricket_den' || type === 'crystal_hive');
+  return stats.activeLayer === 'surface' && (type === 'beetle_den' || type === 'cricket_den' || type === 'crystal_hive' || type === 'crystal_spire');
 }
 
 function attackDen(ctx: CommandContext): CommandDef {
@@ -231,10 +231,11 @@ function attackDen(ctx: CommandContext): CommandDef {
   const count = Math.min(ctx.attackCount, ctx.stats.availableSoldiers);
   const ready = count > 0;
   const hive = selected?.type === 'crystal_hive';
-  const base = hive ? 'la colmena' : 'la guarida';
+  const spire = selected?.type === 'crystal_spire';
+  const base = hive ? 'la colmena' : spire ? 'la aguja' : 'la guarida';
   return {
     id: 'attack-den',
-    label: hive ? 'Atacar colmena' : 'Atacar guarida',
+    label: hive ? 'Atacar colmena' : spire ? 'Atacar aguja' : 'Atacar guarida',
     icon: 'sword',
     description: `Ordena a los soldados libres más cercanos atacar ${base} seleccionada hasta destruirla. Ajusta cuántos en el panel central.`,
     badge: ready ? String(count) : undefined,

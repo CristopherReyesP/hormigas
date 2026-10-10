@@ -29,6 +29,8 @@ import {
   FLANKING_MAX_ALLIES,
 } from '../../shared/constants';
 import { LEAPER_NOTICE } from '../../shared/wildlifeNames';
+import { absorbDamage, type ShieldComponent } from '../rival/crystalShield';
+import { MELEE_REACH } from '../rival/crystalRival';
 import { combatVfxFor, type BodyKind, type CombatVfx, type VictimKind } from '../vfx/CombatVfx';
 
 export class CombatSystem implements System {
@@ -159,9 +161,16 @@ export class CombatSystem implements System {
         continue;
       }
 
-      targetHealth.current -= damage;
       combat.attackTimer = combat.attackCooldown;
-      this.emitHit(id, pos, targetPos, targetLayer?.layer ?? Layer.Surface, this.victimKind(targetId));
+      const hitLayer = targetLayer?.layer ?? Layer.Surface;
+      // A Sentinel's shot is a visible bolt; the damage still lands now
+      if (combat.attackRange > MELEE_REACH && this.isCrystal(id)) this.vfx.crystalBolt(pos.x, pos.y, targetPos.x, targetPos.y, hitLayer);
+      // Crystal shields soak the hit before the hull
+      damage = this.soakWithShield(targetId, damage, pos, targetPos, hitLayer);
+      if (damage > 0) {
+        targetHealth.current -= damage;
+        this.emitHit(id, pos, targetPos, hitLayer, this.victimKind(targetId));
+      }
 
       if (targetHealth.current <= 0) {
         this.handleDeath(targetId, toDestroy);
@@ -176,6 +185,24 @@ export class CombatSystem implements System {
         this.world.destroyEntity(id);
       }
     }
+  }
+
+  /** The hull's share of a hit: a shield takes what it can, with its cyan arc, and shatters when it breaks */
+  private soakWithShield(
+    targetId: EntityId,
+    damage: number,
+    from: PositionComponent,
+    to: PositionComponent,
+    layer: LayerValue,
+  ): number {
+    const shield = this.world.getComponent<ShieldComponent>(targetId, COMPONENT.SHIELD);
+    if (!shield) return damage;
+    const split = absorbDamage(shield, damage);
+    if (split.shield > 0) {
+      this.vfx.shieldHit(from.x, from.y, to.x, to.y, layer);
+      if (shield.current <= 0) this.vfx.shieldBreak(to.x, to.y, layer);
+    }
+    return split.hull;
   }
 
   /** Dens track health in their own component; mirror it into HealthComponent so the bar drains */
@@ -217,7 +244,8 @@ export class CombatSystem implements System {
 
   private isCrystal(id: EntityId): boolean {
     return this.world.getComponent(id, COMPONENT.CRYSTAL_UNIT) !== undefined
-      || this.world.getComponent(id, COMPONENT.CRYSTAL_HIVE) !== undefined;
+      || this.world.getComponent(id, COMPONENT.CRYSTAL_HIVE) !== undefined
+      || this.world.getComponent(id, COMPONENT.CRYSTAL_SPIRE) !== undefined;
   }
 
   /** The death pop plus what the body leaves: goo for the Swarm, a carcass for wildlife */
@@ -253,6 +281,7 @@ export class CombatSystem implements System {
     const hive = this.world.getComponent(entityId, COMPONENT.CRYSTAL_HIVE) !== undefined;
     if (pos) this.vfx.crystalShards(pos.x, pos.y, this.layerOf(entityId), hive ? 32 : 10);
     if (hive) this.world.pushNotification('success', '💎 ¡La Colmena de Cristal se hizo añicos!');
+    else if (this.world.getComponent(entityId, COMPONENT.CRYSTAL_SPIRE)) this.world.pushNotification('success', '💎 ¡Derribaste una aguja de la Colmena de Cristal!');
   }
 
   /** Meat left by a kill, scaled by run mutations (carrion_gut) */

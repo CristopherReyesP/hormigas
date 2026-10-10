@@ -10,7 +10,7 @@ import {
   type LayerComponent,
   type PositionComponent,
 } from '../components/components';
-import { fakeCanvas, finishIntro } from '../../test/gameManagerMocks';
+import { fakeCanvas, finishIntro, CRYSTAL_RIVAL_SETUP } from '../../test/gameManagerMocks';
 import { setAudioSink, type AudioEvent } from '../../audio/events';
 import { BEETLE_STATS } from '../../shared/constants';
 import { YOUNG_BEETLE_SCALE, waveComposition } from './waveComposition';
@@ -24,7 +24,7 @@ vi.stubGlobal('window', new EventTarget());
 const DT = 1 / 30;
 
 function setup() {
-  const game = new GameManager(fakeCanvas());
+  const game = new GameManager(fakeCanvas(), CRYSTAL_RIVAL_SETUP);
   finishIntro(game);
   const world = game['world'] as World;
   const dayNight = game['dayNightSystem'] as unknown as { phaseTimer: number; getPhase(): string };

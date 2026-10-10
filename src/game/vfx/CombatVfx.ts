@@ -39,9 +39,15 @@ export const VFX_LIFE = {
   ring: 0.45,
   goo: 9,
   carcass: 14,
+  /** The cyan hex arc where a hit lands on a Crystal shield */
+  shield: 0.24,
+  /** A Sentinel's energy bolt in flight */
+  bolt: 0.18,
+  /** The Crystal Queen's pulse rolling out */
+  pulse: 0.5,
 } as const;
 
-export type VfxKind = 'droplet' | 'cross' | 'debris' | 'flash' | 'ring' | 'puddle' | 'goo' | 'carcass';
+export type VfxKind = 'droplet' | 'cross' | 'debris' | 'flash' | 'ring' | 'puddle' | 'goo' | 'carcass' | 'shield' | 'bolt';
 export type DebrisStyle = 'chitin' | 'straw' | 'flesh' | 'goo' | 'shard' | 'soil';
 export type CrossStyle = 'acid' | 'impact';
 export type BodyKind = 'ant' | 'beetle' | 'cricket';
@@ -50,7 +56,7 @@ export type DenKind = 'beetleDen' | 'cricketDen';
 export type VictimKind = BodyKind | DenKind | 'crystal';
 /** Who landed the blow: the Swarm spits acid, wildlife just bites */
 export type Attacker = 'swarm' | 'wildlife';
-export type VfxStyle = DebrisStyle | CrossStyle | BodyKind | DenKind;
+export type VfxStyle = DebrisStyle | CrossStyle | BodyKind | DenKind | 'crystal' | 'pulse';
 
 export interface VfxSlot {
   alive: boolean;
@@ -197,6 +203,33 @@ export class CombatVfx {
     this.burst(x, y, layer, 'soil', den === 'beetleDen' ? 14 : 9, 0, Math.PI * 2, 30, 70, 0);
     if (den === 'cricketDen') this.burst(x, y, layer, 'straw', 6, 0, Math.PI * 2, 25, 60, 0);
     this.crystalShards(x, y, layer, 8);
+  }
+
+  /**
+   * A hit soaked by a Crystal shield: a cyan hex arc flashes on the side the
+   * blow came from (art direction: "1 px cyan hex arc flash").
+   */
+  shieldHit(ax: number, ay: number, tx: number, ty: number, layer: LayerValue): void {
+    const arc = this.spawn(this.particles, 'particle', 'shield', 'crystal', layer, tx, ty, VFX_LIFE.shield);
+    arc.angle = Math.atan2(ay - ty, ax - tx);
+  }
+
+  /** A shield breaks: 1×2 shards fly off */
+  shieldBreak(x: number, y: number, layer: LayerValue): void {
+    this.crystalShards(x, y, layer, 6);
+  }
+
+  /** A Sentinel's energy bolt, visual only: it flies from the shooter and lands as the hit does */
+  crystalBolt(ax: number, ay: number, tx: number, ty: number, layer: LayerValue): void {
+    const bolt = this.spawn(this.particles, 'particle', 'bolt', 'crystal', layer, tx, ty, VFX_LIFE.bolt);
+    bolt.ox = (ax - tx) * ART_PER_TILE;
+    bolt.oy = (ay - ty) * ART_PER_TILE;
+  }
+
+  /** The Crystal Queen's pulse: a cyan ring rolling out from her */
+  crystalPulse(x: number, y: number, layer: LayerValue): void {
+    this.spawn(this.particles, 'particle', 'ring', 'pulse', layer, x, y, VFX_LIFE.pulse);
+    this.crystalShards(x, y, layer, 6);
   }
 
   /** 1×2 cyan crystal shards bursting all around: Crystal Hive deaths and shield breaks */

@@ -59,10 +59,11 @@ const ENEMY_STORES = [
   COMPONENT.CRICKET_DEN,
   COMPONENT.CRYSTAL_UNIT,
   COMPONENT.CRYSTAL_HIVE,
+  COMPONENT.CRYSTAL_SPIRE,
 ] as const;
 
 /** Structures: drawn and clickable on explored ground, the target of a den attack wave. */
-const STRUCTURE_STORES: ReadonlySet<string> = new Set([COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN, COMPONENT.CRYSTAL_HIVE]);
+const STRUCTURE_STORES: ReadonlySet<string> = new Set([COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN, COMPONENT.CRYSTAL_HIVE, COMPONENT.CRYSTAL_SPIRE]);
 
 /**
  * A beetle, cricket, den, or a rival faction's unit or hive on the surface:

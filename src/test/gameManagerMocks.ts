@@ -65,3 +65,6 @@ export function finishIntro(game: object): void {
   g.introClock.advance(Number.POSITIVE_INFINITY);
   g.introDirector.finish();
 }
+
+/** A run against the Crystal Hive rival (the hive, its spires, units and the Crystal Queen) */
+export const CRYSTAL_RIVAL_SETUP = { playerRace: 'swarm', rivalRace: 'crystal' } as const;

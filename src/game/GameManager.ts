@@ -64,6 +64,10 @@ import { selectionAudio } from '../audio/gameHooks';
 import { createAnt, createFood, createMineral, createNest, createBeetleDen, createQueen, createCrystalHive } from './entities/factories';
 import { CrystalHiveSystem } from './systems/CrystalHiveSystem';
 import { CrystalUnitAISystem } from './systems/CrystalUnitAISystem';
+import { CrystalRivalSystem, type CrystalRivalSnapshot } from './systems/CrystalRivalSystem';
+import type { ShieldComponent } from './rival/crystalShield';
+import { CrystalShieldSystem } from './systems/CrystalShieldSystem';
+import { DEFAULT_RUN_SETUP, type RunSetup } from './run/RunSetup';
 import { FactionId, FactionRegistry, defaultFactions } from './factions/factions';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
@@ -93,6 +97,11 @@ import {
   type EggQueueComponent,
   type CombatComponent,
   type PathComponent,
+  type CrystalUnitComponent,
+  type CrystalSpireComponent,
+  type CrystalUnitKind,
+  type CrystalUnitState,
+  type CrystalStructureKind,
   type LayerValue,
 } from './components/components';
 import {
@@ -155,7 +164,7 @@ export type CommandTarget = 'move' | 'attack';
 
 export interface SelectedEntityInfo {
   entityId: EntityId;
-  type: 'ant' | 'food' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'crystal_hive';
+  type: 'ant' | 'food' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'crystal_hive' | 'crystal_unit' | 'crystal_spire';
   position: { x: number; y: number };
   // Ant-specific
   role?: AntRole;
@@ -186,6 +195,14 @@ export interface SelectedEntityInfo {
   cricketDenActiveCrickets?: number;
   // Crystal Hive-specific
   hiveHealth?: { current: number; max: number };
+  /** Crystal units, spires and the hive: the regenerating shield over the health */
+  shield?: { current: number; max: number };
+  crystalKind?: CrystalUnitKind;
+  crystalState?: CrystalUnitState;
+  spireKind?: CrystalStructureKind;
+  spireFloors?: number;
+  /** The hive: minerals banked, spires standing, units at home */
+  rival?: CrystalRivalSnapshot;
 }
 
 /** Several own ants selected: what the StarCraft-style group panel shows. */
@@ -372,6 +389,10 @@ export class GameManager {
   private readonly craterSite: TilePos;
   /** The rival Crystal Hive at the crater; destroying it wins the run */
   private rivalHiveId: EntityId | null = null;
+  /** The player's race and the rival picked before the run */
+  private readonly runSetup: RunSetup;
+  /** The full Crystal Hive rival (only when the rival is the Colmena de Cristal) */
+  private crystalRival: CrystalRivalSystem | null = null;
   /** Canvas the intro-skip pointer listener is attached to */
   private readonly canvas: HTMLCanvasElement;
   /**
@@ -423,11 +444,13 @@ export class GameManager {
   /** Ctrl+digit groups of own ants */
   private readonly controlGroups = new ControlGroups();
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, setup: RunSetup = DEFAULT_RUN_SETUP) {
     this.canvas = canvas;
+    this.runSetup = setup;
+    const crystalRival = setup.rivalRace === 'crystal';
     this.world = new World(this.runModifiers, new FactionRegistry([
       ...defaultFactions(),
-      { id: FactionId.RIVAL, race: 'crystal', controller: 'ai' },
+      ...(crystalRival ? [{ id: FactionId.RIVAL, race: 'crystal' as const, controller: 'ai' as const }] : []),
     ]));
     this.grid = new TileGrid();
     this.visibilityGrid = new VisibilityGrid(WORLD_WIDTH, WORLD_HEIGHT);
@@ -525,14 +548,7 @@ export class GameManager {
       this.dayNightSystem
     );
     this.world.addSystem(this.invasionSystem);
-    // The hive's night raids are part of each invasion wave, not waves of their own
-    const crystalHiveSystem = new CrystalHiveSystem(this.world, this.grid, this.dayNightSystem, { autoRaids: false });
-    this.world.addSystem(crystalHiveSystem);
-    this.invasionSystem.setRaidSource({
-      launch: (count) => crystalHiveSystem.launchRaid(count),
-      origin: () => crystalHiveSystem.raidOrigin(),
-    });
-    this.world.addSystem(new CrystalUnitAISystem(this.world, this.grid));
+    if (crystalRival) this.addCrystalRival();
     // Waves land at nightfall, so the dusk warning doubles as the last call
     this.dayNightSystem.setWaveArmedProvider(() => this.invasionSystem.getInfo().armed);
     this.world.addSystem(new SpoilageSystem(this.world));
@@ -599,10 +615,13 @@ export class GameManager {
       edgeMargin: CRATER_EDGE_MARGIN,
       farFraction: CRATER_FAR_FRACTION,
     });
-    // The Crystal Hive rises from the crater: the rival's base, and its core
-    this.rivalHiveId = createCrystalHive(this.world, this.craterSite.x, this.craterSite.y);
-    const rival = this.world.factions.get(FactionId.RIVAL);
-    if (rival) rival.coreId = this.rivalHiveId;
+    // Rival Colmena de Cristal: the hive rises from the crater, the rival's base and core.
+    // Against Fauna salvaje the crater stays bare.
+    if (crystalRival) {
+      this.rivalHiveId = createCrystalHive(this.world, this.craterSite.x, this.craterSite.y);
+      const rival = this.world.factions.get(FactionId.RIVAL);
+      if (rival) rival.coreId = this.rivalHiveId;
+    }
     this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock);
     this.spawnMineralFields({ x: nestX, y: nestY });
     const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
@@ -618,6 +637,31 @@ export class GameManager {
     window.addEventListener('keydown', this.skipIntro);
     canvas.addEventListener('pointerdown', this.skipIntro);
     audioRunStarted(() => ({ layer: this.activeLayerValue(), view: this.activeCamera().getViewRectTiles() }));
+  }
+
+  /**
+   * The Crystal Hive rival's systems: the core's drones and night waves, the
+   * full rival (economy, build order, spires, raids, the Crystal Queen), unit
+   * AI and shields. The hive's drones and the Queen join the invasion waves.
+   */
+  private addCrystalRival(): void {
+    const crystalHiveSystem = new CrystalHiveSystem(this.world, this.grid, this.dayNightSystem, { autoRaids: false });
+    this.world.addSystem(crystalHiveSystem);
+    this.crystalRival = new CrystalRivalSystem(this.world, this.grid, this.dayNightSystem);
+    this.world.addSystem(this.crystalRival);
+    const rival = this.crystalRival;
+    this.invasionSystem.setRaidSource({
+      launch: (count) => crystalHiveSystem.launchRaid(count),
+      origin: () => crystalHiveSystem.raidOrigin(),
+      launchBoss: () => rival.launchQueen(),
+    });
+    this.world.addSystem(new CrystalUnitAISystem(this.world, this.grid));
+    this.world.addSystem(new CrystalShieldSystem(this.world));
+  }
+
+  /** The skirmish this run was started with */
+  getRunSetup(): RunSetup {
+    return this.runSetup;
   }
 
   /**
@@ -2107,7 +2151,7 @@ export class GameManager {
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'food' });
     }
-    for (const component of [COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN, COMPONENT.CRYSTAL_HIVE]) {
+    for (const component of [COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN, COMPONENT.CRYSTAL_HIVE, COMPONENT.CRYSTAL_SPIRE]) {
       for (const id of this.world.query(component, COMPONENT.POSITION)) {
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
         if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'den' });
@@ -2335,7 +2379,11 @@ export class GameManager {
       };
     }
 
-    // The rival's base: same card as a den (health and the attack wave)
+    // The rival's base: same card as a den (health and the attack wave), plus its shield and economy
+    const shieldOf = () => {
+      const shield = this.world.getComponent<ShieldComponent>(selectedId, COMPONENT.SHIELD);
+      return shield ? { current: shield.current, max: shield.max } : undefined;
+    };
     if (this.world.getComponent(selectedId, COMPONENT.CRYSTAL_HIVE)) {
       const health = this.world.getComponent<HealthComponent>(selectedId, COMPONENT.HEALTH);
       return {
@@ -2343,6 +2391,24 @@ export class GameManager {
         type: 'crystal_hive',
         position: { x: Math.round(pos.x), y: Math.round(pos.y) },
         hiveHealth: health ? { current: health.current, max: health.max } : undefined,
+        shield: shieldOf(),
+        rival: this.crystalRival?.snapshot(),
+      };
+    }
+
+    // A Crystal unit or spire: name, shield and health
+    const crystalUnit = this.world.getComponent<CrystalUnitComponent>(selectedId, COMPONENT.CRYSTAL_UNIT);
+    const spire = this.world.getComponent<CrystalSpireComponent>(selectedId, COMPONENT.CRYSTAL_SPIRE);
+    if (crystalUnit || spire) {
+      const health = this.world.getComponent<HealthComponent>(selectedId, COMPONENT.HEALTH);
+      return {
+        entityId: selectedId,
+        type: crystalUnit ? 'crystal_unit' : 'crystal_spire',
+        position: { x: Math.round(pos.x), y: Math.round(pos.y) },
+        health: health ? { current: health.current, max: health.max } : undefined,
+        shield: shieldOf(),
+        ...(crystalUnit ? { crystalKind: crystalUnit.kind, crystalState: crystalUnit.state } : {}),
+        ...(spire ? { spireKind: spire.kind, spireFloors: spire.floors } : {}),
       };
     }
 

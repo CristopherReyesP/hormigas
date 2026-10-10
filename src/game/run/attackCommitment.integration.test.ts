@@ -13,7 +13,7 @@ import {
 } from '../components/components';
 import { createAnt, createBeetle } from '../entities/factories';
 import { SOLDIER_ATTACK_RANGE } from '../../shared/constants';
-import { fakeCanvas, finishIntro } from '../../test/gameManagerMocks';
+import { fakeCanvas, finishIntro, CRYSTAL_RIVAL_SETUP } from '../../test/gameManagerMocks';
 
 // Real manager and map; browser-only adapters are replaced.
 vi.mock('../../engine/input/InputManager', async () => (await import('../../test/gameManagerMocks')).mockInputManager());
@@ -44,7 +44,7 @@ afterEach(() => {
 describe('soldiers sent to attack commit to it', () => {
   it('Atacar guarida on the hive, with Defend on and a threat at the nest: every soldier reaches it and bites', () => {
     seedRandom(1);
-    const game = new GameManager(fakeCanvas());
+    const game = new GameManager(fakeCanvas(), CRYSTAL_RIVAL_SETUP);
     finishIntro(game);
     const world = game['world'] as World;
     const update = (dt: number) => game['update'](dt);

@@ -11,6 +11,8 @@ import { BroodReadout } from './BroodReadout';
 import { broodKeys } from './commands';
 import { ControlGroupBar } from './ControlGroupBar';
 import { infoSummary, selectionHealth, selectionTitle } from './infoSummary';
+import { CRYSTAL_UNIT_BLURB, SPIRE_BLURB } from '../../game/rival/crystalNames';
+import { CRYSTAL_MAX_FLOORS } from '../../game/rival/crystalRival';
 import { useTouchUi } from '../layout/touch';
 import {
   ANT_STATE_LABEL, BEETLE_STATE_LABEL, ROLE_BLURB, CARRY_LABEL, CRICKET_STATE_LABEL, ROLE_ICON, ROLE_LABEL, ROLE_PLURAL, formatClock,
@@ -161,12 +163,22 @@ function NestSummary({ details }: { details: ColonyDetails }) {
   );
 }
 
-const DEN_KIND = new Set<SelectedEntityInfo['type']>(['beetle_den', 'cricket_den', 'crystal_hive']);
+const DEN_KIND = new Set<SelectedEntityInfo['type']>(['beetle_den', 'cricket_den', 'crystal_hive', 'crystal_spire']);
+
+/** Crystal shields read in the hive's own cyan */
+const SHIELD_COLOR = 'var(--race-crystal)';
+
+const CRYSTAL_STATE_LABEL: Record<string, string> = {
+  guarding: 'En guardia en la colmena',
+  assaulting: 'Al asalto de tu nido',
+  raiding: 'De incursión en tus minas',
+};
 
 function SelectionBars({ sel }: { sel: SelectedEntityInfo }) {
   const health = selectionHealth(sel);
   return (
     <>
+      {sel.shield && <Bar label="Escudo" icon="shield" value={sel.shield.current} max={sel.shield.max} color={SHIELD_COLOR} />}
       {health && (
         <Bar label="Vida" icon="heart" value={health.current} max={health.max} color={healthColor(health.current / Math.max(1, health.max))} />
       )}
@@ -208,6 +220,25 @@ function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
       {sel.type === 'cricket_den' && (
         <div className="info-line">{LEAPER_NAME.many} activos: <strong>{sel.cricketDenActiveCrickets}</strong></div>
       )}
+      {sel.type === 'crystal_unit' && (
+        <>
+          <div className="info-line">Estado: <strong>{CRYSTAL_STATE_LABEL[sel.crystalState ?? ''] ?? sel.crystalState}</strong></div>
+          <div className="info-note">{CRYSTAL_UNIT_BLURB[sel.crystalKind ?? 'drone']}</div>
+        </>
+      )}
+      {sel.type === 'crystal_spire' && (
+        <>
+          <div className="info-line">Pisos: <strong>{sel.spireFloors ?? 1}/{CRYSTAL_MAX_FLOORS}</strong></div>
+          <div className="info-note">{SPIRE_BLURB[sel.spireKind ?? 'forge']}</div>
+        </>
+      )}
+      {sel.type === 'crystal_hive' && sel.rival && (
+        <>
+          <div className="info-line">Minerales: <strong>{sel.rival.bank}</strong> · Agujas: <strong>{sel.rival.spires}</strong></div>
+          <div className="info-line">Guardia: <strong>{sel.rival.garrison}</strong></div>
+          <div className="info-note">El escudo absorbe los golpes y se recarga si dejas de atacar.</div>
+        </>
+      )}
     </>
   );
 }
@@ -215,12 +246,12 @@ function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
 function SelectionInfo({ stats, gameManager, attackCount, onAttackCountChange }: Omit<InfoPanelProps, 'details'>) {
   const sel = stats.selectedEntity!;
   const { name, faction } = selectionTitle(sel);
-  const enemy = sel.type === 'beetle' || sel.type === 'cricket' || DEN_KIND.has(sel.type);
+  const enemy = sel.type === 'beetle' || sel.type === 'cricket' || sel.type === 'crystal_unit' || sel.type === 'crystal_spire' || DEN_KIND.has(sel.type);
   const maxAttack = Math.min(30, stats.availableSoldiers);
   const sending = Math.min(attackCount, maxAttack);
   return (
     <div className="info-selection">
-      <Portrait kind={sel.type} role={sel.role} foodType={sel.foodType} carrying={Boolean(sel.carrying?.type)} />
+      <Portrait kind={sel.type} role={sel.role} foodType={sel.foodType} carrying={Boolean(sel.carrying?.type)} crystalKind={sel.crystalKind} />
       <div className="info-unit">
         <div className={`info-name${enemy ? ' info-name--enemy' : ''}`}>{name.toUpperCase()}</div>
         <div className="info-note">{faction} · ({sel.position.x}, {sel.position.y})</div>
@@ -240,7 +271,7 @@ function SelectionInfo({ stats, gameManager, attackCount, onAttackCountChange }:
               <span className="info-stepper-value">{sending}</span>
               <button type="button" className="hud-btn" disabled={sending >= maxAttack} onClick={() => onAttackCountChange(Math.min(30, sending + 5))}>+5</button>
             </div>
-            <div className="info-note">Envíalos con {sel.type === 'crystal_hive' ? 'Atacar colmena' : 'Atacar guarida'} (A)</div>
+            <div className="info-note">Envíalos con {sel.type === 'crystal_hive' ? 'Atacar colmena' : sel.type === 'crystal_spire' ? 'Atacar aguja' : 'Atacar guarida'} (A)</div>
           </>
         )}
       </div>

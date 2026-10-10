@@ -138,7 +138,7 @@ export interface PathComponent {
 export interface RenderComponent {
   color: string;
   radius: number;
-  shape: 'circle' | 'square' | 'ant' | 'food' | 'mineral' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'giant_mushroom' | 'queen' | 'crystal_drone' | 'crystal_hive';
+  shape: 'circle' | 'square' | 'ant' | 'food' | 'mineral' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'giant_mushroom' | 'queen' | 'crystal_drone' | 'crystal_hive' | 'crystal_spire';
 }
 
 export interface FacingComponent {
@@ -324,10 +324,12 @@ export const CrystalUnitState = {
   Guarding: 'guarding',
   /** Sent with a night wave: attack-moves to `goal`, fighting every enemy it meets */
   Assaulting: 'assaulting',
+  /** Sent to harass the player's miners: attack-moves to `goal`, siphons the field there, then goes home */
+  Raiding: 'raiding',
 } as const;
 export type CrystalUnitState = typeof CrystalUnitState[keyof typeof CrystalUnitState];
 
-export type CrystalUnitKind = 'drone';
+export type CrystalUnitKind = 'drone' | 'sentinel' | 'queen';
 
 /** A Crystal Hive unit. Crystal units are not ants: CrystalUnitAISystem drives them. */
 export interface CrystalUnitComponent {
@@ -339,6 +341,20 @@ export interface CrystalUnitComponent {
   goal: Vector2 | null;
   /** Seconds until the route may be recomputed */
   repathTimer: number;
+  /** Raiding: seconds left siphoning the field at `goal` once there (undefined: not there yet) */
+  raidTimer?: number;
+}
+
+export type CrystalStructureKind = 'forge' | 'prism' | 'extractor';
+
+/** A Crystal Hive spire: a tower that grows floors and crystallizes one unit type (or harvests minerals) */
+export interface CrystalSpireComponent {
+  kind: CrystalStructureKind;
+  floors: number;
+  /** Seconds until the next unit crystallizes */
+  productionTimer: number;
+  /** The hive it serves */
+  hiveId: EntityId | null;
 }
 
 /** The Crystal Hive's base structure: it crystallizes drones and sends the night waves. */
@@ -379,4 +395,7 @@ export const COMPONENT = {
   OWNER: 'owner',
   CRYSTAL_UNIT: 'crystal_unit',
   CRYSTAL_HIVE: 'crystal_hive',
+  CRYSTAL_SPIRE: 'crystal_spire',
+  /** A regenerating shield on top of health (rival/crystalShield.ts) */
+  SHIELD: 'shield',
 } as const;

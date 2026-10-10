@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import type { SelectedEntityInfo } from '../../game/GameManager';
 import { AntRole } from '../../game/components/components';
 import { getSpriteAtlas } from '../sharedAtlas';
+import { drawUnitFrame, type CrystalUnitKind } from '../../engine/renderer/crystalUnits';
+import { crystalSheet } from '../racePicker/unitSheets';
 import { NEST_PORTRAIT_RADIUS, PORTRAIT_SIZE, portraitPlacement, portraitSprite } from './portraitScale';
 
 const FRAME_MS = 160;
@@ -17,6 +19,26 @@ interface PortraitProps {
   role?: AntRole;
   foodType?: string;
   carrying?: boolean;
+  /** Crystal units: which one */
+  crystalKind?: CrystalUnitKind;
+}
+
+/** The baked frames a Crystal selection shows: its own unit, or the obelisk for the hive and its spires */
+function crystalPortraitKind(kind: PortraitKind, crystalKind?: CrystalUnitKind): CrystalUnitKind | null {
+  if (kind === 'crystal_unit') return crystalKind ?? 'drone';
+  if (kind === 'crystal_hive' || kind === 'crystal_spire') return 'sentinel';
+  return null;
+}
+
+/** A hovering Crystal unit, as many whole screen px per art px as fit, centered */
+function drawCrystalPortrait(ctx: CanvasRenderingContext2D, unit: CrystalUnitKind, step: number): void {
+  const sheet = crystalSheet(unit);
+  const artPx = Math.max(1, Math.floor(PORTRAIT_SIZE / Math.max(sheet.width, sheet.height)));
+  const x = Math.floor((PORTRAIT_SIZE - sheet.width * artPx) / 2);
+  const y = Math.floor((PORTRAIT_SIZE - sheet.height * artPx) / 2);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, PORTRAIT_SIZE, PORTRAIT_SIZE);
+  drawUnitFrame(ctx, sheet.frames[step % sheet.frames.length], x, y, artPx);
 }
 
 /**
@@ -26,12 +48,20 @@ interface PortraitProps {
  * px, so it stays crisp: ant 24 and beetle 28 art px at 2, cricket 48, dens
  * 40 and nest 40 at 1, food 16 at 4, giant mushroom 32 at 2 (see portraitScale).
  */
-export function Portrait({ kind, role = AntRole.Worker, foodType, carrying = false }: PortraitProps) {
+export function Portrait({ kind, role = AntRole.Worker, foodType, carrying = false, crystalKind }: PortraitProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d');
     if (!ctx) return;
+    const crystal = crystalPortraitKind(kind, crystalKind);
+    if (crystal) {
+      let step = 0;
+      drawCrystalPortrait(ctx, crystal, step);
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const timer = window.setInterval(() => drawCrystalPortrait(ctx, crystal, ++step), crystalSheet(crystal).frameMs);
+      return () => window.clearInterval(timer);
+    }
     const atlas = getSpriteAtlas();
     const sprite = portraitSprite(kind, foodType);
     const { scale, offset, at } = portraitPlacement(sprite);
@@ -79,7 +109,7 @@ export function Portrait({ kind, role = AntRole.Worker, foodType, carrying = fal
     draw(step);
     const timer = window.setInterval(() => draw(++step), FRAME_MS);
     return () => window.clearInterval(timer);
-  }, [kind, role, foodType, carrying]);
+  }, [kind, role, foodType, carrying, crystalKind]);
 
   return (
     <div className="portrait-frame">

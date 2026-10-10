@@ -18,7 +18,7 @@ import { createAnt } from '../entities/factories';
 import { snapToWalkable } from '../systems/helpers/playerOrders';
 import type { SelectionSystem } from '../systems/SelectionSystem';
 import { TILE_SIZE, UNDERGROUND_HEIGHT, UNDERGROUND_WIDTH, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
-import { fakeCanvas, finishIntro } from '../../test/gameManagerMocks';
+import { fakeCanvas, finishIntro, CRYSTAL_RIVAL_SETUP } from '../../test/gameManagerMocks';
 
 // Real manager and map; browser-only adapters are replaced. These drive the
 // touch entry points the InputManager calls (tap, long press, drag strokes).
@@ -32,7 +32,7 @@ const NX = Math.floor(WORLD_WIDTH / 2);
 const NY = Math.floor(WORLD_HEIGHT / 2);
 
 function setup() {
-  const game = new GameManager(fakeCanvas());
+  const game = new GameManager(fakeCanvas(), CRYSTAL_RIVAL_SETUP);
   finishIntro(game);
   const world = game['world'] as World;
   const camera = game['camera'] as Camera;

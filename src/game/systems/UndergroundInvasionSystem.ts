@@ -42,6 +42,8 @@ export interface WaveBanner {
   wave: number;
   /** Enemies the wave sends */
   count: number;
+  /** The Crystal Queen leads this wave (the boss night) */
+  boss?: boolean;
 }
 
 /** Where a wave's enemies come from (before it strikes) or are (while it is on), in tiles of that layer */
@@ -75,9 +77,11 @@ export interface RaidSource {
   launch(count: number): EntityId[];
   /** Where the drones leave from, in surface tiles (null when there is no hive) */
   origin(): Vector2 | null;
+  /** The boss night: send the Crystal Queen, once per run (null when she cannot come) */
+  launchBoss?(): EntityId | null;
 }
 
-/** The run's last night also brings the boss. Its slot is reserved; nothing spawns for it yet. */
+/** The run's last night also brings the boss: the Crystal Queen, when the rival is the Crystal Hive. */
 export function isBossNight(night: number): boolean {
   return night === INVASION_BOSS_NIGHT;
 }
@@ -179,11 +183,16 @@ export class UndergroundInvasionSystem implements System {
     };
   }
 
-  /** What the next wave sends, with the mutation surcharge (spore_bloom) as extra full beetles */
+  /**
+   * What the next wave sends, with the mutation surcharge (spore_bloom) as
+   * extra full beetles. With no Crystal Hive in the run (rival Fauna salvaje)
+   * the drones' share is beetles too.
+   */
   private nextComposition(): WaveComposition {
     const base = waveComposition(this.waveNumber + 1);
     const extra = Math.max(0, this.world.runModifiers.extraInvadersPerWave);
-    return { ...base, beetles: base.beetles + extra, total: base.total + extra };
+    const drones = this.raidSource ? base.drones : 0;
+    return { ...base, drones, beetles: base.beetles + extra + (base.drones - drones), total: base.total + extra };
   }
 
   private showBanner(kind: WaveBannerKind, wave: number, count: number): void {
@@ -283,6 +292,8 @@ export class UndergroundInvasionSystem implements System {
     if (nightfall && !this.waveActive) {
       this.launchWave();
     }
+    // The boss night: the Crystal Queen joins whatever wave is on
+    if (nightfall && isBossNight(this.dayNight.getDayNumber())) this.launchBoss();
 
     // Drive invaders and defenders (throttled — pathfinding is not free)
     this.repathTimer -= dt;
@@ -428,7 +439,7 @@ export class UndergroundInvasionSystem implements System {
     const beetles = wave.beetles + (wave.drones - drones.length);
     this.waveSize = wave.youngBeetles + beetles + drones.length;
 
-    // isBossNight() marks the boss night; its unit joins here once it exists.
+    // On the boss night the Crystal Queen joins right after (launchBoss).
     // Young beetles lead, the full-strength ones follow; the first breaks in now.
     this.pendingSpawns = [
       ...Array<InvaderKind>(wave.youngBeetles).fill('young'),
@@ -446,6 +457,24 @@ export class UndergroundInvasionSystem implements System {
     this.world.pushNotification('danger', `🪲 ¡OLEADA ${this.waveNumber} · ${this.waveSize} enemigos!${parts}`);
 
     if (underground > 0) this.deploySoldiers(Math.max(underground + 1, 3));
+  }
+
+  /** The Crystal Queen leaves the hive; the wave on counts her, and the arrival banner announces her */
+  private launchBoss(): void {
+    const boss = this.raidSource?.launchBoss?.() ?? null;
+    if (boss === null) return;
+    this.invaders.add(boss);
+    if (!this.waveActive) {
+      // The night's wave was skipped: she is a wave of her own
+      this.waveActive = true;
+      this.waveArmed = false;
+      this.warned = false;
+      this.waveSize = 0;
+    }
+    this.waveSize++;
+    this.showBanner('arrival', this.waveNumber, this.waveSize);
+    this.banner!.boss = true;
+    this.bannerTimer = WAVE_BANNER_SECONDS + 3; // the boss banner stays up longer
   }
 
   /** Auto-deploy available surface soldiers to defend the queen */

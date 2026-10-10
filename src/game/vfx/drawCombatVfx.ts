@@ -95,6 +95,8 @@ export function drawCombatVfx(
       case 'puddle': if (visibleAt(fog, s, s.ox, s.oy)) drawPuddle(ctx, s); break;
       case 'goo': if (visibleAt(fog, s, 0, 0)) drawGoo(ctx, s); break;
       case 'carcass': if (visibleAt(fog, s, 0, 0)) drawCarcass(ctx, s); break;
+      case 'shield': if (visibleAt(fog, s, 0, 0)) drawShieldArc(ctx, s); break;
+      case 'bolt': drawBolt(ctx, s, fog); break;
     }
   }
   ctx.setTransform(camera);
@@ -204,13 +206,14 @@ function drawFlash(ctx: VfxCanvas, s: VfxSlot): void {
   rotEllipse(ctx, artGrid(s.x), artGrid(s.y), s.angle, 0, 0, rx, ry, 0, paint);
 }
 
-/** A den's dust ring rolling out in 3 steps, thinning as it goes */
+/** A den's dust ring (or the Crystal Queen's cyan pulse) rolling out in 3 steps, thinning as it goes */
 function drawRing(ctx: VfxCanvas, s: VfxSlot): void {
   const step = Math.min(2, Math.floor((s.age / s.life) * 3));
-  const r = 8 + step * 6;
+  const pulse = s.style === 'pulse';
+  const r = pulse ? 12 + step * 14 : 8 + step * 6;
   const cx = artGrid(s.x);
   const cy = artGrid(s.y);
-  const color = step === 0 ? PAL.dust[2] : PAL.dust[1];
+  const color = pulse ? (step === 0 ? PAL.crystal.shell[4] : PAL.crystal.shield) : step === 0 ? PAL.dust[2] : PAL.dust[1];
   // Midpoint circle, two px thick on the first step
   for (let t = 0; t <= (step === 0 ? 1 : 0); t++) {
     let x = r - t;
@@ -231,6 +234,42 @@ function ring8(ctx: VfxCanvas, cx: number, cy: number, x: number, y: number, ste
   plot(ctx, cx + x, cy - y, step, color); plot(ctx, cx - x, cy - y, step, color);
   plot(ctx, cx + y, cy + x, step, color); plot(ctx, cx - y, cy + x, step, color);
   plot(ctx, cx + y, cy - x, step, color); plot(ctx, cx - y, cy - x, step, color);
+}
+
+/** Hex arc: six corners of a hexagon around the unit, the three facing the blow lit */
+const HEX_RADIUS = 11;
+
+/** The 1 px cyan hex arc where a hit met the shield: bright, then dithered out */
+function drawShieldArc(ctx: VfxCanvas, s: VfxSlot): void {
+  const step = Math.min(2, Math.floor((s.age / s.life) * 3));
+  const cx = artGrid(s.x);
+  const cy = artGrid(s.y) - 6; // around the hovering body, not its shadow
+  const color = step === 0 ? PAL.crystal.shell[4] : PAL.crystal.shield;
+  // Three hex edges centred on the blow's direction, a 1 px line each
+  for (let edge = -1; edge <= 1; edge++) {
+    const a0 = s.angle + (edge - 0.5) * (Math.PI / 3);
+    const a1 = s.angle + (edge + 0.5) * (Math.PI / 3);
+    const x0 = Math.round(Math.cos(a0) * HEX_RADIUS);
+    const y0 = Math.round(Math.sin(a0) * HEX_RADIUS);
+    const x1 = Math.round(Math.cos(a1) * HEX_RADIUS);
+    const y1 = Math.round(Math.sin(a1) * HEX_RADIUS);
+    line(ctx, cx + x0, cy + y0, cx + x1, cy + y1, step, color);
+  }
+}
+
+/** A Sentinel's bolt: a white-hot head with a cyan streak, flying in a straight line */
+function drawBolt(ctx: VfxCanvas, s: VfxSlot, fog: VisibilityReader | null): void {
+  const p = Math.max(0, s.age / s.life);
+  const hx = s.ox * (1 - p);
+  const hy = s.oy * (1 - p) - 8;
+  if (!visibleAt(fog, s, hx, hy)) return;
+  const tail = Math.max(0, p - 0.25);
+  const tx = s.ox * (1 - tail);
+  const ty = s.oy * (1 - tail) - 8;
+  const ax = artGrid(s.x);
+  const ay = artGrid(s.y);
+  line(ctx, ax + Math.round(tx), ay + Math.round(ty), ax + Math.round(hx), ay + Math.round(hy), 0, PAL.crystal.shield);
+  px(ctx, ax + Math.round(hx), ay + Math.round(hy), PAL.crystal.shell[4]);
 }
 
 // ── Ground pass ─────────────────────────────────────────────
