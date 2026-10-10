@@ -118,6 +118,7 @@ export interface RivalInfo {
   readonly portrait: 'beetle' | UnitPortrait;
 }
 
+/** The rivals the picker lists for the Swarm (the default player race) */
 export const RIVAL_OPTIONS: readonly RivalInfo[] = [
   {
     id: 'wildlife',
@@ -142,10 +143,32 @@ export const RIVAL_OPTIONS: readonly RivalInfo[] = [
   },
 ];
 
+/**
+ * A Swarm rival needs a Swarm AI, which does not exist yet: the Crystal
+ * Hive's picker lists it as coming soon.
+ */
+const SWARM_RIVAL: RivalInfo = {
+  id: 'swarm',
+  name: 'Enjambre',
+  note: 'Próximamente',
+  available: false,
+  portrait: { source: 'ant', role: AntRole.Soldier, label: 'Soldado' },
+};
+
+/** The rivals the picker lists for a player of `race`, each marked available or not for that race. */
+export function rivalOptionsFor(race: RaceId): readonly RivalInfo[] {
+  const options = RIVAL_OPTIONS.map((rival) => {
+    const available = isAvailableRival(rival.id, race);
+    return available === rival.available ? rival : { ...rival, available, note: available ? rival.note : 'Próximamente' };
+  });
+  return race === 'crystal' ? [...options, SWARM_RIVAL] : options;
+}
+
 export function raceName(id: RaceId): string {
   return RACE_CARDS.find((r) => r.id === id)?.name ?? id;
 }
 
 export function rivalName(id: RivalId): string {
+  if (id === 'swarm') return SWARM_RIVAL.name;
   return RIVAL_OPTIONS.find((r) => r.id === id)?.name ?? id;
 }

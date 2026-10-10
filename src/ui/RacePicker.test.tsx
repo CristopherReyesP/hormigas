@@ -38,14 +38,26 @@ describe('race picker', () => {
     expect(swarm).toContain('aria-pressed="true"');
   });
 
-  it('shows the Crystal Hive and the Humans as disabled "Próximamente" cards', () => {
-    for (const id of ['crystal', 'human']) {
-      const tag = buttonTag(html, `data-race="${id}"`);
-      expect(tag).toContain('disabled=""');
-      expect(tag).toContain('aria-pressed="false"');
-      expect(cardHtml(html, `data-race="${id}"`)).toContain('Próximamente');
-    }
-    expect(cardHtml(html, 'data-race="swarm"')).not.toContain('Próximamente');
+  it('offers the Crystal Hive as a playable race and the Humans as a disabled "Próximamente" card', () => {
+    const human = buttonTag(html, 'data-race="human"');
+    expect(human).toContain('disabled=""');
+    expect(human).toContain('aria-pressed="false"');
+    expect(cardHtml(html, 'data-race="human"')).toContain('Próximamente');
+    const crystal = buttonTag(html, 'data-race="crystal"');
+    expect(crystal).not.toContain('disabled');
+    expect(crystal).toContain('aria-pressed="false"');
+    for (const id of ['swarm', 'crystal']) expect(cardHtml(html, `data-race="${id}"`)).not.toContain('Próximamente');
+  });
+
+  it('playing the Crystal Hive: fight the wildlife, the Humans or a mirror Crystal Hive; the Swarm rival is coming soon', () => {
+    const out = renderToStaticMarkup(<RacePicker initialSetup={{ playerRace: 'crystal', rivalRace: 'human' }} onStart={noop} />);
+    expect(buttonTag(out, 'data-race="crystal"')).toContain('aria-pressed="true"');
+    expect(buttonTag(out, 'data-rival="human"')).toContain('aria-pressed="true"');
+    for (const id of ['wildlife', 'crystal', 'human']) expect(buttonTag(out, `data-rival="${id}"`)).not.toContain('disabled');
+    const swarm = buttonTag(out, 'data-rival="swarm"');
+    expect(swarm).toContain('disabled=""');
+    expect(cardHtml(out, 'data-rival="swarm"')).toContain('Próximamente');
+    expect(out).toMatch(/Colmena de Cristal[^]*VS[^]*Humanos[^]*COMENZAR/);
   });
 
   it('gives every race its identity: food, breeding, building, strength and tactics', () => {
@@ -86,7 +98,7 @@ describe('race picker', () => {
 
   it('opens on a sanitized default even if handed a race that is not playable yet', () => {
     const out = renderToStaticMarkup(
-      <RacePicker initialSetup={{ playerRace: 'crystal', rivalRace: 'human' }} onStart={noop} />,
+      <RacePicker initialSetup={{ playerRace: 'human', rivalRace: 'human' }} onStart={noop} />,
     );
     expect(buttonTag(out, 'data-race="swarm"')).toContain('aria-pressed="true"');
     expect(buttonTag(out, 'data-rival="human"')).toContain('aria-pressed="true"');
