@@ -8,6 +8,7 @@ import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
+import { NestAlert } from './ui/NestAlert';
 import { HumanIntroBanner } from './ui/races/human/HumanIntroBanner';
 import { NextWaveCard } from './ui/NextWaveCard';
 import type { GameManager, GameStats } from './game/GameManager';
@@ -105,6 +106,11 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [gameManager]);
 
+  const handleGoToNest = useCallback(() => {
+    gameManagerRef.current?.goToNestFight();
+    refreshStats();
+  }, [refreshStats]);
+
   const handleChooseMutation = useCallback((id: MutationId) => {
     gameManagerRef.current?.chooseMutation(id);
   }, []);
@@ -130,6 +136,10 @@ export default function App() {
       {/* Night-wave alerts: outside the scaled HUD, over the whole screen; none during the intro */}
       {!stats.introPlaying && (
         <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
+      )}
+      {/* Invaders inside the nest: the banner with "Ir al nido", and the all-clear */}
+      {!stats.introPlaying && stats.nestAlert && (
+        <NestAlert state={stats.nestAlert} activeLayer={stats.activeLayer} onGoToNest={handleGoToNest} />
       )}
       {/* A Human expedition's landing line (the Swarm opens with the meteor cinematic instead) */}
       {stats.human?.intro && !stats.gameOver && <HumanIntroBanner title={stats.human.intro} />}

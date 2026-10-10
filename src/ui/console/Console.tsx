@@ -134,7 +134,12 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
         <div className="console-deck" aria-hidden="true">
           <div className="console-vein" />
         </div>
-        <MinimapPanel gameManager={gameManager} activeLayer={stats.activeLayer} onSwitchLayer={switchLayer} />
+        <MinimapPanel
+          gameManager={gameManager}
+          activeLayer={stats.activeLayer}
+          onSwitchLayer={switchLayer}
+          invaders={{ underground: stats.nestAlert?.nestInvaders ?? 0, surface: stats.nestAlert?.surfaceInvaders ?? 0 }}
+        />
         <InfoPanel
           stats={stats}
           details={details}
