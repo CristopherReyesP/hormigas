@@ -73,6 +73,7 @@ export const ANT_STATE_LABEL: Record<string, string> = {
   moving: 'En marcha',
   guarding: 'De guardia',
   holding: 'Manteniendo posición',
+  mining: 'Minando',
 };
 
 export const BEETLE_STATE_LABEL: Record<string, string> = {
@@ -106,4 +107,5 @@ export const CARRY_LABEL: Record<string, string> = {
   beetle_meat: 'carne',
   cricket_meat: 'carne',
   meat: 'carne',
+  ore: 'mineral',
 };

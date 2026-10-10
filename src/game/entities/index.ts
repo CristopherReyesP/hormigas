@@ -1,1 +1,1 @@
-export { createAnt, createFood, createNest } from './factories';
+export { createAnt, createFood, createMineral, createNest } from './factories';

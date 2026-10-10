@@ -13,6 +13,7 @@ import {
   AntState,
   FoodType,
   Layer,
+  isOreLoad,
   type AntComponent,
   type PositionComponent,
   type LayerComponent,
@@ -101,6 +102,7 @@ export class PorterSystem implements System {
         continue;
       }
       if (ant.state === AntState.Hauling) {
+        if (this.sendOreUp(id, ant)) continue;
         if (this.reactToSurfaceThreat(id, ant, nestPos)) continue;
         activePorters++;
         this.handleHauling(id, ant, nest, nestPos, dt);
@@ -116,12 +118,19 @@ export class PorterSystem implements System {
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
       if (this.transitSystem.isInTransit(id)) continue;
 
+      // A worker holding ore is a miner on its way to the minerals bank, never
+      // a porter or a scavenger (both would treat the ore as food)
+      if (this.sendOreUp(id, ant)) continue;
+      const load = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
+      if (isOreLoad(load.resourceType) && load.amount > 0) continue;
+
       // A loaded idle ant below resumes its delivery the moment a pile frees
       // up (it was parked waiting for space, or finished a dig with food in
       // its mouth) — this is what re-animates held loads after expansion
       if (layer.layer === Layer.Underground && ant.state === AntState.Idle) {
         const held = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
-        if (held.amount > 0 && this.grid.hasDepositSpace([this.asPantryType(held.resourceType)])) {
+        const heldType = this.asPantryType(held.resourceType);
+        if (held.amount > 0 && heldType !== null && this.grid.hasDepositSpace([heldType])) {
           ant.state = AntState.Hauling;
           ant.stateTimer = 0;
           continue;
@@ -275,6 +284,7 @@ export class PorterSystem implements System {
     }
 
     const type = this.asPantryType(carrying.resourceType);
+    if (type === null) return; // ore: sendOreUp already took it off porter duty
 
     if (layer.layer === Layer.Surface) {
       // FOOD IS ONLY STORED UNDERGROUND: a loaded ant on the surface walks to
@@ -488,9 +498,40 @@ export class PorterSystem implements System {
     return { type: 'leaf', amount: 0 };
   }
 
-  /** Porter loads are always pantry-typed; default defensively to leaf */
-  private asPantryType(resourceType: string | null): PantryFoodType {
+  /**
+   * Porter loads are pantry-typed; anything unknown defaults defensively to
+   * leaf. Ore is the exception: it is not food and has no pantry type (null).
+   */
+  private asPantryType(resourceType: string | null): PantryFoodType | null {
+    if (isOreLoad(resourceType)) return null;
     return resourceType === 'mushroom' || resourceType === 'meat' ? resourceType : 'leaf';
+  }
+
+  /**
+   * A worker below ground with ore in its jaws (an excavation or a haul
+   * caught it loaded) rides back up and walks it to the minerals bank at the
+   * entrance (AntAISystem's ReturningHome). Returns true when it took the ant.
+   */
+  private sendOreUp(id: number, ant: AntComponent): boolean {
+    const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING);
+    if (!carrying || carrying.amount <= 0 || !isOreLoad(carrying.resourceType)) return false;
+    const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+    if (!layer || layer.layer !== Layer.Underground) {
+      // Already on the surface: hand it back to AntAISystem to bank the ore
+      if (ant.state === AntState.Hauling) {
+        ant.state = AntState.ReturningHome;
+        ant.stateTimer = 0;
+        this.clearPath(id);
+        return true;
+      }
+      return false;
+    }
+    if (this.transitSystem.isInTransit(id)) return true;
+    ant.state = AntState.ReturningHome;
+    ant.stateTimer = 0;
+    this.clearPath(id);
+    this.transitSystem.requestTransit(id, 'exit');
+    return true;
   }
 
   /** A* through surface terrain; falls back to a straight waypoint (nest clearing is open ground) */

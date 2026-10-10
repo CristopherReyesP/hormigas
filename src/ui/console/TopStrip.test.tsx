@@ -9,6 +9,7 @@ const STATS = {
   meatStored: 0,
   pantryStored: 0,
   pantryCapacity: 450,
+  mineralsStored: 25,
   antCount: 13,
   workerCount: 10,
   soldierCount: 0,
@@ -41,6 +42,12 @@ describe('top strip', () => {
     const html = renderToStaticMarkup(<TopStrip stats={armed} />);
     expect(html).toContain('OLEADA 1 EN 0:45');
     expect(html).toMatch(/strip-item--danger[^>]*title="La oleada llega al anochecer"/);
+  });
+
+  it('shows the minerals bank apart from the food, as the currency for structures', () => {
+    const html = renderToStaticMarkup(<TopStrip stats={STATS} />);
+    expect(html).toMatch(/strip-minerals[^>]*>.*25/);
+    expect(html).toContain('Minerales');
   });
 
   it('ends with the speaker toggle', () => {

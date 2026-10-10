@@ -50,6 +50,8 @@ export const AntState = {
   Guarding: 'guarding',
   /** Standing still under Mantener posición (OrderKind.Hold) */
   Holding: 'holding',
+  /** A worker walking to a mineral node and chipping ore off it (P7.1) */
+  Mining: 'mining',
 } as const;
 
 export type AntState = typeof AntState[keyof typeof AntState];
@@ -72,6 +74,10 @@ export interface AntComponent {
   stuckTimer?: number;    // seconds elapsed with sub-threshold displacement (Bug 3)
   lastX?: number;         // last sampled world x for stall detection (Bug 3)
   lastY?: number;         // last sampled world y for stall detection (Bug 3)
+  /** Worker: the mineral node it mines; it walks back there after each delivery */
+  mineralTargetId?: EntityId | null;
+  /** Worker: seconds spent chipping at the node on this trip */
+  miningProgress?: number;
 }
 
 export interface HungerComponent {
@@ -90,6 +96,24 @@ export interface HealthComponent {
   current: number;
   max: number;
   damage: number;
+}
+
+/**
+ * The `resourceType` of a carried load of ore. Ore is not food: it is never
+ * eaten, never put in the pantry and never hauled by porters; it goes straight
+ * to the colony's minerals bank (World.minerals).
+ */
+export const ORE_LOAD = 'ore';
+
+/** True when a carried load is ore rather than food. */
+export function isOreLoad(resourceType: string | null | undefined): boolean {
+  return resourceType === ORE_LOAD;
+}
+
+/** A crystal mineral node on the surface (P7.1). Deliberately not a FOOD_SOURCE. */
+export interface MineralComponent {
+  amount: number;
+  maxAmount: number;
 }
 
 export interface FoodSourceComponent {
@@ -112,7 +136,7 @@ export interface PathComponent {
 export interface RenderComponent {
   color: string;
   radius: number;
-  shape: 'circle' | 'square' | 'ant' | 'food' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'giant_mushroom' | 'queen';
+  shape: 'circle' | 'square' | 'ant' | 'food' | 'mineral' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'giant_mushroom' | 'queen';
 }
 
 export interface FacingComponent {
@@ -300,6 +324,7 @@ export const COMPONENT = {
   CARRYING: 'carrying',
   HEALTH: 'health',
   FOOD_SOURCE: 'food_source',
+  MINERAL: 'mineral',
   NEST: 'nest',
   PATH: 'path',
   RENDER: 'render',

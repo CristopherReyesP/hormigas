@@ -284,6 +284,8 @@ export const ACTION_SCORE = {
   DANGER_NEARBY_BONUS: 5.0,
   EXPLORE_UNEXPLORED_BONUS: 2.0,
   PATROL_DEFEND_BONUS: 4.0,
+  /** A worker that sees a mineral node (food in sight still wins most rolls) */
+  MINERAL_VISION_BONUS: 6.0,
 } as const;
 
 // ── Predator intelligence ──────────────────────────────────────────
@@ -309,6 +311,19 @@ export const FORAGE_ENEMY_AVOID_RADIUS = 5;       // non-soldiers refuse to harv
 export const CRATER_CLEAR_RADIUS = 3; // tiles around the impact that must be walkable
 export const CRATER_EDGE_MARGIN = 6; // tiles kept between the crater and the map edge
 export const CRATER_FAR_FRACTION = 0.75; // of the farthest clearing's distance from the nest
+
+// === Minerals (P7.1): food pays for ants, minerals pay for structures ===
+export const MINERAL_NODE_AMOUNT = 250;          // ore in one crystal node
+export const MINERAL_TRIP_AMOUNT = 5;            // ore a worker carries per trip (StarCraft's 5)
+export const MINERAL_MINE_SECONDS = 1.5;         // time a worker spends chipping at a node per trip
+export const MINERAL_EXTRA_FIELDS = 3;           // seeded fields besides the crater's natural one
+export const MINERAL_NODES_PER_FIELD = 5;
+export const MINERAL_FIELD_RADIUS = 2;           // nodes of one field sit within this radius of its center
+export const MINERAL_MIN_NEST_DISTANCE = 14;     // no node inside the colony's starting clearing
+export const MINERAL_HOME_FIELD_MAX_DISTANCE = 26; // the first seeded field stays this close to the nest
+export const MINERAL_FIELD_SPACING = 16;         // minimum distance between two field centers
+export const MINERAL_EDGE_MARGIN = 4;            // tiles kept between a field center and the map edge
+export const MINER_MAX_SHARE = 0.4;              // share of the surface workers that keep returning to a field
 
 // === Player orders (StarCraft-style control) ===
 export const ORDER_PATHS_PER_TICK = 6;      // ordered ants routed per tick; a big group spreads its A* runs over frames

@@ -4,6 +4,8 @@ import { antSpawnStats } from './run/antStats';
 import { buildMutationOffer, shouldOfferMutation, summarizeMutationBuild, type MutationBuildEntry, type MutationOffer } from './run/DawnPick';
 import { createSeededRng, offerMutations } from './run/MutationOffers';
 import { pickCraterSite, type TilePos } from './run/craterSite';
+import { pickMineralFields } from './run/mineralFields';
+import { CRYSTAL_BOWL_RADIUS, CRYSTAL_SHARD_RADIUS } from '../engine/renderer/alienDecor';
 import type { EntityId } from '../shared/types';
 import { World } from '../engine/ecs/World';
 import { GameLoop } from '../engine/loop/GameLoop';
@@ -59,7 +61,7 @@ import { IntroDirector } from './render/IntroDirector';
 import { IntroClock } from './render/introTimeline';
 import { audioIntroFrame, audioRunEnded, audioRunStarted, emitAudio } from '../audio';
 import { selectionAudio } from '../audio/gameHooks';
-import { createAnt, createFood, createNest, createBeetleDen, createQueen } from './entities/factories';
+import { createAnt, createFood, createMineral, createNest, createBeetleDen, createQueen } from './entities/factories';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
 import {
@@ -129,12 +131,21 @@ import {
   CRATER_CLEAR_RADIUS,
   CRATER_EDGE_MARGIN,
   CRATER_FAR_FRACTION,
+  MINERAL_EXTRA_FIELDS,
+  MINERAL_NODES_PER_FIELD,
+  MINERAL_FIELD_RADIUS,
+  MINERAL_MIN_NEST_DISTANCE,
+  MINERAL_HOME_FIELD_MAX_DISTANCE,
+  MINERAL_FIELD_SPACING,
+  MINERAL_EDGE_MARGIN,
   CONTROL_GROUP_SLOTS,
   GAME_SPEED_MAX,
 } from '../shared/constants';
 
 /** Mixed into the run seed so the crater does not share the dawn offers' draws. */
 const CRATER_SEED_SALT = 0x9e3779b9;
+/** Mixed into the run seed so the mineral fields draw from their own stream. */
+const MINERAL_SEED_SALT = 0x85ebca6b;
 
 /** A command card order that waits for a click: Mover (Q) or Atacar (A). */
 export type CommandTarget = 'move' | 'attack';
@@ -258,6 +269,8 @@ export interface GameStats {
   meatStored: number;
   pantryStored: number;
   pantryCapacity: number;
+  /** The minerals bank: what miners delivered, the currency for structures */
+  mineralsStored: number;
   beetleCount: number;
   beetleDenCount: number;
   cricketCount: number;
@@ -591,6 +604,7 @@ export class GameManager {
       farFraction: CRATER_FAR_FRACTION,
     });
     this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock);
+    this.spawnMineralFields({ x: nestX, y: nestY });
     const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
     // The fireball lights the ground it flies over and the crater, so the chase
     // crosses lit terrain; what it lit stays explored, a scorched trail to the crater
@@ -618,6 +632,32 @@ export class GameManager {
   private detachIntroSkip(): void {
     window.removeEventListener('keydown', this.skipIntro);
     this.canvas.removeEventListener('pointerdown', this.skipIntro);
+  }
+
+  /**
+   * Mineral nodes for the run: the crater's crystal shards are the natural
+   * field, plus a few seeded fields (one near home). Same seed, same fields.
+   */
+  private spawnMineralFields(nest: TilePos): void {
+    const fields = pickMineralFields({
+      width: WORLD_WIDTH,
+      height: WORLD_HEIGHT,
+      nest,
+      isWalkable: (x, y) => this.grid.isWalkable(x, y),
+      rng: createSeededRng(this.runSeed ^ MINERAL_SEED_SALT),
+      crater: this.craterSite,
+      craterRing: { inner: CRYSTAL_BOWL_RADIUS, outer: CRYSTAL_SHARD_RADIUS },
+      extraFields: MINERAL_EXTRA_FIELDS,
+      nodesPerField: MINERAL_NODES_PER_FIELD,
+      fieldRadius: MINERAL_FIELD_RADIUS,
+      minNestDistance: MINERAL_MIN_NEST_DISTANCE,
+      homeFieldMaxDistance: MINERAL_HOME_FIELD_MAX_DISTANCE,
+      minFieldSpacing: MINERAL_FIELD_SPACING,
+      edgeMargin: MINERAL_EDGE_MARGIN,
+    });
+    for (const field of fields) {
+      for (const node of field.nodes) createMineral(this.world, node.x, node.y);
+    }
   }
 
   /** Tile where the meteorite struck (crater center); fixed for the whole run. */
@@ -2176,6 +2216,7 @@ export class GameManager {
       meatStored: Math.floor(meatStored),
       pantryStored: Math.floor(pantryStored.total),
       pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
+      mineralsStored: Math.floor(this.world.minerals.stored),
       beetleCount: this.world.query(COMPONENT.BEETLE).length,
       beetleDenCount: this.world.query(COMPONENT.BEETLE_DEN).length,
       cricketCount: this.world.query(COMPONENT.CRICKET).length,
