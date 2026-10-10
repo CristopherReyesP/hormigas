@@ -94,12 +94,29 @@
   white-space: normal;
 }
 
+/* The boss night: the Crystal Queen in the hive's cyan, bigger and longer */
+.wave-announce--boss {
+  text-shadow: 3px 3px 0 #000, 0 0 22px rgba(95, 243, 255, 0.85);
+  animation-duration: 7s;
+}
+
+.wave-announce--boss .wave-announce-title {
+  font-size: clamp(24px, 9vw, 68px);
+  color: var(--race-crystal, #5ff3ff);
+  white-space: normal;
+}
+
 /* Red pulse on the screen edges as the wave strikes */
 .wave-edge-pulse {
   position: absolute;
   inset: 0;
   box-shadow: inset 0 0 0 6px rgba(255, 59, 59, 0.85), inset 0 0 60px 20px rgba(255, 59, 59, 0.45);
   animation: wave-edge 1.2s ease-out 4 forwards;
+}
+
+.wave-edge-pulse--boss {
+  box-shadow: inset 0 0 0 8px rgba(95, 243, 255, 0.9), inset 0 0 80px 28px rgba(95, 243, 255, 0.45);
+  animation-iteration-count: 6;
 }
 
 /* Edge arrow toward an off-screen threat; rotated by the component */

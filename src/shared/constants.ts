@@ -115,7 +115,7 @@ export const FLANKING_MAX_ALLIES = 5;
 
 // Underground invasions (survival waves). One wave per night, launched at nightfall.
 // Wave sizes and their mix come from waveComposition() (src/game/run/waveComposition.ts).
-export const INVASION_BOSS_NIGHT = 7;  // last night of the run (RUN_NIGHTS_TO_WIN): boss slot, not spawned yet
+export const INVASION_BOSS_NIGHT = 7;  // last night of the run (RUN_NIGHTS_TO_WIN): the Crystal Queen attacks (rival Colmena de Cristal)
 export const INVASION_ARM_LEAD = 60;   // seconds before nightfall the wave is telegraphed
 export const WAVE_WARNING_LEAD = 30;   // seconds before nightfall the HUD warning banner goes up
 export const WAVE_BANNER_SECONDS = 5;  // game seconds the arrival and "cleared" banners stay up

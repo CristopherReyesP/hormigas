@@ -62,7 +62,7 @@ const PAUSED_POLL_MS = 250;
 
 export default function App() {
   const [stats, setStats] = useState<GameStats>(DEFAULT_STATS);
-  // null while the race picker is up; set by COMENZAR. The GameManager does not read it yet.
+  // null while the race picker is up; set by COMENZAR. The GameManager builds its rival from it.
   const [runSetup, setRunSetup] = useState<RunSetup | null>(null);
   const gameManagerRef = useRef<GameManager | null>(null);
   const [gameManager, setGameManager] = useState<GameManager | null>(null);
@@ -115,7 +115,7 @@ export default function App() {
   return (
     <div className="hive-screen">
       {/* The world fills the window; every HUD element floats above it */}
-      <GameCanvas onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} introPlaying={stats.introPlaying} />
+      <GameCanvas setup={runSetup} onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} introPlaying={stats.introPlaying} />
       {/* Hidden during the opening cinematic, then it fades in */}
       <HudLayer introPlaying={stats.introPlaying}>
         <TopStrip stats={stats} gameManager={gameManager} />

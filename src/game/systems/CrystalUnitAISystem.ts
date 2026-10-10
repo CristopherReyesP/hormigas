@@ -15,6 +15,7 @@ import {
 } from '../components/components';
 import { FactionId, ownerOf, relation } from '../factions/factions';
 import { CRYSTAL_DRONE_STATS, CRYSTAL_HIVE_STATS } from '../rival/crystalHive';
+import { CRYSTAL_ECONOMY } from '../rival/crystalRival';
 import { ORDER_PATH_MAX_STEPS } from '../../shared/constants';
 
 /** Seconds between two route requests while chasing a moving enemy */
@@ -74,6 +75,8 @@ export class CrystalUnitAISystem implements System {
 
       if (unit.state === CrystalUnitState.Assaulting && unit.goal) {
         this.march(unit, pos, path, unit.goal);
+      } else if (unit.state === CrystalUnitState.Raiding && unit.goal) {
+        this.raid(unit, pos, path, unit.goal, dt);
       } else {
         this.guard(unit, pos, path);
       }
@@ -152,6 +155,28 @@ export class CrystalUnitAISystem implements System {
       && Math.round(routeEnd.x) === Math.round(goal.x) && Math.round(routeEnd.y) === Math.round(goal.y);
     if (onCourse || unit.repathTimer > 0) return;
     unit.repathTimer = this.route(pos, path, goal) ? 0 : NO_ROUTE_RETRY;
+  }
+
+  /**
+   * Harass: attack-move to the player's field, stay there a while (the hive
+   * siphons the field while `raidTimer` runs), then head home to guard.
+   */
+  private raid(unit: CrystalUnitComponent, pos: PositionComponent, path: PathComponent, goal: Vector2, dt: number): void {
+    if (unit.raidTimer === undefined) {
+      if (Math.hypot(goal.x - pos.x, goal.y - pos.y) > GOAL_ARRIVED + 1) {
+        this.march(unit, pos, path, goal);
+        return;
+      }
+      unit.raidTimer = CRYSTAL_ECONOMY.raidSiphonSeconds;
+      path.waypoints = [];
+      path.currentIndex = 0;
+    }
+    unit.raidTimer -= dt;
+    if (unit.raidTimer > 0) return;
+    unit.state = CrystalUnitState.Guarding;
+    unit.goal = null;
+    unit.raidTimer = undefined;
+    unit.repathTimer = 0;
   }
 
   /** At home: drift back when it strays past the guard radius */

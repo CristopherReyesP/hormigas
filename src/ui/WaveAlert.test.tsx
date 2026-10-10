@@ -94,3 +94,17 @@ describe('WaveAlert', () => {
     expect(html).not.toContain('wave-arrow');
   });
 });
+
+describe('the boss night', () => {
+  it('announces the Crystal Queen in a big cyan banner over the wave', () => {
+    const html = render({ active: true, waveNumber: 7, banner: { id: 3, kind: 'arrival', wave: 7, count: 31, boss: true } });
+    expect(html).toContain('wave-announce--boss');
+    expect(html).toContain('LA REINA DE CRISTAL');
+    expect(html).toContain('Oleada 7');
+  });
+
+  it('a normal arrival does not mention her', () => {
+    const html = render({ active: true, banner: { id: 2, kind: 'arrival', wave: 3, count: 8 } });
+    expect(html).not.toContain('REINA DE CRISTAL');
+  });
+});

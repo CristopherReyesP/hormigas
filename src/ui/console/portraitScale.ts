@@ -51,7 +51,12 @@ export function portraitSprite(kind: SelectedEntityInfo['type'], foodType?: stri
     case 'beetle_den':
     case 'cricket_den':
     case 'crystal_hive':
-      return 'den';
+    case 'crystal_unit':
+    case 'crystal_spire':
+    case 'human_building':
+      return 'den'; // Crystal portraits draw baked unit frames instead (Portrait)
+    case 'human_unit':
+      return 'beetle'; // a stand-in: InfoPanel shows HumanPortrait for Humans
     case 'food':
       return foodType === 'giant_mushroom' ? 'giantMushroom' : 'food';
     default:

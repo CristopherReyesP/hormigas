@@ -34,18 +34,23 @@ describe('RunSetup defaults', () => {
     expect(DEFAULT_RUN_SETUP).toEqual({ playerRace: 'swarm', rivalRace: 'wildlife' });
   });
 
-  it('only the Swarm is playable and only the wildlife is a rival for now', () => {
+  it('only the Swarm is playable; the wildlife, the Crystal Hive and the Humans are rivals', () => {
     expect(isPlayableRace('swarm')).toBe(true);
     expect(isPlayableRace('crystal')).toBe(false);
     expect(isPlayableRace('human')).toBe(false);
     expect(isAvailableRival('wildlife')).toBe(true);
-    expect(isAvailableRival('crystal')).toBe(false);
-    expect(isAvailableRival('human')).toBe(false);
+    expect(isAvailableRival('crystal')).toBe(true);
+    expect(isAvailableRival('human')).toBe(true);
+  });
+
+  it('picks the Crystal Hive as the rival', () => {
+    expect(withRivalRace(DEFAULT_RUN_SETUP, 'crystal')).toEqual({ playerRace: 'swarm', rivalRace: 'crystal' });
   });
 
   it('ignores picks of races that are not available yet', () => {
     expect(withPlayerRace(DEFAULT_RUN_SETUP, 'crystal')).toBe(DEFAULT_RUN_SETUP);
-    expect(withRivalRace(DEFAULT_RUN_SETUP, 'human')).toBe(DEFAULT_RUN_SETUP);
+    expect(withPlayerRace(DEFAULT_RUN_SETUP, 'human')).toBe(DEFAULT_RUN_SETUP);
+    expect(withRivalRace(DEFAULT_RUN_SETUP, 'human')).toEqual({ playerRace: 'swarm', rivalRace: 'human' });
     expect(withPlayerRace(DEFAULT_RUN_SETUP, 'swarm')).toEqual(DEFAULT_RUN_SETUP);
     expect(withRivalRace(DEFAULT_RUN_SETUP, 'wildlife')).toEqual(DEFAULT_RUN_SETUP);
   });
@@ -54,7 +59,7 @@ describe('RunSetup defaults', () => {
 describe('RunSetup persistence', () => {
   it('round-trips the last choice through storage', () => {
     const storage = memoryStorage();
-    const setup: RunSetup = { playerRace: 'swarm', rivalRace: 'wildlife' };
+    const setup: RunSetup = { playerRace: 'swarm', rivalRace: 'crystal' };
     saveRunSetup(setup, storage);
     expect(storage.data.has(RUN_SETUP_STORAGE_KEY)).toBe(true);
     expect(loadRunSetup(storage)).toEqual(setup);
@@ -73,6 +78,7 @@ describe('RunSetup persistence', () => {
     expect(loadRunSetup(stored({ playerRace: 'crystal', rivalRace: 'wildlife' }))).toEqual(DEFAULT_RUN_SETUP);
     expect(loadRunSetup(stored({ playerRace: 'swarm', rivalRace: 'robots' }))).toEqual(DEFAULT_RUN_SETUP);
     expect(loadRunSetup(stored({ playerRace: 'swarm' }))).toEqual(DEFAULT_RUN_SETUP);
+    expect(loadRunSetup(stored({ playerRace: 'swarm', rivalRace: 'human' }))).toEqual({ playerRace: 'swarm', rivalRace: 'human' });
   });
 
   it('never throws when storage is blocked or full', () => {

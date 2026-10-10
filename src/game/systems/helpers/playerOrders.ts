@@ -19,6 +19,8 @@ import {
 } from '../../components/components';
 import { ENEMY_PICK_RADIUS, ORDER_SNAP_RADIUS } from '../../../shared/constants';
 import { FactionId, isHostileTo } from '../../factions/factions';
+import { HUMAN_COMPONENT, type HumanBuildingComponent } from '../../rival/humanComponents';
+import { HUMAN_BUILDING_STATS } from '../../rival/humanBase';
 
 /**
  * Player orders, StarCraft style: move, attack a target, attack-move, hold
@@ -59,10 +61,19 @@ const ENEMY_STORES = [
   COMPONENT.CRICKET_DEN,
   COMPONENT.CRYSTAL_UNIT,
   COMPONENT.CRYSTAL_HIVE,
+  COMPONENT.CRYSTAL_SPIRE,
+  HUMAN_COMPONENT.UNIT,
+  HUMAN_COMPONENT.BUILDING,
 ] as const;
 
 /** Structures: drawn and clickable on explored ground, the target of a den attack wave. */
-const STRUCTURE_STORES: ReadonlySet<string> = new Set([COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN, COMPONENT.CRYSTAL_HIVE]);
+const STRUCTURE_STORES: ReadonlySet<string> = new Set([
+  COMPONENT.BEETLE_DEN,
+  COMPONENT.CRICKET_DEN,
+  COMPONENT.CRYSTAL_HIVE,
+  COMPONENT.CRYSTAL_SPIRE,
+  HUMAN_COMPONENT.BUILDING,
+]);
 
 /**
  * A beetle, cricket, den, or a rival faction's unit or hive on the surface:
@@ -96,6 +107,12 @@ function onStructureSprite(world: World, id: EntityId, at: Vector2): boolean {
   const dy = at.y - pos.y;
   if (world.getComponent(id, COMPONENT.CRYSTAL_HIVE) !== undefined) {
     return dx >= -HIVE_PICK.left && dx <= HIVE_PICK.right && dy >= -HIVE_PICK.top && dy <= HIVE_PICK.bottom;
+  }
+  const human = world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING);
+  if (human) {
+    // A Human building stands on its footprint and rises its floors above it
+    const { halfWidth, height } = HUMAN_BUILDING_STATS[human.kind];
+    return Math.abs(dx) <= halfWidth && dy >= -height && dy <= halfWidth * 0.6;
   }
   return Math.abs(dx) <= DEN_PICK_HALF && Math.abs(dy) <= DEN_PICK_HALF;
 }

@@ -1,7 +1,7 @@
 // The skirmish setup chosen before a run: the player's race and the rival's.
-// Only the Swarm is playable and only the wildlife fights back today (P10
-// delivery order: the Crystal Hive arrives as the AI rival in P5, the Humans
-// in P9). The last choice is remembered per browser, best effort.
+// Only the Swarm is playable. The rival is the wildlife alone, the Crystal
+// Hive as an AI rival (P5) or the Humans as an AI base (P9). The last choice
+// is remembered per browser, best effort.
 
 export type RaceId = 'swarm' | 'crystal' | 'human';
 
@@ -13,11 +13,11 @@ export interface RunSetup {
   readonly rivalRace: RivalId;
 }
 
-/** Today's game: the Swarm against the beetles and crickets. */
+/** The Swarm against the beetles and crickets alone: no Crystal Hive at the crater. */
 export const DEFAULT_RUN_SETUP: RunSetup = { playerRace: 'swarm', rivalRace: 'wildlife' };
 
 const PLAYABLE_RACES: ReadonlySet<string> = new Set<RaceId>(['swarm']);
-const AVAILABLE_RIVALS: ReadonlySet<string> = new Set<RivalId>(['wildlife']);
+const AVAILABLE_RIVALS: ReadonlySet<string> = new Set<RivalId>(['wildlife', 'crystal', 'human']);
 
 export function isPlayableRace(race: string): race is RaceId {
   return PLAYABLE_RACES.has(race);

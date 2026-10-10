@@ -62,15 +62,22 @@ describe('race picker', () => {
     }
   });
 
-  it('lets you fight the wildlife now; the other rivals are coming soon', () => {
+  it('lets you fight the wildlife, the Crystal Hive or the Humans', () => {
     expect(RIVAL_OPTIONS.map((r) => r.name)).toEqual(['Fauna salvaje', 'Colmena de Cristal', 'Humanos']);
     const wildlife = buttonTag(html, 'data-rival="wildlife"');
     expect(wildlife).not.toContain('disabled');
     expect(wildlife).toContain('aria-pressed="true"');
     for (const id of ['crystal', 'human']) {
-      expect(buttonTag(html, `data-rival="${id}"`)).toContain('disabled=""');
-      expect(cardHtml(html, `data-rival="${id}"`)).toContain('Próximamente');
+      expect(buttonTag(html, `data-rival="${id}"`)).not.toContain('disabled');
+      expect(buttonTag(html, `data-rival="${id}"`)).toContain('aria-pressed="false"');
+      expect(cardHtml(html, `data-rival="${id}"`)).not.toContain('Próximamente');
     }
+  });
+
+  it('opens on the Crystal Hive when that was the last rival picked', () => {
+    const out = renderToStaticMarkup(<RacePicker initialSetup={{ playerRace: 'swarm', rivalRace: 'crystal' }} onStart={noop} />);
+    expect(buttonTag(out, 'data-rival="crystal"')).toContain('aria-pressed="true"');
+    expect(out).toMatch(/Enjambre[^]*VS[^]*Colmena de Cristal[^]*COMENZAR/);
   });
 
   it('spells out the matchup next to the start button', () => {
@@ -82,6 +89,6 @@ describe('race picker', () => {
       <RacePicker initialSetup={{ playerRace: 'crystal', rivalRace: 'human' }} onStart={noop} />,
     );
     expect(buttonTag(out, 'data-race="swarm"')).toContain('aria-pressed="true"');
-    expect(buttonTag(out, 'data-rival="wildlife"')).toContain('aria-pressed="true"');
+    expect(buttonTag(out, 'data-rival="human"')).toContain('aria-pressed="true"');
   });
 });

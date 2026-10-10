@@ -29,7 +29,12 @@ import {
   FLANKING_MAX_ALLIES,
 } from '../../shared/constants';
 import { LEAPER_NOTICE } from '../../shared/wildlifeNames';
+import { absorbDamage, type ShieldComponent } from '../rival/crystalShield';
+import { MELEE_REACH } from '../rival/crystalRival';
 import { combatVfxFor, type BodyKind, type CombatVfx, type VictimKind } from '../vfx/CombatVfx';
+import { damageAfterArmor } from './helpers/combatHelpers';
+import { humanShotsFor } from '../rival/humanShots';
+import { applyHumanSplash, fireHumanShot, handleHumanDeath, isHumanEntity } from './HumanCombat';
 
 export class CombatSystem implements System {
   readonly name = 'CombatSystem';
@@ -49,6 +54,7 @@ export class CombatSystem implements System {
   update(dt: number): void {
     // VFX age in game time: frozen while paused, faster at 2×/3×
     this.vfx.advance(dt);
+    humanShotsFor(this.world).advance(dt);
 
     const combatants = this.world.query(COMPONENT.COMBAT, COMPONENT.POSITION);
 
@@ -159,9 +165,22 @@ export class CombatSystem implements System {
         continue;
       }
 
-      targetHealth.current -= damage;
       combat.attackTimer = combat.attackCooldown;
-      this.emitHit(id, pos, targetPos, targetLayer?.layer ?? Layer.Surface, this.victimKind(targetId));
+      const hitLayer = targetLayer?.layer ?? Layer.Surface;
+      // A Sentinel's shot is a visible bolt; the damage still lands now
+      if (combat.attackRange > MELEE_REACH && this.isCrystal(id)) this.vfx.crystalBolt(pos.x, pos.y, targetPos.x, targetPos.y, hitLayer);
+      // Crystal shields soak the hit first; armor then cuts what reaches the hull
+      const hull = this.soakWithShield(targetId, damage, pos, targetPos, hitLayer);
+      if (hull > 0) {
+        targetHealth.current -= damageAfterArmor(this.world, targetId, hull);
+        this.emitHit(id, pos, targetPos, hitLayer, this.victimKind(targetId));
+      }
+      // A tank shell also hits the enemies around its target
+      for (const victim of applyHumanSplash(this.world, id, targetId, damage)) {
+        if (toDestroy.includes(victim)) continue;
+        this.handleDeath(victim, toDestroy);
+        toDestroy.push(victim);
+      }
 
       if (targetHealth.current <= 0) {
         this.handleDeath(targetId, toDestroy);
@@ -176,6 +195,24 @@ export class CombatSystem implements System {
         this.world.destroyEntity(id);
       }
     }
+  }
+
+  /** The hull's share of a hit: a shield takes what it can, with its cyan arc, and shatters when it breaks */
+  private soakWithShield(
+    targetId: EntityId,
+    damage: number,
+    from: PositionComponent,
+    to: PositionComponent,
+    layer: LayerValue,
+  ): number {
+    const shield = this.world.getComponent<ShieldComponent>(targetId, COMPONENT.SHIELD);
+    if (!shield) return damage;
+    const split = absorbDamage(shield, damage);
+    if (split.shield > 0) {
+      this.vfx.shieldHit(from.x, from.y, to.x, to.y, layer);
+      if (shield.current <= 0) this.vfx.shieldBreak(to.x, to.y, layer);
+    }
+    return split.hull;
   }
 
   /** Dens track health in their own component; mirror it into HealthComponent so the bar drains */
@@ -195,6 +232,7 @@ export class CombatSystem implements System {
     victim: VictimKind,
   ): void {
     const attacker = this.world.getComponent<AntComponent>(attackerId, COMPONENT.ANT) ? 'swarm' : 'wildlife';
+    fireHumanShot(this.world, attackerId, from, to); // Human gunfire draws a tracer too
     this.vfx.hit(from.x, from.y, to.x, to.y, layer, attacker, victim);
   }
 
@@ -212,12 +250,14 @@ export class CombatSystem implements System {
   /** Crystal units and the hive shed shards; everything else sheds its body's material */
   private victimKind(id: EntityId): VictimKind {
     if (this.isCrystal(id)) return 'crystal';
+    if (isHumanEntity(this.world, id)) return 'beetle'; // dark plating chips
     return this.bodyKind(id);
   }
 
   private isCrystal(id: EntityId): boolean {
     return this.world.getComponent(id, COMPONENT.CRYSTAL_UNIT) !== undefined
-      || this.world.getComponent(id, COMPONENT.CRYSTAL_HIVE) !== undefined;
+      || this.world.getComponent(id, COMPONENT.CRYSTAL_HIVE) !== undefined
+      || this.world.getComponent(id, COMPONENT.CRYSTAL_SPIRE) !== undefined;
   }
 
   /** The death pop plus what the body leaves: goo for the Swarm, a carcass for wildlife */
@@ -227,6 +267,7 @@ export class CombatSystem implements System {
   }
 
   private handleDeath(entityId: EntityId, _toDestroy: EntityId[]): void {
+    if (handleHumanDeath(this.world, this.vfx, entityId)) return;
     if (this.isCrystal(entityId)) {
       this.handleCrystalDeath(entityId);
       return;
@@ -253,6 +294,7 @@ export class CombatSystem implements System {
     const hive = this.world.getComponent(entityId, COMPONENT.CRYSTAL_HIVE) !== undefined;
     if (pos) this.vfx.crystalShards(pos.x, pos.y, this.layerOf(entityId), hive ? 32 : 10);
     if (hive) this.world.pushNotification('success', '💎 ¡La Colmena de Cristal se hizo añicos!');
+    else if (this.world.getComponent(entityId, COMPONENT.CRYSTAL_SPIRE)) this.world.pushNotification('success', '💎 ¡Derribaste una aguja de la Colmena de Cristal!');
   }
 
   /** Meat left by a kill, scaled by run mutations (carrion_gut) */

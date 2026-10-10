@@ -17,7 +17,7 @@ import { createAnt, createCricketDen } from '../entities/factories';
 import { snapToWalkable } from '../systems/helpers/playerOrders';
 import type { SelectionSystem } from '../systems/SelectionSystem';
 import { TILE_SIZE, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
-import { fakeCanvas, finishIntro } from '../../test/gameManagerMocks';
+import { fakeCanvas, finishIntro, CRYSTAL_RIVAL_SETUP } from '../../test/gameManagerMocks';
 
 // Real manager and map; browser-only adapters are replaced.
 vi.mock('../../engine/input/InputManager', async () => (await import('../../test/gameManagerMocks')).mockInputManager());
@@ -55,7 +55,7 @@ const ON_SPRITE: Record<BaseKind, { dx: number; dy: number }> = {
 
 function setup(kind: BaseKind) {
   seedRandom(7);
-  const game = new GameManager(fakeCanvas());
+  const game = new GameManager(fakeCanvas(), CRYSTAL_RIVAL_SETUP);
   finishIntro(game);
   const world = game['world'] as World;
   const camera = game['camera'] as Camera;

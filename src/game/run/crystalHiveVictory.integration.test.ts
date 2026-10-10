@@ -3,7 +3,7 @@ import { GameManager, type GameOverStats } from '../GameManager';
 import type { World } from '../../engine/ecs/World';
 import { COMPONENT, type HealthComponent, type PositionComponent } from '../components/components';
 import { FactionId, ownerOf } from '../factions/factions';
-import { fakeCanvas, finishIntro } from '../../test/gameManagerMocks';
+import { fakeCanvas, finishIntro, CRYSTAL_RIVAL_SETUP } from '../../test/gameManagerMocks';
 
 // Real manager and map; browser-only adapters are replaced.
 vi.mock('../../engine/input/InputManager', async () =>
@@ -12,7 +12,7 @@ vi.mock('../systems/RenderSystem', async () => (await import('../../test/gameMan
 vi.stubGlobal('window', new EventTarget());
 
 function setup() {
-  const game = new GameManager(fakeCanvas());
+  const game = new GameManager(fakeCanvas(), CRYSTAL_RIVAL_SETUP);
   finishIntro(game);
   const world = game['world'] as World;
   const state = game as unknown as { gameOver: GameOverStats | null; update: (dt: number) => void };
