@@ -50,6 +50,8 @@ import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
 import { MeteorIntro } from '../render/MeteorIntro';
 import { CrystalRivalArt } from '../render/crystalRivalArt';
+import { FungusFarmArt } from '../render/fungusFarmArt';
+import { carriedFoodSprite } from '../render/fungusGrowth';
 import type { ShieldComponent } from '../rival/crystalShield';
 import { combatVfxFor } from '../vfx/CombatVfx';
 import { drawCombatVfx } from '../vfx/drawCombatVfx';
@@ -184,6 +186,12 @@ export class RenderSystem {
   private getActiveLayer: (() => 'surface' | 'underground') | null = null;
   private ugParticles: Array<{x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; type: 'dust' | 'spore' | 'warmth'}> = [];
   private ugParticleTimer = 0;
+  /** Fungus farm crops, plucks and carried mushrooms (baked sheets) */
+  private farmArt = new FungusFarmArt();
+  /** Farm tiles drawn this frame, reused for the overlay pass */
+  private farmTilesInView: Array<{ x: number; y: number; amount: number }> = [];
+  private farmTileCount = 0;
+  private getFarmFocus: (() => { x: number; y: number } | null) | null = null;
   private ugTextureCanvas: OffscreenCanvas | null = null;
   private ugTextureReady = false;
   /** The run's opening (meteor, impact, crater); null until GameManager stages it */
@@ -589,6 +597,16 @@ export class RenderSystem {
     this.getFarmStatus = fn;
   }
 
+  /** The farm tile the player tapped: farm growth bars show while one is set */
+  setFarmFocusProvider(fn: () => { x: number; y: number } | null): void {
+    this.getFarmFocus = fn;
+  }
+
+  /** Something took mushrooms off a farm tile: play the pluck there */
+  queueFarmHarvest(x: number, y: number): void {
+    this.farmArt.queueHarvest(x, y);
+  }
+
   private getDayPhase: (() => { phase: 'day' | 'night'; progress: number }) | null = null;
 
   /** Surface tint follows the day/night cycle — wired by GameManager */
@@ -808,8 +826,9 @@ export class RenderSystem {
         p.hline(0, fy, 16, PAL.earth[0]);
         p.hline(0, fy - 1, 16, PAL.earth[3]);
       }
-      // Mycelium threads: pale fungal specks between the furrows
-      for (let k = 0; k < 9; k++) {
+      // Mycelium threads: pale fungal specks between the furrows (sparse: the
+      // growing crop drawn on top carries the farm's look)
+      for (let k = 0; k < 5; k++) {
         const gx = Math.floor(hash2(seed, k * 3) * 16);
         const gy = Math.floor(hash2(seed, k * 3 + 1) * 16);
         p.px(gx, gy, PAL.shroomStem);
@@ -996,6 +1015,10 @@ export class RenderSystem {
     const texCanvas = this.ugTextureCanvas!;
 
     // === PASS 1: Base terrain (textured tiles) ===
+    const farmTime = frameTime / 1000;
+    const farmCap = grid.getPantryTileCapacity();
+    const farmProducing = this.getFarmStatus !== null && this.getFarmStatus() === 'produciendo';
+    this.farmTileCount = 0;
     for (let y = startY; y < endY; y++) {
       for (let x = startX; x < endX; x++) {
         const tile = grid.getTile(x, y);
@@ -1044,37 +1067,20 @@ export class RenderSystem {
         // Area identity comes from the FLOOR TEXTURES themselves (rows 2/3/4/8/9)
         // — no overlays, no icons: each chamber type has its own realistic ground
 
-        // Fungus farm crop GROWS — mushroom count + size scale with this tile's
-        // pile so the player SEES the harvest building up. While the farm is
-        // converting, the caps shimmer (quantized 2-state, no smooth alpha).
-        if (tile.chamberType === ChamberType.FungusFarm) {
-          const producing = this.getFarmStatus !== null && this.getFarmStatus() === 'produciendo';
-          const shimmer = producing && Math.floor(frameTime * 0.004 + x + y) % 2 === 0;
-          const capColor = shimmer ? PAL.shroomCapLight : PAL.shroomCap;
-          const fill = Math.min(1, (tile.food?.amount ?? 0) / this.ugGrid!.getPantryTileCapacity());
-          const shrooms = 1 + Math.floor(fill * 5); // a sprout even when empty → up to a 6-shroom crop
-          const seed = x * 31 + y * 17;
-          for (let m = 0; m < shrooms; m++) {
-            const mx = px + 4 + Math.floor(hash2(seed, m * 2) * ((T - 12) / 2)) * 2;
-            const my = py + 6 + Math.floor(hash2(seed, m * 2 + 1) * ((T - 14) / 2)) * 2;
-            // First mushrooms grow TALL once the pile passes half capacity
-            const big = fill > 0.5 && m < 2;
-            if (big) {
-              ctx.fillStyle = PAL.shroomStem;
-              ctx.fillRect(mx + 2, my + 3, 2, 5);
-              ctx.fillStyle = capColor;
-              ctx.fillRect(mx, my, 6, 3);
-              ctx.fillStyle = PAL.shroomCapLight;
-              ctx.fillRect(mx, my, 3, 1);
-            } else {
-              ctx.fillStyle = PAL.shroomStem;
-              ctx.fillRect(mx + 1, my + 2, 2, 3);
-              ctx.fillStyle = capColor;
-              ctx.fillRect(mx, my, 4, 2);
-              ctx.fillStyle = PAL.shroomCapLight;
-              ctx.fillRect(mx, my, 2, 1);
-            }
+        // Fungus farm crop GROWS through its stages with this tile's real pile
+        // (spores → sprouts → caps → mature → ripe); baked frames, see fungusFarmArt
+        if (tile.chamberType === ChamberType.FungusFarm && tile.walkable) {
+          const amount = tile.food?.type === 'mushroom' ? tile.food.amount : 0;
+          this.farmArt.drawCrop(ctx, x, y, amount, farmCap, farmTime, farmProducing);
+          const slot = this.farmTilesInView[this.farmTileCount];
+          if (slot) {
+            slot.x = x;
+            slot.y = y;
+            slot.amount = amount;
+          } else {
+            this.farmTilesInView.push({ x, y, amount });
           }
+          this.farmTileCount++;
         }
 
         // Designation overlay (dashed border, quantized alpha)
@@ -1295,6 +1301,12 @@ export class RenderSystem {
       this.ugParticles.splice(0, this.ugParticles.length - 30);
     }
 
+    // === PASS 3.6: Fungus farm overlay — spores, ripe sparkles and growth bars
+    // (bars when zoomed in past the default or after a tap on the farm); plucks go over the ants ===
+    if (this.farmTilesInView.length > this.farmTileCount) this.farmTilesInView.length = this.farmTileCount;
+    const showFarmBars = this.ugCamera.zoom >= this.ugCamera.getDefaultZoom() + 1 || (this.getFarmFocus?.() ?? null) !== null;
+    this.farmArt.drawOverlay(ctx, this.farmTilesInView, farmCap, farmTime, showFarmBars);
+
     // === PASS 3.7: Pantry tile piles (drawn under entities so ants walk over them) ===
     // Each FoodStorage tile renders its own physical pile — the grid is the source
     // of truth. Farm tiles draw their own growing mushrooms in the tile pass.
@@ -1457,13 +1469,20 @@ export class RenderSystem {
           }
         }
 
-        // Carrying indicator (for any ant with food) — square pixel chunk
-        if (isCarrying) {
+        // "Cosechando": the picking pose bobs the ant one art px over the farm tile
+        const picking = ant?.state === AntState.FarmHarvesting && ant.farmHarvest?.phase === 'picking';
+        const bob = picking && Math.floor(frameTime / 160) % 2 === 0 ? 2 : 0;
+
+        // Carrying indicator (for any ant with food): a pale violet mushroom for
+        // mushrooms (farm harvest), a square pixel chunk for anything else
+        const carried = isCarrying ? carriedFoodSprite(carrying?.resourceType) : null;
+        if (carried === 'chunk') {
           ctx.fillStyle = PAL.glowGreen;
           ctx.fillRect(Math.round(px) - 2, Math.round(py) - 8, 4, 4);
         }
 
-        this.spriteAtlas.drawAnt(ctx, px, py, angle, legPhase, role, isCarrying);
+        this.spriteAtlas.drawAnt(ctx, px, py + bob, angle, legPhase, role, isCarrying);
+        if (carried === 'mushroom') this.farmArt.drawCarriedMushroom(ctx, px, py + bob);
       } else {
         // Check if it's an egg
         const eggComp = this.world.getComponent<EggComponent>(id, COMPONENT.EGG);
@@ -1558,6 +1577,7 @@ export class RenderSystem {
       drawGhost(ctx, overlay, this.animationTime);
     }
     drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Underground, null);
+    this.farmArt.drawPlucks(ctx, farmTime);
     ctx.restore(); // restore camera transform
 
     // Nightfall reaches the player down here too

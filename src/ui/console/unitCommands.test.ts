@@ -21,6 +21,7 @@ const details = {
     costs: { worker: 20, soldier: 35, scout: 20, nurse: 20, defender: 20 },
   },
   farm: { tiles: 0, rate: 0, status: 'sin-tiles', stored: 0, capacity: 0 },
+  farmTile: null,
   eatFirst: 'leaf',
   garrison: { target: 0, current: 0 },
   upgrades: [],

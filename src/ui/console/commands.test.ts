@@ -41,6 +41,7 @@ const details: ColonyDetails = {
     },
   },
   farm: { tiles: 2, rate: 0, status: 'sin-hojas', stored: 0, capacity: 0 },
+  farmTile: null,
   eatFirst: 'leaf',
   garrison: { target: 2, current: 1 },
   upgrades: [
