@@ -70,6 +70,8 @@ export function soundForEvent(event: AudioEvent): SoundRequest | null {
       return { sound: 'dawnSwell', params: {} };
     case 'mutationChosen':
       return { sound: 'mutationChosen', params: {} };
+    case 'upgrade':
+      return { sound: 'levelUp', params: { index: event.level } };
     case 'intro':
       if (event.cue === 'end') return null;
       return { sound: INTRO_SOUNDS[event.cue], params: { index: event.index, duration: event.duration } };

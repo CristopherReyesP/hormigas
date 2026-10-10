@@ -17,7 +17,8 @@ import {
   type HealthComponent,
   type EggComponent,
 } from '../components/components';
-import { BROOD_CARE_BOUT, BROOD_CARE_SPEEDUP, MAX_EGGS_PER_INCUBATION_TILE } from '../../shared/constants';
+import { BROOD_CARE_BOUT, BROOD_CARE_SPEEDUP } from '../../shared/constants';
+import { eggsPerIncubationTile, incubationSpeed } from '../upgrades/upgradeEffects';
 import { eat, isHurt, needsMeal } from './HungerSystem';
 
 // Sub-tile slots so up to 4 eggs on one incubation tile don't overlap visually
@@ -480,7 +481,7 @@ export class NurseAISystem implements System {
     }
 
     this.clearPath(id);
-    egg.hatchTimer = Math.max(0, egg.hatchTimer - BROOD_CARE_SPEEDUP * dt);
+    egg.hatchTimer = Math.max(0, egg.hatchTimer - BROOD_CARE_SPEEDUP * incubationSpeed(this.world.upgradeLevels) * dt);
     ant.stateTimer += dt;
     // Short bouts: decideNextAction gets a regular say, so a new egg to carry,
     // a hungry larva or the queen still outrank grooming. Re-decide in the same
@@ -625,7 +626,7 @@ export class NurseAISystem implements System {
   private isTileUsable(tile: { x: number; y: number }, excludeEggId: number | null): boolean {
     const t = this.grid.getTile(tile.x, tile.y);
     if (!t || t.chamberType !== ChamberType.Incubation || !t.walkable) return false;
-    return this.countEggsOnTile(tile.x, tile.y, excludeEggId) < MAX_EGGS_PER_INCUBATION_TILE;
+    return this.countEggsOnTile(tile.x, tile.y, excludeEggId) < eggsPerIncubationTile(this.world.upgradeLevels);
   }
 
   private findAvailableIncubationTile(excludeEggId: number | null): { x: number; y: number } | null {
@@ -645,7 +646,7 @@ export class NurseAISystem implements System {
         const tile = this.grid.getTile(x, y);
         if (tile && tile.walkable && tile.chamberType === ChamberType.Incubation) {
           const count = eggCounts.get(`${x},${y}`) ?? 0;
-          if (count < MAX_EGGS_PER_INCUBATION_TILE) {
+          if (count < eggsPerIncubationTile(this.world.upgradeLevels)) {
             return { x, y };
           }
         }

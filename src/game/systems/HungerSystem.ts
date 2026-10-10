@@ -3,6 +3,7 @@ import type { World } from '../../engine/ecs/World';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
 import { COMPONENT, isOreLoad, type HungerComponent, type PositionComponent, type AntComponent, type QueenEntityComponent, type HealthComponent, type CarryingComponent } from '../components/components';
 import { QUEEN_STARVATION_DAMAGE, HUNGER_EAT_RATE, HUNGER_PER_FOOD, HEAL_HP_PER_FOOD, HURT_EAT_HEALTH_RATIO } from '../../shared/constants';
+import { tallyDeath } from '../upgrades/applyUpgrades';
 
 /**
  * The one way an ant eats, wherever the food comes from (its own load, a
@@ -138,6 +139,7 @@ export class HungerSystem implements System {
           this.world.pushNotification('danger', `💀 Una ${roleName} murió de hambre`, 'starvation', 4000);
         }
         // Kill the entity
+        tallyDeath(this.world, id);
         this.world.destroyEntity(id);
       }
     }

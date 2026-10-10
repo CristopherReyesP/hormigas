@@ -39,6 +39,8 @@ export type AudioEvent =
   | { type: 'hatch'; caste: AntRole }
   | { type: 'dawnOffer' }
   | { type: 'mutationChosen' }
+  /** A Mejoras level bought (1 = first level of its line) */
+  | { type: 'upgrade'; level: number }
   /** `index` orders repeated cues (one per spire); `duration` is real seconds for cues that span a stretch */
   | { type: 'intro'; cue: IntroCue; index?: number; duration?: number }
   | { type: 'introSkip' };
