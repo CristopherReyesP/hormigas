@@ -1,9 +1,10 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { installAudioUi } from '../audio';
 import { AntRole } from '../game/components/components';
-import { UNIT_ART_PX, drawUnitFrame, type CrystalUnitKind, type UnitFrame } from '../engine/renderer/crystalUnits';
+import { UNIT_ART_PX, drawUnitFrame, type CrystalUnitKind, type UnitFrame, type UnitSheet } from '../engine/renderer/crystalUnits';
+import type { HumanUnitKind } from '../engine/renderer/humanUnits';
 import { getSpriteAtlas } from './sharedAtlas';
-import { crystalSheet } from './racePicker/unitSheets';
+import { crystalSheet, humanSheet } from './racePicker/unitSheets';
 
 interface TitleScreenProps {
   /** INICIAR: on to the race picker */
@@ -90,14 +91,29 @@ function bakedFrame(frame: UnitFrame): HTMLCanvasElement {
   return c;
 }
 
-/** A crystal unit centered on (x, y), `zoom` × its card size. */
-function drawCrystal(ctx: CanvasRenderingContext2D, kind: CrystalUnitKind, x: number, y: number, zoom: number, t: number) {
-  const sheet = crystalSheet(kind);
+/** A baked unit centered on (x, y), `zoom` × its card size. */
+function drawSheet(ctx: CanvasRenderingContext2D, sheet: UnitSheet, x: number, y: number, zoom: number, t: number) {
   const step = Math.floor((t * 1000) / sheet.frameMs);
   const img = bakedFrame(sheet.frames[step % sheet.frames.length]);
   const w = img.width * zoom;
   const h = img.height * zoom;
   ctx.drawImage(img, Math.round(x - w / 2), Math.round(y - h / 2), Math.round(w), Math.round(h));
+}
+
+const drawCrystal = (ctx: CanvasRenderingContext2D, kind: CrystalUnitKind, x: number, y: number, zoom: number, t: number) =>
+  drawSheet(ctx, crystalSheet(kind), x, y, zoom, t);
+const drawHuman = (ctx: CanvasRenderingContext2D, kind: HumanUnitKind, x: number, y: number, zoom: number, t: number) =>
+  drawSheet(ctx, humanSheet(kind), x, y, zoom, t);
+
+/** A wildlife critter from the atlas centered on (x, y), `zoom` × its world size. */
+function drawCritter(ctx: CanvasRenderingContext2D, kind: 'beetle' | 'cricket', x: number, y: number, zoom: number, angle: number, phase: number) {
+  const atlas = getSpriteAtlas();
+  ctx.save();
+  ctx.translate(Math.round(x), Math.round(y));
+  ctx.scale(zoom, zoom);
+  if (kind === 'beetle') atlas.drawBeetle(ctx, 0, 0, angle, phase);
+  else atlas.drawCricket(ctx, 0, 0, angle, phase);
+  ctx.restore();
 }
 
 /** An atlas ant (or the queen) centered on (x, y), `zoom` × its world size. */
@@ -186,6 +202,15 @@ function paintScene(ctx: CanvasRenderingContext2D, w: number, h: number, t: numb
   ctx.fillRect(0, ground - 40 * unit, w, h);
   marchRow(ctx, w, ground - 30 * unit, unit * 0.7, 34 * unit, 44 * unit, t, 0.7, 1);
 
+  // The Humans' squad dug in on the far ridge, watching the clash
+  const hx = w * 0.5;
+  const hy = ground - 58 * unit;
+  drawHuman(ctx, 'marksman', hx - 70 * unit, hy - 4 * unit, unit * 0.9, t);
+  drawHuman(ctx, 'soldier', hx - 36 * unit, hy, unit * 0.9, t + 0.1);
+  drawHuman(ctx, 'tank', hx + 10 * unit, hy + 2 * unit, unit * 0.9, t);
+  drawHuman(ctx, 'soldier', hx + 56 * unit, hy, unit * 0.9, t + 0.3);
+  drawHuman(ctx, 'soldier', hx + 84 * unit, hy - 2 * unit, unit * 0.9, t + 0.2);
+
   // Battlefield floor
   ctx.fillStyle = '#2b1820';
   ctx.fillRect(0, ground, w, h - ground);
@@ -215,6 +240,14 @@ function paintScene(ctx: CanvasRenderingContext2D, w: number, h: number, t: numb
   drawCrystal(ctx, 'sentinel', cx + 10 * unit, ground + 34 * unit + hover(2), unit * 1.4, t);
   drawCrystal(ctx, 'drone', cx - 80 * unit, ground - 60 * unit + hover(3), unit * 1.3, t);
   drawCrystal(ctx, 'drone', cx + 100 * unit, ground + 10 * unit + hover(4), unit * 1.2, t);
+
+  // The wildlife: a beetle lumbering across the front, crickets leaping at the edges
+  const crawl = ((t * 18 * unit) % (w + 120 * unit)) - 60 * unit;
+  drawCritter(ctx, 'beetle', crawl, ground + 70 * unit, unit * 1.1, RIGHT, t * 6);
+  drawCritter(ctx, 'beetle', w * 0.05, ground + 50 * unit, unit, -Math.PI / 4, t * 4);
+  const hop = Math.abs(Math.sin(t * 2.2)) * 18 * unit;
+  drawCritter(ctx, 'cricket', w * 0.95, ground + 66 * unit - hop, unit * 0.65, LEFT, t * 5);
+  drawCritter(ctx, 'cricket', w * 0.62, ground + 80 * unit - Math.abs(Math.sin(t * 2.2 + 1.5)) * 14 * unit, unit * 0.6, LEFT, t * 5 + 2);
 
   // The clash: crackling energy where both lines meet
   const mx = w * 0.5;
