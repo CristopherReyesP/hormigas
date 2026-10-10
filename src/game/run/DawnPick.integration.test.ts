@@ -96,7 +96,7 @@ describe('dawn mutation pick', () => {
     expect(game.getStats().paused).toBe(true);
   });
 
-  it('turns keys 1-3 into card picks while an offer is pending; they never set game speed', () => {
+  it('turns keys 1-3 into card selections while an offer is pending; they never set game speed', () => {
     const { game } = manager();
     press('Digit3');
     expect(game.getStats().speed).toBe(1);
@@ -104,6 +104,9 @@ describe('dawn mutation pick', () => {
     const second = game.getStats().mutationOffer!.options[1].id;
 
     press('Digit2');
+    expect(game.getAppliedMutations()).toEqual([]);
+    expect(game.getStats().mutationSelection).toBe(second);
+    game.confirmMutation();
     expect(game.getAppliedMutations()).toEqual([second]);
     expect(game.getStats()).toMatchObject({ mutationOffer: null, paused: false, speed: 1 });
   });
@@ -114,6 +117,7 @@ describe('dawn mutation pick', () => {
       reachNextDawn(game);
       expect(game.getStats().mutationOffer?.dayNumber).toBe(day);
       press('Digit1');
+      game.confirmMutation();
       expect(game.getStats().mutationOffer).toBeNull();
     }
     reachNextDawn(game);

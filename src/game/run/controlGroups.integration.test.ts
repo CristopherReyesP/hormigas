@@ -125,7 +125,7 @@ describe('control groups on the digit keys', () => {
     expect(game.getStats().speed).toBe(1);
   });
 
-  it('digits pick a card while the dawn offer is open, and never touch the groups', () => {
+  it('digits select a card while the dawn offer is open, and never touch the groups', () => {
     const game = manager();
     const { worker } = squad(game);
     press('Digit2', { ctrl: true });
@@ -135,7 +135,11 @@ describe('control groups on the digit keys', () => {
 
     press('Digit1', { ctrl: true });
     expect(game.getAppliedMutations()).toEqual([]);
+    expect(game.getStats().mutationSelection).toBeNull();
     press('Digit2');
+    expect(game.getAppliedMutations()).toEqual([]);
+    expect(game.getStats().mutationSelection).toBe(second);
+    game.confirmMutation();
     expect(game.getAppliedMutations()).toEqual([second]);
     expect(selected(game)).toEqual([worker]);
     expect(game.getStats().controlGroups?.map((g) => g.slot)).toEqual([2]);

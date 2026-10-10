@@ -34,6 +34,7 @@ function setup() {
     runModifiers: new RunModifiers(),
     offerRng: createSeededRng(1),
     mutationOffer: null,
+    mutationSelection: null,
     lastMutationPick: null,
     statsTicks: 0,
     statsCallback,

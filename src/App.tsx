@@ -56,6 +56,7 @@ const DEFAULT_STATS: GameStats = {
   dayNumber: 1,
   phaseRemaining: 0,
   mutationOffer: null,
+  mutationSelection: null,
   lastMutationPick: null,
   introPlaying: true, // every run opens on the meteor intro, so the HUD starts hidden
 };
@@ -111,8 +112,12 @@ export default function App() {
     refreshStats();
   }, [refreshStats]);
 
-  const handleChooseMutation = useCallback((id: MutationId) => {
-    gameManagerRef.current?.chooseMutation(id);
+  const handleSelectMutation = useCallback((id: MutationId | null) => {
+    gameManagerRef.current?.selectMutation(id);
+  }, []);
+
+  const handleConfirmMutation = useCallback(() => {
+    gameManagerRef.current?.confirmMutation();
   }, []);
 
   if (!runSetup) {
@@ -148,8 +153,10 @@ export default function App() {
       {/* Dawn mutation pick: full-screen, above the HUD */}
       <EvolutionChamber
         offer={stats.mutationOffer}
+        selected={stats.mutationSelection}
         lastPick={stats.lastMutationPick}
-        onChoose={handleChooseMutation}
+        onSelect={handleSelectMutation}
+        onConfirm={handleConfirmMutation}
       />
     </div>
   );

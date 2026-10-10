@@ -447,6 +447,116 @@ button:focus-visible {
   opacity: 0.35;
 }
 
+/* Two-step pick: the selected card waits for "Confirmar evolución" */
+.evo-card--selected {
+  transform: translateY(-6px);
+  filter: drop-shadow(4px 10px 0 var(--chrome-bg));
+}
+
+.evo-card--selected .evo-card-plate,
+.evo-card--selected:hover .evo-card-plate,
+.evo-card--selected:focus-visible .evo-card-plate {
+  background: var(--chrome-accent);
+}
+
+.evo-card-picked {
+  margin-right: auto;
+  margin-left: 8px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--chrome-accent);
+}
+
+/* Room under the cards so the fixed bar never covers them */
+.evo-backdrop--selecting {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+}
+
+.evo-confirm-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 51;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--chrome-panel);
+  border-top: 4px solid var(--chrome-accent);
+  box-shadow: 0 -4px 0 var(--chrome-bg);
+  animation: evo-card-in 160ms steps(3) both;
+}
+
+.evo-confirm-btn,
+.evo-cancel-btn {
+  min-height: 56px;
+  padding: 8px 16px;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  box-shadow: 4px 4px 0 var(--chrome-bg);
+}
+
+.evo-confirm-btn {
+  display: flex;
+  flex: 1 1 auto;
+  max-width: 460px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+}
+
+.evo-confirm-label {
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.evo-confirm-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.evo-cancel-btn {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--chrome-text);
+  background: var(--chrome-panel-light);
+  border: 2px solid var(--chrome-border-light);
+}
+
+.evo-confirm-btn:hover,
+.evo-confirm-btn:focus-visible {
+  background: var(--chrome-text);
+}
+
+.evo-cancel-btn:hover,
+.evo-cancel-btn:focus-visible {
+  border-color: var(--chrome-text);
+}
+
+.evo-confirm-btn:focus-visible,
+.evo-cancel-btn:focus-visible {
+  outline: 2px dashed var(--chrome-accent);
+  outline-offset: 3px;
+}
+
+/* Phones: unselected cards keep a two-line description; the selected one shows it whole */
+@media (max-width: 600px) {
+  .evo-card:not(.evo-card--selected) .evo-card-desc {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
 @keyframes evo-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -523,6 +633,7 @@ button:focus-visible {
   .evo-pip--next,
   .evo-card--chosen .evo-card-plate,
   .evo-card--chosen .evo-card-inner,
+  .evo-confirm-bar,
   .run-banner {
     animation: none;
   }
