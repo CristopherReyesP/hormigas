@@ -6,6 +6,7 @@ import { ObjectivePanel } from './ui/ObjectivePanel';
 import { GameOverScreen } from './ui/GameOverScreen';
 import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
+import { HudLayer } from './ui/HudLayer';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
 import { ColonyPriority } from './game/components/components';
@@ -50,6 +51,7 @@ const DEFAULT_STATS: GameStats = {
   phaseRemaining: 0,
   mutationOffer: null,
   lastMutationPick: null,
+  introPlaying: true, // every run opens on the meteor intro, so the HUD starts hidden
 };
 
 /** While paused the simulation stops pushing stats; poll so pause, selection and layer still show. */
@@ -110,11 +112,14 @@ export default function App() {
   return (
     <div className="hive-screen">
       {/* The world fills the window; every HUD element floats above it */}
-      <GameCanvas onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} />
-      <TopStrip stats={stats} gameManager={gameManager} />
-      {/* Defaults carry no objective: wait for the first real snapshot */}
-      {stats.tickCount > 0 && <ObjectivePanel objective={stats.objective} />}
-      <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} />
+      <GameCanvas onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} introPlaying={stats.introPlaying} />
+      {/* Hidden during the opening cinematic, then it fades in */}
+      <HudLayer introPlaying={stats.introPlaying}>
+        <TopStrip stats={stats} gameManager={gameManager} />
+        {/* Defaults carry no objective: wait for the first real snapshot */}
+        {stats.tickCount > 0 && <ObjectivePanel objective={stats.objective} />}
+        <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} />
+      </HudLayer>
       {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
 
       {/* Dawn mutation pick: full-screen, above the HUD */}

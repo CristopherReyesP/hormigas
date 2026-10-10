@@ -559,6 +559,25 @@ button:focus-visible {
   image-rendering: pixelated;
 }
 
+/* The whole HUD rides one layer (HudLayer): hidden for the opening cinematic, then it fades in */
+.hud-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none; /* the world takes every click no HUD block takes */
+  transition: opacity 400ms ease-out; /* HUD_FADE_MS */
+}
+
+/* Each block takes its own clicks again; zero specificity keeps the console's and the feed's pass-through */
+:where(.hud-layer) > * {
+  pointer-events: auto;
+}
+
+.hud-layer--intro {
+  opacity: 0;
+  visibility: hidden;
+  transition: none;
+}
+
 .hud-label {
   font-size: 8px;
   font-weight: normal;

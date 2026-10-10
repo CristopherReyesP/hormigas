@@ -238,6 +238,8 @@ export interface GameStats {
   /** Pending dawn pick; the simulation stays paused while it is set. */
   mutationOffer: MutationOffer | null;
   lastMutationPick: MutationId | null;
+  /** True while the opening cinematic plays: the HUD stays hidden and the world takes the whole window. */
+  introPlaying: boolean;
 }
 
 /**
@@ -528,6 +530,7 @@ export class GameManager {
     this.renderSystem.skipIntro();
     this.introDirector.finish();
     this.detachIntroSkip();
+    this.publishStats(); // the HUD fades in now, not at the next stats tick
   };
 
   private detachIntroSkip(): void {
@@ -780,9 +783,12 @@ export class GameManager {
 
   private render(interpolation: number, dt: number): void {
     // One intro clock, advanced once per frame: the camera frames and the art draws the same intro time
+    const introWasPlaying = this.introClock.isPlaying();
     this.introClock.advance(dt);
     this.introDirector.frame();
     this.renderSystem.renderInterpolated(interpolation, dt);
+    // The HUD fades in on the frame the intro ends, not at the next stats tick
+    if (introWasPlaying && !this.introClock.isPlaying()) this.publishStats();
   }
 
   start(): void {
@@ -1874,6 +1880,7 @@ export class GameManager {
       phaseRemaining: Math.ceil(this.dayNightSystem.getPhaseRemaining()),
       mutationOffer: this.mutationOffer,
       lastMutationPick: this.lastMutationPick,
+      introPlaying: this.introClock.isPlaying(),
     };
   }
 
