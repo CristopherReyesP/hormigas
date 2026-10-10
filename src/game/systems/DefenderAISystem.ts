@@ -17,6 +17,7 @@ import {
   type CombatComponent,
 } from '../components/components';
 import { DEFENDER_DETECT_RANGE } from '../../shared/constants';
+import { FactionId, isHostileTo } from '../factions/factions';
 import { eat, isHurt, needsMeal } from './HungerSystem';
 
 /**
@@ -55,10 +56,11 @@ export class DefenderAISystem implements System {
 
     // Underground intruders (invasion beetles/crickets), one snapshot per tick
     const enemies: Array<{ id: number; x: number; y: number }> = [];
-    for (const store of [COMPONENT.BEETLE, COMPONENT.CRICKET]) {
+    for (const store of [COMPONENT.BEETLE, COMPONENT.CRICKET, COMPONENT.CRYSTAL_UNIT]) {
       for (const id of this.world.query(store, COMPONENT.POSITION, COMPONENT.LAYER)) {
         const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
         if (layer.layer !== Layer.Underground) continue;
+        if (!isHostileTo(this.world, FactionId.PLAYER, id)) continue;
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
         enemies.push({ id, x: pos.x, y: pos.y });
       }

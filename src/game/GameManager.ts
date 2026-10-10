@@ -61,7 +61,10 @@ import { IntroDirector } from './render/IntroDirector';
 import { IntroClock } from './render/introTimeline';
 import { audioIntroFrame, audioRunEnded, audioRunStarted, emitAudio } from '../audio';
 import { selectionAudio } from '../audio/gameHooks';
-import { createAnt, createFood, createMineral, createNest, createBeetleDen, createQueen } from './entities/factories';
+import { createAnt, createFood, createMineral, createNest, createBeetleDen, createQueen, createCrystalHive } from './entities/factories';
+import { CrystalHiveSystem } from './systems/CrystalHiveSystem';
+import { CrystalUnitAISystem } from './systems/CrystalUnitAISystem';
+import { FactionId, FactionRegistry, defaultFactions } from './factions/factions';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
 import {
@@ -240,6 +243,8 @@ export interface GameOverStats {
   tilesExcavated: number;
   wavesRepelled: number;
   build: MutationBuildEntry[];
+  /** Set when the run was won by destroying the Crystal Hive */
+  hiveDestroyed?: true;
 }
 
 /** One dot on the underground minimap */
@@ -346,6 +351,8 @@ export class GameManager {
    * minimap marks it, and the Crystal Hive rises from it (P5).
    */
   private readonly craterSite: TilePos;
+  /** The rival Crystal Hive at the crater; destroying it wins the run */
+  private rivalHiveId: EntityId | null = null;
   /** Canvas the intro-skip pointer listener is attached to */
   private readonly canvas: HTMLCanvasElement;
   /**
@@ -395,7 +402,10 @@ export class GameManager {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.world = new World(this.runModifiers);
+    this.world = new World(this.runModifiers, new FactionRegistry([
+      ...defaultFactions(),
+      { id: FactionId.RIVAL, race: 'crystal', controller: 'ai' },
+    ]));
     this.grid = new TileGrid();
     this.visibilityGrid = new VisibilityGrid(WORLD_WIDTH, WORLD_HEIGHT);
     this.renderer = new CanvasRenderer(canvas);
@@ -488,6 +498,8 @@ export class GameManager {
       this.dayNightSystem
     );
     this.world.addSystem(this.invasionSystem);
+    this.world.addSystem(new CrystalHiveSystem(this.world, this.grid, this.dayNightSystem));
+    this.world.addSystem(new CrystalUnitAISystem(this.world, this.grid));
     // Waves land at nightfall, so the dusk warning doubles as the last call
     this.dayNightSystem.setWaveArmedProvider(() => this.invasionSystem.getInfo().armed);
     this.world.addSystem(new SpoilageSystem(this.world));
@@ -603,6 +615,10 @@ export class GameManager {
       edgeMargin: CRATER_EDGE_MARGIN,
       farFraction: CRATER_FAR_FRACTION,
     });
+    // The Crystal Hive rises from the crater: the rival's base, and its core
+    this.rivalHiveId = createCrystalHive(this.world, this.craterSite.x, this.craterSite.y);
+    const rival = this.world.factions.get(FactionId.RIVAL);
+    if (rival) rival.coreId = this.rivalHiveId;
     this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock);
     this.spawnMineralFields({ x: nestX, y: nestY });
     const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
@@ -858,12 +874,14 @@ export class GameManager {
       const health = this.world.getComponent<HealthComponent>(queens[0], COMPONENT.HEALTH);
       if (health && health.current <= 0) queenDead = true;
     }
+    const hiveDestroyed = this.rivalHiveId != null && !this.world.hasEntity(this.rivalHiveId);
     const outcome = resolveRunOutcome(
       null,
       !queenDead,
       previousPhase,
       this.dayNightSystem.getPhase(),
       this.dayNightSystem.getDayNumber(),
+      hiveDestroyed,
     );
     if (!outcome) return;
 
@@ -875,6 +893,7 @@ export class GameManager {
       tilesExcavated: this.world.metrics.tilesExcavated,
       wavesRepelled: this.world.metrics.wavesRepelled,
       build: summarizeMutationBuild(this.runModifiers.getAppliedMutations()),
+      ...(outcome === 'victory' && hiveDestroyed ? { hiveDestroyed: true as const } : {}),
     };
     this.gameLoop.setPaused(true);
 
@@ -1893,7 +1912,7 @@ export class GameManager {
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'food' });
     }
-    for (const component of [COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN]) {
+    for (const component of [COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN, COMPONENT.CRYSTAL_HIVE]) {
       for (const id of this.world.query(component, COMPONENT.POSITION)) {
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
         if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'den' });
@@ -1904,7 +1923,7 @@ export class GameManager {
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       out.push({ x: pos.x, y: pos.y, kind: 'ant' });
     }
-    for (const component of [COMPONENT.BEETLE, COMPONENT.CRICKET]) {
+    for (const component of [COMPONENT.BEETLE, COMPONENT.CRICKET, COMPONENT.CRYSTAL_UNIT]) {
       for (const id of this.world.query(component, COMPONENT.POSITION)) {
         if (!onSurface(id)) continue;
         const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;

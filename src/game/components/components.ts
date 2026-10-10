@@ -136,7 +136,7 @@ export interface PathComponent {
 export interface RenderComponent {
   color: string;
   radius: number;
-  shape: 'circle' | 'square' | 'ant' | 'food' | 'mineral' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'giant_mushroom' | 'queen';
+  shape: 'circle' | 'square' | 'ant' | 'food' | 'mineral' | 'nest' | 'beetle' | 'beetle_den' | 'cricket' | 'cricket_den' | 'giant_mushroom' | 'queen' | 'crystal_drone' | 'crystal_hive';
 }
 
 export interface FacingComponent {
@@ -315,6 +315,38 @@ export interface OwnerComponent {
   faction: FactionId;
 }
 
+// === Crystal Hive (rival faction) ===
+
+export const CrystalUnitState = {
+  /** At home: keeps near the hive and fights what comes close */
+  Guarding: 'guarding',
+  /** Sent with a night wave: attack-moves to `goal`, fighting every enemy it meets */
+  Assaulting: 'assaulting',
+} as const;
+export type CrystalUnitState = typeof CrystalUnitState[keyof typeof CrystalUnitState];
+
+export type CrystalUnitKind = 'drone';
+
+/** A Crystal Hive unit. Crystal units are not ants: CrystalUnitAISystem drives them. */
+export interface CrystalUnitComponent {
+  kind: CrystalUnitKind;
+  state: CrystalUnitState;
+  /** The hive that crystallized it (null once that hive is gone) */
+  hiveId: EntityId | null;
+  /** Assaulting: the tile it marches on (the enemy nest) */
+  goal: Vector2 | null;
+  /** Seconds until the route may be recomputed */
+  repathTimer: number;
+}
+
+/** The Crystal Hive's base structure: it crystallizes drones and sends the night waves. */
+export interface CrystalHiveComponent {
+  /** Seconds until the next drone crystallizes */
+  productionTimer: number;
+  /** The last night number a wave left on (0 = none yet) */
+  lastWaveNight: number;
+}
+
 // Component name constants to avoid magic strings
 export const COMPONENT = {
   POSITION: 'position',
@@ -343,4 +375,6 @@ export const COMPONENT = {
   EGG: 'egg',
   PLAYER_ORDER: 'player_order',
   OWNER: 'owner',
+  CRYSTAL_UNIT: 'crystal_unit',
+  CRYSTAL_HIVE: 'crystal_hive',
 } as const;
