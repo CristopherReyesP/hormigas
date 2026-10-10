@@ -15,7 +15,10 @@ export interface WaveComposition {
   youngBeetles: number;
   /** Full-strength beetles that break into the nest */
   beetles: number;
-  /** Crystal drones the Crystal Hive sends at the nest on the surface (from wave 3) */
+  /**
+   * Raiders the rival base sends at the nest on the surface: Crystal drones
+   * from wave 3, or Human troops from wave 1 (see WaveRival)
+   */
   drones: number;
   /** Health and damage multiplier for every unit; above 1 only once the count is capped */
   statScale: number;
@@ -29,6 +32,14 @@ function rawSize(wave: number): number {
   return Math.round(3 + 1.5 * k + 0.5 * k * k);
 }
 
+/** The rival whose base sends the surface share of each wave. */
+export type WaveRival = 'crystal' | 'human';
+
+/** Human troops in wave `n` out of `total`: at least 2, then a quarter rising to 40% of the wave */
+function humanRaiders(n: number, total: number): number {
+  return Math.min(total, Math.max(2, Math.floor(total * Math.min(0.4, 0.25 + 0.05 * (n - 1)))));
+}
+
 /**
  * What wave `wave` (1-based) sends.
  * - Size: 3, 5, 8, 12, 17, 23, 30, 38, 47, then capped at WAVE_MAX_UNITS.
@@ -36,14 +47,22 @@ function rawSize(wave: number): number {
  *   (wave 10: x1.07, wave 11: x1.18), so the waves keep rising without more units.
  * - Mix: young beetles fade out by wave 6 (100%, 80%, 60%, ... of the wave);
  *   crystal drones join on wave 3 and grow to 30% of the wave; full beetles are the rest.
+ * - Against the Humans (`rival` 'human') the base's troops join from wave 1
+ *   (2, 2, 2, 4, 6, 9, 12, ...) and the young beetles make room for them.
  */
-export function waveComposition(wave: number): WaveComposition {
+export function waveComposition(wave: number, rival: WaveRival = 'crystal'): WaveComposition {
   if (!Number.isFinite(wave) || wave < 1) return { wave: 0, ...EMPTY };
   const n = Math.floor(wave);
   const raw = rawSize(n);
   const total = Math.min(raw, WAVE_MAX_UNITS);
   const statScale = raw > WAVE_MAX_UNITS ? Math.round((1 + (0.5 * (raw - WAVE_MAX_UNITS)) / WAVE_MAX_UNITS) * 100) / 100 : 1;
-  const youngBeetles = Math.floor(total * Math.max(0, 1 - 0.2 * (n - 1)));
+  const youngShare = Math.floor(total * Math.max(0, 1 - 0.2 * (n - 1)));
+  if (rival === 'human') {
+    const raiders = humanRaiders(n, total);
+    const young = Math.min(youngShare, total - raiders);
+    return { wave: n, total, youngBeetles: young, beetles: total - young - raiders, drones: raiders, statScale };
+  }
+  const youngBeetles = youngShare;
   const drones = n >= 3 ? Math.min(total - youngBeetles, Math.max(1, Math.floor(total * Math.min(0.3, 0.1 * (n - 2))))) : 0;
   return { wave: n, total, youngBeetles, beetles: total - youngBeetles - drones, drones, statScale };
 }

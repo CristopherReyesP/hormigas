@@ -136,7 +136,7 @@ export const RIVAL_OPTIONS: readonly RivalInfo[] = [
   {
     id: 'human',
     name: 'Humanos',
-    note: 'Próximamente',
+    note: isAvailableRival('human') ? 'Base con búnkeres y tanques' : 'Próximamente',
     available: isAvailableRival('human'),
     portrait: { source: 'human', unit: 'soldier', label: 'Soldado' },
   },
