@@ -59,6 +59,7 @@ export type NoticeTone = 'hint' | 'danger';
 type Slot = CommandDef | null;
 
 const MAX_GARRISON = 8;
+const MAX_SPEED = 3;
 
 const BREED_ORDER: ReadonlyArray<{ role: AntRole; icon: IconName }> = [
   { role: AntRole.Worker, icon: 'worker' },
@@ -82,6 +83,12 @@ const BUILD_TOOLS: ReadonlyArray<{ mode: BuildMode; label: string; icon: IconNam
   { mode: 'incubation', label: 'Incubación', icon: 'egg', description: 'Haz clic en casillas excavadas para marcar el área donde se incuban los huevos.' },
   { mode: 'farm', label: 'Granja de hongos', icon: 'fungus', description: 'Haz clic en casillas excavadas: la granja convierte hojas de la despensa en hongos, el doble de nutritivos.' },
   { mode: 'storage', label: 'Almacén', icon: 'crate', description: 'Haz clic en casillas excavadas para ampliar la despensa de comida.' },
+];
+
+/** Area tools on the bottom row of the nest card, beside the time controls (they used to hide on the Colonia page). */
+const AREA_TOOLS: ReadonlyArray<{ mode: BuildMode; label: string; icon: IconName; description: string }> = [
+  { mode: 'defense', label: 'Área de defensa', icon: 'shield', description: 'Haz clic en casillas excavadas: las defensoras montan guardia allí y atacan a los intrusos.' },
+  { mode: 'throne', label: 'Trono', icon: 'crown', description: 'Marca casillas de trono. Luego, sin herramienta activa, haz clic en un trono para mudar a la reina.' },
 ];
 
 /** Hint shown above the console while a build tool is armed. */
@@ -147,15 +154,16 @@ function timeCommands(ctx: CommandContext): CommandDef[] {
       active: paused,
       run: act(ctx, () => ctx.gm.togglePause()),
     },
-    ...[1, 2, 3].map((n) => ({
-      id: `speed-${n}`,
-      label: `Velocidad ×${n}`,
-      glyph: `×${n}`,
-      description: n === 1 ? 'Ritmo normal.' : `El tiempo corre ${n} veces más rápido.`,
-      altKeys: String(n),
-      active: speed === n,
-      run: act(ctx, () => ctx.gm.setSpeed(n)),
-    })),
+    {
+      // One button for the three speeds: the top strip already shows the speed and 1-3 still pick one
+      id: 'speed',
+      label: `Velocidad ×${speed}`,
+      glyph: `×${speed}`,
+      description: `${speed === 1 ? 'Ritmo normal.' : `El tiempo corre ${speed} veces más rápido.`} Cambia entre ×1, ×2 y ×3.`,
+      altKeys: '1, 2, 3',
+      active: speed > 1,
+      run: act(ctx, () => ctx.gm.setSpeed((speed % MAX_SPEED) + 1)),
+    },
   ];
 }
 
@@ -216,6 +224,8 @@ function surfaceRoot(ctx: CommandContext): Slot[] {
     },
     ...breedCommands(ctx),
     ...timeCommands(ctx),
+    null,
+    null,
     attackDen(ctx),
   ];
 }
@@ -224,7 +234,7 @@ function surfaceRoot(ctx: CommandContext): Slot[] {
 const NEST_ROOT_ORDER: readonly string[] = [
   'dig', 'incubation', 'farm', 'storage', 'ascend',
   ...BREED_ORDER.map(({ role }) => `breed-${role}`),
-  'pause', 'speed-1', 'speed-2', 'speed-3', 'colony-page',
+  'pause', 'speed', 'defense', 'throne', 'colony-page',
 ];
 
 function nestRoot(ctx: CommandContext): Slot[] {
@@ -243,11 +253,12 @@ function nestRoot(ctx: CommandContext): Slot[] {
     },
     ...breedCommands(ctx),
     ...timeCommands(ctx),
+    ...AREA_TOOLS.map((tool) => buildTool(ctx, tool.mode, tool.label, tool.icon, tool.description)),
     {
       id: 'colony-page',
       label: 'Colonia',
-      icon: 'crown',
-      description: 'Trono, área de defensa, guarnición, mejoras de la reina y dieta.',
+      icon: 'upgrade',
+      description: 'Guarnición, mejoras de la reina y dieta.',
       run: () => ctx.setPage('colony'),
     },
   ];
@@ -297,8 +308,6 @@ function colonyPage(ctx: CommandContext): Slot[] {
     run: act(ctx, () => ctx.gm.setConsumptionPriority(type)),
   });
   return [
-    buildTool(ctx, 'throne', 'Trono', 'crown', 'Marca casillas de trono. Luego, sin herramienta activa, haz clic en un trono para mudar a la reina.'),
-    buildTool(ctx, 'defense', 'Área de defensa', 'shield', 'Haz clic en casillas excavadas: las defensoras montan guardia allí y atacan a los intrusos.'),
     {
       id: 'garrison-down',
       label: 'Menos guarnición',
@@ -317,11 +326,13 @@ function colonyPage(ctx: CommandContext): Slot[] {
       disabled: garrison.target >= MAX_GARRISON,
       run: act(ctx, () => ctx.gm.setGarrisonSize(garrison.target + 1)),
     },
-    null,
-    ...[0, 1, 2, 3, 4, 5].map((i) => upgradeCommand(ctx, upgrades[i])),
     diet('leaf', 'hojas', 'leaf'),
     diet('mushroom', 'hongos', 'fungus'),
     diet('meat', 'carne', 'meat'),
+    ...[0, 1, 2, 3, 4, 5].map((i) => upgradeCommand(ctx, upgrades[i])),
+    null,
+    null,
+    null,
     {
       id: 'back',
       label: 'Volver',

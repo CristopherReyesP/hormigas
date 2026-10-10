@@ -123,12 +123,42 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
       - Checks: `npm test` 258/258, tsc, lint, build. Frames checked by eye in headless Edge.
     - Decision (writer, creative license): the fireball lights the ground it crosses and the crater (`revealCircle`), so that strip stays explored: a scorched trail on the minimap that points at the crater, where the Hive rises in P5.
     - Open: the camera and art run two `IntroClock`s fed the same dt, because `RenderSystem` (outside this writer's surface) keeps its `MeteorIntro` private. A `RenderSystem.getIntroClock()` would let them share one clock. The HUD stays up during the cinematic, so the letterbox bars sit inside the visible band; hiding the HUD needs `App.tsx`/`index.css`.
-  - [ ] P2.9 Breeding UI clarity (user, 2026-10-09: "mejorar la interfaz de crianza que se entienda más"). Evidence from a headless screenshot:
+  - [x] P2.9 Breeding UI clarity (user, 2026-10-09: "mejorar la interfaz de crianza que se entienda más"). Evidence from a headless screenshot:
     - The breed row (A–G) is five dimmed icons with no label, no visible cost and no reason why they are disabled.
     - The top strip shows 34 leaves while the pantry reads 0/450.
     - Egg status shows only when the nest is selected.
     - The breeding objective uses voseo ("Criá…, encargá…").
     Scope: a visible brood pipeline (pantry → queen lays → incubation → hatch) with per-stage counts and blocked reasons, cost and state on each breed button, egg progress, and the two food numbers labeled so they read differently. Route: delegated (Claude subagent, main worktree).
+    - Done as 46ae112 (readout and buttons) and 0e3999f (objective copy).
+    - The two numbers: the strip's food totals add the surface stock at the nest entrance (`nest.foodStored`, it spoils) to the underground pantry. Only the pantry pays for eggs (`queueBreed` → `deductFromStorage`).
+    - Pipeline rules mapped from the code:
+      - The egg is paid when it is ordered. The queue holds at most 5 per caste.
+      - The queen lays one egg every 3 s and pauses below 100 hunger.
+      - Only nurses carry an egg to a free incubation slot (4 per tile), and it only grows there.
+      - A grown larva hatches once a nurse has fed it 10 food from the pantry. With no nurses, nothing ever hatches; eggs do not just grow slower.
+    - UI:
+      - A CRÍA column on both default views (DESPENSA → REINA → INCUBANDO → NACE) with counts, egg chips (caste icon, bar, time left) and the first blocker with its fix and key.
+      - Breed buttons print their price with a new pantry icon, red when the pantry cannot pay. A full queue shows 5/5.
+      - A disabled button explains itself when pressed. A queued egg confirms with "Huevo de soldado encargado (-35 comida)".
+      - The strip has a DESPENSA x/y chip. RESERVAS splits "En la entrada" from "Despensa".
+      - Under 1500 px the column the strip repeats (ENJAMBRE, or the nest DESPENSA) gives way so the stage labels fit.
+    - The first objective now reads "pulsa A (Criar obrera) cuando la despensa tenga 20 de comida". Every objective is in neutral Spanish.
+    - RED:
+      - brood suites failed on the missing module.
+      - 20 tests failed in commands, CommandCard, TopStrip, InfoPanel and ObjectiveSystem.
+    - GREEN:
+      - `npm test` 307/307 for the readout commit and 309/309 with the objective commit.
+      - `npx tsc -b --noEmit`, `npm run lint` and `npm run build` pass.
+      - Headless Edge frames at 1600×900 and 1280×720 were checked by eye.
+    - Follow-up (user: "el botón para poner territorio de defensa no lo veo"):
+      - Área de defensa (C) and Trono (V) moved from the Colonia page to the nest root card.
+      - A single Velocidad button now cycles ×1→×2→×3 and shows the speed on its face. It replaces the three speed buttons.
+      - The surface card keeps the same time row and leaves C and V empty.
+      - The Colonia page holds garrison, diet and upgrades and has its own icon.
+      - Card badges sit on a dark backdrop so "0/3" no longer runs into the hotkey.
+      - RED: 8 card layout and speed tests. GREEN: 314/314 tests, tsc, lint, build.
+    - Open:
+      - `DefenderAISystem` still tells the player "Marcá 🛡️ Defensa" in voseo. It should name Área de defensa (C).
   - [ ] P2.10 Crystal Hive less insect, more alien (user, 2026-10-09). The intro drones in `src/game/render/crystalDeployArt.ts` "unfold and crawl", which reads as an insect. Redraw them as hovering crystal drones that rise out of the crater, unfold their orbiting shards and glide toward the colony, following the new Crystal Hive art rules. Route: delegated after P2.9.
   - [ ] P2.4 Mutation marks drawn on ant sprites for applied mutations.
   - [ ] P2.5 Bottom console and UI restyle (`--ui-*` → `--chrome-*`, pixel icons, one font, Spanish only).
@@ -234,5 +264,5 @@ When the user says this in a new session, run this plan in order. Each item is o
 Then T4 wave pacing (`odd/tasks/roguelite-run-loop.md`) and the balance follow-ups:
 - the soldier retreat is gone, so combat deaths rose;
 - nurses and defenders don't heal by eating;
-- voseo strings remain in ObjectiveSystem and GameManager notifications, and should become neutral Spanish;
+- voseo strings remain in GameManager and DefenderAISystem notifications (ObjectiveSystem was fixed in 0e3999f), and should become neutral Spanish;
 - holding a digit key repeats into game speed.

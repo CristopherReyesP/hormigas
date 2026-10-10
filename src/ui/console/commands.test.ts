@@ -3,7 +3,7 @@ import type { GameManager, GameStats } from '../../game/GameManager';
 import { AntRole, ColonyPriority } from '../../game/components/components';
 import { broodKeys, buildCommands, type CommandContext } from './commands';
 import type { ColonyDetails } from './useColonyDetails';
-import { CARD_SLOTS } from './commandCardLayout';
+import { CARD_SLOTS, cardHotkeys } from './commandCardLayout';
 
 function fakeGame() {
   return {
@@ -78,14 +78,14 @@ function context(overrides: Partial<CommandContext> = {}) {
 }
 
 describe('surface command card', () => {
-  it('fills all 15 slots with priorities, retreat, nest, breeding and time control', () => {
+  it('fills the card with priorities, retreat, nest, breeding, pause, one speed button and the den attack', () => {
     const { ctx } = context();
     const ids = buildCommands(ctx).map((c) => c?.id ?? null);
     expect(ids).toHaveLength(CARD_SLOTS);
     expect(ids).toEqual([
       'gather', 'explore', 'defend', 'retreat', 'descend',
       'breed-worker', 'breed-soldier', 'breed-scout', 'breed-nurse', 'breed-defender',
-      'pause', 'speed-1', 'speed-2', 'speed-3', 'attack-den',
+      'pause', 'speed', null, null, 'attack-den',
     ]);
   });
 
@@ -100,17 +100,16 @@ describe('surface command card', () => {
     expect(ctx.switchLayer).toHaveBeenCalledWith('underground');
     commands[10]!.run();
     expect(gm.togglePause).toHaveBeenCalled();
-    commands[12]!.run();
+    commands[11]!.run();
     expect(gm.setSpeed).toHaveBeenCalledWith(2);
     commands[5]!.run();
     expect(gm.queueBreed).toHaveBeenCalledWith(AntRole.Worker);
   });
 
-  it('marks the current priority and speed active and prices breeding from the pantry', () => {
+  it('marks the current priority active and prices breeding from the pantry', () => {
     const { ctx } = context();
     const commands = buildCommands(ctx);
     expect(commands[0]!.active).toBe(true);
-    expect(commands[11]!.active).toBe(true);
     expect(commands[5]).toMatchObject({ cost: { amount: 20, resource: 'comida', short: false }, disabled: false, badge: '1' });
     expect(commands[6]).toMatchObject({
       cost: { amount: 35, resource: 'comida', short: true },
@@ -151,32 +150,82 @@ describe('surface command card', () => {
   });
 });
 
-describe('nest command card', () => {
-  it('swaps the first row for build tools and the last slot for the colony page', () => {
+describe('speed button', () => {
+  it('cycles ×1 → ×2 → ×3 → ×1 and shows the current speed on its face', () => {
+    for (const [speed, next] of [[1, 2], [2, 3], [3, 1]]) {
+      const { gm, ctx } = context();
+      ctx.stats = { ...ctx.stats, speed } as GameStats;
+      const button = buildCommands(ctx)[11]!;
+      expect(button).toMatchObject({ id: 'speed', glyph: `×${speed}`, label: `Velocidad ×${speed}`, altKeys: '1, 2, 3' });
+      button.run();
+      expect(gm.setSpeed).toHaveBeenCalledWith(next);
+    }
+  });
+
+  it('lights up only while the game runs faster than normal', () => {
     const { ctx } = context();
-    ctx.stats = { ...ctx.stats, activeLayer: 'underground' } as GameStats;
+    expect(buildCommands(ctx)[11]!.active).toBe(false);
+    ctx.stats = { ...ctx.stats, speed: 2 } as GameStats;
+    expect(buildCommands(ctx)[11]!.active).toBe(true);
+  });
+});
+
+describe('nest command card', () => {
+  function nest(page: 'root' | 'colony' = 'root') {
+    const made = context({ page });
+    made.ctx.stats = { ...made.ctx.stats, activeLayer: 'underground' } as GameStats;
+    return made;
+  }
+
+  it('keeps build tools on top, breeding in the middle and puts defense and throne beside the time controls', () => {
+    const ids = buildCommands(nest().ctx).map((c) => c?.id ?? null);
+    expect(ids).toEqual([
+      'dig', 'incubation', 'farm', 'storage', 'ascend',
+      'breed-worker', 'breed-soldier', 'breed-scout', 'breed-nurse', 'breed-defender',
+      'pause', 'speed', 'defense', 'throne', 'colony-page',
+    ]);
+  });
+
+  it('arms the defense area and throne tools straight from the root card, on keys C and V', () => {
+    const { ctx } = nest();
     const commands = buildCommands(ctx);
-    expect(commands.slice(0, 5).map((c) => c?.id)).toEqual(['dig', 'incubation', 'farm', 'storage', 'ascend']);
-    expect(commands[14]!.id).toBe('colony-page');
+    expect(commands[12]).toMatchObject({ id: 'defense', label: 'Área de defensa', icon: 'shield' });
+    expect(commands[13]).toMatchObject({ id: 'throne', label: 'Trono', icon: 'crown' });
+    expect([cardHotkeys()[12], cardHotkeys()[13]]).toEqual(['C', 'V']);
+    commands[12]!.run();
+    expect(ctx.toggleBuildMode).toHaveBeenCalledWith('defense');
+    commands[13]!.run();
+    expect(ctx.toggleBuildMode).toHaveBeenCalledWith('throne');
     commands[0]!.run();
     expect(ctx.toggleBuildMode).toHaveBeenCalledWith('dig');
-    commands[14]!.run();
+  });
+
+  it('shows the defense tool as active while it is armed', () => {
+    const { ctx } = nest();
+    ctx.buildMode = 'defense';
+    expect(buildCommands(ctx)[12]!.active).toBe(true);
+  });
+
+  it('opens the colony page from the last slot', () => {
+    const { ctx } = nest();
+    buildCommands(ctx)[14]!.run();
     expect(ctx.setPage).toHaveBeenCalledWith('colony');
   });
 
-  it('puts throne, defense, garrison, upgrades and diet on the colony page', () => {
-    const { gm, ctx } = context({ page: 'colony' });
-    ctx.stats = { ...ctx.stats, activeLayer: 'underground' } as GameStats;
+  it('keeps garrison, diet and upgrades on the colony page, without the tools now on the root card', () => {
+    const { gm, ctx } = nest('colony');
     const commands = buildCommands(ctx);
     expect(commands).toHaveLength(CARD_SLOTS);
-    expect(commands[0]!.id).toBe('throne');
-    expect(commands[1]!.id).toBe('defense');
-    commands[3]!.run();
+    expect(commands.map((c) => c?.id ?? null)).toEqual([
+      'garrison-down', 'garrison-up', 'diet-leaf', 'diet-mushroom', 'diet-meat',
+      'upgrade-carry', 'upgrade-damage', null, null, null,
+      null, null, null, null, 'back',
+    ]);
+    commands[1]!.run();
     expect(gm.setGarrisonSize).toHaveBeenCalledWith(3);
     expect(commands[5]).toMatchObject({ id: 'upgrade-carry', label: 'Obreras fuertes', disabled: false });
     expect(commands[6]).toMatchObject({ id: 'upgrade-damage', disabled: true });
-    expect(commands.slice(11, 14).map((c) => c?.id)).toEqual(['diet-leaf', 'diet-mushroom', 'diet-meat']);
-    commands[12]!.run();
+    commands[3]!.run();
     expect(gm.setConsumptionPriority).toHaveBeenCalledWith('mushroom');
     commands[14]!.run();
     expect(ctx.setPage).toHaveBeenCalledWith('root');

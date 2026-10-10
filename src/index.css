@@ -1351,17 +1351,19 @@ button:focus-visible {
 .cmd-key {
   position: absolute;
   top: 3px;
-  left: 5px;
+  left: 4px;
   color: var(--chrome-accent);
   text-shadow: 1px 1px 0 #000;
 }
 
 .cmd-badge {
   position: absolute;
-  top: 3px;
-  right: 5px;
+  top: 2px;
+  right: 2px;
+  padding: 1px 1px 0;
   color: var(--chrome-text);
-  text-shadow: 1px 1px 0 #000;
+  background: var(--chrome-bg);
+  line-height: 1;
 }
 
 .cmd-badge--warn {
