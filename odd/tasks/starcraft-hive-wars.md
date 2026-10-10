@@ -23,6 +23,10 @@ The user wants the StarCraft fantasy, "even if we have to change sprites", as lo
 - Receipt-driven review is off for this clone (`gentle-ai review mode disable --scope clone`, user, 2026-10-09); delivery follows ordinary checks (`npm test`, `npm run lint`, `npm run build`).
 - Creative license and "excite me when I see the game" (user, 2026-10-09): visual impact comes first. P2 (StarCraft look) runs right after P1, before the RTS mechanics.
 - Moments to stage in P1–P2: a meteorite impact (flash and screen shake) that opens each run; a dramatic evolution-chamber dialog at dawn with pulsing organic cards; mutations that leave visible marks on the ants (acid-green mandibles, glowing veins, wing stubs); a red-tinted night with an alarm pulse and cyan-glowing alien waves; a full-screen victory banner.
+- Each faction builds its base differently (user, 2026-10-09):
+  - The Swarm lives in a cave, the underground layer, and adds living structures on its mycelium at the surface (P7).
+  - The other factions don't dig. The Crystal Hive and, later, the Humans build upward: buildings with floors. Each floor has an interior view, like the Swarm's NIDO view. The user picked "pisos hacia arriba" over upgrade tiers and surface terraces.
+  - Implication: the layer model (surface/underground, the SUPERFICIE/NIDO tabs, an UndergroundGrid) generalizes into per-building interior floors. Design this in P4 before P5.
 - The rival AI runs a scripted build order (as StarCraft's AI does), not a learned or fully simulated economy, unless playtesting shows it is too predictable.
 
 ## Art direction (from the design audit, 2026-10-09)
@@ -135,7 +139,8 @@ Mechanics notes for later phases: arm waves by night number with a 1-unit scout 
   - [ ] P3b Attack-move and attack target, reusing `selectSoldierTarget` (`AntAISystem.ts:1049-1074`); fold `dispatchAttackWave` into orders. Tests: attack-move engages an enemy in range, then resumes; an attack target persists.
   - [ ] P3c Control groups: Ctrl+digit binds, digit recalls; game speed moves to other keys. Tests: bind and recall, dead ids pruned, digits still pick at the dawn offer.
 - [ ] P4 — Factions: ownership component in targeting, damage, vision and economy; faction-filtered fog; remove first-nest assumptions (`src/game/systems/AntAISystem.ts:123-125`). Cost: expensive; foundation for P5.
-- [ ] P5 — Crystal Hive: rival nest on the far side of the map, scripted build order, night waves sourced from it, Crystal Queen boss on night 7, victory on hive destruction. Cost: expensive.
+- [ ] P5 — Crystal Hive: rival base on the far side of the map, scripted build order, night waves sourced from it, Crystal Queen boss on night 7, victory on hive destruction. Its base grows upward as crystal spires with interior floors (see Decisions). Cost: expensive.
+- [ ] P9 — Humans (user, 2026-10-09; Terran-like, a third faction added later). Their base is buildings with floors (barracks, bunkers, turrets), raised by a builder anywhere, with no creep. It reuses the P4 interior floors and P5's floor view. Cost: expensive; not planned in detail yet.
 - [ ] P6 — Supply cap. The mycelium creep moved to P7.2. Cost: medium.
 - [ ] P7 — Surface base building (user, 2026-10-09: "en StarCraft se agregan como sitios en la superficie porque no hay cueva… expansión de territorio… encontrar minerales para construir armas, defensas"). Food pays for ants; minerals pay for structures. Cost: medium-expensive. Same Explore map:
   - Terrain tiles are `{terrain, walkable, pheromones}` (`simulation/world/types.ts:3-19`). The TileGrid seed comes from Math.random (`TileGrid.ts:12`), so new placement must use a seeded rng like `pickCraterSite` (`run/craterSite.ts:50-82`). The visual crystal shards around the crater (`alienDecor.ts:115-145`) mark the natural first mineral field.
