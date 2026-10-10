@@ -99,7 +99,7 @@ function ColonySummary({ stats, details }: { stats: GameStats; details: ColonyDe
           {stats.invasion.active
             ? `¡Oleada ${stats.invasion.waveNumber} en el nido! ${stats.invasion.invadersAlive} invasores`
             : stats.invasion.armed
-              ? `La oleada ${stats.invasion.waveNumber + 1} llega al anochecer`
+              ? `La oleada ${stats.invasion.waveNumber + 1} llega al anochecer, en ${formatClock(stats.invasion.nextWaveIn)}`
               : `Oleada ${stats.invasion.waveNumber + 1} en ${formatClock(stats.invasion.nextWaveIn)}`}
         </div>
       </Column>
