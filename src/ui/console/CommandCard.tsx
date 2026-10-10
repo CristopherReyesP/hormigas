@@ -118,7 +118,8 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked, tou
             return (
               <div
                 key={command.id}
-                className="cmd-slot"
+                className={command.prominent ? 'cmd-slot cmd-slot--wide' : 'cmd-slot'}
+                data-cmd={command.id}
                 onMouseEnter={() => {
                   if (!fingerRef.current) setHovered(i);
                 }}
@@ -170,6 +171,7 @@ export function CommandCard({ commands, hotkeysEnabled, onEscape, onBlocked, tou
                     ) : (
                       <span className="cmd-glyph">{command.glyph}</span>
                     )}
+                    {command.prominent && <span className="cmd-label">{command.shortLabel ?? command.label}</span>}
                     {!touch && <span className="cmd-key">{key}</span>}
                     {command.badge && (
                       <span className={command.badgeTone ? `cmd-badge cmd-badge--${command.badgeTone}` : 'cmd-badge'}>{command.badge}</span>

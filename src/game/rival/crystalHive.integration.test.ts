@@ -216,14 +216,14 @@ describe('drones and the player fight each other', () => {
 
 describe('victory by destroying the hive', () => {
   it('wins when the hive falls and the queen lives', () => {
-    expect(resolveRunOutcome(null, true, 'day', 'day', 2, true)).toBe('victory');
+    expect(resolveRunOutcome(null, true, true)).toBe('victory');
   });
 
   it('still loses when the queen dies, even if the hive fell', () => {
-    expect(resolveRunOutcome(null, false, 'day', 'day', 2, true)).toBe('defeat');
+    expect(resolveRunOutcome(null, false, true)).toBe('defeat');
   });
 
   it('does not win while the hive stands', () => {
-    expect(resolveRunOutcome(null, true, 'day', 'day', 2, false)).toBeNull();
+    expect(resolveRunOutcome(null, true, false)).toBeNull();
   });
 });

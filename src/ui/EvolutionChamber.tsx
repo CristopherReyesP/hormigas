@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getSpriteAtlas } from './sharedAtlas';
 import { crispPlacement } from './console/portraitScale';
 import { AntRole } from '../game/components/components';
@@ -6,11 +6,17 @@ import { SPRITE_GRID } from '../engine/renderer/sprites/spriteScale';
 import { ANT_MARK_IDS, MAX_MARK_STACKS, NO_MARKS, marksForRole, type AntMarkId, type AntMarks } from '../engine/renderer/sprites/antMarks';
 import type { MutationOffer, MutationOfferOption } from '../game/run/DawnPick';
 import type { MutationId, MutationTag } from '../game/run/MutationDefinitions';
+import { chamberKeyAction, runChamberAction, tapCardAction, type ChamberAction } from './evolutionPick';
 
 interface EvolutionChamberProps {
   offer: MutationOffer | null;
+  /** The card selected in the pending offer (GameManager owns it: keys 1-3 select too). */
+  selected: MutationId | null;
   lastPick: MutationId | null;
-  onChoose: (id: MutationId) => void;
+  /** Select a card, or clear the selection with null. Never applies it. */
+  onSelect: (id: MutationId | null) => void;
+  /** Apply the selected card. */
+  onConfirm: () => void;
 }
 
 /** How long the chosen card flashes before the chamber closes. */
@@ -28,17 +34,50 @@ const TAG_LABELS: Record<MutationTag, string> = {
 };
 
 /**
- * Dawn mutation pick, staged as the Swarm's evolution chamber. Keys 1-3 are
- * handled by GameManager; this overlay renders the pending offer, takes clicks,
- * and keeps the last offer on screen briefly so the chosen card can flash.
+ * Dawn mutation pick, staged as the Swarm's evolution chamber. Picking takes
+ * two steps so a stray tap never evolves the swarm: a tap (or keys 1-3, which
+ * GameManager handles) selects a card, and "Confirmar evolución" (or Enter)
+ * applies it. Tapping the selected card again, "Cancelar" or Esc deselect.
+ * Taps in the first OPEN_GUARD_MS after the chamber opens are ignored. There
+ * is no timer: the run stays paused until the player confirms. The last offer
+ * stays on screen briefly so the chosen card can flash.
  */
-export function EvolutionChamber({ offer, lastPick, onChoose }: EvolutionChamberProps) {
+export function EvolutionChamber({ offer, selected, lastPick, onSelect, onConfirm }: EvolutionChamberProps) {
   const [shownOffer, setShownOffer] = useState(offer);
   const [closing, setClosing] = useState<{ offer: MutationOffer; chosenId: MutationId } | null>(null);
   if (offer !== shownOffer) {
     setShownOffer(offer);
     setClosing(offer === null && shownOffer && lastPick ? { offer: shownOffer, chosenId: lastPick } : null);
   }
+
+  // When the current offer appeared, for the accidental-tap guard
+  const openedAt = useRef(0);
+  useEffect(() => {
+    if (offer) openedAt.current = performance.now();
+  }, [offer]);
+
+  const dispatch = useCallback((action: ChamberAction | null) => {
+    if (!action) return;
+    runChamberAction({
+      selectMutation: (id) => { onSelect(id as MutationId | null); return true; },
+      confirmMutation: () => { onConfirm(); return true; },
+    }, action);
+  }, [onSelect, onConfirm]);
+
+  const pending = offer !== null;
+  useEffect(() => {
+    if (!pending) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const action = chamberKeyAction(e.code, selected);
+      if (!action) return;
+      // Keeps Enter from also clicking a focused card
+      e.preventDefault();
+      dispatch(action);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pending, selected, dispatch]);
 
   useEffect(() => {
     if (!closing) return;
@@ -49,9 +88,16 @@ export function EvolutionChamber({ offer, lastPick, onChoose }: EvolutionChamber
   const visible = offer ?? closing?.offer;
   if (!visible) return null;
   const chosenId = offer ? null : closing?.chosenId ?? null;
+  const selectedOption = offer && selected ? offer.options.find(option => option.id === selected) ?? null : null;
+  const onTap = (id: MutationId) => dispatch(tapCardAction(selected, id, performance.now() - openedAt.current));
 
   return (
-    <div className="evo-backdrop" role="dialog" aria-modal="true" aria-labelledby="evo-title">
+    <div
+      className={selectedOption ? 'evo-backdrop evo-backdrop--selecting' : 'evo-backdrop'}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="evo-title"
+    >
       <div className={chosenId ? 'evo-frame evo-frame--closing' : 'evo-frame'}>
         <div className="chrome-plate evo-panel-plate">
           <div className="chrome-plate-inner evo-panel">
@@ -64,15 +110,29 @@ export function EvolutionChamber({ offer, lastPick, onChoose }: EvolutionChamber
                   key={option.id}
                   option={option}
                   slot={index + 1}
-                  state={chosenId === null ? 'open' : chosenId === option.id ? 'chosen' : 'faded'}
-                  onChoose={onChoose}
+                  state={chosenId !== null
+                    ? (chosenId === option.id ? 'chosen' : 'faded')
+                    : selectedOption?.id === option.id ? 'selected' : 'open'}
+                  onTap={onTap}
                 />
               ))}
             </div>
-            <p className="evo-hint">Elige una mutación con clic o con las teclas 1, 2 y 3</p>
+            <p className="evo-hint">
+              Toca una mutación para verla y luego confírmala · Teclado: 1, 2 y 3 eligen, Enter confirma, Esc cancela
+            </p>
           </div>
         </div>
       </div>
+      {selectedOption && (
+        // Outside the frame: its drop-shadow filter would trap a fixed bar
+        <div className="evo-confirm-bar">
+          <button type="button" className="evo-cancel-btn" onClick={() => dispatch({ type: 'deselect' })}>Cancelar</button>
+          <button type="button" className="evo-confirm-btn" aria-keyshortcuts="Enter" onClick={() => dispatch({ type: 'confirm' })}>
+            <span className="evo-confirm-label">Confirmar evolución</span>
+            <span className="evo-confirm-name">{selectedOption.name}</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -80,25 +140,28 @@ export function EvolutionChamber({ offer, lastPick, onChoose }: EvolutionChamber
 interface MutationCardProps {
   option: MutationOfferOption;
   slot: number;
-  state: 'open' | 'chosen' | 'faded';
-  onChoose: (id: MutationId) => void;
+  state: 'open' | 'selected' | 'chosen' | 'faded';
+  onTap: (id: MutationId) => void;
 }
 
-function MutationCard({ option, slot, state, onChoose }: MutationCardProps) {
+function MutationCard({ option, slot, state, onTap }: MutationCardProps) {
   const className = state === 'open' ? 'evo-card' : `evo-card evo-card--${state}`;
+  const interactive = state === 'open' || state === 'selected';
   return (
     <div className="evo-card-slot" style={{ '--evo-i': slot - 1 } as React.CSSProperties}>
       <button
         type="button"
         className={className}
-        disabled={state !== 'open'}
+        disabled={!interactive}
+        aria-pressed={interactive ? state === 'selected' : undefined}
         aria-keyshortcuts={String(slot)}
-        onClick={() => onChoose(option.id)}
+        onClick={() => onTap(option.id)}
       >
         <span className="chrome-plate evo-card-plate">
           <span className="chrome-plate-inner evo-card-inner">
             <span className="evo-card-top">
               <span className="evo-hotkey">[{slot}]</span>
+              {state === 'selected' && <span className="evo-card-picked">ELEGIDA</span>}
               <StackPips stacks={option.stacks} maxStacks={option.maxStacks} />
             </span>
             <span className="evo-specimen">

@@ -80,6 +80,7 @@ describe('the Human HUD', () => {
   it('the end screen speaks for the expedition, not for the queen', () => {
     const base: GameOverStats = {
       outcome: 'defeat', survivedTicks: 3600, antsHatched: 0, densDestroyed: 1, tilesExcavated: 0, wavesRepelled: 2, build: [], playerRace: 'human',
+      nightsSurvived: 8, bestNight: 14, newRecord: false,
     };
     const defeat = renderToStaticMarkup(<GameOverScreen stats={base} onRestart={() => {}} />);
     expect(defeat).toContain('CAYÓ EL CENTRO DE MANDO');
@@ -88,7 +89,15 @@ describe('the Human HUD', () => {
     const win = renderToStaticMarkup(<GameOverScreen stats={{ ...base, outcome: 'victory', rivalCoreDestroyed: 'human' }} onRestart={() => {}} />);
     expect(win).toContain('LA EXPEDICIÓN VENCE');
     expect(win).toContain('La expedición destruyó el Centro de Mando rival.');
-    expect(win).not.toMatch(/noches/);
+    expect(win).not.toContain('7 noches');
+    // Human runs are endless too: the night record, and a victory can be continued
+    expect(defeat).toContain('Récord: noche 14');
+    expect(defeat).not.toContain('SEGUIR JUGANDO');
+    const endless = renderToStaticMarkup(
+      <GameOverScreen stats={{ ...base, outcome: 'victory', rivalCoreDestroyed: 'human' }} onRestart={() => {}} onContinue={() => {}} />,
+    );
+    expect(endless).toContain('SEGUIR JUGANDO');
+    expect(endless).toContain('NUEVA PARTIDA');
     const crush = renderToStaticMarkup(
       <GameOverScreen stats={{ ...base, outcome: 'victory', rivalCoreDestroyed: 'crystal', hiveDestroyed: true }} onRestart={() => {}} />,
     );

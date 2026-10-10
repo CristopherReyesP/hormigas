@@ -19,6 +19,8 @@ import type { RunSetup } from '../../run/RunSetup';
 import { WORLD_HEIGHT, WORLD_WIDTH } from '../../../shared/constants';
 import { HUMAN_PLAYER_COMPONENT } from './humanPlayerComponents';
 import { PLAYER_HUMAN_START } from './humanPlayerRules';
+import { nightMilestone } from '../../run/nightMilestones';
+import { BEST_NIGHT_KEY } from '../../run/nightRecord';
 
 // Real manager and map; browser-only adapters are replaced.
 vi.mock('../../../engine/input/InputManager', async () =>
@@ -214,6 +216,49 @@ describe('a Humans run against the wildlife', () => {
     expect(info.active).toBe(true);
     expect(info.waveNumber).toBe(11);
     expect(world.query(HUMAN_PLAYER_COMPONENT.WAVE_INVADER).length).toBeGreaterThan(0);
+    game.stop();
+  });
+});
+
+describe('a Humans run is endless, like the Swarm\'s', () => {
+  it('celebrates the seventh night with minerals and rations, and records the night', () => {
+    const storage = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => { storage.set(k, v); } });
+    const { game, world, state, human } = start(VS_WILDLIFE);
+    const dayNight = game['dayNightSystem'] as unknown as { dayNumber: number; phase: string; phaseTimer: number };
+    dayNight.dayNumber = 7;
+    dayNight.phase = 'night';
+    dayNight.phaseTimer = 0.01;
+    const minerals = world.minerals.stored;
+    const rations = human.economy.stock().rations;
+    state.update(DT);
+    const milestone = nightMilestone(7)!;
+    expect(state.gameOver).toBeNull();
+    expect(game.getStats().milestone).toMatchObject({ night: 7, title: '¡Sobreviviste 7 noches!', foodUnit: 'raciones' });
+    expect(world.minerals.stored - minerals).toBeGreaterThanOrEqual(milestone.reward.minerals);
+    expect(human.economy.stock().rations - rations).toBeGreaterThanOrEqual(milestone.reward.food);
+    expect(game.getStats().notifications.some((n) => n.message.includes(`+${milestone.reward.food} raciones`))).toBe(true);
+    expect(storage.get(BEST_NIGHT_KEY)).toBe('7');
+    vi.stubGlobal('localStorage', undefined);
+    game.stop();
+  });
+
+  it('a rival-core victory can be continued: Seguir jugando, then waves from the wildlife, until the command center falls', () => {
+    vi.stubGlobal('localStorage', undefined);
+    const { game, world, state, core, human } = start(VS_CRYSTAL);
+    world.destroyEntity(world.query(COMPONENT.CRYSTAL_HIVE)[0]);
+    state.update(DT);
+    expect(state.gameOver).toMatchObject({ outcome: 'victory', playerRace: 'human', rivalCoreDestroyed: 'crystal', nightsSurvived: 0 });
+    expect(game.continueAfterVictory()).toBe(true);
+    expect(state.gameOver).toBeNull();
+    expect(game.getStats().paused).toBe(false);
+    expect(human.waves['raidSource']).toBeNull();
+    state.update(DT);
+    expect(state.gameOver).toBeNull();
+    world.destroyEntity(core());
+    state.update(DT);
+    expect(state.gameOver).toMatchObject({ outcome: 'defeat', playerRace: 'human' });
+    expect(game.continueAfterVictory()).toBe(false);
     game.stop();
   });
 });

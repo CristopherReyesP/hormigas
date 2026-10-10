@@ -7,7 +7,6 @@ import {
   DAY_DURATION,
   INVASION_ARM_LEAD,
   INVASION_BOSS_NIGHT,
-  RUN_NIGHTS_TO_WIN,
   WAVE_WARNING_LEAD,
 } from '../../shared/constants';
 import { waveComposition } from '../run/waveComposition';
@@ -34,21 +33,24 @@ function setup() {
   return { world, dayNight, invasion, step, now: () => t };
 }
 
+/** The endless run has no last night: check the waves well past the old 7 */
+const ENDLESS_TEST_NIGHTS = 20;
+
 const beetles = (world: World) => world.query(COMPONENT.BEETLE).length;
 
 const sizes = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => waveComposition(from + i).total);
 
 describe('wave size per wave number', () => {
-  it('keeps the boss slot on the last night of the run only', () => {
-    expect(INVASION_BOSS_NIGHT).toBe(RUN_NIGHTS_TO_WIN);
-    const bossNights = [1, 2, 3, 4, 5, 6, 7, 8].filter(isBossNight);
+  it('keeps the Crystal Queen on night 7 only, even in an endless run', () => {
+    expect(INVASION_BOSS_NIGHT).toBe(7);
+    const bossNights = Array.from({ length: 40 }, (_, i) => i + 1).filter(isBossNight);
     expect(bossNights).toEqual([7]);
   });
 
-  it('sends exactly the composition curve, one wave per night, over a whole run', () => {
+  it('sends exactly the composition curve, one wave per night, to night 20 and past the cap', () => {
     const { world, invasion, step } = setup();
     const sent: number[] = [];
-    for (let night = 1; night <= RUN_NIGHTS_TO_WIN; night++) {
+    for (let night = 1; night <= ENDLESS_TEST_NIGHTS; night++) {
       while (invasion.getInfo().waveNumber < night) step();
       // Let the staged entry finish, then clear the wave so it counts as repelled
       for (let i = 0; i < 20 / DT; i++) step();
@@ -56,7 +58,7 @@ describe('wave size per wave number', () => {
       for (const id of world.query(COMPONENT.BEETLE)) world.destroyEntity(id);
     }
     // No hive here: the drone share breaks in as beetles, so every wave keeps its size
-    expect(sent).toEqual(sizes(1, RUN_NIGHTS_TO_WIN));
+    expect(sent).toEqual(sizes(1, ENDLESS_TEST_NIGHTS));
   });
 
   it('adds the mutation surcharge on top of the wave size', () => {
