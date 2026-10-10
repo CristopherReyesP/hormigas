@@ -390,6 +390,8 @@ export interface GameStats {
   phaseRemaining: number; // seconds left in the current phase
   /** Pending dawn pick; the simulation stays paused while it is set. */
   mutationOffer: MutationOffer | null;
+  /** The card the player has selected in the pending offer; only confirming it applies it. */
+  mutationSelection: MutationId | null;
   lastMutationPick: MutationId | null;
   /** True while the opening cinematic plays: the HUD stays hidden and the world takes the whole window. */
   introPlaying: boolean;
@@ -427,6 +429,7 @@ export class GameManager {
   private readonly runSeed = Math.floor(Math.random() * 0x100000000);
   private readonly offerRng = createSeededRng(this.runSeed);
   private mutationOffer: MutationOffer | null = null;
+  private mutationSelection: MutationId | null = null;
   private lastMutationPick: MutationId | null = null;
   /**
    * Where the opening meteorite struck: a reachable clearing on the far side
@@ -1413,13 +1416,14 @@ export class GameManager {
     if (ids.length === 0) return; // every mutation is at maxStacks
     const dayNumber = this.dayNightSystem.getDayNumber();
     this.mutationOffer = buildMutationOffer(dayNumber, ids, id => this.runModifiers.getStacks(id));
+    this.mutationSelection = null;
     emitAudio({ type: 'dawnOffer' });
     this.gameLoop.setPaused(true);
     this.publishStats();
   }
 
   /**
-   * Digit keys. While the evolution chamber is open, 1-3 pick a card and
+   * Digit keys. While the evolution chamber is open, 1-3 select a card and
    * nothing else happens. Otherwise Ctrl+digit binds the selected ants to that
    * control group, Shift+digit adds them, and the digit alone recalls it. A
    * held key's auto-repeat is ignored.
@@ -1428,7 +1432,7 @@ export class GameManager {
     if (press.repeat) return;
     if (this.mutationOffer) {
       const option = this.mutationOffer.options[slot - 1];
-      if (option && !press.ctrl && !press.shift) this.chooseMutation(option.id);
+      if (option && !press.ctrl && !press.shift) this.selectMutation(option.id);
       return;
     }
     if (this.gameOver) return;
@@ -1873,11 +1877,30 @@ export class GameManager {
     const option = this.mutationOffer?.options.find(candidate => candidate.id === id);
     if (!option || this.gameOver || !this.applyMutation(option.id)) return false;
     this.mutationOffer = null;
+    this.mutationSelection = null;
     this.lastMutationPick = option.id;
     emitAudio({ type: 'mutationChosen' });
     this.gameLoop.setPaused(false);
     this.publishStats();
     return true;
+  }
+
+  /**
+   * Select a card of the pending offer without applying it (null clears the
+   * selection). False (no change) with no offer pending or an id outside it.
+   */
+  selectMutation(id: string | null): boolean {
+    if (!this.mutationOffer || this.gameOver) return false;
+    const option = id === null ? null : this.mutationOffer.options.find(candidate => candidate.id === id);
+    if (option === undefined) return false;
+    this.mutationSelection = option?.id ?? null;
+    this.publishStats();
+    return true;
+  }
+
+  /** Apply the selected card of the pending offer and resume; false when none is selected. */
+  confirmMutation(): boolean {
+    return this.mutationSelection !== null && this.chooseMutation(this.mutationSelection);
   }
 
   getAppliedMutations(): MutationId[] {
@@ -2856,6 +2879,7 @@ export class GameManager {
       dayNumber: this.dayNightSystem.getDayNumber(),
       phaseRemaining: Math.ceil(this.dayNightSystem.getPhaseRemaining()),
       mutationOffer: this.mutationOffer,
+      mutationSelection: this.mutationSelection,
       lastMutationPick: this.lastMutationPick,
       introPlaying: this.introClock.isPlaying(),
       human: this.humanPlayer?.stats() ?? null,
