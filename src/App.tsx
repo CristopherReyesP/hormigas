@@ -23,6 +23,7 @@ const DEFAULT_STATS: GameStats = {
   mushroomStored: 0,
   meatStored: 0,
   pantryStored: 0,
+  entranceFoodStored: 0,
   pantryCapacity: 0,
   mineralsStored: 0,
   beetleCount: 0,

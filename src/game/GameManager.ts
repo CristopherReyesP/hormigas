@@ -274,6 +274,8 @@ export interface GameStats {
   meatStored: number;
   pantryStored: number;
   pantryCapacity: number;
+  /** Food on the pile at the nest entrance, still waiting for porters to carry it to the pantry */
+  entranceFoodStored: number;
   /** The minerals bank: what miners delivered, the currency for structures */
   mineralsStored: number;
   beetleCount: number;
@@ -2185,6 +2187,8 @@ export class GameManager {
       }
     }
 
+    const entranceFoodStored = foodStored;
+
     // Add underground pantry (tile piles are the source of truth) to total
     const pantryStored = this.undergroundGrid.getPantryStored();
     foodStored += pantryStored.total;
@@ -2238,6 +2242,7 @@ export class GameManager {
       mushroomStored: Math.floor(mushroomStored),
       meatStored: Math.floor(meatStored),
       pantryStored: Math.floor(pantryStored.total),
+      entranceFoodStored: Math.floor(entranceFoodStored),
       pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
       mineralsStored: Math.floor(this.world.minerals.stored),
       beetleCount: this.world.query(COMPONENT.BEETLE).length,

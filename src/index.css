@@ -723,6 +723,11 @@ button:focus-visible {
   color: var(--chrome-dim);
 }
 
+.strip-pantry-incoming {
+  color: var(--chrome-dim);
+  font-size: 0.85em;
+}
+
 .strip-item--warn { color: var(--chrome-warn); }
 .strip-item--danger { color: var(--chrome-danger); }
 .strip-item--accent { color: var(--chrome-accent); }

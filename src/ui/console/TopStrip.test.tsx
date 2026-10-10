@@ -37,6 +37,18 @@ describe('top strip', () => {
     expect(html).toContain('Hojas: total de la colonia, en la entrada y en la despensa');
   });
 
+  it('shows the food still at the entrance next to the pantry, since only the pantry pays for eggs', () => {
+    const html = renderToStaticMarkup(<TopStrip stats={{ ...STATS, entranceFoodStored: 34 }} />);
+    expect(html).toMatch(/strip-pantry[^>]*>.*0\/450.*\+34 en la entrada/);
+    expect(html).toContain('Hay 34 más en la entrada: las obreras la bajan a la despensa.');
+    expect(html).toContain('Los huevos se pagan solo con la despensa.');
+  });
+
+  it('hides the entrance note once everything is down in the pantry', () => {
+    const html = renderToStaticMarkup(<TopStrip stats={{ ...STATS, entranceFoodStored: 0 }} />);
+    expect(html).not.toContain('en la entrada</span>');
+  });
+
   it('keeps counting down to the attack once the wave is telegraphed', () => {
     const armed = { ...STATS, invasion: { waveNumber: 0, nextWaveIn: 45, active: false, invadersAlive: 0, armed: true } } as GameStats;
     const html = renderToStaticMarkup(<TopStrip stats={armed} />);
