@@ -1,0 +1,241 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { GameManager, GameStats } from '../../game/GameManager';
+import { AntRole, ColonyPriority } from '../../game/components/components';
+import { broodKeys, buildCommands, type CommandContext } from './commands';
+import type { ColonyDetails } from './useColonyDetails';
+import { CARD_SLOTS, cardHotkeys } from './commandCardLayout';
+
+function fakeGame() {
+  return {
+    setColonyPriority: vi.fn(),
+    soundRetreat: vi.fn(),
+    togglePause: vi.fn(),
+    setSpeed: vi.fn(),
+    queueBreed: vi.fn(() => true),
+    dispatchAttackWave: vi.fn(() => 3),
+    setGarrisonSize: vi.fn(),
+    purchaseUpgrade: vi.fn(() => true),
+    setConsumptionPriority: vi.fn(),
+  };
+}
+
+const details: ColonyDetails = {
+  food: { total: 30, leaves: 30, mushrooms: 50, meat: 0 },
+  queen: null,
+  brood: {
+    pantry: { stored: 30, capacity: 450, tiles: 9 },
+    surfaceStock: 0,
+    hasQueen: true,
+    queenCanLay: true,
+    queue: [{ role: AntRole.Worker, progress: 0 }],
+    maxQueuedPerRole: 5,
+    eggs: [],
+    incubation: { tiles: 6, freeSlots: 24 },
+    nurses: 3,
+    costs: {
+      [AntRole.Worker]: 20,
+      [AntRole.Soldier]: 35,
+      [AntRole.Scout]: 20,
+      [AntRole.Nurse]: 20,
+      [AntRole.Defender]: 20,
+    },
+  },
+  farm: { tiles: 2, rate: 0, status: 'sin-hojas', stored: 0, capacity: 0 },
+  eatFirst: 'leaf',
+  garrison: { target: 2, current: 1 },
+  upgrades: [
+    { id: 'carry', name: '💪 Obreras fuertes', description: '+25%', level: 0, maxLevel: 3, nextCost: 40 },
+    { id: 'damage', name: 'Soldados feroces', description: '+25%', level: 3, maxLevel: 3, nextCost: null },
+  ],
+  storageTiles: 4,
+};
+
+function context(overrides: Partial<CommandContext> = {}) {
+  const gm = fakeGame();
+  const stats = {
+    paused: false,
+    speed: 1,
+    colonyPriority: ColonyPriority.Gather,
+    activeLayer: 'surface',
+    availableSoldiers: 0,
+    selectedEntity: null,
+  } as unknown as GameStats;
+  const ctx: CommandContext = {
+    gm: gm as unknown as GameManager,
+    stats,
+    details,
+    page: 'root',
+    buildMode: null,
+    attackCount: 10,
+    setPage: vi.fn(),
+    toggleBuildMode: vi.fn(),
+    switchLayer: vi.fn(),
+    refresh: vi.fn(),
+    notify: vi.fn(),
+    ...overrides,
+  };
+  return { gm, ctx };
+}
+
+describe('surface command card', () => {
+  it('fills the card with priorities, retreat, nest, breeding, pause, one speed button and the den attack', () => {
+    const { ctx } = context();
+    const ids = buildCommands(ctx).map((c) => c?.id ?? null);
+    expect(ids).toHaveLength(CARD_SLOTS);
+    expect(ids).toEqual([
+      'gather', 'explore', 'defend', 'retreat', 'descend',
+      'breed-worker', 'breed-soldier', 'breed-scout', 'breed-nurse', 'breed-defender',
+      'pause', 'speed', null, null, 'attack-den',
+    ]);
+  });
+
+  it('maps each button to the existing game action', () => {
+    const { gm, ctx } = context();
+    const commands = buildCommands(ctx);
+    commands[1]!.run();
+    expect(gm.setColonyPriority).toHaveBeenCalledWith(ColonyPriority.Explore);
+    commands[3]!.run();
+    expect(gm.soundRetreat).toHaveBeenCalled();
+    commands[4]!.run();
+    expect(ctx.switchLayer).toHaveBeenCalledWith('underground');
+    commands[10]!.run();
+    expect(gm.togglePause).toHaveBeenCalled();
+    commands[11]!.run();
+    expect(gm.setSpeed).toHaveBeenCalledWith(2);
+    commands[5]!.run();
+    expect(gm.queueBreed).toHaveBeenCalledWith(AntRole.Worker);
+  });
+
+  it('marks the current priority active and prices breeding from the pantry', () => {
+    const { ctx } = context();
+    const commands = buildCommands(ctx);
+    expect(commands[0]!.active).toBe(true);
+    expect(commands[5]).toMatchObject({ cost: { amount: 20, resource: 'comida', short: false }, disabled: false, badge: '1' });
+    expect(commands[6]).toMatchObject({
+      cost: { amount: 35, resource: 'comida', short: true },
+      disabled: true,
+      disabledReason: 'Falta comida en la despensa: hay 30 de 35.',
+    });
+  });
+
+  it('confirms an ordered egg with its caste and price', () => {
+    const { gm, ctx } = context();
+    buildCommands(ctx)[5]!.run();
+    expect(gm.queueBreed).toHaveBeenCalledWith(AntRole.Worker);
+    expect(ctx.notify).toHaveBeenCalledWith('Huevo de obrera encargado (-20 comida)');
+  });
+
+  it('says why when the game refuses the egg', () => {
+    const { gm, ctx } = context();
+    gm.queueBreed.mockReturnValue(false);
+    buildCommands(ctx)[6]!.run();
+    expect(ctx.notify).toHaveBeenCalledWith('Falta comida en la despensa: hay 30 de 35.', 'danger');
+  });
+
+  it('marks a full queue on the badge', () => {
+    const queue = Array.from({ length: 5 }, () => ({ role: AntRole.Worker, progress: 0 }));
+    const { ctx } = context({ details: { ...details, brood: { ...details.brood, queue } } });
+    expect(buildCommands(ctx)[5]).toMatchObject({ badge: '5/5', badgeTone: 'warn', disabled: true });
+  });
+
+  it('only enables the den attack with a den selected and soldiers free', () => {
+    expect(buildCommands(context().ctx)[14]!.disabled).toBe(true);
+    const selectedEntity = { entityId: 7, type: 'beetle_den', position: { x: 1, y: 1 } };
+    const { gm, ctx } = context();
+    ctx.stats = { ...ctx.stats, selectedEntity, availableSoldiers: 4 } as GameStats;
+    const attack = buildCommands(ctx)[14]!;
+    expect(attack.disabled).toBe(false);
+    attack.run();
+    expect(gm.dispatchAttackWave).toHaveBeenCalledWith(7, 4);
+  });
+});
+
+describe('speed button', () => {
+  it('cycles ×1 → ×2 → ×3 → ×1 and shows the current speed on its face', () => {
+    for (const [speed, next] of [[1, 2], [2, 3], [3, 1]]) {
+      const { gm, ctx } = context();
+      ctx.stats = { ...ctx.stats, speed } as GameStats;
+      const button = buildCommands(ctx)[11]!;
+      expect(button).toMatchObject({ id: 'speed', glyph: `×${speed}`, label: `Velocidad ×${speed}` });
+      expect(button.altKeys).toMatch(/^\+ y -/);
+      expect(button.description).toContain('La tecla + acelera y la tecla - frena.');
+      button.run();
+      expect(gm.setSpeed).toHaveBeenCalledWith(next);
+    }
+  });
+
+  it('lights up only while the game runs faster than normal', () => {
+    const { ctx } = context();
+    expect(buildCommands(ctx)[11]!.active).toBe(false);
+    ctx.stats = { ...ctx.stats, speed: 2 } as GameStats;
+    expect(buildCommands(ctx)[11]!.active).toBe(true);
+  });
+});
+
+describe('nest command card', () => {
+  function nest(page: 'root' | 'colony' = 'root') {
+    const made = context({ page });
+    made.ctx.stats = { ...made.ctx.stats, activeLayer: 'underground' } as GameStats;
+    return made;
+  }
+
+  it('keeps build tools on top, breeding in the middle and puts defense and throne beside the time controls', () => {
+    const ids = buildCommands(nest().ctx).map((c) => c?.id ?? null);
+    expect(ids).toEqual([
+      'dig', 'incubation', 'farm', 'storage', 'ascend',
+      'breed-worker', 'breed-soldier', 'breed-scout', 'breed-nurse', 'breed-defender',
+      'pause', 'speed', 'defense', 'throne', 'colony-page',
+    ]);
+  });
+
+  it('arms the defense area and throne tools straight from the root card, on keys C and V', () => {
+    const { ctx } = nest();
+    const commands = buildCommands(ctx);
+    expect(commands[12]).toMatchObject({ id: 'defense', label: 'Área de defensa', icon: 'shield' });
+    expect(commands[13]).toMatchObject({ id: 'throne', label: 'Trono', icon: 'crown' });
+    expect([cardHotkeys()[12], cardHotkeys()[13]]).toEqual(['C', 'V']);
+    commands[12]!.run();
+    expect(ctx.toggleBuildMode).toHaveBeenCalledWith('defense');
+    commands[13]!.run();
+    expect(ctx.toggleBuildMode).toHaveBeenCalledWith('throne');
+    commands[0]!.run();
+    expect(ctx.toggleBuildMode).toHaveBeenCalledWith('dig');
+  });
+
+  it('shows the defense tool as active while it is armed', () => {
+    const { ctx } = nest();
+    ctx.buildMode = 'defense';
+    expect(buildCommands(ctx)[12]!.active).toBe(true);
+  });
+
+  it('opens the colony page from the last slot', () => {
+    const { ctx } = nest();
+    buildCommands(ctx)[14]!.run();
+    expect(ctx.setPage).toHaveBeenCalledWith('colony');
+  });
+
+  it('keeps garrison, diet and upgrades on the colony page, without the tools now on the root card', () => {
+    const { gm, ctx } = nest('colony');
+    const commands = buildCommands(ctx);
+    expect(commands).toHaveLength(CARD_SLOTS);
+    expect(commands.map((c) => c?.id ?? null)).toEqual([
+      'garrison-down', 'garrison-up', 'diet-leaf', 'diet-mushroom', 'diet-meat',
+      'upgrade-carry', 'upgrade-damage', null, null, null,
+      null, null, null, null, 'back',
+    ]);
+    commands[1]!.run();
+    expect(gm.setGarrisonSize).toHaveBeenCalledWith(3);
+    expect(commands[5]).toMatchObject({ id: 'upgrade-carry', label: 'Obreras fuertes', disabled: false });
+    expect(commands[6]).toMatchObject({ id: 'upgrade-damage', disabled: true });
+    commands[3]!.run();
+    expect(gm.setConsumptionPriority).toHaveBeenCalledWith('mushroom');
+    commands[14]!.run();
+    expect(ctx.setPage).toHaveBeenCalledWith('root');
+  });
+});
+
+describe('brood hint keys', () => {
+  it('quotes the real hotkeys of the breed row and the nest tools', () => {
+    expect(broodKeys()).toEqual({ breed: ['A', 'S', 'D', 'F', 'G'], incubation: 'W', storage: 'U' });
+  });
+});

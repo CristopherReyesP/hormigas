@@ -1,18 +1,16 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { GameCanvas } from './ui/GameCanvas';
-import { HUD } from './ui/HUD';
-import { GameControls } from './ui/GameControls';
-import { ColonyPanel } from './ui/ColonyPanel';
-import { UndergroundPanel } from './ui/UndergroundPanel';
-import { UndergroundControls } from './ui/UndergroundControls';
-import { NotificationStack } from './ui/NotificationStack';
-import { BuildToolbar } from './ui/BuildToolbar';
-import { UndergroundMinimap } from './ui/UndergroundMinimap';
-import { PopulationChip } from './ui/PopulationChip';
+import { TopStrip } from './ui/console/TopStrip';
+import { Console } from './ui/console/Console';
 import { ObjectivePanel } from './ui/ObjectivePanel';
 import { GameOverScreen } from './ui/GameOverScreen';
+import { EvolutionChamber } from './ui/EvolutionChamber';
+import { RacePicker } from './ui/RacePicker';
+import { HudLayer } from './ui/HudLayer';
 import type { GameManager, GameStats } from './game/GameManager';
+import type { MutationId } from './game/run/MutationDefinitions';
 import { ColonyPriority } from './game/components/components';
+import { loadRunSetup, saveRunSetup, type RunSetup } from './game/run/RunSetup';
 
 const DEFAULT_STATS: GameStats = {
   antCount: 0,
@@ -51,17 +49,33 @@ const DEFAULT_STATS: GameStats = {
   dayPhase: 'day',
   dayNumber: 1,
   phaseRemaining: 0,
+  mutationOffer: null,
+  lastMutationPick: null,
+  introPlaying: true, // every run opens on the meteor intro, so the HUD starts hidden
 };
+
+/** While paused the simulation stops pushing stats; poll so pause, selection and layer still show. */
+const PAUSED_POLL_MS = 250;
 
 export default function App() {
   const [stats, setStats] = useState<GameStats>(DEFAULT_STATS);
-  const [gameKey, setGameKey] = useState(0);
+  // null while the race picker is up; set by COMENZAR. The GameManager does not read it yet.
+  const [runSetup, setRunSetup] = useState<RunSetup | null>(null);
   const gameManagerRef = useRef<GameManager | null>(null);
   const [gameManager, setGameManager] = useState<GameManager | null>(null);
 
-  const handleRestart = useCallback(() => {
+  const handleStart = useCallback((setup: RunSetup) => {
+    saveRunSetup(setup);
     setStats(DEFAULT_STATS);
-    setGameKey((k) => k + 1); // remount GameCanvas → fresh GameManager
+    setRunSetup(setup); // mounts GameCanvas → fresh GameManager, whose meteor intro opens the run
+  }, []);
+
+  const handleRestart = useCallback(() => {
+    // Back to the picker: unmounting GameCanvas stops the old GameManager
+    gameManagerRef.current = null;
+    setGameManager(null);
+    setStats(DEFAULT_STATS);
+    setRunSetup(null);
   }, []);
 
   const handleStatsUpdate = useCallback((newStats: GameStats) => {
@@ -73,84 +87,47 @@ export default function App() {
     setGameManager(gm);
   }, []);
 
-  const handleTogglePause = useCallback(() => {
-    gameManagerRef.current?.togglePause();
+  const refreshStats = useCallback(() => {
+    const gm = gameManagerRef.current;
+    if (gm) setStats(gm.getStats());
   }, []);
 
-  const handleSetSpeed = useCallback((speed: number) => {
-    gameManagerRef.current?.setSpeed(speed);
+  useEffect(() => {
+    if (!gameManager) return;
+    const interval = window.setInterval(() => {
+      if (gameManager.isPaused()) setStats(gameManager.getStats());
+    }, PAUSED_POLL_MS);
+    return () => window.clearInterval(interval);
+  }, [gameManager]);
+
+  const handleChooseMutation = useCallback((id: MutationId) => {
+    gameManagerRef.current?.chooseMutation(id);
   }, []);
 
-  const handleExitUnderground = useCallback(() => {
-    gameManagerRef.current?.exitUnderground();
-  }, []);
+  if (!runSetup) {
+    // Shown on first load and after every restart, before any simulation runs
+    return <RacePicker initialSetup={loadRunSetup()} onStart={handleStart} />;
+  }
 
   return (
-    <div style={{
-      display: 'flex',
-      height: '100%',
-      background: 'var(--ui-bg)',
-    }}>
-      {/* Left Sidebar — HUD + Controls */}
-      <div style={{
-        width: '220px',
-        flexShrink: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '12px',
-        padding: '12px',
-        overflowY: 'auto',
-      }}>
-        <HUD stats={stats} />
-        <ObjectivePanel objective={stats.objective} />
-        <GameControls
-          paused={stats.paused}
-          speed={stats.speed}
-          onTogglePause={handleTogglePause}
-          onSetSpeed={handleSetSpeed}
-        />
-        {stats.activeLayer === 'underground' && (
-          <UndergroundControls
-            onExitUnderground={handleExitUnderground}
-            gameManager={gameManager}
-          />
-        )}
-      </div>
+    <div className="hive-screen">
+      {/* The world fills the window; every HUD element floats above it */}
+      <GameCanvas onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} introPlaying={stats.introPlaying} />
+      {/* Hidden during the opening cinematic, then it fades in */}
+      <HudLayer introPlaying={stats.introPlaying}>
+        <TopStrip stats={stats} gameManager={gameManager} />
+        {/* Defaults carry no objective: wait for the first real snapshot */}
+        {stats.tickCount > 0 && <ObjectivePanel objective={stats.objective} />}
+        <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} />
+      </HudLayer>
+      {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
 
-      {/* Center — Canvas fills all remaining space */}
-      <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative' }}>
-        <GameCanvas key={gameKey} onStatsUpdate={handleStatsUpdate} onGameManager={handleGameManager} />
-        <NotificationStack notifications={stats.notifications} />
-        {stats.activeLayer === 'underground' && (
-          <>
-            <PopulationChip
-              antCount={stats.antCount}
-              workerCount={stats.workerCount}
-              soldierCount={stats.soldierCount}
-              scoutCount={stats.scoutCount}
-              nurseCount={stats.nurseCount}
-              defenderCount={stats.defenderCount}
-            />
-            <BuildToolbar gameManager={gameManager} />
-            <UndergroundMinimap gameManager={gameManager} />
-          </>
-        )}
-        {stats.gameOver && <GameOverScreen stats={stats.gameOver} onRestart={handleRestart} />}
-      </div>
-
-      {/* Right Sidebar — Context-dependent panel */}
-      <div style={{
-        width: '260px',
-        flexShrink: 0,
-        padding: '12px',
-        overflowY: 'auto',
-      }}>
-        {stats.activeLayer === 'underground' ? (
-          <UndergroundPanel gameManager={gameManager} />
-        ) : (
-          <ColonyPanel stats={stats} gameManager={gameManager} />
-        )}
-      </div>
+      {/* Dawn mutation pick: full-screen, above the HUD */}
+      <EvolutionChamber
+        offer={stats.mutationOffer}
+        lastPick={stats.lastMutationPick}
+        onChoose={handleChooseMutation}
+      />
     </div>
   );
 }

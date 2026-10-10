@@ -42,7 +42,7 @@ export class FoodRespawnSystem implements System {
   update(dt: number): void {
     this.timer += dt;
 
-    const effectiveInterval = FOOD_RESPAWN_INTERVAL / this.modifiers.foodSpawnMultiplier;
+    const effectiveInterval = FOOD_RESPAWN_INTERVAL / (this.modifiers.foodSpawnMultiplier * this.world.runModifiers.foodSpawnMult);
     if (this.timer >= effectiveInterval) {
       this.spawnFoodCluster();
 

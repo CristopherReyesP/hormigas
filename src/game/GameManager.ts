@@ -1,14 +1,21 @@
+import { RunModifiers } from './run/RunModifiers';
+import type { MutationId } from './run/MutationDefinitions';
+import { antSpawnStats } from './run/antStats';
+import { buildMutationOffer, shouldOfferMutation, summarizeMutationBuild, type MutationBuildEntry, type MutationOffer } from './run/DawnPick';
+import { createSeededRng, offerMutations } from './run/MutationOffers';
+import { pickCraterSite, type TilePos } from './run/craterSite';
 import type { EntityId } from '../shared/types';
 import { World } from '../engine/ecs/World';
 import { GameLoop } from '../engine/loop/GameLoop';
 import { CanvasRenderer } from '../engine/renderer/CanvasRenderer';
-import { InputManager } from '../engine/input/InputManager';
-import { Camera } from '../engine/camera/Camera';
+import { InputManager, type InputModifiers, type KeyPress, type ScreenBox } from '../engine/input/InputManager';
+import { Camera, type ViewportRect } from '../engine/camera/Camera';
+import { isTileVisible, type VisibilityReader } from '../engine/renderer/fogVisibility';
 import { TileGrid } from '../simulation/world/TileGrid';
 import { VisibilityGrid } from '../simulation/world/VisibilityGrid';
 import { UndergroundGrid } from '../simulation/world/UndergroundGrid';
 import { TerrainType, ChamberType } from '../simulation/world/types';
-import { RenderSystem } from './systems/RenderSystem';
+import { RenderSystem, type OrderPing } from './systems/RenderSystem';
 import { MovementSystem } from './systems/MovementSystem';
 import { PheromoneSystem } from './systems/PheromoneSystem';
 import { AntAISystem } from './systems/AntAISystem';
@@ -18,8 +25,21 @@ import { CombatSystem } from './systems/CombatSystem';
 import { BeetleSpawnSystem } from './systems/BeetleSpawnSystem';
 import { CricketSpawnSystem } from './systems/CricketSpawnSystem';
 import { HungerSystem } from './systems/HungerSystem';
+import { RegenerationSystem } from './systems/RegenerationSystem';
 import { BreedingSystem } from './systems/BreedingSystem';
-import { SelectionSystem } from './systems/SelectionSystem';
+import { SelectionSystem, type SelectionBox } from './systems/SelectionSystem';
+import { ControlGroups } from './systems/ControlGroups';
+import {
+  dispatchDenAttack,
+  findEnemyAt,
+  hasActiveOrder,
+  isFreeSoldier,
+  issueAttackOrders,
+  issueHoldOrders,
+  issueMoveOrders,
+  soundRetreatHorn,
+  stopAnts,
+} from './systems/helpers/playerOrders';
 import { FoodRespawnSystem } from './systems/FoodRespawnSystem';
 import { FogOfWarSystem } from './systems/FogOfWarSystem';
 import { EggIncubationSystem } from './systems/EggIncubationSystem';
@@ -32,8 +52,13 @@ import { UndergroundInvasionSystem, type InvasionInfo } from './systems/Undergro
 import { SpoilageSystem } from './systems/SpoilageSystem';
 import { FungusFarmSystem } from './systems/FungusFarmSystem';
 import { UndergroundHealingSystem } from './systems/UndergroundHealingSystem';
-import { DayNightSystem } from './systems/DayNightSystem';
+import { resolveRunOutcome, type RunOutcome } from './run/RunOutcome';
+import { DayNightSystem, type DayPhase } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
+import { IntroDirector } from './render/IntroDirector';
+import { IntroClock } from './render/introTimeline';
+import { audioIntroFrame, audioRunEnded, audioRunStarted, emitAudio } from '../audio';
+import { selectionAudio } from '../audio/gameHooks';
 import { createAnt, createFood, createNest, createBeetleDen, createQueen } from './entities/factories';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
@@ -43,6 +68,7 @@ import {
   ColonyPriority,
   FoodType,
   Layer,
+  OrderKind,
   COMPONENT,
   type NestComponent,
   type QueenComponent,
@@ -62,6 +88,7 @@ import {
   type EggQueueComponent,
   type CombatComponent,
   type PathComponent,
+  type LayerValue,
 } from './components/components';
 import {
   INITIAL_ANTS,
@@ -73,7 +100,6 @@ import {
   WORLD_WIDTH,
   WORLD_HEIGHT,
   TILE_SIZE,
-  ROLE_STATS,
   BREED_COST_WORKER,
   BREED_COST_SOLDIER,
   BREED_COST_SCOUT,
@@ -97,8 +123,21 @@ import {
   UNDERGROUND_WIDTH,
   UNDERGROUND_HEIGHT,
   QUEEN_EGG_LAY_TIME,
+  QUEEN_MIN_HUNGER_TO_LAY,
+  MAX_EGGS_PER_INCUBATION_TILE,
   PANTRY_STORAGE_UPGRADE_PER_TILE,
+  CRATER_CLEAR_RADIUS,
+  CRATER_EDGE_MARGIN,
+  CRATER_FAR_FRACTION,
+  CONTROL_GROUP_SLOTS,
+  GAME_SPEED_MAX,
 } from '../shared/constants';
+
+/** Mixed into the run seed so the crater does not share the dawn offers' draws. */
+const CRATER_SEED_SALT = 0x9e3779b9;
+
+/** A command card order that waits for a click: Mover (Q) or Atacar (A). */
+export type CommandTarget = 'move' | 'attack';
 
 export interface SelectedEntityInfo {
   entityId: EntityId;
@@ -133,6 +172,33 @@ export interface SelectedEntityInfo {
   cricketDenActiveCrickets?: number;
 }
 
+/** Several own ants selected: what the StarCraft-style group panel shows. */
+export interface SelectedGroupInfo {
+  count: number;
+  /** Selected ants per caste */
+  byRole: Partial<Record<AntRole, number>>;
+  /** Ants with a player order still running */
+  ordered: number;
+  /** The first GROUP_GRID_MAX ants, castes in breed order: the wireframe grid */
+  units: Array<{ id: EntityId; role: AntRole; health: number; ordered: boolean }>;
+}
+
+/** A bound control group, for the chips above the info panel. */
+export interface ControlGroupInfo {
+  /** Digit it is bound to (1-9) */
+  slot: number;
+  /** Ants in it still alive */
+  count: number;
+  /** The caste most of it belongs to (fighters win ties): the chip's icon */
+  role: AntRole;
+  /** It is exactly the current selection */
+  selected: boolean;
+}
+
+/** Wireframe cells the group panel shows (StarCraft shows 24 too). */
+const GROUP_GRID_MAX = 24;
+const GROUP_ROLE_ORDER: readonly AntRole[] = [AntRole.Soldier, AntRole.Defender, AntRole.Worker, AntRole.Scout, AntRole.Nurse];
+
 export interface GameNotification {
   id: number;
   severity: 'info' | 'success' | 'warning' | 'danger';
@@ -156,11 +222,13 @@ export interface UpgradeInfo {
 const UPGRADE_COSTS = [40, 80, 140];
 
 export interface GameOverStats {
+  outcome: RunOutcome;
   survivedTicks: number;
   antsHatched: number;
   densDestroyed: number;
   tilesExcavated: number;
   wavesRepelled: number;
+  build: MutationBuildEntry[];
 }
 
 /** One dot on the underground minimap */
@@ -169,6 +237,13 @@ export interface MinimapEntity {
   x: number;
   y: number;
   kind: AntRole | 'queen' | 'invader';
+}
+
+/** One marker on the surface minimap (tile coordinates) */
+export interface SurfaceMinimapDot {
+  x: number;
+  y: number;
+  kind: 'ant' | 'enemy' | 'den' | 'food' | 'nest';
 }
 
 export interface GameStats {
@@ -200,6 +275,12 @@ export interface GameStats {
     role: AntRole | null;
   };
   selectedEntity: SelectedEntityInfo | null;
+  /** Two or more own ants selected (selectedEntity is null then) */
+  selectedGroup?: SelectedGroupInfo | null;
+  /** A command card order waiting for its target click: Mover or Atacar was pressed */
+  commandTarget?: CommandTarget | null;
+  /** Bound control groups, by digit */
+  controlGroups?: ControlGroupInfo[];
   notifications: GameNotification[];
   objective: ObjectiveState | null;
   invasion: InvasionInfo;
@@ -208,9 +289,59 @@ export interface GameStats {
   dayPhase: 'day' | 'night';
   dayNumber: number;
   phaseRemaining: number; // seconds left in the current phase
+  /** Pending dawn pick; the simulation stays paused while it is set. */
+  mutationOffer: MutationOffer | null;
+  lastMutationPick: MutationId | null;
+  /** True while the opening cinematic plays: the HUD stays hidden and the world takes the whole window. */
+  introPlaying: boolean;
+}
+
+/**
+ * Everything the brood readout needs to explain the breeding pipeline:
+ * pantry (pays the egg) → the queen lays → nurses carry it to incubation → it hatches.
+ */
+export interface BroodSnapshot {
+  /** Underground food on pantry and farm piles: the only stock that pays for eggs. `tiles` counts pantry tiles. */
+  pantry: { stored: number; capacity: number; tiles: number };
+  /** Food piled at the surface entrance, waiting for porters to carry it down (it spoils up there) */
+  surfaceStock: number;
+  hasQueen: boolean;
+  /** False while the queen is too hungry to lay */
+  queenCanLay: boolean;
+  /** Ordered eggs the queen has not laid yet, in laying order; `progress` is the laying progress */
+  queue: Array<{ role: AntRole; progress: number }>;
+  maxQueuedPerRole: number;
+  /** Laid eggs. `remaining` is incubation time left (it only runs on an incubation tile). */
+  eggs: Array<{ role: AntRole; progress: number; fedProgress: number; remaining: number; incubating: boolean }>;
+  /** Walkable incubation tiles and how many more eggs they can take */
+  incubation: { tiles: number; freeSlots: number };
+  /** Nurses below ground: only they carry eggs to incubation and feed larvae and the queen */
+  nurses: number;
+  costs: Record<AntRole, number>;
 }
 
 export class GameManager {
+  private readonly runModifiers = new RunModifiers();
+  /** Chosen once per run; every dawn offer of the run is drawn from it. */
+  private readonly runSeed = Math.floor(Math.random() * 0x100000000);
+  private readonly offerRng = createSeededRng(this.runSeed);
+  private mutationOffer: MutationOffer | null = null;
+  private lastMutationPick: MutationId | null = null;
+  /**
+   * Where the opening meteorite struck: a reachable clearing on the far side
+   * of the map, fixed for the whole run. The crater decal sits here, the
+   * minimap marks it, and the Crystal Hive rises from it (P5).
+   */
+  private readonly craterSite: TilePos;
+  /** Canvas the intro-skip pointer listener is attached to */
+  private readonly canvas: HTMLCanvasElement;
+  /**
+   * The opening cinematic's one clock. It is advanced here once per rendered
+   * frame; the IntroDirector (camera) and the MeteorIntro (art) only read it.
+   */
+  private readonly introClock = new IntroClock();
+  /** Camera work for the opening cinematic; it owns the surface camera until the intro ends */
+  private readonly introDirector: IntroDirector;
   private world: World;
   private grid: TileGrid;
   private visibilityGrid: VisibilityGrid;
@@ -240,14 +371,26 @@ export class GameManager {
   private digMode = false;
   private incubationMode = false;
   private storageMode = false;
+  private viewportConfigured = false;
+  private transitSystem: TransitSystem;
+  /** Mover or Atacar was pressed: the next left click on the surface is that order's target */
+  private armedCommand: CommandTarget | null = null;
+  /** Order pings for the renderer (tile coords), drained every frame */
+  private orderPings: OrderPing[] = [];
+  /** Ctrl+digit groups of own ants */
+  private readonly controlGroups = new ControlGroups();
 
   constructor(canvas: HTMLCanvasElement) {
-    this.world = new World();
+    this.canvas = canvas;
+    this.world = new World(this.runModifiers);
     this.grid = new TileGrid();
     this.visibilityGrid = new VisibilityGrid(WORLD_WIDTH, WORLD_HEIGHT);
     this.renderer = new CanvasRenderer(canvas);
     this.camera = new Camera();
-    this.input = new InputManager(canvas);
+    this.input = new InputManager(canvas, {
+      onSelectBox: (box, mods) => this.selectInScreenBox(box, mods),
+      onCommand: (screenX, screenY) => this.commandAt(screenX, screenY),
+    });
     this.input.setCamera(this.camera);
 
     // Underground layer
@@ -258,7 +401,10 @@ export class GameManager {
     const modifiers = createDefaultModifiers();
 
     // Create systems
-    this.renderSystem = new RenderSystem(this.world, this.renderer, this.grid, this.visibilityGrid);
+    this.renderSystem = new RenderSystem(this.world, this.renderer, this.grid, this.visibilityGrid, {
+      getDragBox: () => this.getDragBox(),
+      drainOrderPings: () => this.drainOrderPings(),
+    });
     this.renderSystem.setCamera(this.camera);
     this.renderSystem.setUndergroundContext(
       this.undergroundGrid,
@@ -276,6 +422,7 @@ export class GameManager {
     const cricketSpawnSystem = new CricketSpawnSystem(this.world, this.grid, this.undergroundGrid, modifiers);
     this.dayNightSystem = new DayNightSystem(this.world, modifiers);
     const hungerSystem = new HungerSystem(this.world, modifiers);
+    const regenerationSystem = new RegenerationSystem(this.world);
     const breedingSystem = new BreedingSystem(this.world);
     this.selectionSystem = new SelectionSystem(this.world);
     const foodRespawnSystem = new FoodRespawnSystem(this.world, this.grid, modifiers);
@@ -296,8 +443,10 @@ export class GameManager {
     this.world.addSystem(movementSystem);
     this.world.addSystem(pheromoneSystem);
     this.world.addSystem(hungerSystem);
+    this.world.addSystem(regenerationSystem);
     this.world.addSystem(breedingSystem);
     const transitSystem = new TransitSystem(this.world, this.undergroundGrid);
+    this.transitSystem = transitSystem;
     this.world.addSystem(transitSystem);
     // Healing ants descend to the pantry when the surface stockpile is dry
     this.antAISystem.setUndergroundAccess(this.undergroundGrid, transitSystem);
@@ -342,14 +491,28 @@ export class GameManager {
 
     // Setup input
     this.input.onKeyAction('Space', () => this.togglePause());
-    this.input.onKeyAction('Digit1', () => this.gameLoop.setSpeed(1));
-    this.input.onKeyAction('Digit2', () => this.gameLoop.setSpeed(2));
-    this.input.onKeyAction('Digit3', () => this.gameLoop.setSpeed(3));
+    // Digits are control groups (the dawn pick borrows 1-3); + and - set game speed
+    for (let slot = 1; slot <= CONTROL_GROUP_SLOTS; slot++) {
+      this.input.onKeyAction(`Digit${slot}`, (press) => this.handleDigitKey(slot, press));
+    }
+    // '=' is the unshifted + key on US layouts; the numpad and other layouts print '+' and '-'
+    for (const [key, step] of [['+', 1], ['=', 1], ['-', -1]] as const) {
+      this.input.onKeyAction(key, (press) => {
+        if (!press.repeat) this.stepSpeed(step);
+      });
+    }
+    if (import.meta.env.DEV) {
+      // Dev-only preview of the evolution chamber; stripped from production builds.
+      // KeyE (evolution) because KeyM already toggles the underground minimap.
+      this.input.onKeyAction('KeyE', () => {
+        if (!this.gameOver && !this.mutationOffer) this.openMutationOffer();
+      });
+    }
     this.input.onKeyAction('Home', () => this.camera.reset());
     this.input.onKeyAction('KeyR', () => this.camera.reset());
 
     // Setup canvas click handler for selection (screen coords → tile coords via camera)
-    this.input.onCanvasClick((screenX, screenY) => {
+    this.input.onCanvasClick((screenX, screenY, mods) => {
       if (this.activeLayer === 'underground') {
         const tile = this.undergroundCamera.screenToTile(screenX, screenY);
         if (this.digMode) {
@@ -369,15 +532,21 @@ export class GameManager {
           // the queen to THAT throne — with several thrones, the player picks.
           // Clicking the throne she already occupies falls through to selection.
           if (!this.sendQueenToThroneAt(tile.x, tile.y)) {
-            this.selectEntityAt(tile.x, tile.y);
+            this.clickSelect(screenX, screenY, mods);
           }
         }
+        return;
+      }
+      if (this.armedCommand) {
+        // Mover or Atacar was pressed: this click is the order's target
+        if (this.armedCommand === 'attack') this.attackAt(screenX, screenY);
+        else this.commandAt(screenX, screenY);
         return;
       }
       const tile = this.camera.screenToTile(screenX, screenY);
       // Check if clicking on already-selected nest → enter underground
       const currentSelected = this.selectionSystem.getSelectedEntityId();
-      if (currentSelected !== null) {
+      if (currentSelected !== null && !mods.shift && !mods.ctrl) {
         const nest = this.world.getComponent<NestComponent>(currentSelected, COMPONENT.NEST);
         if (nest) {
           const pos = this.world.getComponent<PositionComponent>(currentSelected, COMPONENT.POSITION);
@@ -391,7 +560,7 @@ export class GameManager {
           }
         }
       }
-      this.selectEntityAt(tile.x, tile.y);
+      this.clickSelect(screenX, screenY, mods);
     });
 
     // Initialize game world
@@ -409,6 +578,51 @@ export class GameManager {
     const nestPixelX = Math.floor(WORLD_WIDTH / 2) * TILE_SIZE;
     const nestPixelY = Math.floor(WORLD_HEIGHT / 2) * TILE_SIZE;
     this.camera.centerOn(nestPixelX, nestPixelY);
+
+    // The run opens with the meteorite: purely visual, the simulation runs on
+    this.craterSite = pickCraterSite({
+      width: WORLD_WIDTH,
+      height: WORLD_HEIGHT,
+      nest: { x: nestX, y: nestY },
+      isWalkable: (x, y) => this.grid.isWalkable(x, y),
+      rng: createSeededRng(this.runSeed ^ CRATER_SEED_SALT),
+      clearRadius: CRATER_CLEAR_RADIUS,
+      edgeMargin: CRATER_EDGE_MARGIN,
+      farFraction: CRATER_FAR_FRACTION,
+    });
+    this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock);
+    const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
+    // The fireball lights the ground it flies over and the crater, so the chase
+    // crosses lit terrain; what it lit stays explored, a scorched trail to the crater
+    this.introDirector = new IntroDirector(
+      this.camera,
+      this.introClock,
+      tileCenter({ x: nestX, y: nestY }),
+      tileCenter(this.craterSite),
+      (x, y, r) => this.visibilityGrid.revealCircle(x, y, r),
+    );
+    window.addEventListener('keydown', this.skipIntro);
+    canvas.addEventListener('pointerdown', this.skipIntro);
+    audioRunStarted(() => ({ layer: this.activeLayerValue(), view: this.activeCamera().getViewRectTiles() }));
+  }
+
+  /** First key or click after the impact skips to the intro's end state (one-shot). */
+  private readonly skipIntro = (): void => {
+    if (!this.introClock.skip()) return; // refused until the meteor has landed
+    this.renderSystem.skipIntro();
+    this.introDirector.finish();
+    this.detachIntroSkip();
+    this.publishStats(); // the HUD fades in now, not at the next stats tick
+  };
+
+  private detachIntroSkip(): void {
+    window.removeEventListener('keydown', this.skipIntro);
+    this.canvas.removeEventListener('pointerdown', this.skipIntro);
+  }
+
+  /** Tile where the meteorite struck (crater center); fixed for the whole run. */
+  getCraterSite(): TilePos {
+    return { x: this.craterSite.x, y: this.craterSite.y };
   }
 
   private spawnInitialEntities(): void {
@@ -563,13 +777,20 @@ export class GameManager {
   }
 
   private update(dt: number): void {
+    // A frame can contain more fixed updates after the loop has been paused.
+    if (this.gameOver || this.mutationOffer) return;
+    const previousPhase = this.dayNightSystem.getPhase();
     try {
       this.world.update(dt);
     } catch (e) {
       console.error('[GameManager] System update error:', e);
     }
 
-    this.checkGameOver();
+    this.checkGameOver(previousPhase);
+    const dayPhase = this.dayNightSystem.getPhase();
+    if (shouldOfferMutation(previousPhase, dayPhase, this.dayNightSystem.getDayNumber(), this.gameOver !== null)) {
+      this.openMutationOffer();
+    }
 
     // Send stats to UI (throttled every 10 ticks)
     this.statsTicks++;
@@ -583,8 +804,8 @@ export class GameManager {
     }
   }
 
-  /** SURVIVAL: if the queen dies (starvation or invaders), the colony falls */
-  private checkGameOver(): void {
+  /** Queen death takes precedence over surviving the final night. */
+  private checkGameOver(previousPhase: DayPhase): void {
     if (this.gameOver) return;
 
     const queens = this.world.query(COMPONENT.QUEEN_ENTITY);
@@ -593,25 +814,140 @@ export class GameManager {
       const health = this.world.getComponent<HealthComponent>(queens[0], COMPONENT.HEALTH);
       if (health && health.current <= 0) queenDead = true;
     }
-    if (!queenDead) return;
+    const outcome = resolveRunOutcome(
+      null,
+      !queenDead,
+      previousPhase,
+      this.dayNightSystem.getPhase(),
+      this.dayNightSystem.getDayNumber(),
+    );
+    if (!outcome) return;
 
     this.gameOver = {
+      outcome,
       survivedTicks: this.gameLoop.getTickCount(),
       antsHatched: this.world.metrics.antsHatched,
       densDestroyed: this.world.metrics.densDestroyed,
       tilesExcavated: this.world.metrics.tilesExcavated,
       wavesRepelled: this.world.metrics.wavesRepelled,
+      build: summarizeMutationBuild(this.runModifiers.getAppliedMutations()),
     };
     this.gameLoop.setPaused(true);
 
     // Push final stats immediately so the UI shows the game-over screen without waiting
-    if (this.statsCallback) {
-      this.statsCallback(this.getStats());
+    this.publishStats();
+  }
+
+  /** Push a snapshot now: the throttled publish in update() stops while paused. */
+  private publishStats(): void {
+    this.statsCallback?.(this.getStats());
+  }
+
+  /** Pause the run and open the evolution chamber for the current day. */
+  private openMutationOffer(): void {
+    const ids = offerMutations(this.offerRng, this.runModifiers.getAppliedMutations());
+    if (ids.length === 0) return; // every mutation is at maxStacks
+    const dayNumber = this.dayNightSystem.getDayNumber();
+    this.mutationOffer = buildMutationOffer(dayNumber, ids, id => this.runModifiers.getStacks(id));
+    emitAudio({ type: 'dawnOffer' });
+    this.gameLoop.setPaused(true);
+    this.publishStats();
+  }
+
+  /**
+   * Digit keys. While the evolution chamber is open, 1-3 pick a card and
+   * nothing else happens. Otherwise Ctrl+digit binds the selected ants to that
+   * control group, Shift+digit adds them, and the digit alone recalls it. A
+   * held key's auto-repeat is ignored.
+   */
+  private handleDigitKey(slot: number, press: KeyPress): void {
+    if (press.repeat) return;
+    if (this.mutationOffer) {
+      const option = this.mutationOffer.options[slot - 1];
+      if (option && !press.ctrl && !press.shift) this.chooseMutation(option.id);
+      return;
     }
+    if (this.gameOver) return;
+    if (press.ctrl) this.bindControlGroup(slot);
+    else if (press.shift) this.bindControlGroup(slot, true);
+    else this.recallControlGroup(slot);
+  }
+
+  /** Ctrl+digit: the selected own ants become group `slot`; `add` (Shift+digit) adds them instead. */
+  bindControlGroup(slot: number, add = false): boolean {
+    const ants = this.selectionSystem.getSelectedAnts();
+    const bound = add ? this.controlGroups.add(slot, ants) : this.controlGroups.bind(slot, ants);
+    if (bound) this.publishStats();
+    return bound;
+  }
+
+  /**
+   * Digit (or a click on its chip): select group `slot`'s living ants on the
+   * layer in view. Pressed twice within CONTROL_GROUP_DOUBLE_TAP_MS it also
+   * centers the camera on them, unless a cinematic owns the camera. Returns
+   * how many ants were selected.
+   */
+  recallControlGroup(slot: number, nowMs = performance.now()): number {
+    const double = this.controlGroups.tap(slot, nowMs);
+    const layer = this.activeLayerValue();
+    const living = this.controlGroups.recall(slot, (id) => this.world.getComponent(id, COMPONENT.ANT) !== undefined);
+    const here = living.filter((id) => (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer ?? Layer.Surface) === layer);
+    if (here.length === 0) return 0;
+    const selected = this.selectionSystem.selectAnts(here, layer);
+    this.armedCommand = null;
+    if (double) this.centerOnAnts(here);
+    this.publishStats();
+    return selected;
+  }
+
+  /** The bound control groups for the HUD chips: living count, lead caste, and whether it is the selection. */
+  getControlGroups(): ControlGroupInfo[] {
+    const selection = this.selectionSystem.getSelectedAnts();
+    const out: ControlGroupInfo[] = [];
+    for (const slot of this.controlGroups.slots()) {
+      const ids = this.controlGroups.members(slot).filter((id) => this.world.getComponent(id, COMPONENT.ANT) !== undefined);
+      if (ids.length === 0) continue;
+      const byRole = new Map<AntRole, number>();
+      for (const id of ids) {
+        const role = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!.role;
+        byRole.set(role, (byRole.get(role) ?? 0) + 1);
+      }
+      const role = GROUP_ROLE_ORDER.reduce((best, r) => ((byRole.get(r) ?? 0) > (byRole.get(best) ?? 0) ? r : best));
+      const selected = selection.length === ids.length && ids.every((id) => selection.includes(id));
+      out.push({ slot, count: ids.length, role, selected });
+    }
+    return out;
+  }
+
+  /** Center the camera of the layer in view on these ants. */
+  private centerOnAnts(ids: readonly EntityId[]): void {
+    const camera = this.activeCamera();
+    if (camera.isDirected()) return; // the intro cinematic owns the camera
+    let x = 0;
+    let y = 0;
+    for (const id of ids) {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      x += pos.x;
+      y += pos.y;
+    }
+    camera.centerOn((x / ids.length) * TILE_SIZE + TILE_SIZE / 2, (y / ids.length) * TILE_SIZE + TILE_SIZE / 2);
+  }
+
+  /** + and -: one game speed step faster or slower, between ×1 and ×GAME_SPEED_MAX. */
+  stepSpeed(step: 1 | -1): void {
+    this.gameLoop.setSpeed(Math.max(1, Math.min(GAME_SPEED_MAX, this.gameLoop.getSpeed() + step)));
+    this.publishStats();
   }
 
   private render(interpolation: number, dt: number): void {
+    // One intro clock, advanced once per frame: the camera frames and the art draws the same intro time
+    const introWasPlaying = this.introClock.isPlaying();
+    this.introClock.advance(dt);
+    audioIntroFrame(this.introClock.elapsed, dt);
+    this.introDirector.frame();
     this.renderSystem.renderInterpolated(interpolation, dt);
+    // The HUD fades in on the frame the intro ends, not at the next stats tick
+    if (introWasPlaying && !this.introClock.isPlaying()) this.publishStats();
   }
 
   start(): void {
@@ -621,13 +957,49 @@ export class GameManager {
   stop(): void {
     this.gameLoop.stop();
     this.input.destroy();
+    this.detachIntroSkip();
+    audioRunEnded();
   }
 
   togglePause(): void {
+    if (this.gameOver || this.mutationOffer) return;
     this.gameLoop.setPaused(!this.gameLoop.isPaused());
   }
 
+  isPaused(): boolean {
+    return this.gameLoop.isPaused();
+  }
+
+  /**
+   * The window changed size or devicePixelRatio: the canvas backing store
+   * follows it (canvas px), and both cameras learn the new canvas and zoom range.
+   */
+  resizeCanvas(width: number, height: number, pixelRatio = 1): void {
+    this.renderer.resize(width, height);
+    this.camera.setCanvasSize(width, height, pixelRatio);
+    this.undergroundCamera.setCanvasSize(width, height, pixelRatio);
+  }
+
+  /**
+   * Screen layout from the UI: the part of the canvas the HUD leaves visible.
+   * The default zoom (Home/R) follows every layout; the first one also
+   * applies it and recenters both layers (surface on the nest); later calls
+   * keep the view centered.
+   */
+  setViewport(rect: ViewportRect, defaultZoom?: number): void {
+    this.camera.setViewport(rect);
+    this.undergroundCamera.setViewport(rect);
+    if (defaultZoom === undefined) return;
+    for (const camera of [this.camera, this.undergroundCamera]) camera.setDefaultZoom(defaultZoom);
+    if (this.viewportConfigured) return;
+    this.viewportConfigured = true;
+    for (const camera of [this.camera, this.undergroundCamera]) camera.zoom = camera.getDefaultZoom();
+    this.camera.centerOn(Math.floor(WORLD_WIDTH / 2) * TILE_SIZE, Math.floor(WORLD_HEIGHT / 2) * TILE_SIZE);
+    this.undergroundCamera.centerOn(Math.floor(UNDERGROUND_WIDTH / 2) * TILE_SIZE, Math.floor(UNDERGROUND_HEIGHT / 2) * TILE_SIZE);
+  }
+
   setPaused(paused: boolean): void {
+    if (this.gameOver || this.mutationOffer) return;
     this.gameLoop.setPaused(paused);
   }
 
@@ -640,18 +1012,173 @@ export class GameManager {
   }
 
   selectEntityAt(tileX: number, tileY: number): void {
-    this.selectionSystem.selectAt(tileX, tileY);
+    this.selectionSystem.selectAt(tileX, tileY, { layer: this.activeLayerValue() });
     // Force stats update to reflect selection
-    if (this.statsCallback) {
-      this.statsCallback(this.getStats());
-    }
+    this.publishStats();
   }
 
   clearSelection(): void {
     this.selectionSystem.clearSelection();
-    if (this.statsCallback) {
-      this.statsCallback(this.getStats());
+    this.armedCommand = null;
+    this.publishStats();
+  }
+
+  /** Narrow a group to one of its ants (its cell in the group panel was clicked). */
+  selectOnly(id: EntityId): void {
+    this.selectionSystem.selectOnly(id);
+    this.publishStats();
+  }
+
+  /** Detener: drop the orders of the selected ants; their own AI takes over. */
+  stopSelectedAnts(): number {
+    const stopped = stopAnts(this.world, this.selectionSystem.getSelectedAnts());
+    this.armedCommand = null;
+    this.publishStats();
+    return stopped;
+  }
+
+  /** Mover: arm a move order; the next left click on the ground is the target. */
+  armMoveTarget(): void {
+    this.armCommand('move');
+  }
+
+  /** Atacar: arm an attack; the next left click picks an enemy, or the ground to attack-move to. */
+  armAttackTarget(): void {
+    this.armCommand('attack');
+  }
+
+  private armCommand(command: CommandTarget): void {
+    this.armedCommand = this.activeLayer === 'surface' && this.selectionSystem.getSelectedAnts().length > 0 ? command : null;
+    this.publishStats();
+  }
+
+  cancelCommandTarget(): void {
+    if (!this.armedCommand) return;
+    this.armedCommand = null;
+    this.publishStats();
+  }
+
+  /** Surface orders need the surface in view, a running game and some own ants selected. */
+  private selectedAntsForOrder(): EntityId[] {
+    this.armedCommand = null;
+    if (this.activeLayer !== 'surface' || this.gameOver) return [];
+    return this.selectionSystem.getSelectedAnts();
+  }
+
+  /**
+   * Order the selected ants to walk to a tile: each gets its own formation slot.
+   * `attack` makes it an attack-move. Surface only for now. Returns how many
+   * ants took the order.
+   */
+  orderSelectedMove(tileX: number, tileY: number, attack = false): number {
+    const ants = this.selectedAntsForOrder();
+    if (ants.length === 0) return 0;
+    const kind = attack ? OrderKind.AttackMove : OrderKind.Move;
+    const result = issueMoveOrders(this.world, this.grid, ants, { x: tileX, y: tileY }, this.transitSystem, kind);
+    if (!result) return 0;
+    this.orderPings.push({ ...result.target, kind: attack ? 'attack' : 'move' });
+    emitAudio({ type: 'order', kind: attack ? 'attack' : 'move' });
+    this.publishStats();
+    return result.ordered.length;
+  }
+
+  /** Order the selected ants to attack one enemy until it dies. Returns how many took the order. */
+  orderSelectedAttack(targetId: EntityId): number {
+    const ants = this.selectedAntsForOrder();
+    if (ants.length === 0) return 0;
+    const result = issueAttackOrders(this.world, this.grid, ants, targetId, this.transitSystem);
+    if (!result) return 0;
+    this.orderPings.push({ ...result.target, kind: 'attack', targetId });
+    this.publishStats();
+    return result.ordered.length;
+  }
+
+  /** Mantener posición: the selected ants stand still and fight only what is in reach. */
+  holdSelectedAnts(): number {
+    const held = issueHoldOrders(this.world, this.selectedAntsForOrder(), this.transitSystem);
+    this.publishStats();
+    return held.length;
+  }
+
+  /** Order pings since the last frame (tile coords); the renderer animates them. */
+  drainOrderPings(): OrderPing[] {
+    return this.orderPings.splice(0);
+  }
+
+  /** Live selection box (canvas px) while the player drags. */
+  getDragBox(): ScreenBox | null {
+    return this.input.getDragBox();
+  }
+
+  private activeLayerValue(): LayerValue {
+    return this.activeLayer === 'underground' ? Layer.Underground : Layer.Surface;
+  }
+
+  private activeCamera(): Camera {
+    return this.activeLayer === 'underground' ? this.undergroundCamera : this.camera;
+  }
+
+  /** Canvas px to entity-position space: an entity at (x, y) is drawn centered on tile (x, y). */
+  private screenToEntity(screenX: number, screenY: number): { x: number; y: number } {
+    const world = this.activeCamera().screenToWorld(screenX, screenY);
+    return { x: world.x / TILE_SIZE - 0.5, y: world.y / TILE_SIZE - 0.5 };
+  }
+
+  /** Left click: pick one entity; shift toggles an ant in the group; ctrl takes its caste on screen. */
+  private clickSelect(screenX: number, screenY: number, mods: InputModifiers): void {
+    const at = this.screenToEntity(screenX, screenY);
+    const layer = this.activeLayerValue();
+    if (mods.ctrl) {
+      const view = this.activeCamera().getViewRectTiles();
+      const box: SelectionBox = { minX: view.x - 0.5, minY: view.y - 0.5, maxX: view.x + view.w - 0.5, maxY: view.y + view.h - 0.5 };
+      this.selectionSystem.selectSameCaste(at.x, at.y, box, layer);
+    } else {
+      this.selectionSystem.selectAt(at.x, at.y, { layer, additive: mods.shift });
     }
+    if (this.selectionSystem.getSelectedAnts().length === 0) this.armedCommand = null;
+    emitAudio(selectionAudio(this.world, this.selectionSystem.getSelectedAnts()));
+    this.publishStats();
+  }
+
+  /** Left drag released: select the own ants inside the box (shift adds). */
+  private selectInScreenBox(box: ScreenBox, mods: InputModifiers): void {
+    const a = this.screenToEntity(box.x0, box.y0);
+    const b = this.screenToEntity(box.x1, box.y1);
+    const area: SelectionBox = { minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y), maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y) };
+    this.selectionSystem.selectInBox(area, this.activeLayerValue(), mods.shift);
+    emitAudio(selectionAudio(this.world, this.selectionSystem.getSelectedAnts()));
+    this.armedCommand = null;
+    this.publishStats();
+  }
+
+  /** Right tap (or a click with Mover armed): attack the enemy under the pointer, else move there. */
+  private commandAt(screenX: number, screenY: number): void {
+    // Orders run on the surface only for now; right-click does nothing below
+    if (this.activeLayer !== 'surface') return;
+    const at = this.screenToEntity(screenX, screenY);
+    const enemy = this.armedCommand === 'move' ? null : this.enemyAt(at);
+    if (enemy !== null) this.orderSelectedAttack(enemy);
+    else this.orderSelectedMove(Math.round(at.x), Math.round(at.y));
+  }
+
+  /** A click with Atacar armed: the enemy under the pointer, or an attack-move to the ground. */
+  private attackAt(screenX: number, screenY: number): void {
+    const at = this.screenToEntity(screenX, screenY);
+    const enemy = this.enemyAt(at);
+    if (enemy !== null) this.orderSelectedAttack(enemy);
+    else this.orderSelectedMove(Math.round(at.x), Math.round(at.y), true);
+  }
+
+  /** The surface enemy drawn under the pointer: wildlife where the colony sees now, dens on explored ground. */
+  private enemyAt(at: { x: number; y: number }): EntityId | null {
+    const fog = this.visibilityGrid;
+    return findEnemyAt(this.world, at, (x, y, den) => (den ? fog.isExplored(x, y) : isTileVisible(fog, x, y)));
+  }
+
+  /** Leaving a layer drops the ants picked on it; a selected nest or food stays. */
+  private dropAntSelection(): void {
+    this.armedCommand = null;
+    if (this.selectionSystem.getSelectedAnts().length > 0) this.selectionSystem.clearSelection();
   }
 
   setColonyPriority(priority: ColonyPriority): void {
@@ -674,16 +1201,15 @@ export class GameManager {
     if (queen.isBreeding) return false;
 
     // Determine cost and time based on role
-    let cost = BREED_COST_WORKER;
+    // Legacy nest breeding prices every role other than soldier and scout as a worker
+    const cost = this.getBreedCost(role === AntRole.Soldier || role === AntRole.Scout ? role : AntRole.Worker);
     let time = BREED_TIME_WORKER;
 
     switch (role) {
       case AntRole.Soldier:
-        cost = BREED_COST_SOLDIER;
         time = BREED_TIME_SOLDIER;
         break;
       case AntRole.Scout:
-        cost = BREED_COST_SCOUT;
         time = BREED_TIME_SCOUT;
         break;
     }
@@ -727,16 +1253,8 @@ export class GameManager {
     const countForRole = eggQueue.queue.filter(e => e.role === role).length;
     if (countForRole >= eggQueue.maxPerType) return false;
 
-    let cost = BREED_COST_WORKER;
-    switch (role) {
-      case AntRole.Soldier: cost = BREED_COST_SOLDIER; break;
-      case AntRole.Scout: cost = BREED_COST_SCOUT; break;
-      case AntRole.Nurse: cost = BREED_COST_NURSE; break;
-      case AntRole.Defender: cost = BREED_COST_DEFENDER; break;
-    }
-
     // Spend from the pantry tile piles (leaf → mushroom → meat priority)
-    if (!this.deductFromStorage(cost)) return false;
+    if (!this.deductFromStorage(this.getBreedCost(role))) return false;
 
     // Add to queue
     eggQueue.queue.push({
@@ -744,6 +1262,7 @@ export class GameManager {
       layTimer: QUEEN_EGG_LAY_TIME,
       layTimerTotal: QUEEN_EGG_LAY_TIME,
     });
+    emitAudio({ type: 'eggQueued' });
 
     return true;
   }
@@ -753,6 +1272,67 @@ export class GameManager {
     if (this.undergroundGrid.getPantryStored().total < cost) return false;
     this.undergroundGrid.drainFood(cost);
     return true;
+  }
+
+  /** Food cost to breed one ant of this role, including run mutation surcharges. */
+  getBreedCost(role: AntRole): number {
+    switch (role) {
+      case AntRole.Soldier: return BREED_COST_SOLDIER + this.runModifiers.soldierCostBonus;
+      case AntRole.Scout: return BREED_COST_SCOUT;
+      case AntRole.Nurse: return BREED_COST_NURSE;
+      case AntRole.Defender: return BREED_COST_DEFENDER;
+      default: return BREED_COST_WORKER;
+    }
+  }
+
+  /** Apply one mutation stack; false (nothing changes) once it reached maxStacks. */
+  applyMutation(id: MutationId): boolean {
+    if (!this.runModifiers.apply(id)) return false;
+    this.retrofitAntStats();
+    return true;
+  }
+
+  /** Apply one card of the pending dawn offer and resume. False (no change) for any other id. */
+  chooseMutation(id: string): boolean {
+    const option = this.mutationOffer?.options.find(candidate => candidate.id === id);
+    if (!option || this.gameOver || !this.applyMutation(option.id)) return false;
+    this.mutationOffer = null;
+    this.lastMutationPick = option.id;
+    emitAudio({ type: 'mutationChosen' });
+    this.gameLoop.setPaused(false);
+    this.publishStats();
+    return true;
+  }
+
+  getAppliedMutations(): MutationId[] {
+    return this.runModifiers.getAppliedMutations();
+  }
+
+  /** Recompute spawn-time stats from base stats so purchase/pick order never compounds rounding. */
+  private retrofitAntStats(): void {
+    for (const antId of this.world.query(COMPONENT.ANT)) {
+      const ant = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT)!;
+      const stats = antSpawnStats(this.world, ant.role);
+      const hunger = this.world.getComponent<HungerComponent>(antId, COMPONENT.HUNGER);
+      if (hunger) {
+        hunger.max = stats.maxHunger;
+        hunger.current = Math.min(hunger.current, stats.maxHunger);
+      }
+      if (ant.role === AntRole.Worker) {
+        const carrying = this.world.getComponent<CarryingComponent>(antId, COMPONENT.CARRYING);
+        if (carrying) carrying.maxCapacity = stats.carryCapacity;
+      } else if (ant.role === AntRole.Soldier) {
+        const health = this.world.getComponent<HealthComponent>(antId, COMPONENT.HEALTH);
+        if (health) {
+          // Extra max HP arrives as health, like a newborn's full bar
+          health.current = Math.min(stats.maxHealth, health.current + Math.max(0, stats.maxHealth - health.max));
+          health.max = stats.maxHealth;
+          health.damage = stats.damage;
+        }
+        const combat = this.world.getComponent<CombatComponent>(antId, COMPONENT.COMBAT);
+        if (combat) combat.attackDamage = stats.damage;
+      }
+    }
   }
 
   // ── Queen upgrades ────────────────────────────────────────────────
@@ -794,24 +1374,11 @@ export class GameManager {
 
     if (id === 'carry') {
       this.world.upgrades.workerCarryMult = 1 + 0.25 * newLevel;
-      // Retrofit living workers
-      for (const antId of this.world.query(COMPONENT.ANT, COMPONENT.CARRYING)) {
-        const ant = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT)!;
-        if (ant.role !== AntRole.Worker) continue;
-        const carrying = this.world.getComponent<CarryingComponent>(antId, COMPONENT.CARRYING)!;
-        carrying.maxCapacity = Math.round(ROLE_STATS.worker.carryCapacity * this.world.upgrades.workerCarryMult);
-      }
+      this.retrofitAntStats();
       this.world.pushNotification('success', `👑 Mejora: obreras nivel ${newLevel} — cargan más comida`);
     } else if (id === 'damage') {
       this.world.upgrades.soldierDamageMult = 1 + 0.25 * newLevel;
-      const newDamage = Math.round(ROLE_STATS.soldier.damage * this.world.upgrades.soldierDamageMult);
-      for (const antId of this.world.query(COMPONENT.ANT, COMPONENT.HEALTH)) {
-        const ant = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT)!;
-        if (ant.role !== AntRole.Soldier) continue;
-        this.world.getComponent<HealthComponent>(antId, COMPONENT.HEALTH)!.damage = newDamage;
-        const combat = this.world.getComponent<CombatComponent>(antId, COMPONENT.COMBAT);
-        if (combat) combat.attackDamage = newDamage;
-      }
+      this.retrofitAntStats();
       this.world.pushNotification('success', `👑 Mejora: soldados nivel ${newLevel} — pegan más fuerte`);
     } else if (id === 'storage') {
       // Flat extra capacity on every pantry tile (scales with excavated pantry size)
@@ -832,31 +1399,9 @@ export class GameManager {
 
   // ── Retreat horn ──────────────────────────────────────────────────
 
-  /** Recall every surface ant to the nest — defensive posture */
+  /** Recall every surface ant to the nest — defensive posture; it outranks every player order */
   soundRetreat(): void {
-    const ants = this.world.query(COMPONENT.ANT, COMPONENT.LAYER);
-    let recalled = 0;
-
-    for (const id of ants) {
-      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
-      if (layer.layer !== Layer.Surface) continue;
-
-      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
-      // Porters keep their load and task — they're heading to the nest or
-      // underground anyway, and re-typing their state would double-count food
-      if (ant.state === AntState.FetchingFood || ant.state === AntState.Hauling) continue;
-      ant.commandTargetId = null;
-      ant.state = ant.role === AntRole.Soldier ? AntState.PatrollingNest : AntState.ReturningHome;
-      ant.stateTimer = 0;
-
-      const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH);
-      if (path) {
-        path.waypoints = [];
-        path.currentIndex = 0;
-      }
-      recalled++;
-    }
-
+    const recalled = soundRetreatHorn(this.world);
     if (recalled > 0) {
       this.world.pushNotification('info', `📯 ¡Retirada! ${recalled} hormigas vuelven al nido`);
     }
@@ -1188,6 +1733,7 @@ export class GameManager {
   }
 
   enterUnderground(): void {
+    this.dropAntSelection();
     this.activeLayer = 'underground';
     const cx = Math.floor(UNDERGROUND_WIDTH / 2) * TILE_SIZE;
     const cy = Math.floor(UNDERGROUND_HEIGHT / 2) * TILE_SIZE;
@@ -1197,6 +1743,7 @@ export class GameManager {
   }
 
   exitUnderground(): void {
+    this.dropAntSelection();
     this.activeLayer = 'surface';
     this.input.setCamera(this.camera);
   }
@@ -1261,6 +1808,72 @@ export class GameManager {
     return out;
   }
 
+  // ── Surface minimap ────────────────────────────────────────────────
+
+  /** Surface terrain (static after world generation) — minimap base layer */
+  getSurfaceGrid(): TileGrid {
+    return this.grid;
+  }
+
+  /** Fog state: explored tiles and current brightness (read-only) */
+  getSurfaceFog(): VisibilityReader {
+    return this.visibilityGrid;
+  }
+
+  /** Surface camera viewport as a tile rect — the minimap "you are here" box */
+  getSurfaceView(): { x: number; y: number; w: number; h: number } {
+    return this.camera.getViewRectTiles();
+  }
+
+  /** Recenter the surface camera on a tile (minimap click-to-navigate) */
+  centerSurfaceOn(tileX: number, tileY: number): void {
+    if (this.camera.isDirected()) return; // the intro cinematic owns the camera
+    this.camera.centerOn(tileX * TILE_SIZE, tileY * TILE_SIZE);
+  }
+
+  /**
+   * Live markers for the surface minimap: the colony's surface ants, enemies
+   * only where the fog is clear (the same rule the renderer uses), and dens
+   * and food on explored ground. Polled a few times a second, never per frame.
+   */
+  getSurfaceMinimapDots(): SurfaceMinimapDot[] {
+    const out: SurfaceMinimapDot[] = [];
+    const fog = this.visibilityGrid;
+    const onSurface = (id: EntityId) => {
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+      return !layer || layer.layer === Layer.Surface;
+    };
+    const explored = (pos: PositionComponent) => fog.isExplored(Math.floor(pos.x), Math.floor(pos.y));
+
+    for (const id of this.world.query(COMPONENT.FOOD_SOURCE, COMPONENT.POSITION)) {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'food' });
+    }
+    for (const component of [COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN]) {
+      for (const id of this.world.query(component, COMPONENT.POSITION)) {
+        const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+        if (explored(pos)) out.push({ x: pos.x, y: pos.y, kind: 'den' });
+      }
+    }
+    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.POSITION)) {
+      if (!onSurface(id)) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      out.push({ x: pos.x, y: pos.y, kind: 'ant' });
+    }
+    for (const component of [COMPONENT.BEETLE, COMPONENT.CRICKET]) {
+      for (const id of this.world.query(component, COMPONENT.POSITION)) {
+        if (!onSurface(id)) continue;
+        const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+        if (isTileVisible(fog, Math.floor(pos.x), Math.floor(pos.y))) out.push({ x: pos.x, y: pos.y, kind: 'enemy' });
+      }
+    }
+    for (const id of this.world.query(COMPONENT.NEST, COMPONENT.POSITION)) {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      out.push({ x: pos.x, y: pos.y, kind: 'nest' });
+    }
+    return out;
+  }
+
   getQueenStats(): { health: number; maxHealth: number; hunger: number; maxHunger: number; isLaying: boolean } | null {
     const queens = this.world.query(COMPONENT.QUEEN_ENTITY);
     if (queens.length === 0) return null;
@@ -1279,30 +1892,77 @@ export class GameManager {
     };
   }
 
-  getEggQueue(): Array<{ role: string; progress: number }> {
-    const queens = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.EGG_QUEUE);
-    if (queens.length === 0) return [];
+  getBroodSnapshot(): BroodSnapshot {
+    const stored = this.undergroundGrid.getPantryStored();
+    const nestId = this.world.query(COMPONENT.NEST)[0];
+    const nest = nestId !== undefined ? this.world.getComponent<NestComponent>(nestId, COMPONENT.NEST) : undefined;
 
-    const queenId = queens[0];
-    const eggQueue = this.world.getComponent<EggQueueComponent>(queenId, COMPONENT.EGG_QUEUE)!;
+    const queenId = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.EGG_QUEUE)[0];
+    const queen = queenId !== undefined ? this.world.getComponent<QueenEntityComponent>(queenId, COMPONENT.QUEEN_ENTITY) : undefined;
+    const eggQueue = queenId !== undefined ? this.world.getComponent<EggQueueComponent>(queenId, COMPONENT.EGG_QUEUE) : undefined;
 
-    return eggQueue.queue.map(e => ({
-      role: e.role,
-      progress: e.layTimerTotal > 0 ? 1 - (e.layTimer / e.layTimerTotal) : 0,
-    }));
-  }
-
-  getActiveEggs(): Array<{ role: string; progress: number; fedProgress: number }> {
-    const eggs = this.world.query(COMPONENT.EGG, COMPONENT.POSITION);
-    const result: Array<{ role: string; progress: number; fedProgress: number }> = [];
-
-    for (const id of eggs) {
+    // Same placement rule as EggIncubationSystem and the nurses' free-slot search
+    const eggsPerTile = new Map<number, number>();
+    const eggs: BroodSnapshot['eggs'] = [];
+    for (const id of this.world.query(COMPONENT.EGG, COMPONENT.POSITION)) {
       const egg = this.world.getComponent<EggComponent>(id, COMPONENT.EGG)!;
-      const progress = egg.hatchTime > 0 ? 1 - (egg.hatchTimer / egg.hatchTime) : 1;
-      const fedProgress = egg.requiredFood > 0 ? egg.fedAmount / egg.requiredFood : 1;
-      result.push({ role: egg.role, progress, fedProgress });
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const tx = Math.floor(pos.x);
+      const ty = Math.floor(pos.y);
+      const key = ty * this.undergroundGrid.width + tx;
+      eggsPerTile.set(key, (eggsPerTile.get(key) ?? 0) + 1);
+      eggs.push({
+        role: egg.role,
+        progress: egg.hatchTime > 0 ? 1 - egg.hatchTimer / egg.hatchTime : 1,
+        fedProgress: egg.requiredFood > 0 ? egg.fedAmount / egg.requiredFood : 1,
+        remaining: Math.max(0, egg.hatchTimer),
+        incubating: this.undergroundGrid.getTile(tx, ty)?.chamberType === ChamberType.Incubation,
+      });
     }
-    return result;
+
+    let incubationTiles = 0;
+    let freeSlots = 0;
+    for (let y = 0; y < this.undergroundGrid.height; y++) {
+      for (let x = 0; x < this.undergroundGrid.width; x++) {
+        const tile = this.undergroundGrid.getTile(x, y);
+        if (!tile || !tile.walkable || tile.chamberType !== ChamberType.Incubation) continue;
+        incubationTiles++;
+        freeSlots += Math.max(0, MAX_EGGS_PER_INCUBATION_TILE - (eggsPerTile.get(y * this.undergroundGrid.width + x) ?? 0));
+      }
+    }
+
+    let nurses = 0;
+    for (const id of this.world.query(COMPONENT.ANT, COMPONENT.LAYER)) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
+      if (ant.role === AntRole.Nurse && layer.layer === Layer.Underground) nurses++;
+    }
+
+    return {
+      pantry: {
+        stored: stored.total,
+        capacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
+        tiles: this.undergroundGrid.getPantryTiles().length,
+      },
+      surfaceStock: nest ? Math.floor(nest.foodStored) : 0,
+      hasQueen: queen !== undefined,
+      queenCanLay: queen !== undefined && queen.hunger >= QUEEN_MIN_HUNGER_TO_LAY,
+      queue: (eggQueue?.queue ?? []).map((e) => ({
+        role: e.role,
+        progress: e.layTimerTotal > 0 ? 1 - e.layTimer / e.layTimerTotal : 0,
+      })),
+      maxQueuedPerRole: eggQueue?.maxPerType ?? 0,
+      eggs,
+      incubation: { tiles: incubationTiles, freeSlots },
+      nurses,
+      costs: {
+        [AntRole.Worker]: this.getBreedCost(AntRole.Worker),
+        [AntRole.Soldier]: this.getBreedCost(AntRole.Soldier),
+        [AntRole.Scout]: this.getBreedCost(AntRole.Scout),
+        [AntRole.Nurse]: this.getBreedCost(AntRole.Nurse),
+        [AntRole.Defender]: this.getBreedCost(AntRole.Defender),
+      },
+    };
   }
 
   getColonyFood(): { total: number; leaves: number; mushrooms: number; meat: number } {
@@ -1313,6 +1973,30 @@ export class GameManager {
       mushrooms: Math.floor(stored.mushroom),
       meat: Math.floor(stored.meat),
     };
+  }
+
+  /** Two or more selected ants: counts per caste and the wireframe cells. */
+  getSelectedGroup(): SelectedGroupInfo | null {
+    const ids = this.selectionSystem.getSelectedAnts();
+    if (ids.length < 2) return null;
+    const byRole: Partial<Record<AntRole, number>> = {};
+    const units: SelectedGroupInfo['units'] = [];
+    let ordered = 0;
+    for (const id of ids) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+      const hasOrder = hasActiveOrder(this.world, id);
+      byRole[ant.role] = (byRole[ant.role] ?? 0) + 1;
+      if (hasOrder) ordered++;
+      units.push({
+        id,
+        role: ant.role,
+        health: health ? Math.max(0, Math.min(1, health.current / Math.max(1, health.max))) : 1,
+        ordered: hasOrder,
+      });
+    }
+    units.sort((a, b) => GROUP_ROLE_ORDER.indexOf(a.role) - GROUP_ROLE_ORDER.indexOf(b.role) || a.id - b.id);
+    return { count: ids.length, byRole, ordered, units: units.slice(0, GROUP_GRID_MAX) };
   }
 
   getSelectedEntity(): SelectedEntityInfo | null {
@@ -1474,18 +2158,10 @@ export class GameManager {
       }
     }
 
-    // Count available soldiers (idle/searching/patrolling, no active command)
+    // Soldiers free for the den attack: on the surface, no player order, idling, foraging or patrolling
     let availableSoldiers = 0;
     for (const id of ants) {
-      const antComp = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
-      if (antComp.role === AntRole.Soldier && antComp.commandTargetId === null) {
-        if (antComp.state === AntState.Searching ||
-            antComp.state === AntState.PatrollingNest ||
-            antComp.state === AntState.Idle ||
-            antComp.state === AntState.GoingToDen) {
-          availableSoldiers++;
-        }
-      }
+      if (isFreeSoldier(this.world, id)) availableSoldiers++;
     }
 
     return {
@@ -1513,6 +2189,9 @@ export class GameManager {
       colonyPriority: this.getColonyPriority(),
       breeding: this.getBreedingStatus(),
       selectedEntity: this.getSelectedEntity(),
+      selectedGroup: this.getSelectedGroup(),
+      commandTarget: this.selectionSystem.getSelectedAnts().length > 0 ? this.armedCommand : null,
+      controlGroups: this.getControlGroups(),
       notifications: this.getActiveNotifications(),
       objective: this.objectiveSystem.getState(),
       invasion: this.invasionSystem.getInfo(),
@@ -1525,6 +2204,9 @@ export class GameManager {
       dayPhase: this.dayNightSystem.getPhase(),
       dayNumber: this.dayNightSystem.getDayNumber(),
       phaseRemaining: Math.ceil(this.dayNightSystem.getPhaseRemaining()),
+      mutationOffer: this.mutationOffer,
+      lastMutationPick: this.lastMutationPick,
+      introPlaying: this.introClock.isPlaying(),
     };
   }
 
@@ -1536,50 +2218,18 @@ export class GameManager {
     return [...this.world.notifications];
   }
 
+  /**
+   * Atacar guarida: the `soldierCount` free soldiers closest to the den get a
+   * real attack order on it, the same order a right-click gives. Returns how
+   * many were sent.
+   */
   dispatchAttackWave(targetEntityId: EntityId, soldierCount: number): number {
-    // Validate target exists and is a den
-    if (!this.world.hasEntity(targetEntityId)) return 0;
-    const isBeetleDen = this.world.getComponent<BeetleDenComponent>(targetEntityId, COMPONENT.BEETLE_DEN);
-    const isCricketDen = this.world.getComponent<CricketDenComponent>(targetEntityId, COMPONENT.CRICKET_DEN);
-    if (!isBeetleDen && !isCricketDen) return 0;
-
-    const targetPos = this.world.getComponent<PositionComponent>(targetEntityId, COMPONENT.POSITION);
-    if (!targetPos) return 0;
-
-    // Find available soldiers
-    const ants = this.world.query(COMPONENT.ANT, COMPONENT.POSITION);
-    const available: { id: EntityId; dist: number }[] = [];
-
-    for (const id of ants) {
-      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
-      if (ant.role !== AntRole.Soldier) continue;
-      if (ant.commandTargetId !== null) continue;
-
-      // Accept soldiers that are idle/searching/patrolling/going to den (auto)
-      if (ant.state !== AntState.Searching &&
-          ant.state !== AntState.PatrollingNest &&
-          ant.state !== AntState.Idle &&
-          ant.state !== AntState.GoingToDen) continue;
-
-      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-      const dx = pos.x - targetPos.x;
-      const dy = pos.y - targetPos.y;
-      available.push({ id, dist: Math.sqrt(dx * dx + dy * dy) });
+    const sent = dispatchDenAttack(this.world, this.grid, targetEntityId, soldierCount, this.transitSystem);
+    const den = this.world.getComponent<PositionComponent>(targetEntityId, COMPONENT.POSITION);
+    if (sent.length > 0 && den) {
+      this.orderPings.push({ x: Math.round(den.x), y: Math.round(den.y), kind: 'attack', targetId: targetEntityId });
     }
-
-    // Sort by distance (closest first)
-    available.sort((a, b) => a.dist - b.dist);
-
-    // Dispatch up to soldierCount
-    const toDispatch = Math.min(soldierCount, available.length);
-    for (let i = 0; i < toDispatch; i++) {
-      const ant = this.world.getComponent<AntComponent>(available[i].id, COMPONENT.ANT)!;
-      ant.commandTargetId = targetEntityId;
-      ant.state = AntState.GoingToDen;
-      ant.stateTimer = 0;
-      // Path computed on next tick by handleGoingToDen
-    }
-
-    return toDispatch;
+    if (sent.length > 0) emitAudio({ type: 'order', kind: 'attack' });
+    return sent.length;
   }
 }

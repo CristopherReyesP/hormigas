@@ -1,21 +1,33 @@
+import { RUN_NIGHTS_TO_WIN } from '../shared/constants';
 import type { GameOverStats } from '../game/GameManager';
+import { PixelIcon } from './console/PixelIcon';
+import type { IconName } from './console/pixelIcons';
 
 interface GameOverScreenProps {
   stats: GameOverStats;
   onRestart: () => void;
 }
 
-/** Full-canvas overlay shown when the queen dies — run stats + restart */
+/** Full-canvas end-of-run overlay with shared stats, the mutation build and restart. */
 export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
+  const victory = stats.outcome === 'victory';
+  const accent = victory ? 'var(--chrome-accent)' : 'var(--chrome-danger)';
   const minutes = Math.floor(stats.survivedTicks / 60 / 60);
   const seconds = Math.floor(stats.survivedTicks / 60) % 60;
+
+  const label = (icon: IconName, text: string) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <PixelIcon name={icon} />
+      {text}
+    </span>
+  );
 
   const rowStyle: React.CSSProperties = {
     display: 'flex',
     justifyContent: 'space-between',
     gap: 24,
     padding: '6px 0',
-    borderBottom: '1px solid var(--ui-border)',
+    borderBottom: '1px solid var(--chrome-border)',
   };
 
   return (
@@ -25,72 +37,104 @@ export function GameOverScreen({ stats, onRestart }: GameOverScreenProps) {
         position: 'absolute',
         inset: 0,
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 20,
+        overflowY: 'auto',
+        zIndex: 40,
       }}
     >
+      {victory && <div className="run-banner">LA COLMENA PREVALECE</div>}
       <div
         className="pixel-panel"
         style={{
-          borderColor: 'var(--accent-red)',
+          background: 'var(--chrome-panel)',
+          color: 'var(--chrome-text)',
+          borderColor: accent,
           padding: '28px 36px',
           minWidth: 320,
           textAlign: 'center',
-          fontSize: 13,
+          fontSize: 8,
+          lineHeight: 1.8,
         }}
       >
-        <div style={{ fontSize: 28, marginBottom: 12 }}>💀</div>
-        <div
-          style={{
-            fontFamily: 'var(--font-pixel)',
-            fontSize: 16,
-            lineHeight: 1.6,
-            color: 'var(--accent-red)',
-            marginBottom: 8,
-          }}
-        >
-          LA REINA HA MUERTO
-        </div>
-        <div style={{ color: 'var(--ui-text-dim)', marginBottom: 18 }}>
-          Sin reina no hay colonia.
+        {!victory && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+              <PixelIcon name="skull" size={48} />
+            </div>
+            <div
+              style={{
+                fontFamily: 'var(--font-pixel)',
+                fontSize: 16,
+                lineHeight: 1.6,
+                color: accent,
+                marginBottom: 8,
+              }}
+            >
+              LA REINA HA MUERTO
+            </div>
+          </>
+        )}
+        <div style={{ color: 'var(--chrome-dim)', marginBottom: 18 }}>
+          {victory ? `La colonia sobrevivió ${RUN_NIGHTS_TO_WIN} noches.` : 'Sin reina no hay colonia.'}
         </div>
 
-        <div style={{ fontSize: 13, textAlign: 'left', marginBottom: 22 }}>
+        <div style={{ textAlign: 'left', marginBottom: 22 }}>
           <div style={rowStyle}>
-            <span>⏱ Tiempo sobrevivido</span>
+            {label('hourglass', 'Tiempo sobrevivido')}
             <strong className="pixel-number">
               {minutes}:{seconds.toString().padStart(2, '0')}
             </strong>
           </div>
           <div style={rowStyle}>
-            <span>🐜 Hormigas nacidas</span>
+            {label('ant', 'Hormigas nacidas')}
             <strong className="pixel-number">{stats.antsHatched}</strong>
           </div>
           <div style={rowStyle}>
-            <span>🛡️ Oleadas repelidas</span>
+            {label('shield', 'Oleadas repelidas')}
             <strong className="pixel-number">{stats.wavesRepelled}</strong>
           </div>
           <div style={rowStyle}>
-            <span>💥 Nidos destruidos</span>
+            {label('den', 'Guaridas destruidas')}
             <strong className="pixel-number">{stats.densDestroyed}</strong>
           </div>
           <div style={{ ...rowStyle, borderBottom: 'none' }}>
-            <span>⛏️ Tiles excavados</span>
+            {label('pick', 'Casillas excavadas')}
             <strong className="pixel-number">{stats.tilesExcavated}</strong>
           </div>
         </div>
 
+        <div style={{ textAlign: 'left', marginBottom: 22 }}>
+          <div className="pixel-heading" style={{ color: 'var(--chrome-dim)', marginBottom: 6 }}>
+            Mutaciones
+          </div>
+          {stats.build.length === 0 ? (
+            <div style={{ color: 'var(--chrome-dim)' }}>Sin mutaciones</div>
+          ) : (
+            stats.build.map((entry) => (
+              <div key={entry.id} style={{ ...rowStyle, borderBottom: '1px solid var(--chrome-panel-light)' }}>
+                <span style={{ color: 'var(--chrome-accent)' }}>{entry.name}</span>
+                <strong className="pixel-number">× {entry.stacks}</strong>
+              </div>
+            ))
+          )}
+        </div>
+
         <button
           onClick={onRestart}
-          className="pixel-btn pixel-btn--danger"
+          className={victory ? 'pixel-btn' : 'pixel-btn pixel-btn--danger'}
           style={{
             padding: '12px 28px',
-            fontFamily: 'var(--font-pixel)',
-            fontSize: 10,
+            fontSize: 8,
+            ...(victory && {
+              borderColor: 'var(--chrome-accent)',
+              color: 'var(--chrome-accent)',
+              background: 'var(--chrome-panel-light)',
+            }),
           }}
         >
-          🔄 REINTENTAR
+          {victory ? 'NUEVA PARTIDA' : 'REINTENTAR'}
         </button>
       </div>
     </div>

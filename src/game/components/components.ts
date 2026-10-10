@@ -1,4 +1,5 @@
 import type { Vector2, EntityId } from '../../shared/types';
+import type { FactionId } from '../factions/factions';
 
 // Position in tile coordinates (can be fractional for smooth movement)
 export interface PositionComponent {
@@ -33,9 +34,7 @@ export const AntState = {
   ChasingEnemy: 'chasing_enemy',
   AttackingEnemy: 'attacking_enemy',
   PatrollingNest: 'patrolling_nest',
-  GoingToDen: 'going_to_den',
-  AttackingDen: 'attacking_den',
-  Healing: 'healing',
+  Healing: 'healing', // went below to eat — eating is what heals (UndergroundHealingSystem)
   FeedingQueen: 'feeding_queen',
   TendingEgg: 'tending_egg',
   FetchingFood: 'fetching_food',
@@ -45,6 +44,12 @@ export const AntState = {
   Eating: 'eating',
   Hauling: 'hauling',
   Scavenging: 'scavenging',
+  /** Following a player order (PlayerOrderComponent); the colony AI waits until it ends */
+  Moving: 'moving',
+  /** A warrior keeping the post a player order left it on (OrderKind.Guard) */
+  Guarding: 'guarding',
+  /** Standing still under Mantener posición (OrderKind.Hold) */
+  Holding: 'holding',
 } as const;
 
 export type AntState = typeof AntState[keyof typeof AntState];
@@ -62,21 +67,11 @@ export interface AntComponent {
   role: AntRole;
   state: AntState;
   stateTimer: number; // time in current state
-  commandTargetId: EntityId | null; // manual attack wave target (overrides auto-targeting)
+  commandTargetId: EntityId | null; // nurse: the egg it is feeding or carrying
   eggTargetTile?: { x: number; y: number } | null; // nurse: locked incubation tile while carrying an egg
   stuckTimer?: number;    // seconds elapsed with sub-threshold displacement (Bug 3)
   lastX?: number;         // last sampled world x for stall detection (Bug 3)
   lastY?: number;         // last sampled world y for stall detection (Bug 3)
-  healingCycles?: number; // consecutive Healing→Searching cycles with no underground food (Bug 6)
-  /** Seconds of FORCED foraging: the health/hunger checks are suppressed while
-   *  this is positive, but the ant still acts normally.
-   *
-   *  This exists because stateTimer alone cannot express it. A negative
-   *  stateTimer suppresses the health check but ALSO skips action scoring
-   *  (the ant freezes); a positive one lets the ant act but re-triggers the
-   *  health check on the next tick. Starving-but-hurt ants need both halves,
-   *  so the "don't go home" gate had to leave stateTimer. */
-  forageGrace?: number;
 }
 
 export interface HungerComponent {
@@ -250,6 +245,52 @@ export interface LayerComponent {
   layer: LayerValue;
 }
 
+/** Order kinds the player can give, StarCraft style. */
+export const OrderKind = {
+  /** Walk to a formation slot, ignoring enemies */
+  Move: 'move',
+  /** Chase one enemy (a beetle, a cricket or a den) and fight it until it dies */
+  Attack: 'attack',
+  /** Walk to a formation slot, fighting every enemy that comes into view on the way */
+  AttackMove: 'attack_move',
+  /** Stand still and fight only what comes into attack range (Mantener posición) */
+  Hold: 'hold',
+  /** A warrior's post once a move or attack order is done: fight what comes near, then return */
+  Guard: 'guard',
+} as const;
+export type OrderKind = typeof OrderKind[keyof typeof OrderKind];
+
+/**
+ * A direct player command. While an ant carries one, AntAISystem drives it and
+ * the colony systems (porters, digging, garrison, invasion draft) leave it alone.
+ * Workers drop the order on arrival and go back to their job; warriors swap it
+ * for a Guard order and keep the spot until the player, the horn or hunger
+ * releases them.
+ */
+export interface PlayerOrderComponent {
+  kind: OrderKind;
+  /**
+   * Move and attack-move: this ant's formation slot (tile). Hold and guard:
+   * the post it keeps. Attack: where the enemy was last seen.
+   */
+  target: Vector2;
+  /** Attack: the ordered enemy. Attack-move, hold and guard: the enemy it is fighting now, if any */
+  targetId: EntityId | null;
+  /** Seconds until a chase route is refreshed (the quarry keeps moving) */
+  repath: number;
+  /** Layer the order was given on; orders only run on the surface for now */
+  layer: LayerValue;
+  /** Seconds spent on the way toward the goal (fights do not count); drives the timeout */
+  elapsed: number;
+  /** A* routes requested so far (0 = still waiting for its first route) */
+  routes: number;
+}
+
+/** Which faction an entity belongs to. Read it through `ownerOf`, which falls back when it is missing. */
+export interface OwnerComponent {
+  faction: FactionId;
+}
+
 // Component name constants to avoid magic strings
 export const COMPONENT = {
   POSITION: 'position',
@@ -275,4 +316,6 @@ export const COMPONENT = {
   QUEEN_ENTITY: 'queen_entity',
   EGG_QUEUE: 'egg_queue',
   EGG: 'egg',
+  PLAYER_ORDER: 'player_order',
+  OWNER: 'owner',
 } as const;

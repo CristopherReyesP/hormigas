@@ -5,6 +5,8 @@ import type { TileGrid } from '../../simulation/world/TileGrid';
 import type { TransitSystem } from './TransitSystem';
 import { findPath } from '../../simulation/pathfinding/AStar';
 import { findAttacker, ensureCombatComponent } from './helpers/combatHelpers';
+import { hasPlayerOrder } from './helpers/playerOrders';
+import { antSpawnStats } from '../run/antStats';
 import {
   COMPONENT,
   AntRole,
@@ -21,7 +23,6 @@ import {
 } from '../components/components';
 import {
   ANT_DEPOSIT_RANGE,
-  ROLE_STATS,
   PORTER_MAX_COUNT,
   PORTER_ASSIGN_COOLDOWN,
   SCAVENGER_MAX_COUNT,
@@ -90,6 +91,8 @@ export class PorterSystem implements System {
     for (const id of ants) {
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
       if (ant.role !== AntRole.Worker) continue;
+      // The player gave this ant an order: it is not a porter until the order ends
+      if (hasPlayerOrder(this.world, id)) continue;
 
       if (ant.state === AntState.FetchingFood) {
         if (this.reactToSurfaceThreat(id, ant, nestPos)) continue;
@@ -168,7 +171,7 @@ export class PorterSystem implements System {
 
     // Demand-driven cap: no point sending 4 porters for half a load.
     // The queen's 'porters' upgrade raises the simultaneous-porter ceiling.
-    const porterCapacity = Math.max(1, Math.round(ROLE_STATS.worker.carryCapacity * this.world.upgrades.workerCarryMult));
+    const porterCapacity = Math.max(1, antSpawnStats(this.world, AntRole.Worker).carryCapacity);
     const desired = Math.min(PORTER_MAX_COUNT + this.world.upgrades.porterBonus, Math.ceil(nest.foodStored / porterCapacity));
     if (activePorters >= desired) return;
 

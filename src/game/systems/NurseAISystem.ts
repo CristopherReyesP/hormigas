@@ -14,9 +14,11 @@ import {
   type LayerComponent,
   type PathComponent,
   type HungerComponent,
+  type HealthComponent,
   type EggComponent,
 } from '../components/components';
-import { MAX_EGGS_PER_INCUBATION_TILE, HUNGER_PER_FOOD, HUNGER_EAT_RATE } from '../../shared/constants';
+import { MAX_EGGS_PER_INCUBATION_TILE } from '../../shared/constants';
+import { eat, isHurt, needsMeal } from './HungerSystem';
 
 // Sub-tile slots so up to 4 eggs on one incubation tile don't overlap visually
 const EGG_SLOT_OFFSETS = [
@@ -159,6 +161,14 @@ export class NurseAISystem implements System {
       }
     }
 
+    // Priority 1b: WOUNDED — eating is how ants heal (see eat()), and the pantry is next door
+    if (foodAvailable && isHurt(this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH))) {
+      ant.state = AntState.Eating;
+      ant.stateTimer = 0;
+      this.clearPath(id);
+      return;
+    }
+
     // Priority 2: HUNGRY LARVAE — they can't hatch until fed, and they outrank
     // a merely-peckish queen (she has 1000 hunger of buffer; eggs have none)
     const hungryEgg = this.findEggNeedingFood(id, pos);
@@ -294,10 +304,11 @@ export class NurseAISystem implements System {
     }
   }
 
-  /** Nurse eats directly from the underground food storage to survive */
+  /** Nurse eats straight from the pantry: hunger first, the rest of the meal heals (see eat()) */
   private handleEatingAtStorage(id: number, ant: AntComponent, pos: PositionComponent, dt: number): void {
     const hunger = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
-    if (!hunger) { ant.state = AntState.Idle; return; }
+    const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+    if (!needsMeal(hunger, health)) { ant.state = AntState.Idle; return; }
 
     const tile = this.grid.findPreferredFetchTile(pos.x, pos.y);
     if (!tile) {
@@ -312,16 +323,8 @@ export class NurseAISystem implements System {
 
     if (dist < 1.5) {
       // Nibble straight off the pile at the eating rate
-      const want = Math.min(HUNGER_EAT_RATE * dt, (hunger.max - hunger.current) / HUNGER_PER_FOOD);
-      const { taken } = this.grid.takeFood(tile.x, tile.y, want);
-
-      if (taken <= 0) {
-        ant.state = AntState.Idle;
-        return;
-      }
-
-      hunger.current = Math.min(hunger.max, hunger.current + taken * HUNGER_PER_FOOD);
-      if (hunger.current >= hunger.max * 0.95) {
+      const eaten = eat(this.world, hunger, health, dt, (want) => this.grid.takeFood(tile.x, tile.y, want).taken);
+      if (eaten <= 0 || !needsMeal(hunger, health)) {
         ant.state = AntState.Idle;
       }
     } else {

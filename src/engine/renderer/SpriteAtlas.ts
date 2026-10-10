@@ -1,855 +1,274 @@
 import { AntRole } from '../../game/components/components';
-import { TILE_SIZE } from '../../shared/constants';
 import { PAL, hash2 } from './pixelart/palette';
 import { PixelPainter } from './pixelart/PixelPainter';
+import { blitArtGrid, type ArtGrid } from './pixelart/ArtGrid';
+import { DIRECTIONS, directionIndex } from './pixelart/directions';
+import { ART_PX, SPRITE_GRID, WALK_FRAMES, nestPixelsPerArtPixel, spritePivot, walkFrame } from './sprites/spriteScale';
+import { paintAnt, paintQueen } from './sprites/swarmSprites';
+import { paintBeetle, paintCricket } from './sprites/wildlifeSprites';
+import { FOOD_SIZE_LEVELS, FOOD_VARIANTS, paintDen, paintFood, paintGiantMushroom } from './sprites/propSprites';
+import { NO_MARKS, antSheetKey, type AntMarks } from './sprites/antMarks';
 
-interface SpriteFrame {
-  canvas: HTMLCanvasElement;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  originX: number;
-  originY: number;
-}
+export { antGlowPoints, type AntGlowPoint } from './sprites/swarmSprites';
 
-const ANT_FRAMES = 4;
-const ANT_SPRITE_SIZE = 48;
-const FOOD_SPRITE_SIZE = 32;
-const NEST_SPRITE_SIZE = 160;
-const BEETLE_FRAMES = 4;
-const BEETLE_SPRITE_SIZE = 56;
-const CRICKET_FRAMES = 4;
-const CRICKET_SPRITE_SIZE = 192;
-const DEN_SPRITE_SIZE = 80;
-const GIANT_MUSHROOM_SPRITE_SIZE = 64;
+/** Nest sprite canvas px per art px (the mound is drawn down to whole world px per art px). */
+const NEST_SCALE = 4;
+const NEST_SPRITE_SIZE = SPRITE_GRID.nest * NEST_SCALE;
+const DEN_SPRITE_SIZE = SPRITE_GRID.den * ART_PX;
+const GIANT_MUSHROOM_SPRITE_SIZE = SPRITE_GRID.giantMushroom * ART_PX;
 
-// Art-pixel scales: frame size = grid size × scale.
-const ANT_SCALE = 3; //          48 = 16 × 3
-const BEETLE_SCALE = 4; //       56 = 14 × 4
-const CRICKET_SCALE = 6; //     192 = 32 × 6
-const FOOD_SCALE = 3; //         32 ≈ 10 × 3 (+1px canvas margin each side)
-const NEST_SCALE = 4; //        160 = 40 × 4
-const DEN_SCALE = 4; //          80 = 20 × 4
-const GIANT_MUSHROOM_SCALE = 4; // 64 = 16 × 4
+const ANT_ROLES: readonly AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse, AntRole.Defender];
 
-// Tripod-gait swing offsets (art px) for the 4-frame walk cycle.
-const GAIT = [1, 0, -1, 0];
+/** Baked ant sheets kept at once (~0.3 MB each): the colony's castes plus a few previews. */
+const MAX_ANT_SHEETS = 24;
 
 /**
- * Pre-renders all entity sprites to offscreen canvases at construction time.
- * Deliberate PIXEL ART: every sprite is authored on a logical art-pixel grid
- * via PixelPainter, using only PAL colors — no gradients, no rgba, no curves.
- * Ants rendered facing RIGHT (angle 0) — rotation applied at draw time via
- * ctx.rotate(). Frame layouts and canvas dimensions are unchanged.
+ * Every walk frame of one sprite in all 16 directions, baked once at 1 canvas
+ * px per art px and drawn ART_PX times larger, unrotated and unsmoothed, so
+ * each art pixel lands as a crisp square. Column = frame × 16 + direction,
+ * row = a variant (carrying, swollen, size level…).
  */
-export class SpriteAtlas {
-  // Ant sprites: key = "role-frame", all facing right (angle 0)
-  // 4 roles × 4 frames = 16 base + 16 carrying = 32 total
-  private antSprites: Map<string, SpriteFrame> = new Map();
-  private antCarrySprites: Map<string, SpriteFrame> = new Map();
-  // No-shadow variant (Worker only) — used for underground queen rendering
-  private antNoShadowSprites: Map<string, SpriteFrame> = new Map();
-  private antNoShadowCanvas: HTMLCanvasElement;
+class DirectionalSheet {
+  private readonly canvas: HTMLCanvasElement;
+  private readonly grid: number;
+  private readonly frames: number;
+  private readonly pivotPx: number;
 
-  // Dedicated queen ant sprite — large gaster, short legs, no shadow
-  private queenAntSprites: Map<string, SpriteFrame> = new Map();
-  private queenAntCanvas: HTMLCanvasElement;
-
-  // Food sprites: 5 variants × 5 size levels = 25 sprites
-  private foodSprites: SpriteFrame[] = [];
-
-  // Nest: 1 static sprite
-  private nestSprite: SpriteFrame | null = null;
-
-  // Beetle sprites: 4 frames, all facing right (angle 0)
-  private beetleSprites: HTMLCanvasElement;
-
-  // Beetle den: 1 static sprite
-  private denSprite: HTMLCanvasElement;
-
-  // Cricket sprites: 4 frames, all facing right (angle 0)
-  private cricketSprites: HTMLCanvasElement;
-
-  // Cricket den: 1 static sprite
-  private cricketDenSprite: HTMLCanvasElement;
-
-  // Giant mushroom: 1 static sprite
-  private giantMushroomSprite: HTMLCanvasElement;
-
-  private antCanvas: HTMLCanvasElement;
-  private foodCanvas: HTMLCanvasElement;
-  private nestCanvas: HTMLCanvasElement;
-
-  constructor() {
-    this.antCanvas = document.createElement('canvas');
-    this.foodCanvas = document.createElement('canvas');
-    this.nestCanvas = document.createElement('canvas');
-    this.antNoShadowCanvas = document.createElement('canvas');
-    this.queenAntCanvas = document.createElement('canvas');
-    this.beetleSprites = document.createElement('canvas');
-    this.denSprite = document.createElement('canvas');
-    this.cricketSprites = document.createElement('canvas');
-    this.cricketDenSprite = document.createElement('canvas');
-    this.giantMushroomSprite = document.createElement('canvas');
-
-    this.generateAntSprites();
-    this.generateQueenAntSprites();
-    this.generateFoodSprites();
-    this.generateNestSprite();
-    this.generateBeetleSprites();
-    this.generateDenSprite();
-    this.generateCricketSprites();
-    this.generateCricketDenSprite();
-    this.generateGiantMushroomSprite();
+  constructor(grid: number, frames: number, rows: number, paint: (row: number, frame: number, direction: number) => ArtGrid) {
+    this.grid = grid;
+    this.frames = frames;
+    this.pivotPx = spritePivot(grid) * ART_PX;
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = grid * frames * DIRECTIONS;
+    this.canvas.height = grid * rows;
+    const ctx = this.canvas.getContext('2d')!;
+    for (let row = 0; row < rows; row++) {
+      for (let frame = 0; frame < frames; frame++) {
+        for (let d = 0; d < DIRECTIONS; d++) {
+          blitArtGrid(ctx, paint(row, frame, d), (frame * DIRECTIONS + d) * grid, row * grid);
+        }
+      }
+    }
   }
 
-  // ─── Outline helper ────────────────────────────────────────
-  // Draws the shape callback 8 times offset by 1 art px in PAL.outline,
-  // then once at (0,0) with color = null so the callback uses its own fills.
-  // Guarantees an exact 1-art-pixel outline around the silhouette.
+  /** Draw with the sprite's pivot pixel on (worldX, worldY), facing the direction nearest `angle`. */
+  draw(ctx: CanvasRenderingContext2D, worldX: number, worldY: number, angle: number, frame: number, row = 0): void {
+    const g = this.grid;
+    const sx = ((frame % this.frames) * DIRECTIONS + directionIndex(angle)) * g;
+    const size = g * ART_PX;
+    const smoothing = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
+      this.canvas, sx, row * g, g, g,
+      Math.round(worldX - this.pivotPx), Math.round(worldY - this.pivotPx), size, size,
+    );
+    ctx.imageSmoothingEnabled = smoothing;
+  }
+}
 
-  private outlined(draw: (dx: number, dy: number, color: string | null) => void): void {
+/**
+ * Pre-renders all entity sprites to offscreen canvases. Deliberate PIXEL ART
+ * on ONE scale: every sprite is authored on an art-pixel grid (ArtPen or
+ * PixelPainter, PAL colors only) and lands at ART_PX world px per art px —
+ * 2 screen px at zoom 1. Units and food are baked in 16 snapped directions
+ * (lit from the top-left after the turn) instead of being rotated at draw
+ * time; unit sheets bake lazily on first use.
+ */
+export class SpriteAtlas {
+  // Ant sheets, one per caste × shadow × the marks that caste shows: rows 0 = empty-handed, 1 = carrying
+  private antSheets = new Map<string, DirectionalSheet>();
+  // Per mark-set object, the sheet of each caste/shadow slot: draws skip key building
+  private antSheetIndex = new WeakMap<AntMarks, DirectionalSheet[]>();
+  private colonyMarks: AntMarks = NO_MARKS;
+  private queenSheet: DirectionalSheet | null = null;
+  private beetleSheet: DirectionalSheet | null = null;
+  private cricketSheet: DirectionalSheet | null = null;
+  private foodSheet: DirectionalSheet | null = null;
+
+  // Static props, pre-scaled to world px (they never rotate)
+  private nestSprite: HTMLCanvasElement;
+  private denSprite: HTMLCanvasElement;
+  private cricketDenSprite: HTMLCanvasElement;
+  private giantMushroomSprite: HTMLCanvasElement;
+
+  constructor() {
+    this.nestSprite = this.staticSprite(NEST_SPRITE_SIZE, NEST_SCALE, p => this.paintNest(p));
+    this.denSprite = this.staticSprite(DEN_SPRITE_SIZE, ART_PX, p => paintDen(p, false));
+    this.cricketDenSprite = this.staticSprite(DEN_SPRITE_SIZE, ART_PX, p => paintDen(p, true));
+    this.giantMushroomSprite = this.staticSprite(GIANT_MUSHROOM_SPRITE_SIZE, ART_PX, p => paintGiantMushroom(p));
+  }
+
+  private staticSprite(size: number, scale: number, paint: (p: PixelPainter) => void): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    paint(new PixelPainter(ctx, scale));
+    return canvas;
+  }
+
+  /**
+   * The colony's mutation marks; every ant is drawn with the marks its caste
+   * shows from now on. Pass the same object while nothing changes (compared
+   * by identity); a new set bakes the affected castes once, on first draw.
+   */
+  setColonyMarks(marks: AntMarks): void {
+    this.colonyMarks = marks;
+  }
+
+  private antSheet(role: AntRole, shadow: boolean, marks: AntMarks): DirectionalSheet {
+    let slots = this.antSheetIndex.get(marks);
+    if (!slots) {
+      slots = [];
+      this.antSheetIndex.set(marks, slots);
+    }
+    const slot = ANT_ROLES.indexOf(role) * 2 + (shadow ? 1 : 0);
+    const indexed = slots[slot];
+    if (indexed) return indexed;
+
+    // Castes a pick does not mark keep their key, so they reuse their sheet
+    const key = antSheetKey(role, shadow, marks);
+    let sheet = this.antSheets.get(key);
+    if (!sheet) {
+      sheet = new DirectionalSheet(SPRITE_GRID.ant, WALK_FRAMES, 2, (row, frame, direction) =>
+        paintAnt({ role, frame, direction, carrying: row === 1, shadow, marks }));
+      this.antSheets.set(key, sheet);
+      if (this.antSheets.size > MAX_ANT_SHEETS) this.antSheets.delete(this.antSheets.keys().next().value!);
+    }
+    slots[slot] = sheet;
+    return sheet;
+  }
+
+  /** Bake the colony's ant sheets now (otherwise each caste bakes on its first draw). */
+  warmUp(): void {
+    for (const role of ANT_ROLES) this.antSheet(role, true, this.colonyMarks);
+  }
+
+  // ─── Nest Sprite ───────────────────────────────────────────
+
+  // Draws the shape callback 8 times offset by 1 art px in the outline color,
+  // then once at (0,0) with color = null so the callback uses its own fills.
+  private outlined(draw: (dx: number, dy: number, color: string | null) => void, outline: string = PAL.outline): void {
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
-        if (dx !== 0 || dy !== 0) draw(dx, dy, PAL.outline);
+        if (dx !== 0 || dy !== 0) draw(dx, dy, outline);
       }
     }
     draw(0, 0, null);
   }
 
-  // ─── Ant Sprite Generation ─────────────────────────────────
-
-  private generateAntSprites(): void {
-    const s = ANT_SPRITE_SIZE;
-    const roles: AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse, AntRole.Defender];
-
-    // Layout: 4 frames wide × (4 roles × 2 carry states) tall
-    this.antCanvas.width = s * ANT_FRAMES;
-    this.antCanvas.height = s * roles.length * 2;
-    const ctx = this.antCanvas.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    const painter = new PixelPainter(ctx, ANT_SCALE);
-
-    for (let ri = 0; ri < roles.length; ri++) {
-      const role = roles[ri];
-
-      for (let frame = 0; frame < ANT_FRAMES; frame++) {
-        // Base sprite (not carrying)
-        const bx = frame * s;
-        const by = ri * s;
-        this.paintAnt(painter.at(bx, by), role, frame, false);
-        this.antSprites.set(`${role}-${frame}`, {
-          canvas: this.antCanvas, x: bx, y: by, w: s, h: s,
-          originX: s / 2, originY: s / 2,
-        });
-
-        // Carrying sprite
-        const cy = (ri + roles.length) * s;
-        this.paintAnt(painter.at(bx, cy), role, frame, true);
-        this.antCarrySprites.set(`${role}-${frame}`, {
-          canvas: this.antCanvas, x: bx, y: cy, w: s, h: s,
-          originX: s / 2, originY: s / 2,
-        });
-      }
-    }
-
-    // No-shadow Worker sprites — Worker role only, 4 frames, no ground shadow
-    this.antNoShadowCanvas.width = s * ANT_FRAMES;
-    this.antNoShadowCanvas.height = s;
-    const nsCtx = this.antNoShadowCanvas.getContext('2d')!;
-    nsCtx.imageSmoothingEnabled = false;
-    const nsPainter = new PixelPainter(nsCtx, ANT_SCALE);
-    for (let frame = 0; frame < ANT_FRAMES; frame++) {
-      const bx = frame * s;
-      this.paintAnt(nsPainter.at(bx, 0), AntRole.Worker, frame, false, false);
-      this.antNoShadowSprites.set(`${AntRole.Worker}-${frame}`, {
-        canvas: this.antNoShadowCanvas, x: bx, y: 0, w: s, h: s,
-        originX: s / 2, originY: s / 2,
-      });
-    }
-  }
-
   /**
-   * 16×16 art-pixel ant, facing right. Slim three-segment body — gaster,
-   * 1px petiole (waist), thorax, head — with a continuous 1px outline around
-   * the whole union so the waist pinch reads cleanly. Role identity is by
-   * SILHOUETTE first (head size, gaster shape, leg reach), accent color second:
-   *  - worker : baseline proportions
-   *  - soldier: oversized diamond head + 2px pincer jaws, stocky short legs
-   *  - scout  : smallest gaster, longest legs and antennae
-   *  - nurse  : rounder, paler gaster, compact stance
-   */
-  private paintAnt(p: PixelPainter, role: AntRole, frame: number, carrying: boolean, drawShadow = true): void {
-    const cy = 8;
-    const swing = GAIT[frame];
-    const flick = frame % 2;
-
-    const accent =
-      role === AntRole.Soldier ? PAL.soldier :
-      role === AntRole.Scout ? PAL.scout :
-      role === AntRole.Nurse ? PAL.nurse :
-      role === AntRole.Defender ? PAL.defender : PAL.worker;
-
-    // Defenders share the soldier silhouette (big head, pincers, stocky) —
-    // the violet accent is what tells them apart
-    const isS = role === AntRole.Soldier || role === AntRole.Defender;
-    const isC = role === AntRole.Scout;
-    const isN = role === AntRole.Nurse;
-
-    // ── Per-role anatomy (art-pixel coordinates) ──
-    const gx = isS ? 3 : isC ? 5 : 4;                  // gaster center x
-    const grx = isS ? 1.9 : isC ? 1.5 : isN ? 2.0 : 2.2; // gaster radii
-    const gry = isC ? 1.0 : isN ? 1.5 : 1.3;
-    const petX = isS ? 6 : isC ? 8 : 7;                // petiole (waist) px
-    const thCx = isS ? 8 : isC ? 10 : 9;               // thorax center x
-    const thRx = isS ? 1.2 : isN ? 1.0 : isC ? 0.8 : 1.2;
-    const hX = isS || isN ? 11 : 12;                   // head center x
-    const hR = isS ? 2.1 : isC ? 1.0 : 1.2;
-    const reach = isC ? 5 : isS || isN ? 3 : 4;        // leg vertical reach
-    const splay = isC ? 3 : isN ? 1 : 2;               // leg fore/aft splay
-    const hips = isS ? [7, 8, 9] : isC ? [9, 10, 11] : [8, 9, 10];
-    const antTipX = isS ? 14 : 15;                     // antenna tip
-    const antTipY = isC ? 2 : 4;
-
-    // Body fills sit HIGH on the chitin ramp so the silhouette separates from
-    // the near-black outline — low-contrast fills made the old ant read as a blob.
-    const gBase = isN ? PAL.chitin[3] : PAL.chitin[2]; // nurse = paler gaster
-    const gLight = isN ? PAL.sand[0] : PAL.chitin[3];
-    const gDark = isN ? PAL.chitin[2] : PAL.chitin[1];
-
-    // Dithered ground shadow — single row, detached from the body outline
-    if (drawShadow) p.shadow(8, 12, 4, 0.5, PAL.outline);
-
-    // Legs (behind body) — tripod gait: front+back of one side move with
-    // the middle leg of the other side. Hips along the thorax.
-    for (let side = -1; side <= 1; side += 2) {
-      for (let i = 0; i < 3; i++) {
-        const groupA = (i + (side === 1 ? 1 : 0)) % 2 === 0;
-        const s = groupA ? swing : -swing;
-        const ax = hips[i];
-        const footX = ax + (i - 1) * splay + s; // back legs splay back, front forward
-        p.line(ax, cy + side, footX, cy + side * reach, PAL.outline);
-      }
-    }
-
-    // Body silhouette as ONE outlined union so the petiole pinch gets a
-    // clean, continuous 1px outline: gaster + petiole + thorax + head + jaws.
-    this.outlined((dx, dy, c) => {
-      p.ellipse(gx + dx, cy + dy, grx, gry, c ?? gBase);       // gaster
-      p.px(petX + dx, cy + dy, c ?? PAL.chitin[2]);            // petiole (waist)
-      p.ellipse(thCx + dx, cy + dy, thRx, 1.0, c ?? PAL.chitin[2]); // thorax
-      p.disc(hX + dx, cy + dy, hR, c ?? PAL.chitin[3]);        // head (lightest tone)
-      if (isS) {
-        // Soldier: two prominent 2px pincer prongs, opening forward
-        p.px(14 + dx, 6 + dy, c ?? PAL.chitin[1]);
-        p.px(14 + dx, 7 + dy, c ?? PAL.chitin[1]);
-        p.px(14 + dx, 9 + dy, c ?? PAL.chitin[1]);
-        p.px(14 + dx, 10 + dy, c ?? PAL.chitin[1]);
-      } else if (isC) {
-        p.px(hX + 2 + dx, cy + dy, c ?? PAL.chitin[1]);        // tiny forward jaw
-      } else {
-        p.px(hX + 2 + dx, cy - 1 + dy, c ?? PAL.chitin[1]);    // small mandibles
-        p.px(hX + 2 + dx, cy + 1 + dy, c ?? PAL.chitin[1]);
-      }
-    });
-
-    // Gaster shading — light up-left, dark down-left (right is the accent band)
-    p.px(gx - 1, 7, gLight);
-    if (grx >= 2) p.px(gx - 2, 8, gLight);
-    p.px(gx - 1, 9, gDark);
-
-    // Role accent: solid 2px-wide band across the gaster (survives 100% zoom)
-    p.rect(gx, 7, 2, 3, accent);
-
-    // Side eyes (top-down view) on the light head
-    p.px(hX, 7, PAL.white);
-    p.px(hX, 9, PAL.white);
-
-    // Antennae — bent lines that flick across frames (scout's are longest)
-    p.line(hX + 1, 6, antTipX, antTipY + flick, PAL.chitin[0]);
-    p.line(hX + 1, 10, antTipX, 16 - antTipY - flick, PAL.chitin[0]);
-
-    // Carrying state: leaf chunk held in the mandibles, ahead of the head
-    if (carrying) {
-      p.px(14, 6, PAL.leaf[2]);
-      p.px(13, 7, PAL.leaf[1]);
-      p.px(14, 7, PAL.leaf[2]);
-      p.px(15, 7, PAL.leaf[1]);
-      p.px(13, 8, PAL.leaf[0]);
-      p.px(14, 8, PAL.leaf[1]);
-      p.px(15, 8, PAL.leaf[2]);
-      p.px(14, 9, PAL.leaf[0]);
-    }
-  }
-
-  // ─── Queen Ant Sprite Generation ────────────────────────────
-
-  private generateQueenAntSprites(): void {
-    const s = ANT_SPRITE_SIZE;
-    this.queenAntCanvas.width = s * ANT_FRAMES;
-    this.queenAntCanvas.height = s;
-    const ctx = this.queenAntCanvas.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    const painter = new PixelPainter(ctx, ANT_SCALE);
-
-    for (let frame = 0; frame < ANT_FRAMES; frame++) {
-      const bx = frame * s;
-      this.paintQueenAnt(painter.at(bx, 0), frame);
-      this.queenAntSprites.set(`queen-${frame}`, {
-        canvas: this.queenAntCanvas, x: bx, y: 0, w: s, h: s,
-        originX: s / 2, originY: s / 2,
-      });
-    }
-  }
-
-  /**
-   * 16×16 art-pixel queen ant, facing right.
-   * Key differences from worker: very large gaster (egg-filled abdomen),
-   * short compact legs (reach=2 vs worker's 4) so they never bleed onto the
-   * chamber floor when the queen is scaled up, and no dithered ground shadow.
-   */
-  private paintQueenAnt(p: PixelPainter, frame: number): void {
-    const cy = 8;
-    const swing = GAIT[frame];
-    const flick = frame % 2;
-
-    // Queen uses Worker colors — role accent is the gold crown, not a band
-    const gBase = PAL.chitin[2];
-    const gLight = PAL.chitin[3];
-    const gDark = PAL.chitin[1];
-
-    // Queen anatomy: enlarged gaster (3× radius of a worker), compact legs
-    const gx = 4;
-    const grx = 3.0;   // worker = 2.2
-    const gry = 2.2;   // worker = 1.3 — visibly round, egg-laden
-    const petX = 7;
-    const thCx = 9;
-    const thRx = 1.2;
-    const hX = 11;
-    const hR = 1.4;
-    const reach = 2;   // worker = 4 — short legs don't reach the floor plane
-    const splay = 1;   // worker = 2
-    const hips = [8, 9, 10];
-    const antTipX = 14;
-    const antTipY = 4;
-
-    // Legs drawn first (behind body)
-    for (let side = -1; side <= 1; side += 2) {
-      for (let i = 0; i < 3; i++) {
-        const groupA = (i + (side === 1 ? 1 : 0)) % 2 === 0;
-        const s = groupA ? swing : -swing;
-        const ax = hips[i];
-        const footX = ax + (i - 1) * splay + s;
-        p.line(ax, cy + side, footX, cy + side * reach, PAL.outline);
-      }
-    }
-
-    // Body union (gaster + petiole + thorax + head + mandibles)
-    this.outlined((dx, dy, c) => {
-      p.ellipse(gx + dx, cy + dy, grx, gry, c ?? gBase);
-      p.px(petX + dx, cy + dy, c ?? PAL.chitin[2]);
-      p.ellipse(thCx + dx, cy + dy, thRx, 1.0, c ?? PAL.chitin[2]);
-      p.disc(hX + dx, cy + dy, hR, c ?? PAL.chitin[3]);
-      p.px(hX + 2 + dx, cy - 1 + dy, c ?? PAL.chitin[1]);
-      p.px(hX + 2 + dx, cy + 1 + dy, c ?? PAL.chitin[1]);
-    });
-
-    // Gaster shading (top-left light source)
-    p.px(gx - 1, 7, gLight);
-    p.px(gx - 2, 8, gLight);
-    p.px(gx - 1, 9, gDark);
-
-    // Queen abdomen accent stripe (worker-colored band — crown sets her apart)
-    p.rect(gx, 7, 2, 3, PAL.worker);
-
-    // Eyes
-    p.px(hX, 7, PAL.white);
-    p.px(hX, 9, PAL.white);
-
-    // Antennae
-    p.line(hX + 1, 6, antTipX, antTipY + flick, PAL.chitin[0]);
-    p.line(hX + 1, 10, antTipX, 16 - antTipY - flick, PAL.chitin[0]);
-  }
-
-  drawQueenAnt(
-    ctx: CanvasRenderingContext2D,
-    worldX: number,
-    worldY: number,
-    angle: number,
-    legPhase: number
-  ): void {
-    const TWO_PI = Math.PI * 2;
-    const normalizedPhase = ((legPhase % TWO_PI) + TWO_PI) % TWO_PI;
-    const frame = Math.floor(normalizedPhase / (TWO_PI / ANT_FRAMES)) % ANT_FRAMES;
-
-    const sprite = this.queenAntSprites.get(`queen-${frame}`);
-    if (!sprite) return;
-
-    ctx.save();
-    ctx.translate(worldX, worldY);
-    ctx.rotate(angle);
-    ctx.drawImage(
-      sprite.canvas,
-      sprite.x, sprite.y, sprite.w, sprite.h,
-      -sprite.originX, -sprite.originY, sprite.w, sprite.h
-    );
-    ctx.restore();
-  }
-
-  // ─── Beetle Sprite Generation ───────────────────────────────
-
-  private generateBeetleSprites(): void {
-    const s = BEETLE_SPRITE_SIZE;
-    this.beetleSprites.width = s * BEETLE_FRAMES;
-    this.beetleSprites.height = s;
-    const ctx = this.beetleSprites.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    const painter = new PixelPainter(ctx, BEETLE_SCALE);
-
-    for (let frame = 0; frame < BEETLE_FRAMES; frame++) {
-      this.paintBeetle(painter.at(frame * s, 0), frame);
-    }
-  }
-
-  /**
-   * 14×14 art-pixel beetle, facing right. Dome elytra with axial seam,
-   * dithered top-left shell highlight, stubby legs, red eye pixels.
-   */
-  private paintBeetle(p: PixelPainter, frame: number): void {
-    const cy = 7;
-    const swing = GAIT[frame];
-
-    p.shadow(7, 9, 5, 2, PAL.outline);
-
-    // Stubby legs — 3 per side, tripod gait
-    for (let side = -1; side <= 1; side += 2) {
-      for (let i = 0; i < 3; i++) {
-        const groupA = (i + (side === 1 ? 1 : 0)) % 2 === 0;
-        const s = groupA ? swing : -swing;
-        const ax = 4 + i * 2;
-        p.line(ax, cy + side * 2, ax + (i - 1) + s, cy + side * 5, PAL.outline);
-      }
-    }
-
-    // Elytra dome
-    this.outlined((dx, dy, c) => p.ellipse(6 + dx, cy + dy, 4, 3.2, c ?? PAL.chitin[1]));
-    // Top-left dithered highlight
-    p.dither(4, 5, 3, 2, PAL.chitin[2], PAL.chitin[1]);
-    p.px(4, 5, PAL.chitin[3]);
-    // Bottom-right dithered shading
-    p.dither(7, 8, 3, 2, PAL.chitin[0], PAL.chitin[1]);
-    // Elytra seam along the body axis (1 art px)
-    p.hline(3, 7, 7, PAL.chitin[0]);
-
-    // Head
-    this.outlined((dx, dy, c) => p.disc(11 + dx, cy + dy, 1.4, c ?? PAL.chitin[1]));
-    p.px(10, 6, PAL.chitin[2]); // top-left highlight
-
-    // Eyes — danger red
-    p.px(12, 6, PAL.dangerRed);
-    p.px(12, 8, PAL.dangerRed);
-
-    // Mandibles
-    p.px(13, 6, PAL.chitin[0]);
-    p.px(13, 8, PAL.chitin[0]);
-  }
-
-  // ─── Beetle Den Sprite Generation ───────────────────────────
-
-  private generateDenSprite(): void {
-    const s = DEN_SPRITE_SIZE;
-    this.denSprite.width = s;
-    this.denSprite.height = s;
-    const ctx = this.denSprite.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    this.paintDen(new PixelPainter(ctx, DEN_SCALE), false);
-  }
-
-  /**
-   * 20×20 art-pixel dirt mound den: radial cracks, dark hole, pebbles.
-   * Cricket variant adds grass blades and mossy dither.
-   */
-  private paintDen(p: PixelPainter, grassy: boolean): void {
-    p.shadow(10, 13, 8, 3, PAL.outline);
-
-    // Mound
-    this.outlined((dx, dy, c) => p.ellipse(10 + dx, 10 + dy, 7.5, 5.5, c ?? PAL.soil[1]));
-    // Light top-left / dark bottom-right
-    p.dither(5, 6, 5, 3, PAL.soil[2], PAL.soil[1]);
-    p.dither(11, 13, 5, 2, PAL.soil[0], PAL.soil[1]);
-    if (grassy) {
-      p.dither(6, 5, 4, 2, PAL.grass[1], PAL.soil[1], 1);
-      p.dither(12, 11, 3, 2, PAL.grass[0], PAL.soil[1]);
-    }
-
-    // Radial crack lines (1 art px)
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2 + 0.3;
-      p.line(
-        10 + Math.cos(a) * 3.2, 10 + Math.sin(a) * 2.4,
-        10 + Math.cos(a) * 6.2, 10 + Math.sin(a) * 4.6,
-        PAL.soil[0],
-      );
-    }
-
-    // Entrance hole with dark rim
-    p.ellipse(10, 10, 3.4, 2.4, PAL.soil[0]);
-    p.ellipse(10, 10, 2.6, 1.7, PAL.earth[0]);
-    p.ellipse(10, 10, 1.4, 0.9, PAL.black);
-
-    // Pebbles around the mound
-    for (let i = 0; i < 7; i++) {
-      const a = hash2(i, grassy ? 31 : 17) * Math.PI * 2;
-      const px = Math.round(10 + Math.cos(a) * 6.5);
-      const py = Math.round(10 + Math.sin(a) * 4.8);
-      p.px(px, py, i % 2 === 0 ? PAL.stone[2] : PAL.stone[1]);
-    }
-
-    // Grass blades (cricket den only)
-    if (grassy) {
-      const blades: Array<[number, number]> = [[4, 4], [15, 4], [2, 9], [17, 8], [8, 2], [12, 3]];
-      for (const [bx, by] of blades) {
-        p.vline(bx, by, 2, PAL.grass[2]);
-        p.px(bx, by - 1, PAL.grass[3]);
-      }
-    }
-  }
-
-  // ─── Cricket Sprite Generation ─────────────────────────────
-
-  private generateCricketSprites(): void {
-    const s = CRICKET_SPRITE_SIZE;
-    this.cricketSprites.width = s * CRICKET_FRAMES;
-    this.cricketSprites.height = s;
-    const ctx = this.cricketSprites.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    const painter = new PixelPainter(ctx, CRICKET_SCALE);
-
-    for (let frame = 0; frame < CRICKET_FRAMES; frame++) {
-      this.paintCricket(painter.at(frame * s, 0), frame);
-    }
-  }
-
-  /**
-   * 32×32 art-pixel cricket, facing right — grasshopper silhouette read
-   * from above: long tapered body with folded wings, dark pronotum saddle,
-   * big black eyes, and DOMINANT Z-folded jumping legs (thick green femur
-   * out to a wide knee, thin brown tibia tucked back in, brown feet).
-   */
-  private paintCricket(p: PixelPainter, frame: number): void {
-    const cy = 16;
-    const swing = GAIT[frame];
-    const flex = GAIT[frame];
-    const flick = frame % 2;
-
-    p.shadow(14, 19, 11, 3, PAL.outline);
-
-    // Jumping legs — the signature. Tibia first (lies under the femur):
-    // knee folds back in toward the tail, brown like the reference.
-    for (let side = -1; side <= 1; side += 2) {
-      const s = side;
-      p.line(8, cy + s * 8, 3 + flex, cy + s * 3, PAL.wood[1]);
-      p.px(3 + flex, cy + s * 3, PAL.wood[0]); // foot
-      p.px(2 + flex, cy + s * 2, PAL.wood[0]);
-      // Femur: 3 px thick, hip → knee well outside the body
-      this.outlined((dx, dy, c) => {
-        const col = c ?? PAL.grass[1];
-        p.line(13 + dx, cy + s * 2 + dy, 8 + dx, cy + s * 8 + dy, col);
-        p.line(14 + dx, cy + s * 2 + dy, 9 + dx, cy + s * 8 + dy, col);
-        p.line(14 + dx, cy + s * 3 + dy, 9 + dx, cy + s * 9 + dy, col);
-      });
-      p.px(9, cy + s * 8, PAL.grass[2]); // knee highlight
-      p.line(13, cy + s * 3, 10, cy + s * 7, PAL.grass[0]); // trailing-edge shade
-    }
-
-    // Walking legs — 2 small brown pairs, alternating gait
-    for (let side = -1; side <= 1; side += 2) {
-      const sA = side === 1 ? swing : -swing;
-      p.line(16, cy + side * 2, 13 - sA, cy + side * 6, PAL.wood[1]); // mid, swept back
-      p.line(19, cy + side * 2, 22 + sA, cy + side * 6, PAL.wood[1]); // front, swept forward
-    }
-
-    // Body — long taper from pointed wing tips (tail) to the thorax
-    this.outlined((dx, dy, c) => {
-      for (let x = 4; x <= 16; x++) {
-        const halfH = Math.round(1 + ((x - 4) / 12) * 2); // 1 at tail → 3 at thorax
-        p.vline(x + dx, cy - halfH + dy, halfH * 2 + 1, c ?? PAL.grass[1]);
-      }
-    });
-    // Folded wings: light dorsal stripe, dark seam + under-edge
-    p.line(7, cy - 1, 15, cy - 1, PAL.grass[2]);
-    p.line(5, cy, 10, cy, PAL.grass[0]); // wing seam over the tail half
-    p.line(8, cy + 2, 15, cy + 2, PAL.grass[0]);
-    // Abdomen segment chevrons peeking under the wings (stay inside the fill)
-    p.px(6, cy + 1, PAL.grass[0]);
-    p.vline(9, cy + 1, 2, PAL.grass[0]);
-    p.px(12, cy + 2, PAL.grass[0]);
-    p.dither(12, cy - 2, 4, 1, PAL.grass[2], PAL.grass[1]);
-
-    // Head first — the pronotum saddle overlaps its rear, like the reference
-    this.outlined((dx, dy, c) => p.ellipse(21 + dx, cy + dy, 2.4, 2.6, c ?? PAL.grass[1]));
-
-    // Pronotum saddle — wide darker plate riding over body rear + head front
-    this.outlined((dx, dy, c) => p.rect(15 + dx, cy - 3 + dy, 4, 7, c ?? PAL.grass[0]));
-    p.line(15, cy - 3, 18, cy - 3, PAL.grass[1]); // top-lit edge
-
-    // Big black eyes at the sides + highlight
-    p.px(20, cy - 2, PAL.grass[2]); // top-left highlight
-    p.rect(21, cy - 2, 2, 1, PAL.black);
-    p.rect(21, cy + 2, 2, 1, PAL.black);
-    // Mouth palps
-    p.px(24, cy - 1, PAL.grass[0]);
-    p.px(24, cy + 1, PAL.grass[0]);
-
-    // Long antennae swept forward-out, flicking across frames
-    p.line(23, cy - 1, 28, cy - 5 + flick, PAL.grass[0]);
-    p.line(23, cy + 1, 28, cy + 5 - flick, PAL.grass[0]);
-    p.px(29, cy - 6 + flick, PAL.grass[0]);
-    p.px(29, cy + 6 - flick, PAL.grass[0]);
-  }
-
-  // ─── Cricket Den Sprite Generation ────────────────────────
-
-  private generateCricketDenSprite(): void {
-    const s = DEN_SPRITE_SIZE;
-    this.cricketDenSprite.width = s;
-    this.cricketDenSprite.height = s;
-    const ctx = this.cricketDenSprite.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    this.paintDen(new PixelPainter(ctx, DEN_SCALE), true);
-  }
-
-  // ─── Giant Mushroom Sprite Generation ──────────────────────
-
-  private generateGiantMushroomSprite(): void {
-    const s = GIANT_MUSHROOM_SPRITE_SIZE;
-    this.giantMushroomSprite.width = s;
-    this.giantMushroomSprite.height = s;
-    const ctx = this.giantMushroomSprite.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    this.paintGiantMushroom(new PixelPainter(ctx, GIANT_MUSHROOM_SCALE));
-  }
-
-  /**
-   * 16×16 art-pixel Amanita: red cap with white spot clusters,
-   * cream stem with dithered right-side shading.
-   */
-  private paintGiantMushroom(p: PixelPainter): void {
-    p.shadow(8, 14, 6, 1.4, PAL.outline);
-
-    // Stem
-    this.outlined((dx, dy, c) => p.rect(6 + dx, 7 + dy, 4, 7, c ?? PAL.shroomStem));
-    p.dither(8, 9, 2, 5, PAL.sand[1], PAL.shroomStem);
-
-    // Cap
-    this.outlined((dx, dy, c) => p.ellipse(8 + dx, 5 + dy, 6, 3.4, c ?? PAL.shroomCap));
-    // Top-left dithered highlight
-    p.dither(4, 3, 4, 2, PAL.shroomCapLight, PAL.shroomCap);
-    // Underside rim
-    p.hline(5, 8, 7, PAL.shroomCapLight);
-    // White spot clusters
-    const spots: Array<[number, number]> = [
-      [5, 2], [6, 2], [8, 4], [10, 3], [11, 3], [3, 5], [12, 6], [6, 6],
-    ];
-    for (const [sx, sy] of spots) p.px(sx, sy, PAL.white);
-  }
-
-  // ─── Food Sprite Generation ────────────────────────────────
-
-  private generateFoodSprites(): void {
-    const s = FOOD_SPRITE_SIZE;
-    const variants = 5; // 0-1: leaves, 2: mushroom, 3: beetle meat, 4: cricket meat
-    const sizeLevels = 5;
-
-    this.foodCanvas.width = s * variants;
-    this.foodCanvas.height = s * sizeLevels;
-    const ctx = this.foodCanvas.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    const painter = new PixelPainter(ctx, FOOD_SCALE);
-
-    for (let v = 0; v < variants; v++) {
-      for (let sl = 0; sl < sizeLevels; sl++) {
-        const x = v * s;
-        const y = sl * s;
-        // 10×10 art grid centered in the 32px frame (1px canvas margin)
-        this.paintFood(painter.at(x + 1, y + 1), v, sl);
-
-        this.foodSprites[v * sizeLevels + sl] = {
-          canvas: this.foodCanvas, x, y, w: s, h: s,
-          originX: s / 2, originY: s / 2,
-        };
-      }
-    }
-  }
-
-  private paintFood(p: PixelPainter, variant: number, sizeLevel: number): void {
-    if (variant === 2) {
-      this.paintMushroomFood(p, sizeLevel);
-    } else if (variant === 3) {
-      this.paintMeat(p, sizeLevel, PAL.meat);
-    } else if (variant === 4) {
-      this.paintMeat(p, sizeLevel, [PAL.grass[0], PAL.grass[1], PAL.grass[2]]);
-      p.px(6, 5, PAL.meat[2]); // raw-flesh fleck on cricket meat
-    } else {
-      this.paintLeaf(p, sizeLevel, variant === 1);
-    }
-  }
-
-  /** Pointed pixel leaf with 1px midrib vein. Variant flag rotates it 90°. */
-  private paintLeaf(p: PixelPainter, sl: number, vertical: boolean): void {
-    const RX = [1.0, 1.4, 1.8, 2.2, 2.6];
-    const RY = [1.0, 1.2, 1.4, 1.6, 1.8];
-    const TIP = [2, 2, 3, 3, 3];
-    const rx = RX[sl];
-    const ry = RY[sl];
-    const tip = TIP[sl];
-
-    this.outlined((dx, dy, c) => {
-      if (vertical) {
-        p.ellipse(5 + dx, 5 + dy, ry, rx, c ?? PAL.leaf[1]);
-        p.px(5 + dx, 5 - tip + dy, c ?? PAL.leaf[1]);
-        p.px(5 + dx, 5 + tip + dy, c ?? PAL.leaf[1]);
-      } else {
-        p.ellipse(5 + dx, 5 + dy, rx, ry, c ?? PAL.leaf[1]);
-        p.px(5 - tip + dx, 5 + dy, c ?? PAL.leaf[1]);
-        p.px(5 + tip + dx, 5 + dy, c ?? PAL.leaf[1]);
-      }
-    });
-
-    // Midrib vein
-    if (vertical) p.vline(5, 5 - tip + 1, tip * 2 - 1, PAL.leaf[0]);
-    else p.hline(5 - tip + 1, 5, tip * 2 - 1, PAL.leaf[0]);
-
-    // Top-left highlights
-    p.px(vertical ? 4 : 5, 4, PAL.leaf[2]);
-    if (sl >= 2) p.px(4, 4, PAL.leaf[2]);
-    if (sl >= 3) p.px(vertical ? 4 : 3, vertical ? 3 : 4, PAL.leaf[2]);
-  }
-
-  /** Small Amanita food item: red cap, white spots, cream stem. */
-  private paintMushroomFood(p: PixelPainter, sl: number): void {
-    const CRX = [1.2, 1.6, 2.0, 2.5, 3.0];
-    const CRY = [0.9, 1.1, 1.3, 1.6, 1.9];
-    const STEM_H = [2, 2, 3, 3, 4];
-    const rx = CRX[sl];
-    const ry = CRY[sl];
-    const sh = STEM_H[sl];
-
-    this.outlined((dx, dy, c) => {
-      p.rect(4 + dx, 5 + dy, 2, sh, c ?? PAL.shroomStem);
-      p.ellipse(5 + dx, 4 + dy, rx, ry, c ?? PAL.shroomCap);
-    });
-
-    if (sl >= 1) p.px(4, 3, PAL.shroomCapLight); // top-left highlight
-    p.px(5, 3, PAL.white);
-    if (sl >= 2) p.px(4, 4, PAL.white);
-    if (sl >= 3) p.px(6, 3, PAL.white);
-    if (sl >= 4) {
-      p.px(3, 4, PAL.white);
-      p.px(7, 4, PAL.white);
-    }
-  }
-
-  /** Chunky irregular meat blob; ramp = [dark, base, highlight]. */
-  private paintMeat(p: PixelPainter, sl: number, ramp: readonly string[]): void {
-    const RX = [1.2, 1.6, 2.0, 2.4, 2.8];
-    const rx = RX[sl];
-    const ry = rx * 0.8;
-
-    this.outlined((dx, dy, c) => {
-      p.ellipse(5 + dx, 5 + dy, rx, ry, c ?? ramp[1]);
-      p.ellipse(6 + dx, 6 + dy, rx * 0.55, ry * 0.55, c ?? ramp[1]);
-      p.px(5 - Math.round(rx) + dx, 4 + dy, c ?? ramp[1]); // irregular lump
-    });
-
-    // 1-2 highlight px up-left, darker shading down-right
-    p.px(sl >= 1 ? 4 : 5, 4, ramp[2]);
-    p.px(5, 6, ramp[0]);
-    if (sl >= 2) p.dither(5, 6, 2, 1, ramp[0], ramp[1]);
-  }
-
-  // ─── Nest Sprite Generation ────────────────────────────────
-
-  private generateNestSprite(): void {
-    const s = NEST_SPRITE_SIZE;
-    this.nestCanvas.width = s;
-    this.nestCanvas.height = s;
-    const ctx = this.nestCanvas.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    this.paintNest(new PixelPainter(ctx, NEST_SCALE));
-
-    this.nestSprite = {
-      canvas: this.nestCanvas, x: 0, y: 0, w: s, h: s,
-      originX: s / 2, originY: s / 2,
-    };
-  }
-
-  /**
-   * 40×40 art-pixel tree-stump nest: bark ring, wood growth rings,
-   * dark entrance with amber rim, moss pixels, root lines.
+   * 40×40 art-pixel Swarm hive mound, the colony's surface den: a dome of
+   * banded chitin plates over living flesh with a dark front wall for
+   * height, a glowing orifice on top, chartreuse veins running down from it,
+   * pustules, bone spines along the crest and creeping flesh tendrils at its
+   * foot. Lit top-left. The orifice sits near the sprite center so the night
+   * glow lands on it.
    */
   private paintNest(p: PixelPainter): void {
+    const F = PAL.swarm.flesh;
+    const V = PAL.swarm.vein;
+    const O = PAL.swarm.outline;
     const cx = 20;
-    const cy = 20;
+    const footY = 24; // footprint center: the dome rises up from here
+    const holeY = 19; // the orifice, on top of the dome
+    const clamp = (v: number) => Math.max(0, Math.min(39, Math.round(v)));
+    /** 1-px elliptical seam on the arc [a0, a1). */
+    const seam = (ecy: number, rx: number, ry: number, color: string, a0: number, a1: number) => {
+      for (let i = 0; i <= 48; i++) {
+        const a = a0 + ((a1 - a0) * i) / 48;
+        p.px(clamp(cx + Math.cos(a) * rx), clamp(ecy + Math.sin(a) * ry), color);
+      }
+    };
 
-    p.shadow(21, 22, 16, 8, PAL.outline);
+    p.shadow(21, 27, 17, 6, PAL.outline);
 
-    // Outer bark
-    this.outlined((dx, dy, c) => p.ellipse(cx + dx, cy + dy, 16, 8.6, c ?? PAL.wood[0]));
-    p.ellipse(cx, cy, 14.6, 7.6, PAL.wood[1]);
+    // Creeping flesh tendrils at the foot: dark underside, lit top, a bead at the tip
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2 + hash2(i, 13) * 0.5;
+      const reach = 17.5 + hash2(i, 17) * 2;
+      const x0 = Math.round(cx + Math.cos(a) * 13);
+      const y0 = Math.round(footY + Math.sin(a) * 13 * 0.5);
+      const x1 = clamp(cx + Math.cos(a) * reach);
+      const y1 = clamp(footY + Math.sin(a) * reach * 0.5);
+      p.line(x0, Math.min(39, y0 + 1), x1, Math.min(39, y1 + 1), O);
+      p.line(x0, y0, x1, y1, F[1]);
+      p.px(x1, y1, i % 2 ? V[0] : F[3]);
+    }
 
-    // Wood cross-section with alternating growth rings
-    p.ellipse(cx, 19, 12, 6.2, PAL.wood[2]);
-    p.ellipse(cx, 19, 10.4, 5.3, PAL.sand[0]);
-    p.ellipse(cx, 19, 8.8, 4.5, PAL.wood[2]);
-    p.ellipse(cx, 19, 7.2, 3.7, PAL.sand[0]);
-    p.ellipse(cx, 19, 5.6, 2.9, PAL.wood[2]);
-    // Top-left sheen on the cut wood
-    p.dither(13, 15, 5, 2, PAL.sand[1], PAL.sand[0]);
+    // Body: dark footprint (the front wall), then plate bands rising toward the light
+    this.outlined((dx, dy, c) => p.ellipse(cx + dx, footY + dy, 15.5, 8.2, c ?? F[0]), O);
+    p.ellipse(cx, 22.8, 14.6, 7.6, F[1]);
+    p.ellipse(19.6, 21.2, 13.2, 6.6, F[2]);
+    p.ellipse(19.2, 19.6, 10.6, 5.4, F[2]);
+    p.dither(9, 17, 10, 4, F[3], F[2]); // the lit upper-left shoulder
+    p.ellipse(18.8, 18.2, 7.4, 3.8, F[3]);
+    p.dither(11, 15, 8, 3, F[4], F[3]); // top-left sheen
+    p.hline(14, 15, 4, F[4]);
+    p.px(13, 16, F[4]);
 
-    // Radial cracks across the rings
+    // Plate edges: dark seams across the front of each band, lit lips on the upper left
+    seam(22.8, 14.6, 7.6, O, Math.PI * 0.05, Math.PI * 0.95);
+    seam(21.2, 13.2, 6.6, F[0], Math.PI * 0.08, Math.PI * 0.92);
+    seam(19.6, 10.6, 5.4, F[1], Math.PI * 0.1, Math.PI * 0.9);
+    seam(21.2, 13.0, 6.4, F[3], Math.PI * 1.08, Math.PI * 1.45);
+    seam(19.6, 10.4, 5.2, F[4], Math.PI * 1.12, Math.PI * 1.4);
+    // Segment joints down the front wall
     for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2 + 0.5;
+      const a = Math.PI * (0.14 + (i / 5) * 0.72);
       p.line(
-        cx + Math.cos(a) * 5, 19 + Math.sin(a) * 2.6,
-        cx + Math.cos(a) * 11, 19 + Math.sin(a) * 5.7,
-        PAL.wood[0],
+        clamp(cx + Math.cos(a) * 13.2), clamp(21.2 + Math.sin(a) * 6.6),
+        clamp(cx + Math.cos(a) * 15.2), clamp(footY + Math.sin(a) * 8.2),
+        F[0],
       );
     }
 
-    // Entrance hole with 1px amber rim
-    p.ellipse(cx, 19, 4.6, 2.6, PAL.glowAmber);
-    p.ellipse(cx, 19, 3.8, 2.0, PAL.earth[0]);
-    p.ellipse(cx, 19, 2.2, 1.1, PAL.black);
+    // Glowing veins running from the orifice down the dome, beaded at the end
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI * (0.15 + i * 0.25) + (hash2(i, 31) - 0.5) * 0.3;
+      let x = cx + Math.cos(a) * 5.4;
+      let y = holeY + Math.sin(a) * 2.8;
+      for (let s = 1; s <= 4; s++) {
+        const r = 5.4 + s * 2.3;
+        const wob = (hash2(i * 7 + s, 37) - 0.5) * 0.45;
+        const nx = cx + Math.cos(a + wob) * r;
+        const ny = holeY + Math.sin(a + wob) * r * 0.62;
+        p.line(Math.round(x), Math.round(y), clamp(nx), clamp(ny), s <= 2 ? V[1] : V[0]);
+        x = nx;
+        y = ny;
+      }
+      p.px(clamp(x), clamp(y), V[1]);
+    }
+    // A short vein over the lit shoulder, so the glow wraps the dome
+    p.line(15, 18, 10, 20, V[0]);
+    p.px(10, 20, V[1]);
 
-    // Moss clumps on the bark ring
-    for (let i = 0; i < 9; i++) {
-      const a = hash2(i, 5) * Math.PI * 2;
-      const d = 13.5 + hash2(i, 9) * 2;
-      const mx = Math.round(cx + Math.cos(a) * d);
-      const my = Math.round(cy + Math.sin(a) * d * 0.52);
-      p.px(mx, my, PAL.grass[2]);
-      p.px(mx + 1, my, PAL.grass[1]);
+    // Pustules: soft blisters with a pale shine and a glowing core
+    for (const [bx, by] of [[8, 23], [30, 21], [25, 27]] as const) {
+      p.disc(bx, by, 1.4, F[3]);
+      p.px(bx - 1, by - 1, F[4]);
+      p.px(bx, by, V[1]);
     }
 
-    // Roots (dark underline + lit top line)
-    p.line(5, 23, 1, 26, PAL.outline);
-    p.line(5, 22, 1, 25, PAL.wood[1]);
-    p.line(35, 23, 39, 26, PAL.outline);
-    p.line(35, 22, 39, 25, PAL.wood[1]);
-    p.line(13, 28, 9, 31, PAL.outline);
-    p.line(13, 27, 9, 30, PAL.wood[1]);
-    p.line(27, 28, 30, 31, PAL.outline);
-    p.line(27, 27, 30, 30, PAL.wood[1]);
+    // Bone spines along the crest
+    for (let i = 0; i < 7; i++) {
+      const a = Math.PI * (1.12 + (i / 6) * 0.76);
+      const x = clamp(cx + Math.cos(a) * 13.4);
+      const y = clamp(21.2 + Math.sin(a) * 6.6);
+      p.px(x, y - 1, O);
+      p.px(x, y, F[4]);
+    }
 
-    // Soil debris scattered around the stump
-    for (let i = 0; i < 10; i++) {
-      const a = hash2(i, 23) * Math.PI * 2;
-      const d = 17.5 + hash2(i, 41) * 2;
-      const ex = Math.max(0, Math.min(39, Math.round(cx + Math.cos(a) * d)));
-      const ey = Math.max(0, Math.min(39, Math.round(21 + Math.sin(a) * d * 0.5)));
-      p.px(ex, ey, PAL.soil[2]);
+    // The orifice: raised fleshy lip, glowing vein rim, dark throat, pale teeth
+    p.ellipse(cx, holeY + 0.5, 5.8, 3.3, F[0]);
+    p.ellipse(cx, holeY - 0.2, 5.3, 2.9, F[3]);
+    p.ellipse(cx, holeY, 4.6, 2.5, V[1]);
+    p.ellipse(cx, holeY, 3.8, 1.9, F[0]);
+    p.ellipse(cx, holeY, 2.2, 1.1, PAL.black);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2 + 0.2;
+      p.px(Math.round(cx + Math.cos(a) * 5.3), Math.round(holeY + Math.sin(a) * 2.9), F[4]);
     }
   }
 
@@ -863,29 +282,24 @@ export class SpriteAtlas {
     legPhase: number,
     role: AntRole,
     isCarrying: boolean,
-    noShadow = false
+    noShadow = false,
+    marks: AntMarks = this.colonyMarks
   ): void {
-    // Map continuous legPhase to frame 0-3
-    const TWO_PI = Math.PI * 2;
-    const normalizedPhase = ((legPhase % TWO_PI) + TWO_PI) % TWO_PI;
-    const frame = Math.floor(normalizedPhase / (TWO_PI / ANT_FRAMES)) % ANT_FRAMES;
+    this.antSheet(role, !noShadow, marks).draw(ctx, worldX, worldY, angle, walkFrame(legPhase), isCarrying ? 1 : 0);
+  }
 
-    const key = `${role}-${frame}`;
-    const sprite = noShadow
-      ? this.antNoShadowSprites.get(key)
-      : isCarrying ? this.antCarrySprites.get(key) : this.antSprites.get(key);
-    if (!sprite) return;
-
-    // Smooth rotation at draw time — single rotate + drawImage is cheap
-    ctx.save();
-    ctx.translate(worldX, worldY);
-    ctx.rotate(angle);
-    ctx.drawImage(
-      sprite.canvas,
-      sprite.x, sprite.y, sprite.w, sprite.h,
-      -sprite.originX, -sprite.originY, sprite.w, sprite.h
-    );
-    ctx.restore();
+  /** The brood queen; `swollen` is the breathing step of her egg sac. */
+  drawQueenAnt(
+    ctx: CanvasRenderingContext2D,
+    worldX: number,
+    worldY: number,
+    angle: number,
+    legPhase: number,
+    swollen = false
+  ): void {
+    this.queenSheet ??= new DirectionalSheet(SPRITE_GRID.queen, WALK_FRAMES, 2, (row, frame, direction) =>
+      paintQueen({ frame, direction, swollen: row === 1 }));
+    this.queenSheet.draw(ctx, worldX, worldY, angle, walkFrame(legPhase), swollen ? 1 : 0);
   }
 
   drawFood(
@@ -896,19 +310,10 @@ export class SpriteAtlas {
     sizeLevel: number,
     rotation: number
   ): void {
-    const index = (variant % 5) * 5 + Math.min(4, Math.max(0, sizeLevel));
-    const sprite = this.foodSprites[index];
-    if (!sprite) return;
-
-    ctx.save();
-    ctx.translate(worldX, worldY);
-    ctx.rotate(rotation);
-    ctx.drawImage(
-      sprite.canvas,
-      sprite.x, sprite.y, sprite.w, sprite.h,
-      -sprite.originX, -sprite.originY, sprite.w, sprite.h
-    );
-    ctx.restore();
+    this.foodSheet ??= new DirectionalSheet(SPRITE_GRID.food, 1, FOOD_VARIANTS * FOOD_SIZE_LEVELS, (row, _frame, direction) =>
+      paintFood({ variant: Math.floor(row / FOOD_SIZE_LEVELS), sizeLevel: row % FOOD_SIZE_LEVELS, direction }));
+    const row = (variant % FOOD_VARIANTS) * FOOD_SIZE_LEVELS + Math.min(FOOD_SIZE_LEVELS - 1, Math.max(0, sizeLevel));
+    this.foodSheet.draw(ctx, worldX, worldY, rotation, 0, row);
   }
 
   drawNest(
@@ -917,19 +322,15 @@ export class SpriteAtlas {
     worldY: number,
     radius: number
   ): void {
-    if (!this.nestSprite) return;
-
-    const targetSize = radius * TILE_SIZE * 1.3 * 2;
-    const s = targetSize / this.nestSprite.w;
+    // Whole world px per art px, drawn unsmoothed: every art pixel stays a crisp square
+    const s = nestPixelsPerArtPixel(radius) / NEST_SCALE;
+    const half = NEST_SPRITE_SIZE / 2;
 
     ctx.save();
-    ctx.translate(worldX, worldY);
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(Math.round(worldX), Math.round(worldY));
     ctx.scale(s, s);
-    ctx.drawImage(
-      this.nestSprite.canvas,
-      this.nestSprite.x, this.nestSprite.y, this.nestSprite.w, this.nestSprite.h,
-      -this.nestSprite.originX, -this.nestSprite.originY, this.nestSprite.w, this.nestSprite.h
-    );
+    ctx.drawImage(this.nestSprite, -half, -half);
     ctx.restore();
   }
 
@@ -940,22 +341,9 @@ export class SpriteAtlas {
     angle: number,
     legPhase: number
   ): void {
-    const TWO_PI = Math.PI * 2;
-    const normalizedPhase = ((legPhase % TWO_PI) + TWO_PI) % TWO_PI;
-    const frame = Math.floor(normalizedPhase / (TWO_PI / BEETLE_FRAMES)) % BEETLE_FRAMES;
-
-    const s = BEETLE_SPRITE_SIZE;
-    const srcX = frame * s;
-
-    ctx.save();
-    ctx.translate(worldX, worldY);
-    ctx.rotate(angle);
-    ctx.drawImage(
-      this.beetleSprites,
-      srcX, 0, s, s,
-      -s / 2, -s / 2, s, s
-    );
-    ctx.restore();
+    this.beetleSheet ??= new DirectionalSheet(SPRITE_GRID.beetle, WALK_FRAMES, 1, (_row, frame, direction) =>
+      paintBeetle({ frame, direction }));
+    this.beetleSheet.draw(ctx, worldX, worldY, angle, walkFrame(legPhase));
   }
 
   drawBeetleDen(
@@ -963,11 +351,7 @@ export class SpriteAtlas {
     worldX: number,
     worldY: number
   ): void {
-    const s = DEN_SPRITE_SIZE;
-    ctx.drawImage(
-      this.denSprite,
-      worldX - s / 2, worldY - s / 2
-    );
+    this.drawStatic(ctx, this.denSprite, worldX, worldY);
   }
 
   drawCricket(
@@ -977,22 +361,9 @@ export class SpriteAtlas {
     angle: number,
     legPhase: number
   ): void {
-    const TWO_PI = Math.PI * 2;
-    const normalizedPhase = ((legPhase % TWO_PI) + TWO_PI) % TWO_PI;
-    const frame = Math.floor(normalizedPhase / (TWO_PI / CRICKET_FRAMES)) % CRICKET_FRAMES;
-
-    const s = CRICKET_SPRITE_SIZE;
-    const srcX = frame * s;
-
-    ctx.save();
-    ctx.translate(worldX, worldY);
-    ctx.rotate(angle);
-    ctx.drawImage(
-      this.cricketSprites,
-      srcX, 0, s, s,
-      -s / 2, -s / 2, s, s
-    );
-    ctx.restore();
+    this.cricketSheet ??= new DirectionalSheet(SPRITE_GRID.cricket, WALK_FRAMES, 1, (_row, frame, direction) =>
+      paintCricket({ frame, direction }));
+    this.cricketSheet.draw(ctx, worldX, worldY, angle, walkFrame(legPhase));
   }
 
   drawCricketDen(
@@ -1000,11 +371,7 @@ export class SpriteAtlas {
     worldX: number,
     worldY: number
   ): void {
-    const s = DEN_SPRITE_SIZE;
-    ctx.drawImage(
-      this.cricketDenSprite,
-      worldX - s / 2, worldY - s / 2
-    );
+    this.drawStatic(ctx, this.cricketDenSprite, worldX, worldY);
   }
 
   drawGiantMushroom(
@@ -1012,10 +379,18 @@ export class SpriteAtlas {
     worldX: number,
     worldY: number
   ): void {
-    const s = GIANT_MUSHROOM_SPRITE_SIZE;
-    ctx.drawImage(
-      this.giantMushroomSprite,
-      worldX - s / 2, worldY - s / 2
-    );
+    this.drawStatic(ctx, this.giantMushroomSprite, worldX, worldY);
   }
+
+  private drawStatic(ctx: CanvasRenderingContext2D, sprite: HTMLCanvasElement, worldX: number, worldY: number): void {
+    ctx.drawImage(sprite, Math.round(worldX - sprite.width / 2), Math.round(worldY - sprite.height / 2));
+  }
+}
+
+let shared: SpriteAtlas | null = null;
+
+/** The one atlas the game view and the UI previews share (so portraits show the colony's marks); built on first use. */
+export function sharedSpriteAtlas(): SpriteAtlas {
+  shared ??= new SpriteAtlas();
+  return shared;
 }

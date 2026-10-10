@@ -6,6 +6,7 @@ import {
   AntRole,
   type AntComponent,
 } from '../components/components';
+import { BREED_COST_WORKER } from '../../shared/constants';
 
 export interface ObjectiveDef {
   id: string;
@@ -39,61 +40,65 @@ function storageTotal(_world: World, grid: UndergroundGrid): number {
   return Math.floor(grid.getPantryStored().total);
 }
 
-/** Sequential colony milestones — a progression curve, not a checklist */
-const OBJECTIVES: ObjectiveDef[] = [
+/**
+ * Sequential colony milestones — a progression curve, not a checklist.
+ * Copy is neutral Spanish; "A" is the Criar obrera key of the command card
+ * (the first key of the breed row; the broodKeys test in commands.test.ts pins it).
+ */
+export const OBJECTIVES: readonly ObjectiveDef[] = [
   {
     id: 'cria-primera',
     title: '🥚 Primera generación',
-    description: 'Criá tu primera hormiga (encargá un huevo en el hormiguero)',
+    description: `Cría tu primera hormiga: pulsa A (Criar obrera) cuando la despensa tenga ${BREED_COST_WORKER} de comida`,
     target: 1,
     progress: (w) => w.metrics.antsHatched,
   },
   {
     id: 'poblacion-15',
     title: '🐜 Colonia creciente',
-    description: 'Hacé crecer la colonia a 15 hormigas',
+    description: 'Haz crecer la colonia hasta 15 hormigas',
     target: 15,
     progress: (w) => countAnts(w),
   },
   {
     id: 'despensa-100',
     title: '🍖 Despensa abastecida',
-    description: 'Acumulá 100 de comida en la despensa subterránea',
+    description: 'Acumula 100 de comida en la despensa subterránea',
     target: 100,
     progress: storageTotal,
   },
   {
     id: 'excavacion-5',
     title: '⛏️ Expansión',
-    description: 'Excavá 5 tiles para expandir el hormiguero',
+    description: 'Excava 5 casillas para ampliar el hormiguero',
     target: 5,
     progress: (w) => w.metrics.tilesExcavated,
   },
   {
     id: 'ejercito-5',
     title: '⚔️ Ejército en pie',
-    description: 'Formá un ejército de 5 soldados',
+    description: 'Forma un ejército de 5 soldados',
     target: 5,
     progress: (w) => countAnts(w, AntRole.Soldier),
   },
   {
     id: 'nido-1',
     title: '💥 Contraataque',
-    description: 'Destruí un nido enemigo con una oleada de ataque',
+    description: 'Destruye una guarida enemiga con una oleada de ataque',
     target: 1,
     progress: (w) => w.metrics.densDestroyed,
   },
   {
     id: 'poblacion-30',
     title: '🏛️ Imperio',
-    description: 'Hacé crecer la colonia a 30 hormigas',
+    description: 'Haz crecer la colonia hasta 30 hormigas',
     target: 30,
     progress: (w) => countAnts(w),
   },
   {
     id: 'nidos-3',
     title: '👑 Dominio total',
-    description: 'Destruí 3 nidos enemigos',
+    description: 'Destruye 3 guaridas enemigas',
     target: 3,
     progress: (w) => w.metrics.densDestroyed,
   },

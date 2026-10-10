@@ -1,37 +1,34 @@
 import { useRef, useEffect, useState } from 'react';
 import { GameManager } from '../game/GameManager';
 import type { GameStats } from '../game/GameManager';
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../shared/constants';
+import { fitCanvasToWindow, pickDefaultZoom, visibleCanvasRect, type CanvasFit } from './layout/canvasFit';
+import { HUD_FADE_MS, hudInsets } from './layout/hudMetrics';
 
 interface GameCanvasProps {
   onStatsUpdate: (stats: GameStats) => void;
   onGameManager: (gm: GameManager) => void;
+  /** True while the opening cinematic plays and the HUD is hidden */
+  introPlaying: boolean;
 }
 
 /**
- * Compute a CSS display size so each logical canvas pixel maps to an
- * INTEGER number of device pixels — authentic crisp pixel-art scaling.
+ * The world fills the whole window at its real resolution: the canvas backing
+ * store is the window's CSS size × devicePixelRatio (capped), so nothing is
+ * upscaled, and the HUD floats on top. The camera is told which band of the
+ * canvas stays visible between the top strip and the console, so it centers
+ * and clamps there.
+ * During the intro the HUD is hidden and that band is the whole window; as
+ * the HUD fades in, the band eases back so the camera glides instead of jumping.
  */
-function computeDisplaySize(availW: number, availH: number): { w: number; h: number } {
-  const dpr = window.devicePixelRatio || 1;
-  const deviceScale = Math.max(
-    1,
-    Math.floor(Math.min((availW * dpr) / CANVAS_WIDTH, (availH * dpr) / CANVAS_HEIGHT)),
-  );
-  return {
-    w: (CANVAS_WIDTH * deviceScale) / dpr,
-    h: (CANVAS_HEIGHT * deviceScale) / dpr,
-  };
-}
-
-export function GameCanvas({ onStatsUpdate, onGameManager }: GameCanvasProps) {
+export function GameCanvas({ onStatsUpdate, onGameManager, introPlaying }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const gameManagerRef = useRef<GameManager | null>(null);
-  const [displaySize, setDisplaySize] = useState<{ w: number; h: number }>({
-    w: CANVAS_WIDTH,
-    h: CANVAS_HEIGHT,
-  });
+  const [fit, setFit] = useState<CanvasFit>(() => fitCanvasToWindow(0, 0));
+  /** HUD fade-in progress: 0 while the intro plays (the world takes the whole window), 1 once the HUD is in */
+  const hudReveal = useRef(introPlaying ? 0 : 1);
+  /** Re-sends the visible band to the camera; set by the resize effect */
+  const syncViewport = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -50,16 +47,28 @@ export function GameCanvas({ onStatsUpdate, onGameManager }: GameCanvasProps) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Integer-scaled display size — recomputed on container resize,
-  // window resize, and devicePixelRatio changes (browser zoom / monitor swap).
+  // Recomputed on container resize, window resize, and devicePixelRatio
+  // changes (browser zoom / monitor swap).
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    let measured: CanvasFit | null = null;
+    const pushViewport = () => {
+      if (!measured) return;
+      const visible = visibleCanvasRect(measured, hudInsets(hudReveal.current));
+      gameManagerRef.current?.setViewport(visible, pickDefaultZoom(measured.backingWidth, measured.pixelRatio));
+    };
     const recompute = () => {
       const rect = container.getBoundingClientRect();
-      setDisplaySize(computeDisplaySize(rect.width, rect.height));
+      const next = fitCanvasToWindow(rect.width, rect.height, window.devicePixelRatio || 1);
+      setFit(next);
+      measured = next;
+      // The buffer resizes at once (cheap); size-bound render caches rebuild once the size settles
+      gameManagerRef.current?.resizeCanvas(next.backingWidth, next.backingHeight, next.pixelRatio);
+      pushViewport();
     };
+    syncViewport.current = pushViewport;
 
     recompute();
 
@@ -87,16 +96,31 @@ export function GameCanvas({ onStatsUpdate, onGameManager }: GameCanvasProps) {
     };
   }, []);
 
+  // The HUD fades in after the intro: ease the band in over the same time
+  useEffect(() => {
+    if (introPlaying) {
+      hudReveal.current = 0;
+      syncViewport.current();
+      return;
+    }
+    if (hudReveal.current >= 1) return;
+    const start = performance.now();
+    const step = (now: number) => {
+      hudReveal.current = Math.min(1, (now - start) / HUD_FADE_MS);
+      syncViewport.current();
+      if (hudReveal.current < 1) frame = requestAnimationFrame(step);
+    };
+    let frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [introPlaying]);
+
   return (
-    <div ref={containerRef} className="game-canvas-container">
+    <div ref={containerRef} className="world-viewport">
       <canvas
         ref={canvasRef}
         className="game-canvas"
         onContextMenu={(e) => e.preventDefault()}
-        style={{
-          width: `${displaySize.w}px`,
-          height: `${displaySize.h}px`,
-        }}
+        style={{ width: `${fit.width}px`, height: `${fit.height}px`, left: 0, top: 0 }}
       />
     </div>
   );

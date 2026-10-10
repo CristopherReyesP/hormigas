@@ -3,13 +3,18 @@ import type { CanvasRenderer } from '../../engine/renderer/CanvasRenderer';
 import type { TileGrid } from '../../simulation/world/TileGrid';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { Camera } from '../../engine/camera/Camera';
+import type { ScreenBox } from '../../engine/input/InputManager';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { TerrainRenderer } from '../../engine/renderer/TerrainRenderer';
 import { FoliageOverlay } from '../../engine/renderer/FoliageOverlay';
-import { PostProcessor, type ScreenLight } from '../../engine/renderer/PostProcessor';
-import { SpriteAtlas } from '../../engine/renderer/SpriteAtlas';
+import { PostProcessor, nightGlowAlpha, type ScreenLight } from '../../engine/renderer/PostProcessor';
+import { SpriteAtlas, antGlowPoints, sharedSpriteAtlas } from '../../engine/renderer/SpriteAtlas';
+import { snapAngle } from '../../engine/renderer/pixelart/directions';
 import { computeUndergroundLight, UG_LIGHT_RIM, UG_LIGHT_FULL } from './undergroundLight';
 import { FogRenderer } from '../../engine/renderer/FogRenderer';
+import { screenPixelScale } from '../../engine/renderer/screenScale';
+import { isTileVisible } from '../../engine/renderer/fogVisibility';
+import { DECOR_SEED, crystalShardsAround } from '../../engine/renderer/alienDecor';
 import {
   COMPONENT,
   AntRole,
@@ -18,6 +23,7 @@ import {
   BeetleState,
   CricketState,
   Layer,
+  OrderKind,
   type PositionComponent,
   type RenderComponent,
   type FacingComponent,
@@ -32,12 +38,19 @@ import {
   type LayerComponent,
   type EggComponent,
   type NestComponent,
+  type PlayerOrderComponent,
 } from '../components/components';
-import { TILE_SIZE, PHEROMONE_MAX, CANVAS_WIDTH, CANVAS_HEIGHT, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
-import { UndergroundTerrainType, ChamberType } from '../../simulation/world/types';
+import { TILE_SIZE, PHEROMONE_MAX, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
+import { UndergroundTerrainType, ChamberType, TerrainType } from '../../simulation/world/types';
 import { AmbientParticleSystem } from '../particles';
-import { PAL, hash2 } from '../../engine/renderer/pixelart/palette';
+import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
 import { PixelPainter } from '../../engine/renderer/pixelart/PixelPainter';
+import { MeteorIntro } from '../render/MeteorIntro';
+import { combatVfxFor } from '../vfx/CombatVfx';
+import { drawCombatVfx } from '../vfx/drawCombatVfx';
+import type { IntroClock, Vec2 } from '../render/introTimeline';
+import type { TilePos } from '../run/craterSite';
+import type { EntityId } from '../../shared/types';
 
 // === Food pile rendering (nest stockpile + underground pantry) ===
 // Max dots drawn per pile (perf cap — flat fills only, deterministic positions)
@@ -70,6 +83,58 @@ const RING_TICKS_8: ReadonlyArray<readonly [number, number]> = Array.from(
 
 // Quantized alpha steps used across all FX compositing (pixel art = discrete levels)
 const ALPHA_STEPS = [0.75, 0.5, 0.25] as const;
+// Black at those same steps — underground wall shadows and darkness
+const SHADE_DEEP = withAlpha(PAL.black, ALPHA_STEPS[0]);
+const SHADE_HALF = withAlpha(PAL.black, ALPHA_STEPS[1]);
+const SHADE_QUARTER = withAlpha(PAL.black, ALPHA_STEPS[2]);
+
+const NO_SHAKE: Vec2 = { x: 0, y: 0 };
+
+/** The HUD chrome accent (--chrome-accent in index.css): the selection box line. */
+const CHROME_ACCENT = PAL.swarm.vein[1];
+/** Own-unit selection green: ellipses, move pings and order lines. */
+const SELECT_GREEN = PAL.healthGreen;
+const SELECT_GREEN_LIGHT = PAL.glowGreen;
+/** Attack orders read red: their pings, their order lines and the flash on the targeted enemy. */
+const ATTACK_RED = PAL.dangerRed;
+const ATTACK_RED_LIGHT = PAL.meteor[1];
+/** Seconds a move ping stays on the ground */
+const ORDER_PING_SECONDS = 0.7;
+/** Seconds the targeted enemy's ellipse flashes red-orange after an attack order */
+const TARGET_FLASH_SECONDS = 0.9;
+/** Up to this many selected ordered ants get a dotted line to their slot; more just mark the slots */
+const ORDER_LINES_MAX = 4;
+/** The target flash ellipse follows the sprite: beetle, den or the big cricket */
+type TargetFlashSize = 'beetle' | 'den' | 'cricket';
+/** How far below the entity center the flash ellipse sits (px), so it reads as the ground under it */
+const TARGET_FLASH_DROP: Record<TargetFlashSize, number> = { beetle: 4, den: 6, cricket: 12 };
+
+/** A new order for the renderer to acknowledge on the ground. */
+export interface OrderPing {
+  /** Tile the order points at */
+  x: number;
+  y: number;
+  /** Green for a move, red for an attack or attack-move */
+  kind: 'move' | 'attack';
+  /** Attack on one enemy: the ping follows it and its ellipse flashes */
+  targetId?: EntityId;
+}
+
+/** Live player-command feedback the GameManager owns: the drag box and new orders. */
+export interface CommandOverlaySource {
+  /** Selection box being dragged (canvas px), or null */
+  getDragBox(): ScreenBox | null;
+  /** Orders given since the last frame */
+  drainOrderPings(): OrderPing[];
+}
+
+/** An ant drawn this frame, replayed by the night glow pass (world px). */
+interface GlowAnt {
+  x: number;
+  y: number;
+  angle: number;
+  role: AntRole;
+}
 
 /** Deterministic pseudo-random in [0,1) from an integer seed (same technique as egg speckles). */
 function pileRand(seed: number): number {
@@ -106,6 +171,12 @@ export class RenderSystem {
   private ugParticleTimer = 0;
   private ugTextureCanvas: OffscreenCanvas | null = null;
   private ugTextureReady = false;
+  /** The run's opening (meteor, impact, crater); null until GameManager stages it */
+  private intro: MeteorIntro | null = null;
+  private craterTile: TilePos | null = null;
+  /** Reused per frame: ants on screen, for the post-tint vein glow */
+  private glowAnts: GlowAnt[] = [];
+  private glowAntCount = 0;
 
   // === Pre-rendered pixel-art FX caches (built once in initFxCaches) ===
   private fxShadowSmall!: OffscreenCanvas;
@@ -115,6 +186,15 @@ export class RenderSystem {
   private fxHealthFrame!: OffscreenCanvas;
   private fxPheroStamps!: Record<'home' | 'food' | 'danger', OffscreenCanvas[]>;
   private fxGlows = new Map<string, OffscreenCanvas>();
+  /** Green selection ellipses under own ants: small castes and big ones */
+  private fxSelectEllipse!: { small: OffscreenCanvas; large: OffscreenCanvas };
+  /** Red-orange ellipses that flash under an enemy an attack order just named */
+  private fxTargetEllipse!: Record<TargetFlashSize, OffscreenCanvas>;
+  /** Order pings still animating (birth in animationTime seconds) */
+  private orderPings: Array<OrderPing & { born: number }> = [];
+  /** Enemies named by an attack order, with the animationTime of the order */
+  private targetFlashes = new Map<EntityId, number>();
+  private commandOverlay: CommandOverlaySource | null;
   /** Darkness dither tiles indexed by light level 1-3 (0 = solid, 4 = clear) */
   private fxDither: OffscreenCanvas[] = [];
 
@@ -130,8 +210,10 @@ export class RenderSystem {
     world: World,
     renderer: CanvasRenderer,
     grid: TileGrid,
-    visibilityGrid: VisibilityGrid
+    visibilityGrid: VisibilityGrid,
+    commandOverlay: CommandOverlaySource | null = null
   ) {
+    this.commandOverlay = commandOverlay;
     this.world = world;
     this.renderer = renderer;
     this.grid = grid;
@@ -139,14 +221,14 @@ export class RenderSystem {
     this.terrainRenderer = new TerrainRenderer(grid);
     this.foliageOverlay = new FoliageOverlay(grid);
     this.postProcessor = new PostProcessor();
-    this.spriteAtlas = new SpriteAtlas();
+    this.spriteAtlas = sharedSpriteAtlas();
     this.fogRenderer = new FogRenderer(visibilityGrid);
     this.ambientParticles = new AmbientParticleSystem(grid, world);
     this.initFxCaches();
   }
 
   /** Pre-render every repeated FX element once: dithered shadows (3 sizes),
-   *  selection corner brackets (per accent color), the segmented health-bar frame,
+   *  selection corner brackets and ellipses, the segmented health-bar frame,
    *  pheromone tile stamps (3 types × 3 intensity levels), dithered glow stamps,
    *  and the two darkness dither tiles used by the underground light map. */
   private initFxCaches(): void {
@@ -163,12 +245,9 @@ export class RenderSystem {
     this.fxShadowMedium = makeShadow(32, 16);
     this.fxShadowLarge = makeShadow(96, 48);
 
-    // --- Selection corner brackets (4 pixel L-shapes, 3 art-px arms) per accent ---
+    // --- Selection corner brackets (4 pixel L-shapes, 3 art-px arms) for food piles;
+    //     own ants get the green ground ellipse instead ---
     const bracketColors: Record<string, string> = {
-      worker: PAL.worker,
-      soldier: PAL.soldier,
-      scout: PAL.scout,
-      nurse: PAL.nurse,
       amber: PAL.glowAmber,
       white: PAL.white,
     };
@@ -183,6 +262,39 @@ export class RenderSystem {
       p.hline(N - 3, N - 1, 3, color); p.vline(N - 1, N - 3, 3, color);
       this.fxBrackets.set(key, c);
     }
+
+    // --- Selection ellipses: a 1-art-px ring with a lit top arc, flattened to the ground
+    //     (green under own ants, red-orange under an enemy that was just targeted) ---
+    const makeEllipse = (rx: number, ry: number, dark: string = SELECT_GREEN, light: string = SELECT_GREEN_LIGHT): OffscreenCanvas => {
+      const w = (rx * 2 + 3) * 2;
+      const h = (ry * 2 + 3) * 2;
+      const c = new OffscreenCanvas(w, h);
+      const p = new PixelPainter(c.getContext('2d')!, 2);
+      const cx = rx + 1;
+      const cy = ry + 1;
+      const inside = (ix: number, iy: number, ax: number, ay: number) => {
+        const nx = ix / (ax + 0.25);
+        const ny = iy / (ay + 0.25);
+        return nx * nx + ny * ny <= 1;
+      };
+      for (let iy = -ry - 1; iy <= ry + 1; iy++) {
+        for (let ix = -rx - 1; ix <= rx + 1; ix++) {
+          if (!inside(ix, iy, rx, ry)) continue;
+          const rim = !inside(ix, iy, rx - 1, ry - 1);
+          // The near (lower) half gets a second pixel of lip so the ring reads on any ground
+          const lip = iy > 0 && !rim && !inside(ix, iy, rx - 2, ry - 2);
+          if (rim) p.px(cx + ix, cy + iy, iy < 0 ? light : dark);
+          else if (lip) p.px(cx + ix, cy + iy, dark);
+        }
+      }
+      return c;
+    };
+    this.fxSelectEllipse = { small: makeEllipse(10, 4), large: makeEllipse(12, 5) };
+    this.fxTargetEllipse = {
+      beetle: makeEllipse(12, 5, ATTACK_RED, ATTACK_RED_LIGHT),
+      den: makeEllipse(14, 6, ATTACK_RED, ATTACK_RED_LIGHT),
+      cricket: makeEllipse(26, 10, ATTACK_RED, ATTACK_RED_LIGHT),
+    };
 
     // --- Health bar frame: 1px outline border + dark inner (6 segments of 3×2, 1px gaps) ---
     const hb = new OffscreenCanvas(25, 4);
@@ -238,6 +350,8 @@ export class RenderSystem {
     this.fxGlows.set('amber', makeGlow(PAL.glowAmber));
     this.fxGlows.set('yellow', makeGlow(PAL.healthYellow));
     this.fxGlows.set('green', makeGlow(PAL.glowGreen));
+    this.fxGlows.set('swarmVein', makeGlow(PAL.swarm.vein[1]));
+    this.fxGlows.set('swarmFlesh', makeGlow(PAL.swarm.flesh[3]));
 
     // --- Underground darkness dither tiles, one per light level 1-3 ---
     // Three Bayer-style densities (3/4, 2/4, 1/4 of the pixels darkened) give the
@@ -288,13 +402,149 @@ export class RenderSystem {
     ctx.drawImage(c, Math.round(px) - s, Math.round(py) - s, s * 2, s * 2);
   }
 
-  private static readonly ROLE_BRACKET_KEY: Record<AntRole, string> = {
-    [AntRole.Worker]: 'worker',
-    [AntRole.Soldier]: 'soldier',
-    [AntRole.Scout]: 'scout',
-    [AntRole.Nurse]: 'nurse',
-    [AntRole.Defender]: 'defender',
-  };
+  /** StarCraft's own-unit marker: a green ellipse on the ground under the ant. */
+  private drawSelectionEllipse(ctx: CanvasRenderingContext2D, px: number, py: number, role: AntRole): void {
+    const big = role === AntRole.Soldier || role === AntRole.Defender;
+    const c = big ? this.fxSelectEllipse.large : this.fxSelectEllipse.small;
+    ctx.drawImage(c, Math.round(px - c.width / 2), Math.round(py + 3 - c.height / 2));
+  }
+
+  /**
+   * The flash on an enemy an attack order just named: its ground ellipse turns
+   * red-orange and blinks for TARGET_FLASH_SECONDS. `size` follows the sprite.
+   */
+  private drawTargetFlash(ctx: CanvasRenderingContext2D, id: EntityId, x: number, y: number, size: TargetFlashSize): void {
+    const born = this.targetFlashes.get(id);
+    if (born === undefined) return;
+    const age = this.animationTime - born;
+    if (age >= TARGET_FLASH_SECONDS) {
+      this.targetFlashes.delete(id);
+      return;
+    }
+    if (Math.floor(age * 8) % 2 === 1) return; // blink
+    const c = this.fxTargetEllipse[size];
+    const px = x * TILE_SIZE + TILE_SIZE / 2;
+    const py = y * TILE_SIZE + TILE_SIZE / 2;
+    ctx.drawImage(c, Math.round(px - c.width / 2), Math.round(py + TARGET_FLASH_DROP[size] - c.height / 2));
+  }
+
+  /**
+   * Order pings: a ring that tightens on the target in 3 steps, blinking, with
+   * a center mark. Green for a move, red for an attack; one aimed at an enemy
+   * follows it.
+   */
+  private renderOrderPings(ctx: CanvasRenderingContext2D): void {
+    if (this.orderPings.length === 0) return;
+    this.orderPings = this.orderPings.filter((ping) => this.animationTime - ping.born < ORDER_PING_SECONDS);
+    const p = new PixelPainter(ctx, 2);
+    for (const ping of this.orderPings) {
+      const age = (this.animationTime - ping.born) / ORDER_PING_SECONDS;
+      if (age > 0.55 && Math.floor(this.animationTime * 16) % 2 === 1) continue; // blink out
+      const attack = ping.kind === 'attack';
+      const dark = attack ? ATTACK_RED : SELECT_GREEN;
+      const light = attack ? ATTACK_RED_LIGHT : SELECT_GREEN_LIGHT;
+      const at = ping.targetId !== undefined ? this.world.getComponent<PositionComponent>(ping.targetId, COMPONENT.POSITION) : undefined;
+      const step = Math.min(2, Math.floor(age * 3));
+      const rx = [13, 9, 6][step];
+      const ry = Math.max(2, Math.round(rx * 0.45));
+      const cx = Math.round(((at?.x ?? ping.x) * TILE_SIZE + TILE_SIZE / 2) / 2);
+      const cy = Math.round(((at?.y ?? ping.y) * TILE_SIZE + TILE_SIZE / 2) / 2);
+      for (let iy = -ry - 1; iy <= ry + 1; iy++) {
+        for (let ix = -rx - 1; ix <= rx + 1; ix++) {
+          const outer = (ix / (rx + 0.25)) ** 2 + (iy / (ry + 0.25)) ** 2 <= 1;
+          const inner = (ix / (rx - 0.75)) ** 2 + (iy / (ry - 0.75)) ** 2 <= 1;
+          if (outer && !inner) p.px(cx + ix, cy + iy, iy < 0 ? light : dark);
+        }
+      }
+      // Center mark: a cross for a move, an X for an attack
+      if (attack) {
+        for (let d = -1; d <= 1; d++) {
+          p.px(cx + d, cy + d, light);
+          p.px(cx + d, cy - d, light);
+        }
+      } else {
+        p.hline(cx - 1, cy, 3, light);
+        p.vline(cx, cy - 1, 3, light);
+      }
+    }
+  }
+
+  /**
+   * Selected ants still under a move or attack order: green for a move, red
+   * for an attack-move or an attack (drawn to the enemy as it moves). A few
+   * get a sparse dotted line; a big group would turn that into a spray of
+   * dots, so each of its slots gets a small ground tick instead: the
+   * formation it is forming. Guard and hold stances draw nothing.
+   */
+  private renderOrderLines(ctx: CanvasRenderingContext2D, interpolation: number): void {
+    const legs: Array<{ ax: number; ay: number; bx: number; by: number; color: string }> = [];
+    for (const id of this.world.query(COMPONENT.PLAYER_ORDER, COMPONENT.POSITION)) {
+      if (!this.world.getComponent<SelectableComponent>(id, COMPONENT.SELECTABLE)?.selected) continue;
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+      if (layer && layer.layer !== Layer.Surface) continue;
+      const order = this.world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER)!;
+      if (order.kind === OrderKind.Guard || order.kind === OrderKind.Hold) continue;
+      let end: { x: number; y: number } = order.target;
+      if (order.kind === OrderKind.Attack && order.targetId !== null) {
+        const enemy = this.world.getComponent<PositionComponent>(order.targetId, COMPONENT.POSITION);
+        if (!enemy) continue;
+        end = { x: enemy.prevX + (enemy.x - enemy.prevX) * interpolation, y: enemy.prevY + (enemy.y - enemy.prevY) * interpolation };
+      }
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
+      const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
+      legs.push({
+        ax: (x * TILE_SIZE + TILE_SIZE / 2) / 2,
+        ay: (y * TILE_SIZE + TILE_SIZE / 2) / 2,
+        bx: (end.x * TILE_SIZE + TILE_SIZE / 2) / 2,
+        by: (end.y * TILE_SIZE + TILE_SIZE / 2) / 2,
+        color: order.kind === OrderKind.Move ? SELECT_GREEN : ATTACK_RED,
+      });
+    }
+    if (legs.length === 0) return;
+    const p = new PixelPainter(ctx, 2);
+    if (legs.length > ORDER_LINES_MAX) {
+      for (const { bx, by, color } of legs) p.hline(Math.round(bx) - 1, Math.round(by), 3, color);
+      return;
+    }
+    for (const { ax, ay, bx, by, color } of legs) {
+      const len = Math.hypot(bx - ax, by - ay);
+      // One dot every 6 art px, anchored at the target so the dots stay still as the ant walks
+      for (let d = 0; d < len - 4; d += 6) {
+        const t = d / len;
+        p.px(Math.round(bx + (ax - bx) * t), Math.round(by + (ay - by) * t), color);
+      }
+    }
+  }
+
+  /** The drag box, in screen space over everything but the intro: a chrome-accent frame. */
+  private renderDragBox(ctx: CanvasRenderingContext2D): void {
+    const box = this.commandOverlay?.getDragBox();
+    if (!box) return;
+    const x0 = Math.round(box.x0);
+    const y0 = Math.round(box.y0);
+    const w = Math.max(1, Math.round(box.x1) - x0);
+    const h = Math.max(1, Math.round(box.y1) - y0);
+    // Line weight keeps its on-screen size on the real-size canvas
+    const px = screenPixelScale(ctx.canvas.width, ctx.canvas.height);
+    ctx.save();
+    ctx.globalAlpha = ALPHA_STEPS[2] * 0.5;
+    ctx.fillStyle = CHROME_ACCENT;
+    ctx.fillRect(x0, y0, w, h);
+    ctx.globalAlpha = 1;
+    ctx.fillRect(x0, y0, w, px);
+    ctx.fillRect(x0, y0 + h - px, w, px);
+    ctx.fillRect(x0, y0, px, h);
+    ctx.fillRect(x0 + w - px, y0, px, h);
+    // Heavier corners, like the console's chrome plates
+    const arm = Math.min(5 * px, Math.floor(w / 2), Math.floor(h / 2));
+    const t = 2 * px;
+    for (const [cx, cy, sx, sy] of [[x0, y0, 1, 1], [x0 + w, y0, -1, 1], [x0, y0 + h, 1, -1], [x0 + w, y0 + h, -1, -1]] as const) {
+      ctx.fillRect(sx > 0 ? cx : cx - arm, sy > 0 ? cy : cy - t, arm, t);
+      ctx.fillRect(sx > 0 ? cx : cx - t, sy > 0 ? cy : cy - arm, t, arm);
+    }
+    ctx.restore();
+  }
 
   setCamera(camera: Camera): void {
     this.camera = camera;
@@ -318,6 +568,26 @@ export class RenderSystem {
   /** Surface tint follows the day/night cycle — wired by GameManager */
   setDayPhaseProvider(fn: () => { phase: 'day' | 'night'; progress: number }): void {
     this.getDayPhase = fn;
+  }
+
+  /** Stage the run's opening: the meteor strikes `impactTile` and leaves its crater there. GameManager advances `clock`. */
+  startMeteorIntro(impactTile: TilePos, nestTile: TilePos, clock: IntroClock): void {
+    // The Hive's corruption: crystal shards on the ground around the impact
+    const shards = crystalShardsAround(impactTile, DECOR_SEED, (x, y) => {
+      const tile = this.grid.getTile(x, y);
+      return tile !== null && tile.terrain !== TerrainType.Water;
+    });
+    this.intro = new MeteorIntro(impactTile, nestTile, clock, shards);
+    this.craterTile = { x: impactTile.x, y: impactTile.y };
+  }
+
+  /** Any key or click once the title shows: drop the remaining intro effects (the crater stays). */
+  skipIntro(): boolean {
+    return this.intro?.skip() ?? true;
+  }
+
+  isIntroPlaying(): boolean {
+    return this.intro?.isPlaying() ?? false;
   }
 
   /** Pre-render earth texture tiles to offscreen canvas (called once) */
@@ -380,6 +650,26 @@ export class RenderSystem {
       renderTile(i, 7, PAL.earth[2], PAL.earth[1], PAL.earth[3], null); // designated earth
     }
 
+    // Wall veins: faint glowing filaments wandering through the chitin-rock,
+    // on two of the four wall variants (picked by tile hash, so no lattice)
+    for (const col of [0, 2]) {
+      const p = new PixelPainter(ctx, 2, col * T, 0);
+      const seed = col * 7 + 977;
+      let vx = 1 + Math.floor(hash2(seed, 2) * 5);
+      let vy = 3 + Math.floor(hash2(seed, 3) * 10);
+      const len = 10 + Math.floor(hash2(seed, 1) * 6);
+      for (let k = 0; k < len && vx < 16; k++) {
+        p.px(vx, vy, k % 5 === 3 ? PAL.rockVein[1] : PAL.rockVein[0]);
+        // Wander: mostly forward, sometimes a diagonal kink up or down
+        const turn = hash2(seed, k + 10);
+        if (turn < 0.25) vy = Math.max(1, vy - 1);
+        else if (turn > 0.75) vy = Math.min(14, vy + 1);
+        if (turn > 0.15 && turn < 0.85) vx++;
+        // One short fork off the middle of the filament
+        if (k === 5) p.line(vx, vy, vx + 2, vy + (col === 0 ? 2 : -2), PAL.rockVein[0]);
+      }
+    }
+
     // ── Chamber floors as MATERIAL SPRITES — you see leaves, you know it's the
     // larder; you see straw, it's the nursery. The material IS the label. ──
 
@@ -391,16 +681,16 @@ export class RenderSystem {
         p.rect(x + 1, y, 1, 5, lit);
         p.rect(x, y + 1, 3, 3, body);
         p.vline(x + 1, y + 1, 3, PAL.grass[0]); // vein
-        p.px(x + 1, y + 5, PAL.wood[1]); // stem
+        p.px(x + 1, y + 5, PAL.flora.stalk[1]); // stem
       } else {
         p.rect(x, y + 1, 5, 1, lit);
         p.rect(x + 1, y, 3, 3, body);
         p.hline(x + 1, y + 1, 3, PAL.grass[0]); // vein
-        p.px(x + 5, y + 1, PAL.wood[1]); // stem
+        p.px(x + 5, y + 1, PAL.flora.stalk[1]); // stem
       }
     };
 
-    // Row 3 FOOD STORAGE: a carpet of stored LEAVES over packed earth.
+    // Row 3 FOOD STORAGE: a carpet of stored FRONDS over the burrow floor.
     // Stratified placement (2×3 cells + jitter) — even coverage, shapes intact
     for (let i = 0; i < 4; i++) {
       const p = new PixelPainter(ctx, 2, i * T, 3 * T);
@@ -415,8 +705,8 @@ export class RenderSystem {
       }
     }
 
-    // Row 4 INCUBATION: STRAW bedding — golden strands crisscrossed in layers,
-    // stratified rows so the whole tile reads as a nest lining
+    // Row 4 INCUBATION: SILK bedding — pale lilac strands crisscrossed in
+    // layers with cream tips, stratified rows so the tile reads as a lining
     for (let i = 0; i < 4; i++) {
       const p = new PixelPainter(ctx, 2, i * T, 4 * T);
       const seed = i * 7 + 4 * 131;
@@ -425,27 +715,28 @@ export class RenderSystem {
       for (let k = 0; k < 8; k++) {
         const sx = (k % 2) * 6 + Math.floor(hash2(seed, k * 3) * 5);
         const sy = k * 2 + Math.floor(hash2(seed, k * 3 + 1) * 2);
-        p.hline(sx, sy, 4 + Math.floor(hash2(seed, k * 3 + 2) * 3), PAL.sand[0]);
+        p.hline(sx, sy, 4 + Math.floor(hash2(seed, k * 3 + 2) * 3), PAL.dust[1]);
       }
       // Top layer: bright straw, stratified in both axes, mixed directions
       for (let k = 0; k < 6; k++) {
         const sx = ((k + 1) % 2) * 6 + Math.floor(hash2(seed + 17, k * 3) * 5);
         const sy = k * 2 + 1 + Math.floor(hash2(seed + 17, k * 3 + 1) * 2);
-        if (k % 3 === 2) p.vline(sx, sy, 4, PAL.sand[1]);
-        else p.hline(sx, sy, 5, PAL.sand[1]);
-        p.px(sx, sy, PAL.sand[2]); // lit tip
+        if (k % 3 === 2) p.vline(sx, sy, 4, PAL.mineralFleck);
+        else p.hline(sx, sy, 5, PAL.mineralFleck);
+        p.px(sx, sy, PAL.flora.pod[2]); // lit tip
       }
     }
 
-    // Row 2 QUEEN: woven golden mat — the throne floor is DRESSED, not dug
+    // Row 2 QUEEN: woven mauve resin mat with gold threads — the throne floor
+    // is DRESSED, not dug
     for (let i = 0; i < 4; i++) {
       const p = new PixelPainter(ctx, 2, i * T, 2 * T);
       const seed = i * 7 + 2 * 131;
-      p.rect(0, 0, 16, 16, PAL.wood[1]);
+      p.rect(0, 0, 16, 16, PAL.flora.fan[1]);
       // Weave: alternating warp/weft bands every 4px
       for (let b = 0; b < 4; b++) {
-        p.hline(0, b * 4 + 1, 16, PAL.wood[2]);
-        p.vline(b * 4 + 2, 0, 16, PAL.wood[0]);
+        p.hline(0, b * 4 + 1, 16, PAL.flora.fan[2]);
+        p.vline(b * 4 + 2, 0, 16, PAL.flora.fan[0]);
       }
       // Golden threads woven through + a catch-light
       for (let k = 0; k < 3; k++) {
@@ -526,56 +817,125 @@ export class RenderSystem {
   /** The single render path. `dt` is real frame time (0 while paused). */
   renderInterpolated(interpolation: number, dt: number): void {
     this.animationTime += dt;
+    // Mutation marks are baked into the ant sheets; same object = no work
+    this.spriteAtlas.setColonyMarks(this.world.runModifiers.getColonyMarks());
     this.terrainRenderer.update(dt);
-    if (this.getDayPhase) this.ambientParticles.setNight(this.getDayPhase().phase === 'night');
+    // Day phase is read on BOTH layers so the dusk alarm fires at the real
+    // nightfall even when the player is watching the underground
+    const dayPhase = this.getDayPhase ? this.getDayPhase() : null;
+    if (dayPhase) {
+      this.ambientParticles.setNight(dayPhase.phase === 'night');
+      this.postProcessor.setDayPhase(dayPhase.phase, dayPhase.progress);
+    }
+    this.postProcessor.advance(dt);
     this.ambientParticles.update(dt);
+    this.intro?.frame(); // GameManager already advanced the shared intro clock
+    // The impact shakes whichever layer the player is watching
+    const shake = this.intro?.getShake() ?? NO_SHAKE;
 
     const ctx = this.renderer.getContext();
     this.renderer.clear();
+    for (const ping of this.commandOverlay?.drainOrderPings() ?? []) {
+      this.orderPings.push({ ...ping, born: this.animationTime });
+      if (ping.targetId !== undefined) this.targetFlashes.set(ping.targetId, this.animationTime);
+    }
 
     // Branch: underground or surface
     if (this.getActiveLayer && this.getActiveLayer() === 'underground') {
-      this.renderUndergroundFrame(ctx, dt);
+      this.renderUndergroundFrame(ctx, dt, shake);
+      this.renderDragBox(ctx);
+      this.intro?.drawScreenFx(ctx, null);
       return;
     }
 
     ctx.save();
+    ctx.translate(shake.x, shake.y);
     if (this.camera) this.camera.applyTransform(ctx);
     this.renderTerrain();
     this.foliageOverlay.draw(ctx, this.camera);
+    // The crater is ground: under trails and units, hidden by unexplored fog
+    this.intro?.drawCrater(ctx, this.animationTime);
     this.renderPheromones();
     this.renderParticles();
+    this.renderOrderLines(ctx, interpolation);
     this.renderEntitiesInterpolated(interpolation);
     this.renderDeathEffects(ctx, dt);
-    this.renderHitEffects(ctx, dt);
+    drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Surface, this.visibilityGrid);
     this.fogRenderer.update();
     this.fogRenderer.draw(ctx);
+    // The player's own command feedback reads over the fog
+    this.renderOrderPings(ctx);
+    if (this.camera) this.intro?.drawWorldFx(ctx, this.camera);
     ctx.restore();
-    if (this.getDayPhase) {
-      const dp = this.getDayPhase();
-      this.postProcessor.setDayPhase(dp.phase, dp.progress);
-      this.postProcessor.setLights(dp.phase === 'night' ? this.collectSurfaceLights() : []);
-    }
+    this.postProcessor.setLights(dayPhase?.phase === 'night' ? this.collectSurfaceLights() : []);
     this.postProcessor.apply(ctx);
+    if (dayPhase) this.renderNightGlow(ctx, dayPhase.phase, dayPhase.progress, shake);
+    this.renderDragBox(ctx);
+    if (this.camera) this.intro?.drawScreenFx(ctx, this.camera);
+  }
+
+  /**
+   * Bioluminescence, drawn AFTER the night tint so it is not dimmed by it:
+   * additive chartreuse on every on-screen ant's vein and eyes, the nest
+   * entrance (the queen's beacon on the surface), and the crater's cracks.
+   * Alpha follows the night step, so dusk glows softer than deep night.
+   */
+  private renderNightGlow(ctx: CanvasRenderingContext2D, phase: 'day' | 'night', progress: number, shake: Vec2): void {
+    const alpha = nightGlowAlpha(phase, progress);
+    if (alpha <= 0 || !this.camera) return;
+    ctx.save();
+    ctx.translate(shake.x, shake.y);
+    this.camera.applyTransform(ctx);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = alpha;
+
+    for (const id of this.world.query(COMPONENT.NEST, COMPONENT.POSITION)) {
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const px = pos.x * TILE_SIZE + TILE_SIZE / 2;
+      const py = pos.y * TILE_SIZE + TILE_SIZE / 2;
+      this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.7, 'swarmVein');
+    }
+
+    ctx.fillStyle = PAL.swarm.vein[1];
+    for (let i = 0; i < this.glowAntCount; i++) {
+      const a = this.glowAnts[i];
+      const cos = Math.cos(a.angle);
+      const sin = Math.sin(a.angle);
+      const points = antGlowPoints(a.role);
+      for (let k = 0; k < points.length; k++) {
+        const x = a.x + cos * points[k].along - sin * points[k].across;
+        const y = a.y + sin * points[k].along + cos * points[k].across;
+        if (k === 0) this.drawGlowStamp(ctx, x, y, 7, 'swarmVein'); // halo on the gaster vein
+        ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 3, 3);
+      }
+    }
+
+    if (this.intro && this.craterTile && this.visibilityGrid.isExplored(this.craterTile.x, this.craterTile.y)) {
+      this.intro.drawCrackGlow(ctx, this.animationTime);
+    }
+
+    // Alien flora pods glow softly on explored ground (dimmer than the Swarm)
+    ctx.globalAlpha = alpha * 0.6;
+    this.foliageOverlay.drawPodGlow(ctx, this.camera, (x, y) => this.visibilityGrid.isExplored(x, y));
+    ctx.restore();
   }
 
 
-  private renderUndergroundFrame(ctx: CanvasRenderingContext2D, dt: number): void {
+  private renderUndergroundFrame(ctx: CanvasRenderingContext2D, dt: number, shake: Vec2): void {
     if (!this.ugGrid || !this.ugCamera) return;
 
     const frameTime = Date.now();
 
     // Fill background with black (cave void — palette only)
     ctx.fillStyle = PAL.black;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
     ctx.save();
+    ctx.translate(shake.x, shake.y);
     this.ugCamera.applyTransform(ctx);
 
     const grid = this.ugGrid;
-    const zoom = this.ugCamera.getZoom();
-    const viewW = CANVAS_WIDTH / zoom;
-    const viewH = CANVAS_HEIGHT / zoom;
+    const { w: viewW, h: viewH } = this.ugCamera.getCanvasWorldRect();
     const camX = this.ugCamera.x;
     const camY = this.ugCamera.y;
 
@@ -601,8 +961,8 @@ export class RenderSystem {
         const px = x * T;
         const py = y * T;
 
-        // Pick texture variant based on tile position (deterministic)
-        const col = ((x * 7 + y * 13) % 4 + 4) % 4;
+        // Pick texture variant by tile hash (deterministic, no visible lattice)
+        const col = Math.floor(hash2(x * 3 + 1, y * 5 + 2) * 4);
         let row: number;
 
         switch (tile.terrain) {
@@ -708,27 +1068,27 @@ export class RenderSystem {
 
         // Two-step quantized edge shadows (4px @0.5 + 4px @0.25 — discrete bands)
         if (top && !top.walkable) {
-          ctx.fillStyle = 'rgba(0,0,0,0.5)';
+          ctx.fillStyle = SHADE_HALF;
           ctx.fillRect(px, py, TILE_SIZE, 4);
-          ctx.fillStyle = 'rgba(0,0,0,0.25)';
+          ctx.fillStyle = SHADE_QUARTER;
           ctx.fillRect(px, py + 4, TILE_SIZE, 4);
         }
         if (bottom && !bottom.walkable) {
-          ctx.fillStyle = 'rgba(0,0,0,0.5)';
+          ctx.fillStyle = SHADE_HALF;
           ctx.fillRect(px, py + TILE_SIZE - 4, TILE_SIZE, 4);
-          ctx.fillStyle = 'rgba(0,0,0,0.25)';
+          ctx.fillStyle = SHADE_QUARTER;
           ctx.fillRect(px, py + TILE_SIZE - 8, TILE_SIZE, 4);
         }
         if (left && !left.walkable) {
-          ctx.fillStyle = 'rgba(0,0,0,0.5)';
+          ctx.fillStyle = SHADE_HALF;
           ctx.fillRect(px, py, 4, TILE_SIZE);
-          ctx.fillStyle = 'rgba(0,0,0,0.25)';
+          ctx.fillStyle = SHADE_QUARTER;
           ctx.fillRect(px + 4, py, 4, TILE_SIZE);
         }
         if (right && !right.walkable) {
-          ctx.fillStyle = 'rgba(0,0,0,0.5)';
+          ctx.fillStyle = SHADE_HALF;
           ctx.fillRect(px + TILE_SIZE - 4, py, 4, TILE_SIZE);
-          ctx.fillStyle = 'rgba(0,0,0,0.25)';
+          ctx.fillStyle = SHADE_QUARTER;
           ctx.fillRect(px + TILE_SIZE - 8, py, 4, TILE_SIZE);
         }
       }
@@ -738,7 +1098,7 @@ export class RenderSystem {
     // Darkness rendered as dithered black overlay; recomputed only on layout change.
     this.ensureUgLightMap(grid);
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillStyle = SHADE_DEEP;
     for (let y = startY; y < endY; y++) {
       for (let x = startX; x < endX; x++) {
         const tile = grid.getTile(x, y);
@@ -938,6 +1298,8 @@ export class RenderSystem {
       ctx.globalAlpha = 1;
     }
 
+    drawCombatVfx(ctx, combatVfxFor(this.world), 'ground', Layer.Underground, null);
+
     // === PASS 4: Underground entities ===
     const entities = this.world.query(COMPONENT.POSITION, COMPONENT.RENDER, COMPONENT.LAYER);
     for (const id of entities) {
@@ -956,9 +1318,14 @@ export class RenderSystem {
         // Body pulse quantized to 2 discrete steps (no smooth sin-scaling)
         const bodyPulse = Math.sin(frameTime * 0.002) > 0 ? 1.04 : 1.0;
 
-        // Outer + core glow (pre-rendered dither, quantized alpha baked in)
-        this.drawGlowStamp(ctx, px, py, TILE_SIZE * 3.0, 'amber');
-        this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.2, 'amber');
+        // Brood-mother halo — the strongest glow in the colony: magenta flesh
+        // outer ring + chartreuse vein core, added (not painted) onto the chamber
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        this.drawGlowStamp(ctx, px, py, TILE_SIZE * 3.0, 'swarmFlesh');
+        this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.4, 'swarmVein');
+        if (bodyPulse > 1) this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.9, 'swarmVein');
+        ctx.restore();
 
         // Read actual facing/movement data — angle tracks where she walks,
         // legPhase only advances when MovementSystem moves her (idle = frozen legs)
@@ -966,25 +1333,19 @@ export class RenderSystem {
         const queenAngle = queenFacing?.angle ?? 0;
         const queenLegPhase = queenFacing?.legPhase ?? 0;
 
-        // Draw dedicated queen sprite — large gaster, short compact legs.
-        // Using her own sprite (not a scaled Worker) ensures the legs never
-        // bleed onto the chamber floor and look like moving ground.
-        ctx.save();
-        ctx.translate(px, py);
-        ctx.scale(2.2 * bodyPulse, 2.2 * bodyPulse);
-        ctx.translate(-px, -py);
-        this.spriteAtlas.drawQueenAnt(ctx, px, py, queenAngle, queenLegPhase);
-        ctx.restore();
+        // Dedicated queen sprite on her own big grid at the one art-pixel
+        // scale (never scaled up); the pulse is her sac's breathing frame.
+        this.spriteAtlas.drawQueenAnt(ctx, px, py, queenAngle, queenLegPhase, bodyPulse > 1);
 
-        // Pixel crown above queen (3 spikes + base, palette colors)
+        // Glowing vein crest above the queen (3 spikes + base, Swarm palette)
         const cp = new PixelPainter(ctx, 2);
         const ccx = Math.round(px / 2);
         const ccy = Math.round((py - TILE_SIZE * 0.75) / 2);
-        cp.rect(ccx - 4, ccy + 1, 8, 2, PAL.queen); // base
-        cp.hline(ccx - 4, ccy + 3, 8, PAL.outline); // base underline
-        cp.rect(ccx - 4, ccy - 1, 2, 2, PAL.queen); // left spike
-        cp.rect(ccx - 1, ccy - 2, 2, 3, PAL.queen); // center spike (taller)
-        cp.rect(ccx + 2, ccy - 1, 2, 2, PAL.queen); // right spike
+        cp.rect(ccx - 4, ccy + 1, 8, 2, PAL.swarm.vein[0]); // base
+        cp.hline(ccx - 4, ccy + 3, 8, PAL.swarm.outline); // base underline
+        cp.rect(ccx - 4, ccy - 1, 2, 2, PAL.swarm.vein[1]); // left spike
+        cp.rect(ccx - 1, ccy - 2, 2, 3, PAL.swarm.vein[1]); // center spike (taller)
+        cp.rect(ccx + 2, ccy - 1, 2, 2, PAL.swarm.vein[1]); // right spike
         cp.px(ccx - 1, ccy - 2, PAL.white); // catch-light
       } else if (render.shape === 'beetle') {
         // Underground invaders — same sprite as surface beetles (NOT a plain circle)
@@ -1014,6 +1375,10 @@ export class RenderSystem {
         const legPhase = facing ? facing.legPhase : 0;
         const role = ant ? ant.role : AntRole.Worker;
         const isCarrying = carrying ? carrying.amount > 0 : false;
+
+        if (this.world.getComponent<SelectableComponent>(id, COMPONENT.SELECTABLE)?.selected) {
+          this.drawSelectionEllipse(ctx, px, py, role);
+        }
 
         // Drop shadow (pre-rendered dither stamp)
         this.drawShadow(ctx, px + 2, py + 3, TILE_SIZE * 0.28, TILE_SIZE * 0.14);
@@ -1140,7 +1505,11 @@ export class RenderSystem {
       }
     }
 
+    drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Underground, null);
     ctx.restore(); // restore camera transform
+
+    // Nightfall reaches the player down here too
+    this.postProcessor.applyAlarm(ctx);
   }
 
   /**
@@ -1190,8 +1559,7 @@ export class RenderSystem {
     if (!this.camera) return;
 
     // Viewport culling — only render visible tiles
-    const viewW = CANVAS_WIDTH / this.camera.getZoom();
-    const viewH = CANVAS_HEIGHT / this.camera.getZoom();
+    const { w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
     const startX = Math.max(0, Math.floor(this.camera.x / TILE_SIZE));
     const startY = Math.max(0, Math.floor(this.camera.y / TILE_SIZE));
     const endX = Math.min(this.grid.width, Math.ceil((this.camera.x + viewW) / TILE_SIZE) + 1);
@@ -1235,8 +1603,7 @@ export class RenderSystem {
     const ctx = this.renderer.getContext();
 
     // Get viewport culling bounds (same as pheromone rendering)
-    const viewW = CANVAS_WIDTH / this.camera.getZoom();
-    const viewH = CANVAS_HEIGHT / this.camera.getZoom();
+    const { w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
     const startX = Math.max(0, Math.floor(this.camera.x / TILE_SIZE));
     const startY = Math.max(0, Math.floor(this.camera.y / TILE_SIZE));
     const endX = Math.min(this.grid.width, Math.ceil((this.camera.x + viewW) / TILE_SIZE) + 1);
@@ -1249,8 +1616,7 @@ export class RenderSystem {
   private surfaceCullBounds(): { minX: number; minY: number; maxX: number; maxY: number } {
     if (!this.camera) return { minX: -Infinity, minY: -Infinity, maxX: Infinity, maxY: Infinity };
     const margin = 3;
-    const viewW = CANVAS_WIDTH / this.camera.getZoom();
-    const viewH = CANVAS_HEIGHT / this.camera.getZoom();
+    const { w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
     return {
       minX: this.camera.x / TILE_SIZE - margin,
       minY: this.camera.y / TILE_SIZE - margin,
@@ -1262,6 +1628,7 @@ export class RenderSystem {
   private renderEntitiesInterpolated(interpolation: number): void {
     const ctx = this.renderer.getContext();
     const cull = this.surfaceCullBounds();
+    this.glowAntCount = 0;
 
     // Separate entities by type for proper render order
     const foodEntities: Array<{ id: number; pos: PositionComponent; radius: number }> = [];
@@ -1315,6 +1682,9 @@ export class RenderSystem {
       this.drawFood(ctx, x, y, id);
     }
 
+    // Combat decals lie on the food (a carcass covers its meat until it fades), under every unit
+    drawCombatVfx(ctx, combatVfxFor(this.world), 'ground', Layer.Surface, this.visibilityGrid);
+
     // Check if nest is being robbed by any cricket
     const isNestBeingRobbedInterp = cricketEntities.some(({ id }) => {
       const c = this.world.getComponent<CricketComponent>(id, COMPONENT.CRICKET);
@@ -1332,6 +1702,7 @@ export class RenderSystem {
       if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
+      this.drawTargetFlash(ctx, id, x, y, 'den');
       this.drawBeetleDen(ctx, x, y, id);
     }
 
@@ -1339,15 +1710,19 @@ export class RenderSystem {
       if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
+      this.drawTargetFlash(ctx, id, x, y, 'den');
       this.drawCricketDen(ctx, x, y, id);
     }
 
+    // Moving wildlife hides under fog: drawn only where the colony sees RIGHT
+    // NOW (dens above stay remembered on explored ground)
     for (const { id, pos } of beetleEntities) {
-      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
+      if (!isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
       const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE);
       const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
+      this.drawTargetFlash(ctx, id, x, y, 'beetle');
       if (facing) {
         const isAttacking = beetle && beetle.state === BeetleState.Attacking;
         this.drawBeetle(ctx, x, y, facing.angle, facing.legPhase, id, isAttacking);
@@ -1355,11 +1730,12 @@ export class RenderSystem {
     }
 
     for (const { id, pos } of cricketEntities) {
-      if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
+      if (!isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
       const cricket = this.world.getComponent<CricketComponent>(id, COMPONENT.CRICKET);
       const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
+      this.drawTargetFlash(ctx, id, x, y, 'cricket');
       if (facing) {
         const isAttacking = cricket && cricket.state === CricketState.Attacking;
         const isStealing = cricket && cricket.state === CricketState.StealingFood;
@@ -1379,9 +1755,10 @@ export class RenderSystem {
       if (facing && ant) {
         const isCarrying = !!(carrying && carrying.amount > 0);
         const isSelected = !!(selectable && selectable.selected);
-        const isInCombat = ant.state === AntState.AttackingEnemy || ant.state === AntState.AttackingDen;
+        const isInCombat = ant.state === AntState.AttackingEnemy;
         const isFleeing = ant.state === AntState.Fleeing;
         this.drawAnt(ctx, x, y, facing.angle, facing.legPhase, ant.role, isSelected, isCarrying, isInCombat, isFleeing);
+        this.recordGlowAnt(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2, snapAngle(facing.angle), ant.role);
 
         // Health bar for damaged ants
         const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
@@ -1399,6 +1776,19 @@ export class RenderSystem {
         }
       }
     }
+  }
+
+  private recordGlowAnt(x: number, y: number, angle: number, role: AntRole): void {
+    let slot = this.glowAnts[this.glowAntCount];
+    if (!slot) {
+      slot = { x, y, angle, role };
+      this.glowAnts.push(slot);
+    }
+    slot.x = x;
+    slot.y = y;
+    slot.angle = angle;
+    slot.role = role;
+    this.glowAntCount++;
   }
 
   /** Chunky segmented pixel health bar: pre-rendered frame (1px outline border)
@@ -1486,52 +1876,6 @@ export class RenderSystem {
     }
   }
 
-  /** Combat hit feedback: red flash on victim + yellow-white slash oriented by attack direction + sparks.
-   *  Same lifecycle as renderDeathEffects (ticks and prunes world.hitEffects). */
-  private renderHitEffects(ctx: CanvasRenderingContext2D, dt: number): void {
-    const effects = this.world.hitEffects;
-    for (let i = effects.length - 1; i >= 0; i--) {
-      const effect = effects[i];
-      effect.timer -= dt;
-
-      if (effect.timer <= 0) {
-        effects.splice(i, 1);
-        continue;
-      }
-
-      const progress = 1 - (effect.timer / effect.maxTime); // 0 → 1
-      const age = effect.maxTime - effect.timer;
-
-      const px = effect.x * TILE_SIZE + TILE_SIZE / 2;
-      const py = effect.y * TILE_SIZE + TILE_SIZE / 2;
-      const p = new PixelPainter(ctx, 2);
-      const cx = Math.round(px / 2);
-      const cy = Math.round(py / 2);
-
-      // 3-frame white impact flash on the victim (~0.05s)
-      if (age < 0.06) {
-        ctx.globalAlpha = 0.75;
-        p.shadow(cx, cy, 5, 5, PAL.white);
-      }
-
-      // Spark squares flying out on straight lines, 1 art px + 1 art px trail.
-      // Distance quantized to 3 discrete steps; alpha to 2.
-      ctx.globalAlpha = progress < 0.5 ? 0.75 : 0.5;
-      const dist = 2 + Math.floor(progress * 3) * 3; // 2 / 5 / 8 art px
-      for (let s = 0; s < 5; s++) {
-        const a = effect.angle + (s - 2) * 0.5;
-        const ca = Math.cos(a);
-        const sa = Math.sin(a);
-        const sx = cx + Math.round(ca * dist);
-        const sy = cy + Math.round(sa * dist);
-        const color = s % 2 === 0 ? PAL.white : PAL.glowAmber;
-        p.px(sx, sy, color);
-        p.px(sx - Math.round(ca * 1.5), sy - Math.round(sa * 1.5), color); // 2px trail
-      }
-      ctx.globalAlpha = 1;
-    }
-  }
-
   /** Draw a deterministic cluster of food dots (leaf-green, mushroom-brown, meat-dark) whose
    *  composition mirrors the stored proportions. Flat fills only, golden-angle spiral layout
    *  seeded by item index — zero per-frame randomness. */
@@ -1602,15 +1946,13 @@ export class RenderSystem {
       this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.35, 'yellow');
     }
 
+    // Selection: the green ground ellipse goes under the shadow and the body
+    if (isSelected) this.drawSelectionEllipse(ctx, px, py, role);
+
     // Drop shadow — pre-rendered dither stamp, offset simulates light from upper-left
     this.drawShadow(ctx, px + 2, py + 3, TILE_SIZE * 0.28, TILE_SIZE * 0.14);
 
     this.spriteAtlas.drawAnt(ctx, px, py, facing, legPhase, role, isCarrying);
-
-    // Selection feedback: 4 pixel corner brackets in the role accent color, 3Hz blink
-    if (isSelected) {
-      this.drawSelectionBrackets(ctx, px, py, TILE_SIZE * 0.5, RenderSystem.ROLE_BRACKET_KEY[role]);
-    }
   }
 
   private drawFood(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number): void {
@@ -1709,7 +2051,7 @@ export class RenderSystem {
 
     ctx.save();
     ctx.translate(px, py);
-    ctx.fillStyle = PAL.chitin[0];
+    ctx.fillStyle = PAL.swarm.flesh[2];
     for (let i = 0; i < 4; i++) {
       const t = (activityPhase + i * 1.5) % 6;
       const progress = t / 6;
@@ -1795,20 +2137,20 @@ export class RenderSystem {
 
     // Combat glow for attacking crickets — boss-sized dithered stamp, 2-state blink
     if (isAttacking && Math.floor(this.animationTime * 8) % 2 === 0) {
-      this.drawGlowStamp(ctx, px, py, TILE_SIZE * 2.2, 'danger');
+      this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.2, 'danger');
     }
 
     // STEALING glow — amber dithered stamp, slower 2-state blink
     if (isStealing) {
       if (Math.floor(this.animationTime * 5) % 2 === 0) {
-        this.drawGlowStamp(ctx, px, py, TILE_SIZE * 2.5, 'amber');
+        this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.4, 'amber');
       }
 
       // Food chunks being siphoned — square pixels, smooth motion, quantized alpha
       ctx.fillStyle = PAL.glowAmber;
       for (let i = 0; i < 6; i++) {
         const phase = (this.animationTime * 2 + i * 1.05) % (Math.PI * 2);
-        const dist = TILE_SIZE * (1.5 + Math.sin(phase) * 0.8);
+        const dist = TILE_SIZE * (1.0 + Math.sin(phase) * 0.5);
         const angle = phase * 1.3 + i * 0.9;
         const fx = Math.round(px + Math.cos(angle) * dist);
         const fy = Math.round(py + Math.sin(angle) * dist);
@@ -1818,15 +2160,15 @@ export class RenderSystem {
       ctx.globalAlpha = 1;
     }
 
-    // Drop shadow — massive, matching 2.5 tile radius (pre-rendered dither stamp)
-    this.drawShadow(ctx, px + 7, py + 10, TILE_SIZE * 1.4, TILE_SIZE * 0.7);
+    // Drop shadow under the 48-art-px body (pre-rendered dither stamp)
+    this.drawShadow(ctx, px + 4, py + 5, TILE_SIZE * 0.8, TILE_SIZE * 0.4);
 
     this.spriteAtlas.drawCricket(ctx, px, py, facing, legPhase);
 
     // Health bar — segmented pixel bar at 2× scale, positioned higher for the big sprite
     const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
     if (health && health.current < health.max) {
-      this.drawHealthBar(ctx, px, py, health.current, health.max, false, 2, -TILE_SIZE * 2.8);
+      this.drawHealthBar(ctx, px, py, health.current, health.max, false, 2, -TILE_SIZE * 1.6);
     }
   }
 

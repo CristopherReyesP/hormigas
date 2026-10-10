@@ -1,40 +1,25 @@
 import type { GameNotification } from '../game/GameManager';
-
-const SEVERITY_CLASS: Record<GameNotification['severity'], string> = {
-  info: 'pixel-notif--info',
-  success: 'pixel-notif--success',
-  warning: 'pixel-notif--warning',
-  danger: 'pixel-notif--danger',
-};
+import { stripEmoji } from './console/format';
 
 interface NotificationStackProps {
   notifications: GameNotification[];
+  /** Sticky instruction for the active build mode, or a short command notice, shown above the feed */
+  hint?: string | null;
+  /** 'danger' when the notice explains why a command was refused */
+  hintTone?: 'hint' | 'danger';
 }
 
-/** Floating global alerts over the canvas — top-center, newest at the bottom */
-export function NotificationStack({ notifications }: NotificationStackProps) {
-  if (notifications.length === 0) return null;
-
+/** Compact message feed just above the console, newest at the bottom. */
+export function NotificationStack({ notifications, hint, hintTone = 'hint' }: NotificationStackProps) {
   const visible = notifications.slice(-4);
+  if (visible.length === 0 && !hint) return null;
 
   return (
-    <div
-      style={{
-        position: 'absolute',
-        top: 12,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 6,
-        zIndex: 10,
-        pointerEvents: 'none',
-      }}
-    >
+    <div className="notif-feed" aria-live="polite">
+      {hint && <div className={`notif-line notif-line--${hintTone === 'danger' ? 'refused' : 'hint'}`}>{hint}</div>}
       {visible.map((n) => (
-        <div key={n.id} className={`pixel-notif ${SEVERITY_CLASS[n.severity]}`}>
-          {n.message}
+        <div key={n.id} className={`notif-line notif-line--${n.severity}`}>
+          {stripEmoji(n.message)}
         </div>
       ))}
     </div>

@@ -13,20 +13,18 @@ import {
   type LayerComponent,
   type PathComponent,
   type HungerComponent,
+  type HealthComponent,
   type CombatComponent,
 } from '../components/components';
-import {
-  DEFENDER_DETECT_RANGE,
-  HUNGER_EAT_RATE,
-  HUNGER_PER_FOOD,
-} from '../../shared/constants';
+import { DEFENDER_DETECT_RANGE } from '../../shared/constants';
+import { eat, isHurt, needsMeal } from './HungerSystem';
 
 /**
  * Defenders are underground SENTINELS bound to player-designated Defense areas:
  * they hold a post inside the area, engage intruders that come within
  * DEFENDER_DETECT_RANGE of that post (detection reaches beyond the area itself),
- * and leave only to eat. Where you place defense areas IS the strategy —
- * chokepoints, the throne antechamber, the pantry door.
+ * and leave only to eat, which is also how they heal. Where you place defense
+ * areas IS the strategy — chokepoints, the throne antechamber, the pantry door.
  */
 export class DefenderAISystem implements System {
   readonly name = 'DefenderAISystem';
@@ -83,7 +81,7 @@ export class DefenderAISystem implements System {
         this.hintShown = true;
         this.world.pushNotification(
           'info',
-          '🛡️ Sin área de defensa designada — las defensoras custodian a la reina. Marcá 🛡️ Defensa para posicionarlas'
+          '🛡️ Sin área de defensa designada — las defensoras custodian a la reina. Marca casillas con Área de defensa (C) en el nido para posicionarlas'
         );
       }
 
@@ -115,19 +113,6 @@ export class DefenderAISystem implements System {
       }
       defenderIndex++;
 
-      // Survival first: leave the post to eat when really hungry
-      const hunger = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
-      if (ant.state === AntState.Eating) {
-        this.handleEating(id, ant, pos, hunger, dt);
-        continue;
-      }
-      if (hunger && hunger.current < hunger.max * 0.3 && this.grid.getPantryStored().total > 0) {
-        ant.state = AntState.Eating;
-        ant.stateTimer = 0;
-        this.clearPath(id);
-        continue;
-      }
-
       // Threat check: engage intruders near the POST (area-anchored detection —
       // defenders never get baited far away from what they guard)
       let target: { id: number; x: number; y: number } | null = null;
@@ -138,6 +123,22 @@ export class DefenderAISystem implements System {
           bestDist = d;
           target = e;
         }
+      }
+
+      // Survival first: leave the post to eat when really hungry. Eating is also
+      // how ants heal, so a hurt defender eats too, but only while its post is quiet.
+      const hunger = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
+      const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+      const starving = hunger !== undefined && hunger.current < hunger.max * 0.3;
+      if (ant.state === AntState.Eating && (starving || !target)) {
+        this.handleEating(id, ant, pos, hunger, health, dt);
+        continue;
+      }
+      if ((starving || (!target && isHurt(health))) && this.grid.getPantryStored().total > 0) {
+        ant.state = AntState.Eating;
+        ant.stateTimer = 0;
+        this.clearPath(id);
+        continue;
       }
 
       if (target) {
@@ -169,15 +170,16 @@ export class DefenderAISystem implements System {
     }
   }
 
-  /** Walk to the nearest policy-preferred pile and eat until ~full, then return */
+  /** Walk to the nearest policy-preferred pile and eat (hunger first, the rest heals), then return */
   private handleEating(
     id: number,
     ant: AntComponent,
     pos: PositionComponent,
     hunger: HungerComponent | undefined,
+    health: HealthComponent | undefined,
     dt: number
   ): void {
-    if (!hunger || hunger.current >= hunger.max * 0.95) {
+    if (!needsMeal(hunger, health)) {
       ant.state = AntState.Idle;
       ant.stateTimer = 0;
       this.clearPath(id);
@@ -195,12 +197,8 @@ export class DefenderAISystem implements System {
     const dx = pile.x + 0.5 - pos.x;
     const dy = pile.y + 0.5 - pos.y;
     if (Math.sqrt(dx * dx + dy * dy) < 1.2) {
-      const want = Math.min(HUNGER_EAT_RATE * dt, (hunger.max - hunger.current) / HUNGER_PER_FOOD);
-      const { taken } = this.grid.takeFood(pile.x, pile.y, want);
-      if (taken > 0) {
-        hunger.current = Math.min(hunger.max, hunger.current + taken * HUNGER_PER_FOOD);
-        ant.stateTimer = 0; // eating is progress
-      }
+      const eaten = eat(this.world, hunger, health, dt, (want) => this.grid.takeFood(pile.x, pile.y, want).taken);
+      if (eaten > 0) ant.stateTimer = 0; // eating is progress
       this.clearPath(id);
     } else {
       this.setPath(id, pos, pile.x + 0.5, pile.y + 0.5);

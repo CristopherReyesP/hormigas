@@ -1,23 +1,41 @@
 /* ════════════════════════════════════════════════════════════
-   PIXEL ART UI — design tokens mirrored from
-   src/engine/renderer/pixelart/palette.ts (PAL.ui*)
+   PIXEL ART UI — hive chrome tokens (odd/tasks/starcraft-hive-wars.md,
+   "Art direction"). Mirrors src/engine/renderer/pixelart/palette.ts.
    ════════════════════════════════════════════════════════════ */
 
 :root {
-  --ui-bg: #12100c;
-  --ui-panel: #1e1a14;
-  --ui-panel-light: #2a241b;
-  --ui-border: #4a3a26;
-  --ui-text: #d8d0c0;
-  --ui-text-dim: #8a8070;
+  --chrome-bg: #0e080b;
+  --chrome-panel: #160c12;
+  --chrome-panel-light: #241420;
+  --chrome-border: #5a3048;
+  --chrome-border-light: #8a4a6a;
+  --chrome-text: #e8d8dc;
+  --chrome-dim: #9a8088;
+  --chrome-accent: #c6ff3d;
+  --chrome-accent-dim: #5a8a1c; /* swarm.vein dark step */
+  --chrome-warn: #f0b541;
+  --chrome-danger: #ff3b3b;
+  --chrome-info: #4e9ad1;
 
-  --accent-green: #5fbf4a;
-  --accent-amber: #f0b541;
-  --accent-red: #e23d28;
-  --accent-blue: #4e9ad1;
+  /* Legacy tokens point at the chrome so any leftover panel inherits the look */
+  --ui-bg: var(--chrome-bg);
+  --ui-panel: var(--chrome-panel);
+  --ui-panel-light: var(--chrome-panel-light);
+  --ui-border: var(--chrome-border);
+  --ui-text: var(--chrome-text);
+  --ui-text-dim: var(--chrome-dim);
+  --accent-green: var(--chrome-accent);
+  --accent-amber: var(--chrome-warn);
+  --accent-red: var(--chrome-danger);
+  --accent-blue: var(--chrome-info);
 
+  /* One pixel font for everything */
   --font-pixel: 'Press Start 2P', monospace;
-  --font-mono: 'Courier New', Courier, monospace;
+  --font-mono: var(--font-pixel);
+
+  /* HUD bars — mirrored in src/ui/layout/hudMetrics.ts */
+  --strip-h: 30px;
+  --deck-h: 140px;
 }
 
 * {
@@ -29,224 +47,108 @@
 
 html, body {
   height: 100%;
-  background: var(--ui-bg);
-  color: var(--ui-text);
+  background: var(--chrome-bg);
+  color: var(--chrome-text);
   overflow: hidden;
-  font-family: var(--font-mono);
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  line-height: 1.6;
+  -webkit-font-smoothing: none; /* the pixel font is drawn on an 8 px grid: keep it aliased */
 }
 
 #root {
   height: 100%;
 }
 
-/* ── Pixel panel: chunky stepped double border, zero blur ──── */
-.pixel-panel {
-  background: var(--ui-panel);
-  border: 2px solid var(--ui-border);
-  box-shadow:
-    0 0 0 2px var(--ui-bg),
-    inset 0 0 0 1px rgba(0, 0, 0, 0.4);
-  color: var(--ui-text);
-  font-family: var(--font-mono);
-}
-
-/* ── Pixel heading: Press Start 2P, tiny and chunky ────────── */
-.pixel-heading {
-  font-family: var(--font-pixel);
-  font-size: 9px;
-  line-height: 1.6;
-  color: var(--accent-amber);
-  text-transform: uppercase;
-}
-
-.pixel-number {
-  font-family: var(--font-pixel);
-  font-size: 9px;
-  line-height: 1.6;
-}
-
-/* ── Chunky 3D pixel buttons ───────────────────────────────── */
 button {
+  font-family: inherit;
+  font-size: inherit;
   outline: none;
   transition: none; /* state changes are INSTANT */
 }
 
+button:focus-visible {
+  outline: 2px dashed var(--chrome-accent);
+  outline-offset: 2px;
+}
+
+.pixel-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+/* ── Legacy pixel panel / buttons, restyled as hive chrome ──── */
+.pixel-panel {
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-border);
+  box-shadow: 0 0 0 2px var(--chrome-bg), 4px 4px 0 2px #000;
+  color: var(--chrome-text);
+}
+
+.pixel-heading {
+  font-size: 8px;
+  line-height: 1.6;
+  color: var(--chrome-accent);
+  text-transform: uppercase;
+}
+
+.pixel-number {
+  font-size: 8px;
+  line-height: 1.6;
+}
+
 .pixel-btn {
-  font-family: var(--font-mono);
-  background: var(--ui-panel-light);
-  color: var(--ui-text);
-  border: 2px solid var(--ui-border);
-  /* bottom/right darker edge + top/left light edge, 0 blur */
-  box-shadow:
-    inset -2px -2px 0 0 rgba(0, 0, 0, 0.45),
-    inset 2px 2px 0 0 rgba(255, 255, 255, 0.07);
+  background: var(--chrome-panel-light);
+  color: var(--chrome-text);
+  border: 2px solid var(--chrome-border);
+  box-shadow: inset -2px -2px 0 0 var(--chrome-bg), inset 2px 2px 0 0 var(--chrome-border);
   cursor: pointer;
 }
 
 .pixel-btn:hover:not(:disabled) {
-  background: #383022; /* one step brighter than --ui-panel-light */
+  border-color: var(--chrome-border-light);
 }
 
 .pixel-btn:active:not(:disabled) {
-  /* content shifts 1px down-right, edge flattens */
   transform: translate(1px, 1px);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+  box-shadow: inset 2px 2px 0 0 var(--chrome-bg);
 }
 
 .pixel-btn:disabled {
   cursor: not-allowed;
-  color: var(--ui-text-dim);
-  background: var(--ui-panel);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
-}
-
-.pixel-btn--active {
-  border-color: var(--accent-amber);
-  color: var(--accent-amber);
-  background: #3a2e14;
+  color: var(--chrome-dim);
+  background: var(--chrome-panel);
 }
 
 .pixel-btn--danger {
-  border-color: #7a2a1c;
-  color: #ffd8d0;
-  background: #4a1812;
+  border-color: var(--chrome-danger);
+  color: var(--chrome-text);
+  background: #3a0f16;
 }
-
-.pixel-btn--danger:hover:not(:disabled) {
-  background: #5e1f16;
-}
-
-.pixel-btn--green {
-  border-color: #2e5a24;
-  color: var(--accent-green);
-  background: #1a2a14;
-}
-
-.pixel-btn--green:hover:not(:disabled) {
-  background: #22361a;
-}
-
-/* ── Segmented pixel progress bars (4px segments, 1px gaps) ── */
-.pixel-bar {
-  height: 8px;
-  background: var(--ui-bg);
-  border: 1px solid var(--ui-border);
-  overflow: hidden;
-}
-
-.pixel-bar-fill {
-  height: 100%;
-  /* segment mask: 4px of color, 1px gap */
-  background-image: repeating-linear-gradient(
-    90deg,
-    transparent 0px,
-    transparent 4px,
-    var(--ui-bg) 4px,
-    var(--ui-bg) 5px
-  );
-  /* width + background-color set inline per bar */
-}
-
-/* ── Notifications: stepped slide-in, accent left edge ─────── */
-@keyframes notif-slide-in {
-  0% {
-    transform: translateY(-16px);
-    opacity: 0;
-  }
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-.pixel-notif {
-  animation: notif-slide-in 0.25s steps(4) both;
-  border: 2px solid var(--ui-border);
-  background: var(--ui-panel);
-  color: var(--ui-text);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  padding: 6px 14px;
-  white-space: nowrap;
-  box-shadow: 0 0 0 2px var(--ui-bg); /* stepped outer ring, no blur */
-}
-
-.pixel-notif--info    { border-left: 4px solid var(--accent-blue); }
-.pixel-notif--success { border-left: 4px solid var(--accent-green); }
-.pixel-notif--warning { border-left: 4px solid var(--accent-amber); }
-.pixel-notif--danger  { border-left: 4px solid var(--accent-red); }
 
 /* ── Stat-change flash (two identical anims so it re-triggers) ── */
 @keyframes stat-flash-a {
-  0%, 49%  { color: var(--accent-amber); }
+  0%, 49%  { color: var(--chrome-accent); }
   50%, 100% { color: inherit; }
 }
 
 @keyframes stat-flash-b {
-  0%, 49%  { color: var(--accent-amber); }
+  0%, 49%  { color: var(--chrome-accent); }
   50%, 100% { color: inherit; }
 }
 
 .flash-a { animation: stat-flash-a 0.3s steps(2, end); }
 .flash-b { animation: stat-flash-b 0.3s steps(2, end); }
 
-/* ── Game canvas: crisp integer-scaled pixels ──────────────── */
-.game-canvas-container {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--ui-bg);
-  overflow: hidden;
-}
-
-.game-canvas {
-  display: block;
-  cursor: crosshair;
-  image-rendering: crisp-edges; /* fallback */
-  image-rendering: pixelated;
-  border: 2px solid var(--ui-border);
-  box-shadow: 0 0 0 2px var(--ui-bg);
-}
-
-/* ── Glass panel: the ONE deliberate exception to the no-blur rule ──
-   Only for overlays that float ON TOP of the game canvas, where an opaque
-   panel punches a hole in the scene. Corners stay SHARP and the border stays
-   1px so it still reads as part of the pixel UI rather than as web chrome.
-   Do not use it for sidebar panels — those are .pixel-panel. */
-.glass-panel {
-  background: rgba(30, 26, 20, 0.5);
-  backdrop-filter: blur(10px) saturate(130%);
-  -webkit-backdrop-filter: blur(10px) saturate(130%);
-  border: 1px solid rgba(216, 208, 192, 0.2);
-  box-shadow:
-    0 4px 18px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.09);
-  color: var(--ui-text);
-}
-
-.glass-btn {
-  background: rgba(216, 208, 192, 0.08);
-  border: 1px solid rgba(216, 208, 192, 0.18);
-  color: var(--ui-text-dim);
-  font-family: var(--font-mono);
-  cursor: pointer;
-  line-height: 1;
-}
-
-.glass-btn:hover {
-  background: rgba(216, 208, 192, 0.18);
-  color: var(--ui-text);
-}
-
 /* ── Dithered overlay (checkerboard, no smooth alpha blur) ── */
 .dither-overlay {
   background-image: repeating-conic-gradient(
-    rgba(0, 0, 0, 0.92) 0% 25%,
-    rgba(0, 0, 0, 0.72) 0% 50%
+    var(--chrome-bg) 0% 25%,
+    transparent 0% 50%
   );
   background-size: 4px 4px;
+  background-color: color-mix(in srgb, var(--chrome-bg) 70%, transparent);
 }
 
 /* ── Scrollbars: sharp square pixel thumb ──────────────────── */
@@ -255,15 +157,1962 @@ button {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--ui-bg);
-  border-left: 2px solid var(--ui-panel);
+  background: var(--chrome-bg);
+  border-left: 2px solid var(--chrome-panel);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--ui-panel-light);
-  border: 2px solid var(--ui-border);
+  background: var(--chrome-panel-light);
+  border: 2px solid var(--chrome-border);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--ui-border);
+/* ════════════════════════════════════════════════════════════
+   HIVE CHROME — chamfered carapace plates, stepped hard shadows
+   ════════════════════════════════════════════════════════════ */
+
+/* Border layer of a plate; the inner layer is the face. Both are cut with
+   the same chamfer so the border also runs along the diagonal corners. */
+.chrome-plate {
+  --cut: 14px;
+  padding: 2px;
+  background: var(--chrome-border);
+  clip-path: polygon(
+    var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut)
+  );
 }
+
+.chrome-plate-inner {
+  --inner-cut: calc(var(--cut) - 1px);
+  background: var(--chrome-panel);
+  clip-path: polygon(
+    var(--inner-cut) 0, calc(100% - var(--inner-cut)) 0, 100% var(--inner-cut),
+    100% calc(100% - var(--inner-cut)), calc(100% - var(--inner-cut)) 100%,
+    var(--inner-cut) 100%, 0 calc(100% - var(--inner-cut)), 0 var(--inner-cut)
+  );
+}
+
+/* ── Evolution chamber (dawn mutation pick) ────────────────── */
+.evo-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  padding: 16px;
+  overflow-y: auto;
+  background-color: color-mix(in srgb, var(--chrome-bg) 72%, transparent);
+  background-image: repeating-conic-gradient(var(--chrome-bg) 0% 25%, transparent 0% 50%);
+  background-size: 4px 4px;
+  animation: evo-fade-in 240ms steps(3) both;
+}
+
+.evo-frame {
+  margin: auto;
+  width: min(780px, 100%);
+  filter: drop-shadow(6px 6px 0 var(--chrome-bg)) drop-shadow(4px 4px 0 #000);
+  animation: evo-panel-in 360ms steps(6) both;
+}
+
+.evo-frame--closing {
+  pointer-events: none;
+}
+
+.evo-panel-plate {
+  --cut: 18px;
+  animation: evo-heartbeat 1.5s steps(2) infinite;
+}
+
+.evo-panel {
+  padding: 22px 24px 18px;
+  color: var(--chrome-text);
+  font-family: var(--font-mono);
+}
+
+.evo-title {
+  font-family: var(--font-pixel);
+  font-size: 18px;
+  font-weight: normal;
+  line-height: 1.4;
+  letter-spacing: 1px;
+  text-align: center;
+  color: var(--chrome-accent);
+  text-shadow: 2px 2px 0 var(--chrome-accent-dim), 4px 4px 0 #000;
+}
+
+.evo-subtitle {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--chrome-dim);
+}
+
+/* Glowing vein under the title, beating with the panel border */
+.evo-vein {
+  width: 60%;
+  height: 2px;
+  margin: 12px auto 18px;
+  background: var(--chrome-accent-dim);
+  animation: evo-vein 1.5s steps(2) infinite;
+}
+
+.evo-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.evo-card-slot {
+  animation: evo-card-in 420ms steps(6) both;
+  animation-delay: calc(200ms + var(--evo-i, 0) * 130ms);
+}
+
+.evo-card {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  filter: drop-shadow(4px 4px 0 var(--chrome-bg));
+  transition: transform 120ms steps(3), filter 120ms steps(3);
+}
+
+.evo-card:hover:not(:disabled),
+.evo-card:focus-visible {
+  transform: translateY(-6px);
+  filter: drop-shadow(4px 10px 0 var(--chrome-bg));
+}
+
+.evo-card:focus-visible {
+  outline: 2px dashed var(--chrome-accent);
+  outline-offset: 4px;
+}
+
+.evo-card:disabled {
+  cursor: default;
+}
+
+.evo-card-plate {
+  --cut: 10px;
+  display: block;
+  height: 100%;
+}
+
+.evo-card:hover:not(:disabled) .evo-card-plate,
+.evo-card:focus-visible .evo-card-plate {
+  background: var(--chrome-border-light);
+}
+
+.evo-card-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  padding: 10px 12px 12px;
+  background: var(--chrome-panel-light);
+}
+
+.evo-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.evo-hotkey {
+  padding: 3px 4px 2px;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+  box-shadow: 2px 2px 0 var(--chrome-accent-dim);
+}
+
+.evo-pips {
+  display: flex;
+  gap: 3px;
+}
+
+.evo-pip {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--chrome-border-light);
+  background: var(--chrome-bg);
+}
+
+.evo-pip--owned {
+  border-color: var(--chrome-text);
+  background: var(--chrome-text);
+}
+
+/* The stack this pick would add */
+.evo-pip--next {
+  border-color: var(--chrome-accent);
+  animation: evo-blink 1s steps(1) infinite;
+}
+
+.evo-specimen {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0;
+  background: var(--chrome-bg);
+  border: 2px solid var(--chrome-border);
+  box-shadow: inset 2px 2px 0 #000;
+}
+
+.evo-preview {
+  width: 96px;
+  height: 96px;
+  image-rendering: pixelated;
+}
+
+.evo-card-name {
+  margin-top: 4px;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--chrome-text);
+}
+
+.evo-card-desc,
+.evo-card-up,
+.evo-card-cost {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.evo-card-desc {
+  font-style: italic;
+  color: var(--chrome-dim);
+}
+
+.evo-card-up {
+  color: var(--chrome-accent);
+}
+
+.evo-card-cost {
+  color: var(--chrome-danger);
+}
+
+.evo-card-cost--none {
+  color: var(--chrome-dim);
+}
+
+.evo-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.evo-tag {
+  padding: 1px 5px;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--chrome-dim);
+  border: 1px solid var(--chrome-border-light);
+}
+
+.evo-tag--assault { color: var(--chrome-danger); border-color: var(--chrome-danger); }
+.evo-tag--defense { color: var(--chrome-warn); border-color: var(--chrome-warn); }
+.evo-tag--capstone { color: var(--chrome-accent); border-color: var(--chrome-accent); }
+
+.evo-hint {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--chrome-dim);
+}
+
+.evo-card--chosen .evo-card-plate {
+  background: var(--chrome-accent);
+  animation: evo-chosen-plate 360ms steps(6) both;
+}
+
+.evo-card--chosen .evo-card-inner {
+  animation: evo-chosen-inner 360ms steps(3) both;
+}
+
+.evo-card--faded {
+  opacity: 0.35;
+}
+
+@keyframes evo-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes evo-panel-in {
+  0% { transform: scaleY(0.04); }
+  70% { transform: scaleY(1.03); }
+  100% { transform: none; }
+}
+
+@keyframes evo-card-in {
+  0% { opacity: 0; transform: translateY(28px); }
+  100% { opacity: 1; transform: none; }
+}
+
+/* Lub (accent) - dub (vein green) - rest */
+@keyframes evo-heartbeat {
+  0%, 24%, 100% { background-color: var(--chrome-border); }
+  4% { background-color: var(--chrome-accent); }
+  10% { background-color: var(--chrome-border-light); }
+  16% { background-color: var(--chrome-accent-dim); }
+}
+
+@keyframes evo-vein {
+  0%, 24%, 100% { background-color: var(--chrome-accent-dim); }
+  4%, 16% { background-color: var(--chrome-accent); }
+}
+
+@keyframes evo-blink {
+  0% { background: var(--chrome-accent-dim); }
+  50% { background: var(--chrome-bg); }
+}
+
+@keyframes evo-chosen-plate {
+  0%, 66% { background: var(--chrome-text); }
+  33%, 100% { background: var(--chrome-accent); }
+}
+
+@keyframes evo-chosen-inner {
+  0% { background: var(--chrome-accent-dim); }
+  100% { background: var(--chrome-panel-light); }
+}
+
+/* ── Run banner (victory) ──────────────────────────────────── */
+.run-banner {
+  width: 100%;
+  margin-bottom: 20px;
+  padding: 18px 16px;
+  text-align: center;
+  font-family: var(--font-pixel);
+  font-size: clamp(16px, 3.2vw, 30px);
+  line-height: 1.3;
+  color: var(--chrome-accent);
+  background: var(--chrome-panel);
+  border-top: 4px solid var(--chrome-accent);
+  border-bottom: 4px solid var(--chrome-accent);
+  box-shadow: 0 4px 0 var(--chrome-bg), 0 -4px 0 var(--chrome-bg);
+  text-shadow: 3px 3px 0 var(--chrome-accent-dim), 6px 6px 0 #000;
+  animation: run-banner-in 480ms steps(6) both;
+}
+
+@keyframes run-banner-in {
+  0% { transform: scaleX(0); }
+  100% { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .evo-backdrop,
+  .evo-frame,
+  .evo-panel-plate,
+  .evo-vein,
+  .evo-card-slot,
+  .evo-pip--next,
+  .evo-card--chosen .evo-card-plate,
+  .evo-card--chosen .evo-card-inner,
+  .run-banner {
+    animation: none;
+  }
+
+  .evo-card {
+    transition: none;
+  }
+
+  .evo-card:hover:not(:disabled),
+  .evo-card:focus-visible {
+    transform: none;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   STARCRAFT SCREEN — full-window world, top strip, bottom console
+   ════════════════════════════════════════════════════════════ */
+
+.hive-screen {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--chrome-bg);
+}
+
+/* The fixed-resolution canvas covers the window; offsets/size set inline */
+.world-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--chrome-bg);
+}
+
+.game-canvas {
+  position: absolute;
+  display: block;
+  cursor: crosshair;
+  image-rendering: crisp-edges; /* fallback */
+  image-rendering: pixelated;
+}
+
+/* The whole HUD rides one layer (HudLayer): hidden for the opening cinematic, then it fades in */
+.hud-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none; /* the world takes every click no HUD block takes */
+  transition: opacity 400ms ease-out; /* HUD_FADE_MS */
+}
+
+/* Each block takes its own clicks again; zero specificity keeps the console's and the feed's pass-through */
+:where(.hud-layer) > * {
+  pointer-events: auto;
+}
+
+.hud-layer--intro {
+  opacity: 0;
+  visibility: hidden;
+  transition: none;
+}
+
+.hud-label {
+  font-size: 8px;
+  font-weight: normal;
+  letter-spacing: 1px;
+  color: var(--chrome-accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud-dim {
+  color: var(--chrome-dim);
+}
+
+/* Segmented bar: 4 px of color, 1 px gap */
+.hud-bar {
+  height: 8px;
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-border);
+  overflow: hidden;
+}
+
+.hud-bar-fill {
+  height: 100%;
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0px,
+    transparent 4px,
+    var(--chrome-bg) 4px,
+    var(--chrome-bg) 5px
+  );
+}
+
+.hud-btn {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  color: var(--chrome-text);
+  background: var(--chrome-panel-light);
+  border: 2px solid var(--chrome-border);
+  box-shadow: inset -2px -2px 0 var(--chrome-bg);
+  cursor: pointer;
+}
+
+.hud-btn:hover:not(:disabled) {
+  border-color: var(--chrome-border-light);
+}
+
+.hud-btn:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
+.hud-btn:disabled {
+  color: var(--chrome-dim);
+  cursor: not-allowed;
+}
+
+@keyframes hud-blink {
+  50% { opacity: 0.35; }
+}
+
+/* ── Top resource strip ────────────────────────────────────── */
+.top-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  height: var(--strip-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 14px;
+  background: var(--chrome-panel);
+  border-bottom: 2px solid var(--chrome-border);
+  /* glowing vein, then a hard black step */
+  box-shadow: 0 2px 0 var(--chrome-accent-dim), 0 4px 0 #000;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.strip-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.strip-group--center {
+  justify-content: center;
+}
+
+.strip-group--right {
+  justify-content: flex-end;
+}
+
+.strip-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--chrome-text);
+}
+
+/* Food stocks double as the diet toggle (eat this first) */
+.strip-food {
+  position: relative;
+  font: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 1px 5px;
+  cursor: pointer;
+}
+.strip-food:hover:not(:disabled) { border-color: var(--chrome-border-light); }
+.strip-food:disabled { cursor: default; }
+.strip-food--active {
+  border-color: var(--chrome-accent);
+  box-shadow: 2px 2px 0 var(--chrome-bg);
+}
+.strip-food-badge {
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+  padding: 0 3px;
+  font-size: 0.8em;
+}
+
+.strip-pantry {
+  padding: 2px 6px;
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-border);
+}
+
+.strip-pantry-label {
+  color: var(--chrome-dim);
+}
+
+.strip-item--warn { color: var(--chrome-warn); }
+.strip-item--danger { color: var(--chrome-danger); }
+.strip-item--accent { color: var(--chrome-accent); }
+.strip-item--day { color: var(--chrome-warn); }
+.strip-item--night { color: #e06a9a; }
+.strip-item--event { color: var(--chrome-info); }
+
+.strip-sep {
+  width: 2px;
+  height: 16px;
+  background: var(--chrome-border);
+}
+
+.strip-blink {
+  animation: hud-blink 1s steps(1) infinite;
+}
+
+/* Speaker toggle (sound on → no music → muted) and its volume sliders */
+.strip-sound {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.strip-sound-toggle,
+.strip-sound-more {
+  font: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+.strip-sound-toggle:hover,
+.strip-sound-more:hover,
+.strip-sound-more[aria-expanded="true"] { border-color: var(--chrome-border-light); }
+.strip-sound-more { color: var(--chrome-dim); align-self: stretch; }
+.strip-sound--on { color: var(--chrome-accent); }
+.strip-sound--noMusic { color: var(--chrome-warn); }
+.strip-sound--muted { color: var(--chrome-danger); }
+
+/* Fixed, so the strip's overflow does not clip it; it hangs under the strip's right end */
+.strip-sound-popover {
+  --cut: 8px;
+  position: fixed;
+  top: calc(var(--strip-h) + 6px);
+  right: 10px;
+  z-index: 30;
+  white-space: normal;
+  filter: drop-shadow(3px 3px 0 #000);
+}
+.strip-sound-popover-inner {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px;
+  min-width: 200px;
+}
+.sound-slider {
+  display: grid;
+  grid-template-columns: 64px 1fr 24px;
+  align-items: center;
+  gap: 8px;
+  color: var(--chrome-text);
+}
+.sound-slider input[type="range"] {
+  width: 100%;
+  accent-color: var(--chrome-accent);
+  cursor: pointer;
+}
+.sound-slider-value {
+  color: var(--chrome-dim);
+  text-align: right;
+}
+
+/* ── Objective tracker ─────────────────────────────────────── */
+.objective-plate {
+  position: absolute;
+  top: calc(var(--strip-h) + 12px);
+  left: 10px;
+  z-index: 15;
+  width: 272px;
+  filter: drop-shadow(4px 4px 0 #000);
+}
+
+.objective-plate .chrome-plate {
+  --cut: 10px;
+}
+
+.objective-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px 8px;
+}
+
+.objective-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.objective-count {
+  margin-left: auto;
+}
+
+.objective-title {
+  color: var(--chrome-text);
+  line-height: 1.7;
+}
+
+.objective-desc {
+  color: var(--chrome-dim);
+  line-height: 1.7;
+}
+
+.objective-progress {
+  text-align: right;
+}
+
+/* ── Message feed above the console ────────────────────────── */
+.notif-feed {
+  position: absolute;
+  left: 212px;
+  right: 300px;
+  bottom: calc(var(--deck-h) + 16px);
+  z-index: 18;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  pointer-events: none;
+}
+
+@keyframes notif-in {
+  0% { transform: translateX(-12px); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+.notif-line {
+  max-width: 100%;
+  padding: 5px 10px 5px 8px;
+  color: var(--chrome-text);
+  background: var(--chrome-panel);
+  border-left: 4px solid var(--chrome-border-light);
+  box-shadow: 3px 3px 0 #000;
+  line-height: 1.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: notif-in 200ms steps(3) both;
+}
+
+.notif-line--info { border-left-color: var(--chrome-info); }
+.notif-line--success { border-left-color: var(--chrome-accent); }
+.notif-line--warning { border-left-color: var(--chrome-warn); }
+.notif-line--danger { border-left-color: var(--chrome-danger); color: #ffd8d8; }
+.notif-line--hint {
+  border-left-color: var(--chrome-accent);
+  color: var(--chrome-accent);
+  background: #141c0c;
+}
+.notif-line--refused {
+  border-left-color: var(--chrome-danger);
+  color: #ffd8d8;
+  background: #2c0f18;
+}
+
+/* ── Bottom console ────────────────────────────────────────── */
+.hive-console {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  height: 200px;
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 276px;
+  align-items: end;
+  gap: 10px;
+  padding: 0 10px 8px;
+  pointer-events: none;
+}
+
+.hive-console > section {
+  position: relative;
+  pointer-events: auto;
+  filter: drop-shadow(4px 4px 0 #000);
+}
+
+/* Full-width carapace deck the plates sit on */
+.console-deck {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--deck-h);
+  pointer-events: auto;
+  background-color: var(--chrome-panel);
+  background-image: repeating-conic-gradient(var(--chrome-bg) 0% 25%, transparent 0% 50%);
+  background-size: 4px 4px;
+  border-top: 2px solid var(--chrome-border);
+  box-shadow: 0 -2px 0 #000;
+}
+
+/* Swarm vein along the deck: dim, with a stepped heartbeat */
+.console-vein {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 2px;
+  background: var(--chrome-accent-dim);
+  animation: console-vein 3s steps(1) infinite;
+}
+
+@keyframes console-vein {
+  0%, 88%, 100% { background: var(--chrome-accent-dim); }
+  90%, 95% { background: var(--chrome-accent); }
+}
+
+.console-plate,
+.console-plate > .chrome-plate-inner {
+  height: 100%;
+}
+
+.console-minimap { height: 200px; }
+.console-info { height: 136px; min-width: 0; }
+.console-card { height: 176px; }
+
+.console-minimap .chrome-plate { --cut: 12px; }
+.console-info .chrome-plate { --cut: 10px; }
+.console-card .chrome-plate { --cut: 12px; }
+
+/* Minimap */
+.console-minimap-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 6px;
+}
+
+.minimap-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.minimap-tab {
+  flex: 1;
+  height: 18px;
+  color: var(--chrome-dim);
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-border);
+  cursor: pointer;
+}
+
+.minimap-tab:hover {
+  color: var(--chrome-text);
+}
+
+.minimap-tab--active {
+  color: var(--chrome-accent);
+  background: var(--chrome-panel-light);
+  border-color: var(--chrome-accent-dim);
+}
+
+.minimap-box {
+  width: 174px;
+  height: 162px;
+  background: #000;
+  border: 1px solid var(--chrome-border);
+}
+
+.minimap-canvas {
+  display: block;
+  width: 172px;
+  height: 160px;
+  image-rendering: pixelated;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.minimap-hidden {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--chrome-dim);
+  background: var(--chrome-bg);
+  border: 0;
+  cursor: pointer;
+}
+
+/* Info panel */
+.console-info-inner {
+  position: relative;
+  padding: 9px 16px 6px;
+  overflow: hidden;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+  height: 100%;
+}
+
+.info-grid--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.info-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.info-col .hud-label {
+  padding-bottom: 3px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--chrome-border);
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 16px;
+}
+
+.info-row-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--chrome-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info-row-value {
+  color: var(--chrome-text);
+}
+
+.info-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+  white-space: nowrap;
+}
+
+.info-bar-label {
+  flex: 0 0 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--chrome-dim);
+}
+
+.info-bar-track {
+  flex: 1;
+  min-width: 24px;
+}
+
+.info-bar-num {
+  min-width: 24px;
+  text-align: right;
+  color: var(--chrome-text);
+}
+
+.info-note {
+  color: var(--chrome-dim);
+  line-height: 1.7;
+}
+
+.info-note--danger { color: var(--chrome-danger); }
+.info-note--good { color: var(--chrome-accent); }
+
+.info-line {
+  color: var(--chrome-dim);
+  line-height: 1.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.info-line strong {
+  font-weight: normal;
+  color: var(--chrome-text);
+}
+
+/* Four columns with the brood readout last, next to the breed row of the card */
+.info-grid--brood {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.8fr);
+  gap: 18px;
+}
+
+/* Narrow screens: drop the column the top strip already repeats so the brood stages keep their labels */
+@media (max-width: 1499px) {
+  .info-grid--brood {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.8fr);
+  }
+
+  .info-col--optional {
+    display: none;
+  }
+}
+
+/* Brood readout: DESPENSA → REINA → INCUBANDO → NACE */
+.brood {
+  gap: 4px;
+}
+
+.brood-flow {
+  display: flex;
+  gap: 10px;
+  list-style: none;
+}
+
+.brood-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 4px 3px;
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-border);
+  box-shadow: inset 1px 1px 0 #000;
+}
+
+/* Stepped arrow between stages */
+.brood-stage + .brood-stage::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -9px;
+  width: 6px;
+  height: 8px;
+  margin-top: -4px;
+  background: var(--chrome-border-light);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+.brood-stage-label {
+  color: var(--chrome-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.brood-stage-value {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--chrome-text);
+  white-space: nowrap;
+}
+
+.brood-stage--idle .brood-stage-value { color: var(--chrome-dim); }
+.brood-stage--idle .brood-stage-value > svg { opacity: 0.45; }
+.brood-stage--ok { border-color: var(--chrome-border-light); }
+.brood-stage--busy { border-color: var(--chrome-accent-dim); }
+.brood-stage--busy .brood-stage-value { color: var(--chrome-accent); }
+.brood-stage--warn { border-color: var(--chrome-warn); }
+.brood-stage--warn .brood-stage-label,
+.brood-stage--warn .brood-stage-value { color: var(--chrome-warn); }
+.brood-stage--blocked {
+  border-color: var(--chrome-danger);
+  background: #2c0f18;
+}
+.brood-stage--blocked .brood-stage-label,
+.brood-stage--blocked .brood-stage-value { color: var(--chrome-danger); }
+
+.brood-eggs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 16px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.brood-egg {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--chrome-text);
+}
+
+.brood-egg-bar {
+  display: block;
+  width: 24px;
+}
+
+.brood-egg-bar > .hud-bar-fill {
+  display: block;
+  background-color: var(--chrome-accent);
+}
+
+.brood-egg--queued { color: var(--chrome-dim); }
+.brood-egg--queued > svg { opacity: 0.5; }
+.brood-egg--queued .hud-bar-fill { background-color: var(--chrome-border-light); }
+.brood-egg--waiting { color: var(--chrome-warn); }
+.brood-egg--waiting .hud-bar-fill { background-color: var(--chrome-warn); }
+.brood-egg--hungry { color: var(--chrome-danger); }
+.brood-egg--hungry .hud-bar-fill { background-color: var(--chrome-danger); }
+
+.brood-more {
+  color: var(--chrome-dim);
+  white-space: nowrap;
+}
+
+.brood-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  line-height: 1.6;
+}
+
+.brood-status > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.brood-status-text {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.brood-status--good { color: var(--chrome-accent); }
+.brood-status--dim { color: var(--chrome-dim); }
+.brood-status--warn { color: var(--chrome-warn); }
+.brood-status--blocked { color: var(--chrome-danger); }
+
+.info-selection {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  height: 100%;
+}
+
+.info-unit,
+.info-side {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.info-name {
+  font-size: 16px;
+  line-height: 1.25;
+  color: var(--chrome-accent);
+  text-shadow: 2px 2px 0 var(--chrome-accent-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.info-name--enemy {
+  color: var(--chrome-danger);
+  text-shadow: 2px 2px 0 #5a1414;
+}
+
+.info-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+/* Group view (several ants selected): StarCraft wireframe grid + caste counts */
+.info-group {
+  display: grid;
+  grid-template-columns: auto minmax(150px, 220px);
+  gap: 18px;
+  align-items: start;
+  height: 100%;
+}
+
+.group-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 30px);
+  grid-auto-rows: 30px;
+  gap: 3px;
+  align-content: start;
+}
+
+.group-cell {
+  --cell: #5fbf4a; /* PAL.healthGreen: own units, healthy */
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--cell);
+  background: #0f1a0b;
+  border: 2px solid var(--cell);
+  box-shadow: inset 2px 2px 0 #000;
+  cursor: pointer;
+}
+
+.group-cell--hurt { --cell: var(--chrome-warn); background: #24180a; }
+.group-cell--critical { --cell: var(--chrome-danger); background: #2a0a0c; }
+
+.group-cell:hover,
+.group-cell:focus-visible {
+  border-color: var(--chrome-text);
+  outline: none;
+}
+
+.group-cell-hp {
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  max-width: calc(100% - 4px);
+  height: 2px;
+  background: var(--cell);
+}
+
+/* Under a player order: a lit accent pixel in the corner */
+.group-cell--ordered::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 4px;
+  height: 4px;
+  background: var(--chrome-accent);
+}
+
+.group-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--chrome-dim);
+  border: 2px dashed var(--chrome-border);
+}
+
+.group-side {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-right: 22px; /* clear of the close button */
+}
+
+.group-side .hud-label {
+  padding-bottom: 3px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--chrome-border);
+}
+
+/* Control group chips (Ctrl+digit): tabs riding the info plate's top edge, StarCraft style */
+.ctrl-groups {
+  position: absolute;
+  left: 14px;
+  top: -14px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+}
+
+.ctrl-chip {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 6px 0 4px;
+  color: var(--chrome-text);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-border);
+  box-shadow: inset 2px 2px 0 var(--chrome-bg), 2px 2px 0 #000;
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.ctrl-chip:hover,
+.ctrl-chip:focus-visible {
+  border-color: var(--chrome-border-light);
+  outline: none;
+}
+
+.ctrl-chip-key {
+  align-self: flex-start;
+  margin-top: 2px;
+  color: var(--chrome-accent);
+}
+
+.ctrl-chip-count {
+  min-width: 10px;
+  text-align: right;
+}
+
+/* The group that is the current selection */
+.ctrl-chip--selected {
+  color: var(--chrome-accent);
+  background: var(--chrome-panel-light);
+  border-color: var(--chrome-accent-dim);
+}
+
+.info-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-stepper-value {
+  min-width: 36px;
+  font-size: 16px;
+  text-align: center;
+  color: var(--chrome-warn);
+}
+
+/* Portrait: dark well with hard scanlines (no blur) */
+.portrait-frame {
+  position: relative;
+  padding: 4px;
+  background: var(--chrome-bg);
+  border: 2px solid var(--chrome-border-light);
+  box-shadow: inset 2px 2px 0 #000, 3px 3px 0 #000;
+}
+
+.portrait-frame::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent 0 1px, color-mix(in srgb, var(--chrome-bg) 40%, transparent) 1px 2px);
+}
+
+.portrait-canvas {
+  display: block;
+  width: 64px;
+  height: 64px;
+  image-rendering: pixelated;
+  background: var(--chrome-panel);
+}
+
+/* Command card */
+.console-card-inner {
+  padding: 8px;
+}
+
+.cmd-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 48px);
+  grid-template-rows: repeat(3, 48px);
+  gap: 4px;
+}
+
+.cmd-slot {
+  width: 48px;
+  height: 48px;
+}
+
+.cmd-slot--empty {
+  background: var(--chrome-bg);
+  box-shadow: inset 2px 2px 0 #000;
+  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
+}
+
+.cmd-btn {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 2px;
+  color: inherit;
+  background: var(--chrome-border);
+  border: 0;
+  cursor: pointer;
+  clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
+}
+
+.cmd-face {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--chrome-panel-light);
+  box-shadow: inset -3px -3px 0 var(--chrome-bg), inset 3px 3px 0 #3a2033;
+  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
+}
+
+.cmd-btn:hover:not(.cmd-btn--disabled) {
+  background: var(--chrome-border-light);
+}
+
+.cmd-btn:hover:not(.cmd-btn--disabled) .cmd-face {
+  background: #301b2b;
+}
+
+.cmd-btn--active,
+.cmd-btn--active:hover:not(.cmd-btn--disabled) {
+  background: var(--chrome-accent);
+}
+
+.cmd-btn--active .cmd-face {
+  background: #1d2812;
+}
+
+.cmd-btn--danger {
+  background: #7a2a36;
+}
+
+.cmd-btn--danger .cmd-face {
+  background: #2c0f18;
+}
+
+.cmd-btn:active:not(.cmd-btn--disabled) .cmd-face,
+.cmd-btn--pressed .cmd-face {
+  transform: translate(1px, 1px);
+  box-shadow: inset 3px 3px 0 var(--chrome-bg);
+}
+
+.cmd-btn--disabled {
+  cursor: not-allowed;
+}
+
+/* Disabled: the caste icon fades, the price stays readable (red when unpaid) */
+.cmd-btn--disabled .cmd-face > svg,
+.cmd-btn--disabled .cmd-glyph {
+  opacity: 0.3;
+}
+
+.cmd-btn--disabled .cmd-face {
+  background: #1a0e16;
+}
+
+.cmd-key {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  color: var(--chrome-accent);
+  text-shadow: 1px 1px 0 #000;
+}
+
+.cmd-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  padding: 1px 1px 0;
+  color: var(--chrome-text);
+  background: var(--chrome-bg);
+  line-height: 1;
+}
+
+.cmd-badge--warn {
+  color: var(--chrome-warn);
+}
+
+/* Buttons with a price: smaller icon nudged up, the price along the bottom */
+.cmd-face--cost > svg {
+  margin-top: -8px;
+}
+
+.cmd-cost {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--chrome-text);
+  text-shadow: 1px 1px 0 #000;
+}
+
+.cmd-cost--short {
+  color: var(--chrome-danger);
+}
+
+.cmd-glyph {
+  font-size: 16px;
+  color: var(--chrome-text);
+  text-shadow: 2px 2px 0 #000;
+}
+
+/* Tooltip plate above the card */
+.cmd-tooltip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  width: 320px;
+  pointer-events: none;
+  filter: drop-shadow(4px 4px 0 #000);
+}
+
+.cmd-tooltip .chrome-plate {
+  --cut: 8px;
+}
+
+.cmd-tooltip-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 12px;
+  background: var(--chrome-panel);
+}
+
+.cmd-tip-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--chrome-accent);
+}
+
+.cmd-tip-key {
+  color: var(--chrome-warn);
+}
+
+.cmd-tip-cost {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cmd-tip-cost--short {
+  color: var(--chrome-danger);
+}
+
+.cmd-tip-desc {
+  line-height: 1.8;
+}
+
+.cmd-tip-dim {
+  color: var(--chrome-dim);
+  line-height: 1.7;
+}
+
+.cmd-tip-warn {
+  color: var(--chrome-danger);
+  line-height: 1.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip-blink,
+  .console-vein,
+  .notif-line {
+    animation: none;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   RACE PICKER — pre-run skirmish setup (P10)
+   Your race and the rival, then COMENZAR. Race hues mirror the
+   faction ramps in pixelart/palette.ts (swarm, crystal, human).
+   ════════════════════════════════════════════════════════════ */
+
+:root {
+  --race-swarm: #c6ff3d; /* swarm.vein glow */
+  --race-swarm-dim: #5a8a1c;
+  --race-swarm-deep: #1f0b18;
+  --race-crystal: #5ff3ff; /* crystal.shield */
+  --race-crystal-dim: #1b5a73;
+  --race-crystal-deep: #0a1620;
+  --race-human: #a9b0b4; /* human.steel light */
+  --race-human-dim: #56603a;
+  --race-human-deep: #15180f;
+}
+
+.race-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  padding: 16px 24px;
+  overflow-y: auto;
+  background-color: var(--chrome-bg);
+  background-image: repeating-conic-gradient(var(--chrome-panel) 0% 25%, transparent 0% 50%);
+  background-size: 4px 4px;
+}
+
+.race-picker-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(1240px, 100%);
+  margin: auto;
+  animation: evo-panel-in 360ms steps(6) both;
+}
+
+.race-picker-head {
+  text-align: center;
+}
+
+.race-picker-title {
+  font-size: 18px;
+  font-weight: normal;
+  line-height: 1.3;
+  letter-spacing: 2px;
+  color: var(--chrome-accent);
+  text-shadow: 2px 2px 0 var(--chrome-accent-dim), 4px 4px 0 #000;
+}
+
+.race-picker-subtitle {
+  margin-top: 6px;
+  font-size: 9px;
+  color: var(--chrome-dim);
+}
+
+.race-picker-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--chrome-warn);
+  text-shadow: 2px 2px 0 #000;
+}
+
+.race-picker-section::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  background: var(--chrome-border);
+}
+
+.race-cards,
+.rival-options,
+.race-launch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+/* ── Race cards ── */
+.race-card-slot {
+  animation: evo-card-in 420ms steps(6) both;
+  animation-delay: calc(160ms + var(--race-i, 0) * 120ms);
+}
+
+.race-card--swarm { --race-accent: var(--race-swarm); --race-dim: var(--race-swarm-dim); --race-deep: var(--race-swarm-deep); }
+.race-card--crystal { --race-accent: var(--race-crystal); --race-dim: var(--race-crystal-dim); --race-deep: var(--race-crystal-deep); }
+.race-card--human { --race-accent: var(--race-human); --race-dim: var(--race-human-dim); --race-deep: var(--race-human-deep); }
+
+.race-card,
+.rival-option {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  filter: drop-shadow(4px 4px 0 #000);
+  transition: transform 120ms steps(3), filter 120ms steps(3);
+}
+
+.race-card:hover:not(:disabled),
+.race-card:focus-visible {
+  transform: translateY(-6px);
+  filter: drop-shadow(4px 10px 0 #000);
+}
+
+.race-card:focus-visible,
+.rival-option:focus-visible {
+  outline: 2px dashed var(--chrome-accent);
+  outline-offset: 4px;
+}
+
+.race-card:disabled,
+.rival-option:disabled {
+  cursor: not-allowed;
+}
+
+.race-card-plate {
+  --cut: 12px;
+  display: block;
+  height: 100%;
+}
+
+.race-card:hover:not(:disabled) .race-card-plate {
+  background: var(--chrome-border-light);
+}
+
+.race-card[aria-pressed='true'] .race-card-plate {
+  background: var(--race-accent);
+  animation: race-chosen 1.5s steps(2) infinite;
+}
+
+.race-card-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  padding: 10px 14px 12px;
+  background: var(--chrome-panel-light);
+}
+
+.race-card:disabled .race-card-inner {
+  background: var(--chrome-panel);
+}
+
+.race-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.race-card-name {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--race-accent);
+  text-shadow: 2px 2px 0 #000;
+}
+
+.race-badge {
+  padding: 3px 5px 2px;
+  font-size: 8px;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--chrome-bg);
+  box-shadow: 2px 2px 0 #000;
+}
+
+.race-badge--soon {
+  background: var(--chrome-warn);
+}
+
+.race-badge--chosen {
+  background: var(--race-accent);
+}
+
+.race-card-tagline {
+  font-size: 8px;
+  color: var(--chrome-dim);
+}
+
+/* The specimen window: each race's units on its own deep ground tone */
+.race-specimens {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  gap: 6px;
+  height: 140px;
+  padding: 6px 6px 4px;
+  background: var(--race-deep);
+  border: 2px solid var(--chrome-border);
+  border-bottom-color: var(--race-dim);
+  box-shadow: inset 2px 2px 0 #000;
+}
+
+.race-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.race-unit-canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.race-unit-label {
+  font-size: 8px;
+  white-space: nowrap;
+  color: var(--chrome-dim);
+}
+
+.race-traits {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.race-trait {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 6px;
+  font-size: 8px;
+  line-height: 1.6;
+}
+
+.race-trait-label {
+  color: var(--race-accent);
+}
+
+.race-trait-text {
+  color: var(--chrome-text);
+}
+
+.race-card:disabled .race-trait-text {
+  color: var(--chrome-dim);
+}
+
+.race-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 16px;
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 2px solid var(--chrome-border);
+}
+
+.race-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 8px;
+  color: var(--chrome-dim);
+}
+
+.race-pips {
+  display: flex;
+  gap: 3px;
+}
+
+.race-pip {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--chrome-border-light);
+  background: var(--chrome-bg);
+}
+
+.race-pip--on {
+  border-color: var(--race-accent);
+  background: var(--race-accent);
+}
+
+/* ── Rival options: one under each race card ── */
+.rival-option--wildlife { --race-accent: var(--chrome-warn); }
+.rival-option--crystal { --race-accent: var(--race-crystal); }
+.rival-option--human { --race-accent: var(--race-human); }
+
+.rival-plate {
+  --cut: 8px;
+  display: block;
+  height: 100%;
+}
+
+.rival-option:hover:not(:disabled) .rival-plate {
+  background: var(--chrome-border-light);
+}
+
+.rival-option[aria-pressed='true'] .rival-plate {
+  background: var(--race-accent);
+}
+
+.rival-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+  padding: 6px 10px;
+  background: var(--chrome-panel-light);
+}
+
+.rival-option:disabled .rival-inner {
+  background: var(--chrome-panel);
+}
+
+.rival-specimen {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 60px;
+  height: 64px;
+  background: var(--chrome-bg);
+  border: 2px solid var(--chrome-border);
+  box-shadow: inset 2px 2px 0 #000;
+}
+
+.rival-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rival-name {
+  font-size: 9px;
+  line-height: 1.5;
+  color: var(--race-accent);
+}
+
+.rival-note {
+  font-size: 8px;
+  color: var(--chrome-dim);
+}
+
+.rival-note.race-badge {
+  color: var(--chrome-bg);
+}
+
+/* ── Matchup and start ── */
+.race-launch {
+  align-items: center;
+  margin-top: 4px;
+}
+
+.race-matchup {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  font-size: 9px;
+  text-transform: uppercase;
+  color: var(--chrome-text);
+}
+
+.race-matchup-vs {
+  font-size: 12px;
+  color: var(--chrome-danger);
+  text-shadow: 2px 2px 0 #000;
+}
+
+.race-launch-hint {
+  font-size: 8px;
+  color: var(--chrome-dim);
+}
+
+.race-start {
+  width: 100%;
+  padding: 16px 12px 14px;
+  font-family: var(--font-pixel);
+  font-size: 20px;
+  letter-spacing: 3px;
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+  border: 0;
+  cursor: pointer;
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px),
+    calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px);
+  box-shadow: inset -4px -4px 0 var(--chrome-accent-dim), inset 4px 4px 0 var(--chrome-text);
+  animation: race-start-glow 1.2s steps(2) infinite;
+}
+
+.race-start:hover {
+  background: var(--chrome-text);
+}
+
+.race-start:active {
+  transform: translate(2px, 2px);
+}
+
+.race-start:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 4px var(--chrome-bg), inset -4px -4px 0 6px var(--chrome-accent-dim);
+}
+
+@keyframes race-chosen {
+  0%, 60%, 100% { background-color: var(--race-accent); }
+  70% { background-color: var(--race-dim); }
+}
+
+@keyframes race-start-glow {
+  0% { box-shadow: inset -4px -4px 0 var(--chrome-accent-dim), inset 4px 4px 0 var(--chrome-text); }
+  50% { box-shadow: inset -4px -4px 0 var(--chrome-accent-dim), inset 4px 4px 0 var(--chrome-accent); }
+}
+
+@media (max-width: 960px) {
+  .race-cards,
+  .rival-options,
+  .race-launch {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .race-matchup {
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .race-picker-frame,
+  .race-card-slot,
+  .race-card[aria-pressed='true'] .race-card-plate,
+  .race-start {
+    animation: none;
+  }
+
+  .race-card,
+  .rival-option {
+    transition: none;
+  }
+
+  .race-card:hover:not(:disabled),
+  .race-card:focus-visible {
+    transform: none;
+  }
+}
+/* ── end RACE PICKER ── */

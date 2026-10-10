@@ -1,3 +1,5 @@
+import { PAL } from '../../engine/renderer/pixelart/palette';
+
 export const TerrainType = {
   Dirt: 'dirt',
   Stone: 'stone',
@@ -16,21 +18,17 @@ export interface Tile {
   dangerPheromone: number;
 }
 
-export const TERRAIN_COLORS: Record<TerrainType, string> = {
-  [TerrainType.Dirt]: '#3d2b1f',
-  [TerrainType.Stone]: '#555555',
-  [TerrainType.Sand]: '#c2a645',
-  [TerrainType.Water]: '#1a3a5c',
-  [TerrainType.Grass]: '#2d5a1e',
-};
-
-// Natural color palettes with variation for terrain rendering
-export const TERRAIN_PALETTES: Record<TerrainType, { base: [number, number, number]; variation: number }> = {
-  [TerrainType.Dirt]: { base: [130, 95, 50], variation: 8 },
-  [TerrainType.Stone]: { base: [105, 100, 95], variation: 6 },
-  [TerrainType.Sand]: { base: [220, 190, 110], variation: 6 },
-  [TerrainType.Water]: { base: [40, 90, 150], variation: 5 },
-  [TerrainType.Grass]: { base: [45, 140, 30], variation: 8 },
+/**
+ * Flat overview colors per terrain (the minimap), taken from the same alien
+ * ramps the tile renderer paints with: `base` for most tiles, `fleck` for a
+ * sparse lighter speckle.
+ */
+export const TERRAIN_COLORS: Record<TerrainType, { base: string; fleck: string }> = {
+  [TerrainType.Dirt]: { base: PAL.soil[1], fleck: PAL.soil[2] }, // violet regolith
+  [TerrainType.Stone]: { base: PAL.stone[1], fleck: PAL.stone[2] }, // alien outcrops
+  [TerrainType.Sand]: { base: PAL.dust[0], fleck: PAL.dust[1] }, // pale ash flats
+  [TerrainType.Water]: { base: PAL.water[1], fleck: PAL.water[2] }, // ink pools
+  [TerrainType.Grass]: { base: PAL.grass[1], fleck: PAL.grass[2] }, // bioluminescent moss
 };
 
 export const UndergroundTerrainType = {

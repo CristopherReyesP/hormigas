@@ -1,3 +1,5 @@
+import { FactionRegistry } from '../../game/factions/factions';
+import { RunModifiers } from '../../game/run/RunModifiers';
 import type { ComponentMap, System } from './types';
 import type { EntityId } from '../../shared/types';
 
@@ -53,6 +55,15 @@ export class World {
     porterBonus: 0,
     healRateMult: 1,
   };
+
+  readonly runModifiers: RunModifiers;
+  /** The match's factions; instance state, so every run and test world starts fresh */
+  readonly factions: FactionRegistry;
+
+  constructor(runModifiers = new RunModifiers(), factions = new FactionRegistry()) {
+    this.runModifiers = runModifiers;
+    this.factions = factions;
+  }
 
   private nextNotificationId = 0;
   private notificationCooldowns: Map<string, number> = new Map();

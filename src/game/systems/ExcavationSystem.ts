@@ -14,6 +14,9 @@ import {
 } from '../components/components';
 import { EXCAVATION_TIME, MAX_DIG_JOBS } from '../../shared/constants';
 
+/** Path searches tried per unassigned job per frame, closest candidates first */
+const MAX_ROUTE_TRIES_PER_JOB = 3;
+
 interface DigJob {
   x: number;
   y: number;
@@ -147,8 +150,9 @@ export class ExcavationSystem implements System {
       }
     }
 
-    // Find idle underground workers and assign them dig jobs
+    // Drive the crew and collect the idle underground workers free to dig
     const ants = this.world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.LAYER);
+    const candidates: number[] = [];
 
     for (const id of ants) {
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
@@ -157,61 +161,26 @@ export class ExcavationSystem implements System {
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
       if (layer.layer !== Layer.Underground) continue;
 
-      // Handle ants already digging
       if (ant.state === AntState.Excavating) {
-        this.handleExcavating(id, ant, dt);
-        continue;
-      }
-
-      if (ant.state === AntState.GoingToDigSite) {
+        // A digger that just finished stays a candidate: it stands right
+        // next to the tile behind the one it opened
+        if (!this.handleExcavating(id, ant, dt)) continue;
+      } else if (ant.state === AntState.GoingToDigSite) {
         this.handleGoingToDigSite(id, ant, dt);
         continue;
       }
 
-      // Only assign idle/searching workers not already in transit
       if (ant.state !== AntState.Idle && ant.state !== AntState.Searching) continue;
-      if (this.transitSystem.isInTransit(id)) continue;
-
-      // Find unassigned job
-      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-      let nearestJob: DigJob | null = null;
-      let nearestDist = Infinity;
-
-      for (const job of this.jobs) {
-        if (job.assignedTo !== null) continue;
-        // Only COLONY-CONNECTED jobs: an adjacent-walkable tile that no tunnel
-        // reaches is a trap — workers used to grind against earth to get there
-        if (!this.isJobReachable(job)) continue;
-        const dx = job.x - pos.x;
-        const dy = job.y - pos.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearestJob = job;
-        }
-      }
-
-      if (nearestJob) {
-        // Assign ONLY with a real route (no straight-line fallback through earth)
-        const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH);
-        const adjacent = this.findAdjacentWalkable(nearestJob.x, nearestJob.y);
-        const alreadyThere = nearestDist < 1.8;
-        const route = !alreadyThere && adjacent
-          ? this.grid.findPath(pos.x, pos.y, adjacent.x + 0.5, adjacent.y + 0.5)
-          : null;
-        if (alreadyThere || (route && route.length > 0)) {
-          nearestJob.assignedTo = id;
-          ant.state = AntState.GoingToDigSite;
-          ant.stateTimer = 0;
-          if (path && route) {
-            path.waypoints = route;
-            path.currentIndex = 0;
-          }
-        }
-        // No route from THIS worker → leave the job unassigned; another ant
-        // (or the next connectivity refresh) will pick it up
-      }
+      // An idle worker walking up to leave is still a free hand below.
+      // PorterSystem runs first and puts every worker that goes Idle down
+      // here on an exit in the same tick, so excluding exits left NO local
+      // candidates: every order waited for a surface recruit to walk the
+      // whole entrance shaft down.
+      if (this.transitSystem.isInTransit(id) && !this.transitSystem.isExiting(id)) continue;
+      candidates.push(id);
     }
+
+    this.assignJobs(candidates);
 
     // Recruit surface workers ONLY to cover the real deficit — never more than the
     // reachable unassigned jobs need (previously this sent 2 workers PER FRAME and
@@ -220,7 +189,9 @@ export class ExcavationSystem implements System {
       j => j.assignedTo === null && this.isJobReachable(j)
     );
     if (reachableUnassigned.length > 0) {
-      // Count the workforce already underground or on its way down
+      // Count the DIG workforce already below or on its way down. Porters
+      // hauling below or riding down with food are not spare diggers:
+      // counting them held recruits back whenever a few were around.
       let availableWorkforce = 0;
       const idleSurfaceWorkers: number[] = [];
 
@@ -229,16 +200,15 @@ export class ExcavationSystem implements System {
         if (ant.role !== AntRole.Worker) continue;
 
         const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
-        const inTransit = this.transitSystem.isInTransit(id);
+        const free = ant.state === AntState.Idle || ant.state === AntState.Searching;
+        const digging = ant.state === AntState.GoingToDigSite || ant.state === AntState.Excavating;
 
-        if (layer.layer === Layer.Underground && !inTransit) {
-          availableWorkforce++;
-        } else if (layer.layer === Layer.Surface) {
-          if (inTransit) {
-            availableWorkforce++; // already heading down
-          } else if (ant.state === AntState.Idle || ant.state === AntState.Searching) {
-            idleSurfaceWorkers.push(id);
-          }
+        if (layer.layer === Layer.Underground) {
+          if (free || digging) availableWorkforce++;
+        } else if (this.transitSystem.isInTransit(id)) {
+          if (free) availableWorkforce++; // a recruit already heading down
+        } else if (free) {
+          idleSurfaceWorkers.push(id);
         }
       }
 
@@ -262,6 +232,55 @@ export class ExcavationSystem implements System {
         if ((ant.state === AntState.Idle || ant.state === AntState.Searching) && !this.transitSystem.isInTransit(id)) {
           this.transitSystem.requestTransit(id, 'exit');
         }
+      }
+    }
+  }
+
+  /**
+   * Each workable job, in the order the player marked it, goes to the CLOSEST
+   * candidate that has a real route there (no straight-line fallback through
+   * earth). Iterating ants instead handed the order to whoever came first in
+   * the registry, often a worker at the far end of the nest.
+   */
+  private assignJobs(candidates: number[]): void {
+    for (const job of this.jobs) {
+      if (candidates.length === 0) return;
+      if (job.assignedTo !== null) continue;
+      // Only COLONY-CONNECTED jobs: an adjacent-walkable tile that no tunnel
+      // reaches is a trap — workers used to grind against earth to get there
+      if (!this.isJobReachable(job)) continue;
+
+      const adjacent = this.findAdjacentWalkable(job.x, job.y);
+      const byDistance = candidates
+        .map((id) => {
+          const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+          return { id, pos, dist: Math.hypot(job.x - pos.x, job.y - pos.y) };
+        })
+        .sort((a, b) => a.dist - b.dist);
+
+      // Bounded: a candidate with no route (another ant, or the next
+      // connectivity refresh, will cover the job) must not cost a path search
+      // per candidate per frame
+      for (const { id, pos, dist } of byDistance.slice(0, MAX_ROUTE_TRIES_PER_JOB)) {
+        const alreadyThere = dist < 1.8;
+        const route = !alreadyThere && adjacent
+          ? this.grid.findPath(pos.x, pos.y, adjacent.x + 0.5, adjacent.y + 0.5)
+          : null;
+        if (!alreadyThere && !(route && route.length > 0)) continue;
+
+        this.transitSystem.cancelExit(id);
+        const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+        job.assignedTo = id;
+        ant.state = AntState.GoingToDigSite;
+        ant.stateTimer = 0;
+        const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH);
+        if (path) {
+          // Also drops the route to the exit a reclaimed ant was following
+          path.waypoints = route ?? [];
+          path.currentIndex = 0;
+        }
+        candidates.splice(candidates.indexOf(id), 1);
+        break;
       }
     }
   }
@@ -291,7 +310,7 @@ export class ExcavationSystem implements System {
     if (dist < 1.8) {
       // Close enough — start excavating (queen 'dig' upgrade shortens the job)
       ant.state = AntState.Excavating;
-      ant.stateTimer = EXCAVATION_TIME / this.world.upgrades.digSpeedMult;
+      ant.stateTimer = EXCAVATION_TIME / (this.world.upgrades.digSpeedMult * this.world.runModifiers.digSpeedMult);
     } else {
       // Re-path if MovementSystem cleared the route (blocked). If NO route
       // exists, release the job immediately — never walk a straight line
@@ -314,11 +333,12 @@ export class ExcavationSystem implements System {
     }
   }
 
-  private handleExcavating(id: number, ant: AntComponent, dt: number): void {
+  /** Advance a dig; returns true once the ant is free (tile done or job gone) */
+  private handleExcavating(id: number, ant: AntComponent, dt: number): boolean {
     const job = this.jobs.find(j => j.assignedTo === id);
     if (!job) {
       ant.state = AntState.Idle;
-      return;
+      return true;
     }
 
     ant.stateTimer -= dt;
@@ -330,6 +350,11 @@ export class ExcavationSystem implements System {
       const entrancesBefore = this.grid.getEntrances().length;
       this.grid.excavate(job.x, job.y);
       this.world.metrics.tilesExcavated++;
+      // The opened tile may expose the next marked one: refresh connectivity
+      // NOW, or this frame still sees nothing workable and the digger is
+      // sent up before the throttled refresh notices
+      this.rebuildReachable();
+      this.reachableTimer = 0.5;
 
       const entrancesAfter = this.grid.getEntrances().length;
       if (entrancesAfter > entrancesBefore) {
@@ -349,7 +374,9 @@ export class ExcavationSystem implements System {
       if (this.jobs.length === 0) {
         this.world.pushNotification('success', '⛏️ Excavación completada — los obreros vuelven a la superficie');
       }
+      return true;
     }
+    return false;
   }
 
   private findAdjacentWalkable(x: number, y: number): { x: number; y: number } | null {

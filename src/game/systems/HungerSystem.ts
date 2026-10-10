@@ -2,7 +2,50 @@ import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
 import { COMPONENT, type HungerComponent, type PositionComponent, type AntComponent, type QueenEntityComponent, type HealthComponent, type CarryingComponent } from '../components/components';
-import { QUEEN_STARVATION_DAMAGE, HUNGER_EAT_RATE, HUNGER_PER_FOOD } from '../../shared/constants';
+import { QUEEN_STARVATION_DAMAGE, HUNGER_EAT_RATE, HUNGER_PER_FOOD, HEAL_HP_PER_FOOD, HURT_EAT_HEALTH_RATIO } from '../../shared/constants';
+
+/**
+ * The one way an ant eats, wherever the food comes from (its own load, a
+ * pantry pile, loose food on the nest floor). Ants heal by EATING: the meal
+ * fills hunger first and whatever it holds beyond that becomes HP at
+ * HEAL_HP_PER_FOOD (scaled by the 'heal' upgrade). There is no other healing
+ * besides the regenerative_tissue mutation.
+ *
+ * `take(want)` removes up to `want` units from the source and returns how many
+ * it actually gave. Returns the units eaten.
+ */
+export function eat(
+  world: World,
+  hunger: HungerComponent | undefined,
+  health: HealthComponent | undefined,
+  dt: number,
+  take: (want: number) => number
+): number {
+  const hpPerFood = HEAL_HP_PER_FOOD * world.upgrades.healRateMult;
+  const hungerFood = hunger ? Math.max(0, hunger.max - hunger.current) / HUNGER_PER_FOOD : 0;
+  const healFood = health && health.current > 0 ? Math.max(0, health.max - health.current) / hpPerFood : 0;
+  const want = Math.min(HUNGER_EAT_RATE * dt, hungerFood + healFood);
+  if (want <= 0) return 0;
+
+  const eaten = take(want);
+  if (eaten <= 0) return 0;
+  const toHunger = Math.min(eaten, hungerFood);
+  if (hunger) hunger.current = Math.min(hunger.max, hunger.current + toHunger * HUNGER_PER_FOOD);
+  if (health && eaten > toHunger) health.current = Math.min(health.max, health.current + (eaten - toHunger) * hpPerFood);
+  return eaten;
+}
+
+/** Wounded enough that an eating trip is worth it (eating is how ants heal) */
+export function isHurt(health: HealthComponent | undefined): boolean {
+  return health !== undefined && health.current > 0 && health.current < health.max * HURT_EAT_HEALTH_RATIO;
+}
+
+/** A meal still does something: hunger is not yet ~full, or HP is not full */
+export function needsMeal(hunger: HungerComponent | undefined, health: HealthComponent | undefined): boolean {
+  const needsFood = hunger !== undefined && hunger.current < hunger.max * 0.95;
+  const needsHeal = health !== undefined && health.current > 0 && health.current < health.max;
+  return needsFood || needsHeal;
+}
 
 const ROLE_NAMES: Record<string, string> = {
   worker: 'obrera',
@@ -30,7 +73,7 @@ export class HungerSystem implements System {
     const queens = this.world.query(COMPONENT.QUEEN_ENTITY);
     for (const id of queens) {
       const queen = this.world.getComponent<QueenEntityComponent>(id, COMPONENT.QUEEN_ENTITY)!;
-      queen.hunger = Math.max(0, queen.hunger - queen.hungerDecay * this.modifiers.hungerDecayMultiplier * dt);
+      queen.hunger = Math.max(0, queen.hunger - queen.hungerDecay * this.modifiers.hungerDecayMultiplier * this.world.runModifiers.hungerDecayMult * dt);
 
       // Global alert with hysteresis: warn once below 25%, re-arm after recovering past 40%
       if (!this.queenHungerAlerted && queen.hunger < queen.maxHunger * 0.25) {
@@ -54,7 +97,7 @@ export class HungerSystem implements System {
 
     for (const id of entities) {
       const hunger = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER)!;
-      hunger.current -= hunger.decayRate * this.modifiers.hungerDecayMultiplier * dt;
+      hunger.current -= hunger.decayRate * this.modifiers.hungerDecayMultiplier * this.world.runModifiers.hungerDecayMult * dt;
 
       // SURVIVAL LOGIC: a hungry ant carrying food EATS FROM ITS OWN MOUTH
       // before ever starving — no ant dies while holding a meal. This also
@@ -62,13 +105,12 @@ export class HungerSystem implements System {
       if (hunger.current < hunger.max * 0.3) {
         const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING);
         if (carrying && carrying.amount > 0) {
-          const bite = Math.min(
-            carrying.amount,
-            HUNGER_EAT_RATE * dt,
-            (hunger.max - hunger.current) / HUNGER_PER_FOOD
-          );
-          carrying.amount -= bite;
-          hunger.current = Math.min(hunger.max, hunger.current + bite * HUNGER_PER_FOOD);
+          const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+          eat(this.world, hunger, health, dt, (want) => {
+            const bite = Math.min(want, carrying.amount);
+            carrying.amount -= bite;
+            return bite;
+          });
           if (carrying.amount <= 1e-6) {
             carrying.amount = 0;
             carrying.resourceType = null;

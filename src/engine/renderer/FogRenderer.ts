@@ -1,11 +1,13 @@
 import { WORLD_WIDTH, WORLD_HEIGHT, TILE_SIZE } from '../../shared/constants';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
+import { FOG_CLEAR_BRIGHTNESS } from './fogVisibility';
+import { PAL } from './pixelart/palette';
 
 // Quantized fog levels — pixel art reads as stepped bands, not smooth fades.
 // Per-tile alpha snaps to one of exactly three levels: 0 / 0.45 / 0.9.
 const FOG_UNEXPLORED = 230; // 0.9
 const FOG_EXPLORED = 115; // 0.45
-const BRIGHTNESS_CLEAR_THRESHOLD = 128; // >= half-bright snaps to fully clear
+const BRIGHTNESS_CLEAR_THRESHOLD = FOG_CLEAR_BRIGHTNESS; // >= half-bright snaps to fully clear
 
 export class FogRenderer {
   private fogCanvas: HTMLCanvasElement;
@@ -22,9 +24,13 @@ export class FogRenderer {
     this.fogCtx = this.fogCanvas.getContext('2d')!;
     this.fogImageData = this.fogCtx.createImageData(WORLD_WIDTH, WORLD_HEIGHT);
 
-    // Initialize fully black (unexplored)
+    // Initialize fully unexplored, in the deep violet of the alien void
     const data = this.fogImageData.data;
+    const rgb = parseInt(PAL.fogVoid.slice(1), 16);
     for (let i = 0; i < WORLD_WIDTH * WORLD_HEIGHT; i++) {
+      data[i * 4] = (rgb >> 16) & 255;
+      data[i * 4 + 1] = (rgb >> 8) & 255;
+      data[i * 4 + 2] = rgb & 255;
       data[i * 4 + 3] = FOG_UNEXPLORED;
     }
     this.fogCtx.putImageData(this.fogImageData, 0, 0);

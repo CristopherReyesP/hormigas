@@ -2,7 +2,7 @@
 // 1. Foragers carry harvest DOWN to the pantry (no surface stockpile deposits).
 // 2. Pantry full → ants HOLD the food in their mouths (never drop it).
 // 3. Hungry ants eat from their own mouths (no starvation while loaded).
-// 4. Healing ants descend and eat LOOSE underground food (invader meat).
+// 4. Hungry ants arriving home descend and eat LOOSE underground food (invader meat) — eating heals.
 import { World } from '../src/engine/ecs/World';
 import { TileGrid } from '../src/simulation/world/TileGrid';
 import { UndergroundGrid } from '../src/simulation/world/UndergroundGrid';
@@ -95,7 +95,7 @@ function makeWorld() {
   console.log(`T3 mouth-eating: alive=${world.hasEntity(w)} hunger=${(100 * hunger.current / hunger.max).toFixed(0)}% carrying=${carrying.amount.toFixed(1)} (food → belly)`);
 }
 
-// ── Test 4: starving hurt ant + ONLY loose meat underground → descends and eats it ──
+// ── Test 4: hungry hurt ant + ONLY loose meat underground → descends, eats it, heals ──
 {
   const { world, nx, ny } = makeWorld();
   // Loose invader meat underground (no pantry piles at all)
@@ -109,7 +109,7 @@ function makeWorld() {
   hunger.current = hunger.max * 0.3;
   health.current = health.max * 0.5;
   const ant = world.getComponent<AntComponent>(w, COMPONENT.ANT)!;
-  ant.state = AntState.Healing; // at nest, needs food+healing
+  ant.state = AntState.ReturningHome; // arrives home hungry and hurt
 
   let wentDown = false;
   for (let f = 0; f < 60 * 90; f++) {

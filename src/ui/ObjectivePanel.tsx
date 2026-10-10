@@ -1,50 +1,89 @@
+import { useState, type CSSProperties } from 'react';
 import type { ObjectiveState } from '../game/systems/ObjectiveSystem';
+import { PixelIcon } from './console/PixelIcon';
+import { stripEmoji } from './console/format';
 
 interface ObjectivePanelProps {
   objective: ObjectiveState | null;
 }
 
-/** Current colony milestone — progression driver shown on both layers */
+/**
+ * Objective tracker under the top strip, top-left. It starts folded into a
+ * small OBJETIVOS toggle so the opening cinematic plays unobstructed; a
+ * click unfolds the full plate and folds it back.
+ */
 export function ObjectivePanel({ objective }: ObjectivePanelProps) {
-  if (!objective) {
-    return (
-      <div className="pixel-panel" style={{ padding: '10px 12px', fontSize: 12 }}>
-        <div className="pixel-heading" style={{ marginBottom: 6 }}>🏆 Objetivos</div>
-        <div style={{ color: 'var(--accent-green)' }}>
-          ¡Todos cumplidos! La colonia domina el territorio.
-        </div>
-      </div>
-    );
-  }
+  const [open, setOpen] = useState(false);
+  return <ObjectivePanelView objective={objective} open={open} onToggle={() => setOpen((o) => !o)} />;
+}
 
-  const ratio = objective.target > 0 ? objective.progress / objective.target : 0;
+interface ObjectivePanelViewProps extends ObjectivePanelProps {
+  open: boolean;
+  onToggle: () => void;
+}
+
+/** Folded, the plate shrinks to its header row. */
+const FOLDED_PLATE: CSSProperties = { width: 'auto' };
+const FOLDED_INNER: CSSProperties = { padding: '6px 12px' };
+/** The header row is the toggle: a bare button that keeps the plate's look. */
+const TOGGLE: CSSProperties = {
+  width: '100%',
+  margin: 0,
+  padding: 0,
+  border: 0,
+  background: 'none',
+  color: 'inherit',
+  textAlign: 'left',
+  cursor: 'pointer',
+};
+
+/** The plate itself, open or folded (state lives in ObjectivePanel). */
+export function ObjectivePanelView({ objective, open, onToggle }: ObjectivePanelViewProps) {
+  const ratio = objective && objective.target > 0 ? Math.min(1, objective.progress / objective.target) : 1;
 
   return (
-    <div className="pixel-panel" style={{ padding: '10px 12px', fontSize: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <span className="pixel-heading">🎯 Objetivo</span>
-        <span style={{ color: 'var(--ui-text-dim)' }}>
-          {objective.completedCount}/{objective.totalCount}
-        </span>
+    <aside className="objective-plate" aria-label="Objetivo actual" style={open ? undefined : FOLDED_PLATE}>
+      <div className="chrome-plate">
+      <div className="chrome-plate-inner objective-inner" style={open ? undefined : FOLDED_INNER}>
+        <button
+          type="button"
+          className="objective-head"
+          style={TOGGLE}
+          aria-expanded={open}
+          title={open ? 'Ocultar objetivos' : 'Mostrar objetivos'}
+          onClick={onToggle}
+        >
+          <PixelIcon name="flag" />
+          <span className="hud-label">OBJETIVOS</span>
+          {objective && (
+            <span className="hud-dim objective-count">
+              {objective.completedCount}/{objective.totalCount}
+            </span>
+          )}
+          <span className="hud-dim" aria-hidden="true">{open ? '-' : '+'}</span>
+        </button>
+        {open && (objective ? (
+          <>
+            <div className="objective-title">{stripEmoji(objective.title)}</div>
+            <div className="objective-desc">{stripEmoji(objective.description)}</div>
+            <div className="hud-bar">
+              <div
+                className="hud-bar-fill"
+                style={{
+                  width: `${ratio * 100}%`,
+                  backgroundColor: ratio >= 1 ? 'var(--chrome-accent)' : 'var(--chrome-warn)',
+                }}
+              />
+            </div>
+            <div className="hud-dim objective-progress">
+              {objective.progress} / {objective.target}
+            </div>
+          </>
+        ) : (
+          <div className="objective-title">¡Todos cumplidos! La colonia domina el territorio.</div>
+        ))}
       </div>
-      <div style={{ fontWeight: 'bold', marginBottom: 2 }}>{objective.title}</div>
-      <div style={{ color: 'var(--ui-text-dim)', marginBottom: 8, lineHeight: 1.4 }}>
-        {objective.description}
       </div>
-
-      {/* Segmented pixel progress bar */}
-      <div className="pixel-bar" style={{ marginBottom: 4 }}>
-        <div
-          className="pixel-bar-fill"
-          style={{
-            width: `${Math.min(100, ratio * 100)}%`,
-            backgroundColor: ratio >= 1 ? 'var(--accent-green)' : 'var(--accent-amber)',
-          }}
-        />
-      </div>
-      <div style={{ textAlign: 'right', color: 'var(--ui-text-dim)' }}>
-        {objective.progress} / {objective.target}
-      </div>
-    </div>
+    </aside>
   );
 }

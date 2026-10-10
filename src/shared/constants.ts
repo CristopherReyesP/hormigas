@@ -2,7 +2,9 @@ export const TILE_SIZE = 32; // pixels per tile
 export const WORLD_WIDTH = 120; // tiles
 export const WORLD_HEIGHT = 90; // tiles
 
-// Viewport size (fixed) — NOT derived from world size
+// Reference canvas size, NOT derived from world size. The real canvas follows the
+// window (GameCanvas); this is only its size before the first measure, a test
+// fallback, and the design size screen-space overlays scale from (screenPixelScale).
 export const CANVAS_WIDTH = 800;
 export const CANVAS_HEIGHT = 600;
 
@@ -111,25 +113,25 @@ export const WORKER_FIGHT_RANGE = 10; // workers fight within 10 tiles of nest
 export const FLANKING_BONUS_PER_ALLY = 0.15;
 export const FLANKING_MAX_ALLIES = 5;
 
-// Underground invasions (survival waves)
-export const INVASION_FIRST_WAVE_TIME = 180; // seconds until first wave
-export const INVASION_WAVE_INTERVAL = 150;   // seconds between waves
-export const INVASION_MAX_INVADERS = 4;      // cap per wave
-export const INVASION_SOLDIER_RESPONDERS = 5; // soldiers auto-deployed to defend
+// Underground invasions (survival waves). One wave per night, launched at nightfall.
+// Invaders per night, index 0 = night 1: a lone scout, then a rising curve.
+export const INVASION_WAVE_SIZE_BY_NIGHT = [1, 2, 3, 4, 5, 6, 8] as const;
+export const INVASION_BOSS_NIGHT = 7;  // last night of the run (RUN_NIGHTS_TO_WIN): boss slot, not spawned yet
+export const INVASION_ARM_LEAD = 60;   // seconds before nightfall the wave is telegraphed
+export const INVASION_SOLDIER_RESPONDERS = 9; // soldiers auto-deployed to defend (wave size + 1 on night 7)
 export const INVASION_CIVILIAN_ATTACK_DAMAGE = 4; // drafted workers/nurses bite at half a soldier's strength
 export const NURSE_DEFENSE_RADIUS = 6; // nurses only fight invaders within this range — they guard, never chase
 export const QUEEN_STARVATION_DAMAGE = 5;    // HP/s drained while hunger is at 0
 
-// Healing
-export const HEAL_RATE = 2.0; // 2 HP per second
+// Healing — ants heal by EATING: whatever a meal holds beyond what hunger
+// needs turns into HP. There is no healing trip to the nest.
 export const HEAL_HP_PER_FOOD = 2; // 1 food unit restores 2 HP (costs more food to heal)
-export const HEAL_HEALTH_THRESHOLD = 0.7; // go heal when below 70% health
-export const HEAL_NEST_RANGE = 1.5; // tiles — must be this close to nest to heal
+export const HURT_EAT_HEALTH_RATIO = 0.7; // nurses and defenders live next to the pantry: below this HP they go eat to heal
 
 // Feeding (hunger restoration)
 export const HUNGER_EAT_THRESHOLD = 0.5; // go eat at nest when below 50% hunger
 export const HUNGER_PER_FOOD = 100; // 1 food unit restores 100 hunger points
-export const HUNGER_EAT_RATE = 10; // food units consumed per second while eating at nest
+export const HUNGER_EAT_RATE = 10; // food units consumed per second while eating — also paces healing
 
 // Cricket stats
 export const CRICKET_STATS = {
@@ -213,6 +215,7 @@ export const CROWD_SQUEEZE_SECONDS = 1.5;       // blocked longer than this → 
 export const ROCK_POCKET_COUNT = 14;       // procedural undiggable blobs (design constraints)
 
 // ── Day/night cycle ────────────────────────────────────────────────
+export const RUN_NIGHTS_TO_WIN = 7;
 export const DAY_DURATION = 150;   // seconds of daylight (forage window)
 export const NIGHT_DURATION = 60;  // seconds of night (predators hunt)
 export const DUSK_WARNING = 15;    // warn this many seconds before nightfall
@@ -273,11 +276,6 @@ export const TILE_SCORE = {
 export const RETURNING_HOME_DROP_TIMEOUT = 25; // seconds before ReturningHome drops food (was hardcoded 15)
 export const STUCK_STALL_SECONDS = 4;          // seconds of sub-threshold displacement before declaring stuck
 export const STUCK_MIN_DISPLACEMENT = 0.15;    // tiles; below this per-frame = not moving
-export const HEALING_FAMINE_MAX_CYCLES = 3;    // consecutive Healing→Searching cycles with no underground food before surface escape
-// Seconds of forced foraging after giving up on healing. MUST be negative when
-// assigned to stateTimer: the health/hunger checks are gated on `stateTimer > 0`,
-// so a positive value is not a grace period at all — it re-triggers instantly.
-export const HEALING_FAMINE_ESCAPE_GRACE = 20;
 
 // Scoring Decision System — Action scoring constants
 export const ACTION_SCORE = {
@@ -301,9 +299,31 @@ export const BEETLE_SOLDIER_AVOIDANCE = 1.35;     // soldiers look this much "fu
 export const NIGHT_ENEMY_AGGRESSION_MULTIPLIER = 1.5; // predators see further at night
 
 // ── Ant tactical intelligence ──────────────────────────────────────
-export const SOLDIER_RETREAT_HEALTH_RATIO = 0.25; // soldiers disengage to heal below 25% HP (only if the pantry can feed them)
 export const SOLDIER_FOCUS_FIRE_BONUS = 0.55;     // target-score bonus per ally already engaging that enemy (stacks with flanking)
 export const SOLDIER_MAX_FOCUS_ALLIES = 4;
 export const NEST_THREAT_RADIUS = 14;             // a predator this close to the nest raises the colony alarm
 export const NEST_ALARM_SCORE = 14;               // alarm chase score — outweighs foraging for soldiers
 export const FORAGE_ENEMY_AVOID_RADIUS = 5;       // non-soldiers refuse to harvest this close to a predator
+
+// === Meteorite crater (the run's opening impact; the Crystal Hive rises here later) ===
+export const CRATER_CLEAR_RADIUS = 3; // tiles around the impact that must be walkable
+export const CRATER_EDGE_MARGIN = 6; // tiles kept between the crater and the map edge
+export const CRATER_FAR_FRACTION = 0.75; // of the farthest clearing's distance from the nest
+
+// === Player orders (StarCraft-style control) ===
+export const ORDER_PATHS_PER_TICK = 6;      // ordered ants routed per tick; a big group spreads its A* runs over frames
+export const ORDER_PATH_MAX_STEPS = 6000;   // A* budget for an ordered route (player orders may cross the whole map)
+export const ORDER_ARRIVE_RADIUS = 0.3;     // tiles from the formation slot that count as "arrived"
+export const ORDER_SETTLE_RADIUS = 2;       // a route that ended this close to the slot also counts (slot crowded or blocked)
+export const ORDER_MAX_ROUTES = 6;          // re-route attempts before an unreachable order is dropped
+export const ORDER_TIMEOUT_SECONDS = 90;    // an order that has not arrived by then is dropped (the AI takes over)
+export const ORDER_SNAP_RADIUS = 3;         // a click on rock snaps to the nearest walkable tile this close
+export const ORDER_CHASE_REPATH_SECONDS = 0.75; // an ordered chase re-aims at its moving quarry this often
+export const GUARD_LEASH_RADIUS = 8;        // a warrior on guard fights enemies up to this far from its post, never farther
+export const GUARD_HOME_RADIUS = 1;         // ...and walks back once a fight left it farther than this from the post
+export const ENEMY_PICK_RADIUS = 1.5;       // a right-click this close to an enemy targets it (a big sprite like the cricket: its own size)
+
+// === Control groups and game speed keys ===
+export const CONTROL_GROUP_SLOTS = 9;          // Ctrl+1..9 bind a group, 1..9 recall it
+export const CONTROL_GROUP_DOUBLE_TAP_MS = 300; // the same digit twice this fast also centers the camera on the group
+export const GAME_SPEED_MAX = 3;               // + and - step game speed between x1 and this

@@ -1,3 +1,3 @@
 export { GameCanvas } from './GameCanvas';
-export { HUD } from './HUD';
-export { GameControls } from './GameControls';
+export { TopStrip } from './console/TopStrip';
+export { Console } from './console/Console';

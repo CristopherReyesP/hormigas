@@ -1,27 +1,72 @@
 import type { Camera } from '../camera/Camera';
+import { PointerGesture } from './pointerGesture';
 
-export type KeyHandler = () => void;
+/** Modifier keys held during an input event; Cmd counts as Ctrl on macOS. */
+export interface InputModifiers {
+  shift: boolean;
+  ctrl: boolean;
+}
 
+/** Rectangle in canvas px, normalized so x0 <= x1 and y0 <= y1. */
+export interface ScreenBox {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/** A key press: its modifiers, and whether the OS is auto-repeating a held key. */
+export interface KeyPress extends InputModifiers {
+  repeat: boolean;
+}
+
+export type KeyHandler = (press: KeyPress) => void;
+export type PointHandler = (screenX: number, screenY: number, mods: InputModifiers) => void;
+
+/** Pointer gestures beyond the plain click, wired at construction. */
+export interface PointerHandlers {
+  /** Left button released after a drag: the selection box */
+  onSelectBox?: (box: ScreenBox, mods: InputModifiers) => void;
+  /** Right button tapped (short press, little movement): an order */
+  onCommand?: PointHandler;
+}
+
+function modifiersOf(e: MouseEvent | KeyboardEvent): InputModifiers {
+  return { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey };
+}
+
+/**
+ * Mouse and keyboard for the canvas, StarCraft style: left click selects,
+ * left drag draws a selection box, a right tap gives an order, and a right or
+ * middle drag pans. Nothing here runs while a cinematic directs the camera.
+ */
 export class InputManager {
   private keysDown: Set<string> = new Set();
   private keyHandlers: Map<string, KeyHandler> = new Map();
-  private clickHandlers: Array<(screenX: number, screenY: number) => void> = [];
+  private clickHandlers: PointHandler[] = [];
   private canvas: HTMLCanvasElement;
-
-  // Right-click drag state
-  private isPanning = false;
-  private panStartX = 0;
-  private panStartY = 0;
+  private handlers: PointerHandlers;
   private camera: Camera | null = null;
 
-  constructor(canvas: HTMLCanvasElement) {
+  /** The press in progress (one button at a time) */
+  private gesture: PointerGesture | null = null;
+  /** Canvas px where the press started and where the pointer is now */
+  private pressAt = { x: 0, y: 0 };
+  private pointerAt = { x: 0, y: 0 };
+  /** Client px of the last pan step */
+  private panFromX = 0;
+  private panFromY = 0;
+
+  constructor(canvas: HTMLCanvasElement, handlers: PointerHandlers = {}) {
     this.canvas = canvas;
+    this.handlers = handlers;
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
-    canvas.addEventListener('mousemove', this.onMouseMove);
+    // Move/up live on the window so a drag keeps going over the HUD
+    window.addEventListener('mousemove', this.onMouseMove);
     canvas.addEventListener('mousedown', this.onMouseDown);
-    canvas.addEventListener('mouseup', this.onMouseUp);
-    canvas.addEventListener('click', this.onClick);
+    window.addEventListener('mouseup', this.onMouseUp);
+    window.addEventListener('blur', this.onBlur);
     canvas.addEventListener('contextmenu', this.onContextMenu);
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
   }
@@ -30,11 +75,17 @@ export class InputManager {
     this.camera = camera;
   }
 
+  /**
+   * Run `handler` on a key press. `key` is a KeyboardEvent.code ("Digit1",
+   * "Space"), or a printed character ("+") used when no code is bound: that
+   * one works wherever the layout puts the key, numpad included.
+   */
   onKeyAction(key: string, handler: KeyHandler): void {
     this.keyHandlers.set(key, handler);
   }
 
-  onCanvasClick(handler: (screenX: number, screenY: number) => void): void {
+  /** Left click that did not turn into a drag. */
+  onCanvasClick(handler: PointHandler): void {
     this.clickHandlers.push(handler);
   }
 
@@ -42,15 +93,34 @@ export class InputManager {
     return this.keysDown.has(key);
   }
 
+  /** The selection box being dragged right now (canvas px), or null. */
+  getDragBox(): ScreenBox | null {
+    if (!this.gesture || this.gesture.button !== 0 || !this.gesture.dragging) return null;
+    return this.normalizedBox();
+  }
+
   destroy(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
-    this.canvas.removeEventListener('mousemove', this.onMouseMove);
+    window.removeEventListener('mousemove', this.onMouseMove);
     this.canvas.removeEventListener('mousedown', this.onMouseDown);
-    this.canvas.removeEventListener('mouseup', this.onMouseUp);
-    this.canvas.removeEventListener('click', this.onClick);
+    window.removeEventListener('mouseup', this.onMouseUp);
+    window.removeEventListener('blur', this.onBlur);
     this.canvas.removeEventListener('contextmenu', this.onContextMenu);
     this.canvas.removeEventListener('wheel', this.onWheel);
+  }
+
+  private isDirected(): boolean {
+    return this.camera?.isDirected() ?? false;
+  }
+
+  private normalizedBox(): ScreenBox {
+    return {
+      x0: Math.min(this.pressAt.x, this.pointerAt.x),
+      y0: Math.min(this.pressAt.y, this.pointerAt.y),
+      x1: Math.max(this.pressAt.x, this.pointerAt.x),
+      y1: Math.max(this.pressAt.y, this.pointerAt.y),
+    };
   }
 
   /** Convert CSS mouse position to canvas coordinate space */
@@ -77,10 +147,11 @@ export class InputManager {
 
   private onKeyDown = (e: KeyboardEvent): void => {
     this.keysDown.add(e.code);
-    const handler = this.keyHandlers.get(e.code);
+    const handler = this.keyHandlers.get(e.code) ?? this.keyHandlers.get(e.key);
     if (handler) {
+      // Also keeps Ctrl+digit (a control group) from switching browser tabs
       e.preventDefault();
-      handler();
+      handler({ ...modifiersOf(e), repeat: e.repeat });
     }
   };
 
@@ -88,33 +159,58 @@ export class InputManager {
     this.keysDown.delete(e.code);
   };
 
-  private onMouseMove = (e: MouseEvent): void => {
-    // Right-click drag = pan (use CSS deltas, then convert)
-    if (this.isPanning && this.camera) {
-      const cssDx = e.clientX - this.panStartX;
-      const cssDy = e.clientY - this.panStartY;
-      const { dx, dy } = this.cssDeltaToCanvas(cssDx, cssDy);
-      this.camera.pan(dx, dy);
-      this.panStartX = e.clientX;
-      this.panStartY = e.clientY;
-    }
+  private onMouseDown = (e: MouseEvent): void => {
+    if (this.gesture || this.isDirected()) return;
+    if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
+    // A drag that wanders over the HUD must not select its text
+    if (e.button === 0) e.preventDefault();
+    this.gesture = new PointerGesture(e.button, e.clientX, e.clientY, performance.now());
+    this.pressAt = this.cssToCanvas(e);
+    this.pointerAt = this.pressAt;
+    this.panFromX = e.clientX;
+    this.panFromY = e.clientY;
   };
 
-  private onMouseDown = (e: MouseEvent): void => {
-    // Right-click (button 2) or middle-click (button 1) = start panning
-    if (e.button === 2 || e.button === 1) {
-      this.isPanning = true;
-      this.panStartX = e.clientX;
-      this.panStartY = e.clientY;
-      this.canvas.style.cursor = 'grabbing';
+  private onMouseMove = (e: MouseEvent): void => {
+    const gesture = this.gesture;
+    if (!gesture) return;
+    gesture.move(e.clientX, e.clientY);
+    if (gesture.button === 0) {
+      this.pointerAt = this.cssToCanvas(e);
+      return;
     }
+    // Right/middle: pan once past the threshold, catching up the first few px
+    if (!gesture.dragging || !this.camera) return;
+    const { dx, dy } = this.cssDeltaToCanvas(e.clientX - this.panFromX, e.clientY - this.panFromY);
+    this.camera.pan(dx, dy);
+    this.panFromX = e.clientX;
+    this.panFromY = e.clientY;
+    this.canvas.style.cursor = 'grabbing';
   };
 
   private onMouseUp = (e: MouseEvent): void => {
-    if (e.button === 2 || e.button === 1) {
-      this.isPanning = false;
-      this.canvas.style.cursor = 'crosshair';
+    const gesture = this.gesture;
+    if (!gesture || e.button !== gesture.button) return;
+    this.gesture = null;
+    this.canvas.style.cursor = 'crosshair';
+    this.pointerAt = this.cssToCanvas(e);
+    const kind = gesture.end(e.clientX, e.clientY, performance.now());
+    if (this.isDirected()) return;
+    const mods = modifiersOf(e);
+
+    if (kind === 'click') {
+      for (const handler of this.clickHandlers) handler(this.pressAt.x, this.pressAt.y, mods);
+    } else if (kind === 'box') {
+      this.handlers.onSelectBox?.(this.normalizedBox(), mods);
+    } else if (kind === 'command') {
+      this.handlers.onCommand?.(this.pressAt.x, this.pressAt.y, mods);
     }
+  };
+
+  /** A release outside the window never arrives: drop the press on focus loss. */
+  private onBlur = (): void => {
+    this.gesture = null;
+    this.canvas.style.cursor = 'crosshair';
   };
 
   private onContextMenu = (e: MouseEvent): void => {
@@ -125,18 +221,9 @@ export class InputManager {
     e.preventDefault();
     if (!this.camera) return;
 
+    // Line/page wheel modes (Firefox) report tiny numbers; the camera counts pixels
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
     const pos = this.cssToCanvas(e);
-    this.camera.zoomAt(pos.x, pos.y, e.deltaY);
-  };
-
-  private onClick = (e: MouseEvent): void => {
-    // Only handle left click (button 0)
-    if (e.button !== 0) return;
-
-    const pos = this.cssToCanvas(e);
-
-    for (const handler of this.clickHandlers) {
-      handler(pos.x, pos.y);
-    }
+    this.camera.zoomAt(pos.x, pos.y, e.deltaY * unit);
   };
 }
