@@ -175,6 +175,8 @@ export class RenderSystem {
   private leapTracker = new LeapTracker();
   /** The Human rival's buildings, troops and gunfire */
   private humanRenderer: HumanRenderer;
+  /** Race-specific marks drawn in world space over the units (a Human player's build ghost, rally points, selection) */
+  private worldOverlay: ((ctx: CanvasRenderingContext2D, interpolation: number, time: number) => void) | null = null;
   private camera: Camera | null = null;
   private ambientParticles: AmbientParticleSystem;
   private ugGrid: UndergroundGrid | null = null;
@@ -588,6 +590,11 @@ export class RenderSystem {
   }
 
   /** Stage the run's opening: the meteor strikes `impactTile` and leaves its crater there. GameManager advances `clock`. */
+  /** Marks a race draws over the surface units, in world space (null removes them) */
+  setWorldOverlay(draw: ((ctx: CanvasRenderingContext2D, interpolation: number, time: number) => void) | null): void {
+    this.worldOverlay = draw;
+  }
+
   startMeteorIntro(impactTile: TilePos, nestTile: TilePos, clock: IntroClock): void {
     // The Hive's corruption: crystal shards on the ground around the impact
     const shards = crystalShardsAround(impactTile, DECOR_SEED, (x, y) => {
@@ -1810,6 +1817,7 @@ export class RenderSystem {
     // The Human rival: buildings on explored ground, troops where the colony sees now, gunfire
     this.humanRenderer.draw(ctx, interpolation, this.animationTime, (c, px, py, current, max, always, scale, yOffset) =>
       this.drawHealthBar(c, px, py, current, max, always, scale, yOffset));
+    this.worldOverlay?.(ctx, interpolation, this.animationTime);
 
     for (const { id, pos } of antEntities) {
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;

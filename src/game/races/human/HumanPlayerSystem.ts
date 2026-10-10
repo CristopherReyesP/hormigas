@@ -230,8 +230,8 @@ export class HumanPlayerSystem implements System {
     return sent;
   }
 
-  /** Queue a `type` at `buildingId`, paid now; returns why it cannot, or null. */
-  train(buildingId: EntityId, type: HumanUnitType): string | null {
+  /** Why `type` cannot be queued at `buildingId` right now (a short Spanish reason), or null. */
+  trainProblem(buildingId: EntityId, type: HumanUnitType): string | null {
     const building = this.world.getComponent<HumanBuildingComponent>(buildingId, HUMAN_COMPONENT.BUILDING);
     const producer = this.world.getComponent<HumanProducerComponent>(buildingId, HUMAN_PLAYER_COMPONENT.PRODUCER);
     if (!building || !isPlayerOwned(this.world, buildingId)) return 'Selecciona un edificio tuyo.';
@@ -247,7 +247,15 @@ export class HumanPlayerSystem implements System {
     const cost = PLAYER_TRAIN_COST[type];
     if (this.stock().rations < cost.rations) return `Faltan raciones: ${HUMAN_UNIT_NAME[type]} cuesta ${cost.rations}.`;
     if (this.stock().minerals < cost.minerals) return `Faltan minerales: ${HUMAN_UNIT_NAME[type]} cuesta ${cost.minerals}.`;
-    if (!this.pay(cost)) return 'No alcanza.';
+    return null;
+  }
+
+  /** Queue a `type` at `buildingId`, paid now; returns why it cannot, or null. */
+  train(buildingId: EntityId, type: HumanUnitType): string | null {
+    const problem = this.trainProblem(buildingId, type);
+    if (problem) return problem;
+    if (!this.pay(PLAYER_TRAIN_COST[type])) return 'No alcanza.';
+    const producer = this.world.getComponent<HumanProducerComponent>(buildingId, HUMAN_PLAYER_COMPONENT.PRODUCER)!;
     if (producer.queue.length === 0) producer.progress = 0;
     producer.queue.push(type);
     return null;
