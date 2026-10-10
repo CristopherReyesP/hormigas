@@ -10,7 +10,7 @@ import {
   type HealthComponent,
   type RoleStatsComponent,
 } from '../components/components';
-import { QUEEN_MAX_HEALTH, ROLE_STATS } from '../../shared/constants';
+import { QUEEN_ARMOR, QUEEN_MAX_HEALTH, ROLE_STATS } from '../../shared/constants';
 import { retrofitAntStats } from '../run/antStats';
 import { applyQueenUpgrades, retimeQueuedEggs, syncWorldUpgrades, tallyDeath } from './applyUpgrades';
 import { antStatLines } from './upgradeView';
@@ -67,8 +67,9 @@ describe('queen upgrades on her entity', () => {
     expect(get<EggQueueComponent>(world, queen, COMPONENT.EGG_QUEUE).maxPerType).toBe(7);
     expect(health.max).toBe(QUEEN_MAX_HEALTH + 300);
     expect(health.current).toBe(600);
-    expect(world.getComponent(queen, ARMOR_COMPONENT)).toEqual({ armor: 4 });
-    expect(damageAfterArmor(world, queen, 10)).toBe(6);
+    // Her own chitin (QUEEN_ARMOR) plus 2 a level
+    expect(world.getComponent(queen, ARMOR_COMPONENT)).toEqual({ armor: QUEEN_ARMOR + 4 });
+    expect(damageAfterArmor(world, queen, 10)).toBe(10 - QUEEN_ARMOR - 4);
 
     applyQueenUpgrades(world, 2); // 3 HP/s for 2 s; idempotent otherwise
     expect(health.current).toBe(606);
