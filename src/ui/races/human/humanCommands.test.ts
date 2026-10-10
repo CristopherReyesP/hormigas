@@ -19,7 +19,6 @@ function humanStats(overrides: Partial<HumanPlayerStats> = {}): HumanPlayerStats
     placing: null,
     selected: null,
     group: null,
-    intro: null,
     ...overrides,
   };
 }

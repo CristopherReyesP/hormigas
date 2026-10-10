@@ -11,11 +11,15 @@ import { bakeHumanUnit } from '../../engine/renderer/humanUnits';
 import { sharedSpriteAtlas } from '../../engine/renderer/SpriteAtlas';
 import { HUMAN_BUILDING_STATS } from '../rival/humanBase';
 import { drawHumanBuilding, humanBuildingArtSize } from '../rival/humanArt';
+import type { RaceId, RivalId } from '../run/RunSetup';
+import { HIVE_CROWN } from '../races/crystal/crystalPlayerArt';
+import { CrystalRivalArt } from './crystalRivalArt';
 import {
   DIRT_CLODS,
   WAKE_CRITTERS,
   burstClod,
   dropshipState,
+  hiveCrownGrowth,
   humanBuildProgress,
   landingDustProgress,
   searchlightOn,
@@ -42,6 +46,7 @@ import {
   INTRO_VARIANTS,
   EJECTA_COUNT,
   INTRO_TITLE_LINES,
+  PLAYER_INTRO,
   SPIRE_COUNT,
   SPORE_COUNT,
   canSkipIntro,
@@ -53,10 +58,13 @@ import {
   introFlashAlpha,
   introPulse,
   introSpireGrowth,
+  introTitleLines,
   letterboxAmount,
   meteorAltitude,
   meteorGround,
   meteorProgress,
+  playerDroneState,
+  playerDroneTrail,
   SHARD_COUNT,
   shakeOffset,
   shardOffset,
@@ -100,13 +108,50 @@ const TITLE_HEIGHT_SHARE = 0.36;
 const titleRowColor = (row: number): string =>
   row === 0 ? PAL.white : row >= 5 ? PAL.glowGreen : PAL.swarm.vein[1];
 
-const even = (v: number): number => Math.round(v / 2) * 2;
+/** The title card's colors: the Swarm's chartreuse and magenta, or the player race's own accent on the same plate. */
+interface TitleStyle {
+  plate: string;
+  rule: string;
+  thinRule: string;
+  drop: string;
+  rows: (row: number) => string;
+}
 
-/** The rival line under the title, in the rival's accent */
-const RIVAL_LINE_COLOR: Readonly<Record<IntroVariant, string>> = {
+const TITLE_STYLE: Readonly<Record<RaceId, TitleStyle>> = {
+  swarm: { plate: PAL.swarm.outline, rule: PAL.swarm.vein[1], thinRule: PAL.swarm.flesh[3], drop: PAL.swarm.flesh[2], rows: titleRowColor },
+  crystal: {
+    plate: PAL.crystal.outline,
+    rule: PAL.crystal.shield,
+    thinRule: PAL.crystal.shell[2],
+    drop: PAL.crystal.shell[1],
+    rows: (row) => (row === 0 ? PAL.white : row >= 5 ? PAL.crystal.shell[2] : PAL.crystal.shield),
+  },
+  human: {
+    plate: PAL.human.outline,
+    rule: PAL.human.visor,
+    thinRule: PAL.human.olive[3],
+    drop: PAL.human.olive[1],
+    rows: (row) => (row === 0 ? PAL.white : row >= 5 ? PAL.human.steel[2] : PAL.human.visor),
+  },
+};
+
+/** The rival line (and the marker toward the rival's base) in the rival's accent */
+const RIVAL_COLOR: Readonly<Record<RivalId, string>> = {
   crystal: PAL.crystal.shield,
   human: PAL.human.visor,
   wildlife: PAL.alienFlesh[3],
+  swarm: PAL.swarm.flesh[3],
+};
+
+const even = (v: number): number => Math.round(v / 2) * 2;
+
+/** The rival a Swarm opening brings in, by variant (a player race's opening names its rival in the arrival) */
+const VARIANT_RIVAL: Readonly<Record<IntroVariant, RivalId>> = {
+  crystal: 'crystal',
+  human: 'human',
+  wildlife: 'wildlife',
+  'crystal-player': 'wildlife',
+  'human-player': 'wildlife',
 };
 
 /**
@@ -114,10 +159,10 @@ const RIVAL_LINE_COLOR: Readonly<Record<IntroVariant, string>> = {
  * the screen it had on the old 800×600 buffer (10x there), capped by the
  * height on very wide windows.
  */
-export function introTitleScale(w: number, h: number): number {
-  const longest = Math.max(...INTRO_TITLE_LINES.map((line) => textWidth(line, 1)));
+export function introTitleScale(w: number, h: number, lines: readonly string[] = INTRO_TITLE_LINES): number {
+  const longest = Math.max(...lines.map((line) => textWidth(line, 1)));
   const byWidth = Math.floor((w * TITLE_WIDTH_SHARE) / longest);
-  const byHeight = Math.floor((h * TITLE_HEIGHT_SHARE) / (INTRO_TITLE_LINES.length * GLYPH_H));
+  const byHeight = Math.floor((h * TITLE_HEIGHT_SHARE) / (lines.length * GLYPH_H));
   return Math.max(2, Math.min(byWidth, byHeight));
 }
 
@@ -174,6 +219,11 @@ interface PlacedSpire {
  * spires and drones on the crater; the Humans' dropship and base on their
  * site (the crater is then an old scar, there from the start); or, against
  * the wildlife, the meteor on the crater waking the beetles and leapers.
+ * A Crystal or Human player watches their own base arrive at home instead
+ * (the crater tile is then home): the crystal meteor and the Hive's crown
+ * growing out of its crater with the starting drones, or the dropship and
+ * the Command Center and Cuartel; the real base stays hidden meanwhile
+ * (hidesPlayerBase), and the title card is the race's own.
  *
  * Draw order (wired by RenderSystem): crater and spires with the terrain
  * (under the fog), then after the fog the meteor, ejecta, shockwave, cyan
@@ -192,6 +242,18 @@ export class MeteorIntro {
   /** World px of the crater's center (the target too, except against the Humans) */
   private readonly crater: Vec2;
   private readonly nest: Vec2;
+  /** World px the meteor or the dropship comes in from: over the nest, or a player race's launch point */
+  private readonly from: Vec2;
+  /** Whose arrival: the Swarm watching its rival, or a Crystal or Human player's own base */
+  private readonly player: RaceId;
+  private readonly rival: RivalId;
+  /** A player race's opening: the rival's base, which the end of the shot points at (world px) */
+  private readonly rivalBase: Vec2 | null;
+  /** A Crystal player's starting drones: where each hovers out to (world px) */
+  private readonly dronePosts: Vec2[];
+  private crownArt: CrystalRivalArt | null = null;
+  /** The fireball's colors, hottest first: the meteor's embers, or a Crystal player's crystal meteor in cyan */
+  private readonly fire: readonly [string, string, string];
   /** The crater's tile: it seeds the crater art */
   private readonly seed: TilePos;
   private readonly variant: IntroVariant;
@@ -241,6 +303,12 @@ export class MeteorIntro {
     this.nest = tileCenter(nestTile);
     this.variant = arrival.variant;
     this.traits = INTRO_VARIANTS[arrival.variant];
+    this.player = this.traits.player;
+    this.fire = this.player === 'crystal' ? [PAL.crystal.shell[4], PAL.crystal.shield, PAL.crystal.shell[2]] : [PAL.meteor[0], PAL.meteor[1], PAL.meteor[2]];
+    this.from = arrival.from ? tileCenter(arrival.from) : this.nest;
+    this.rival = arrival.rival ?? VARIANT_RIVAL[arrival.variant];
+    this.rivalBase = arrival.rivalBase ? tileCenter(arrival.rivalBase) : null;
+    this.dronePosts = (arrival.drones ?? []).map((d) => ({ x: d.x * TILE_SIZE + TILE_SIZE / 2, y: d.y * TILE_SIZE + TILE_SIZE / 2 }));
     this.rivalLine = arrival.rivalLine;
     this.humanBase = this.traits.humanDeploy ? (arrival.base ?? { buildings: [], troops: [] }) : null;
   }
@@ -260,7 +328,17 @@ export class MeteorIntro {
 
   /** The Humans' real base stays hidden while their arrival raises it. */
   hidesRivalBase(): boolean {
-    return this.humanBase !== null && this.isPlaying();
+    return this.humanBase !== null && this.player === 'swarm' && this.isPlaying();
+  }
+
+  /** A Crystal or Human player's real base stays hidden while their own arrival raises it, and shows the moment it ends or is skipped. */
+  hidesPlayerBase(): boolean {
+    return this.player !== 'swarm' && this.isPlaying();
+  }
+
+  /** The crater's rim spires stand for a Crystal Hive on `tile` (the rival's, in the Swarm's openings): the game then draws no crown there. */
+  drawsHiveAt(tile: TilePos): boolean {
+    return this.player === 'swarm' && Math.round(tile.x) === this.seed.x && Math.round(tile.y) === this.seed.y;
   }
 
   private get t(): number {
@@ -298,6 +376,8 @@ export class MeteorIntro {
 
   /** The crater is on the ground: once the meteor struck it, or from the start when no meteor comes (the Humans). */
   hasCrater(): boolean {
+    // The expedition lands on bare ground: no crater in a Human player's run
+    if (this.player === 'human') return false;
     return this.traits.arrival !== 'meteor' || this.hasLanded();
   }
 
@@ -375,13 +455,15 @@ export class MeteorIntro {
     } else {
       this.drawLandingDust(ctx, inView);
     }
-    if (this.traits.crystalDeploy) this.drawDeployment(ctx, inView);
+    if (this.player === 'crystal') this.drawHiveRise(ctx, inView);
+    else if (this.traits.crystalDeploy) this.drawDeployment(ctx, inView);
     if (this.traits.wildlifeWake) this.drawWildlifeWake(ctx, inView);
     if (this.humanBase) {
       this.drawHumanBase(ctx, this.humanBase, inView);
       this.drawDropship(ctx, alt0);
     }
-    this.drawSpores(ctx, inView);
+    // The magenta spores drift toward the Swarm's colony: only its openings have them
+    if (this.player === 'swarm') this.drawSpores(ctx, inView);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
   }
@@ -390,7 +472,7 @@ export class MeteorIntro {
   private headAt(t: number, alt0: number): Vec2 {
     const T = INTRO_TIMELINE;
     const clamped = Math.max(T.meteorStart, Math.min(T.impact - 1e-6, t));
-    const g = meteorGround(clamped, this.nest, this.impact)!;
+    const g = meteorGround(clamped, this.from, this.impact)!;
     return { x: g.x, y: g.y - meteorAltitude(clamped, alt0) };
   }
 
@@ -398,13 +480,13 @@ export class MeteorIntro {
     const T = INTRO_TIMELINE;
     const t = this.t;
     const p = meteorProgress(t) ?? 0;
-    const ground = meteorGround(t, this.nest, this.impact)!;
+    const ground = meteorGround(t, this.from, this.impact)!;
     const alt = meteorAltitude(t, alt0);
     const near = 1 - alt / alt0; // 0 high in the sky → 1 at the ground
     const head = this.headAt(t, alt0);
 
     // The ground it is about to hit: a widening orange light pool and a shadow that sharpens
-    if (this.groundGlows.length === 0) this.groundGlows = [16, 26, 38].map((r) => makeHalo(PAL.meteor[1], r));
+    if (this.groundGlows.length === 0) this.groundGlows = [16, 26, 38].map((r) => makeHalo(this.fire[1], r));
     const glow = this.groundGlows[Math.min(2, Math.floor(near * 3))];
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = 0.5 + 0.5 * near;
@@ -425,7 +507,7 @@ export class MeteorIntro {
       const side = (hash2(j, 61) - 0.5) * 260;
       const x = base.x + side * age;
       const y = base.y + (hash2(j, 67) - 0.5) * 120 * age + 360 * age * age;
-      ctx.fillStyle = age < 0.15 ? PAL.meteor[0] : age < 0.35 ? PAL.meteor[1] : PAL.meteor[2];
+      ctx.fillStyle = age < 0.15 ? this.fire[0] : age < 0.35 ? this.fire[1] : this.fire[2];
       const s = age < 0.12 ? 8 : age < 0.3 ? 6 : 4;
       ctx.fillRect(even(x) - s / 2, even(y) - s / 2, s, s);
     }
@@ -441,7 +523,7 @@ export class MeteorIntro {
       const w = even(18 + 46 * f);
       const wob = (hash2(k, flicker) - 0.5) * 12 * f;
       ctx.globalAlpha = f < 0.33 ? 0.4 : f < 0.66 ? 0.24 : 0.12;
-      ctx.fillStyle = f < 0.4 ? PAL.meteor[1] : PAL.meteor[2];
+      ctx.fillStyle = f < 0.4 ? this.fire[1] : this.fire[2];
       ctx.fillRect(even(q.x + wob - w / 2), even(q.y - wob - w / 2), w, w);
     }
     ctx.globalCompositeOperation = 'source-over';
@@ -451,15 +533,15 @@ export class MeteorIntro {
       const size = even(24 * (1 - f)) + 2;
       const wob = (hash2(k, flicker + 7) - 0.5) * 8 * f;
       ctx.globalAlpha = f > 0.7 ? 0.6 : 1;
-      ctx.fillStyle = f < 0.15 ? PAL.white : f < 0.35 ? PAL.meteor[0] : f < 0.65 ? PAL.meteor[1] : PAL.meteor[2];
+      ctx.fillStyle = f < 0.15 ? PAL.white : f < 0.35 ? this.fire[0] : f < 0.65 ? this.fire[1] : this.fire[2];
       ctx.fillRect(even(q.x + wob - size / 2), even(q.y - wob - size / 2), size, size);
     }
     ctx.globalAlpha = 1;
 
     // Head: two additive halos, then a pixel fireball — dark-red rim to a white-hot core.
     // It swells a little as it comes down.
-    if (!this.meteorHalo) this.meteorHalo = makeHalo(PAL.meteor[1], 34);
-    if (!this.meteorCore) this.meteorCore = makeHalo(PAL.meteor[0], 15);
+    if (!this.meteorHalo) this.meteorHalo = makeHalo(this.fire[1], 34);
+    if (!this.meteorCore) this.meteorCore = makeHalo(this.fire[0], 15);
     ctx.globalCompositeOperation = 'lighter';
     for (const halo of [this.meteorHalo, this.meteorCore]) {
       const h = halo.width / 2;
@@ -470,9 +552,9 @@ export class MeteorIntro {
     const hx = Math.round(head.x / ART);
     const hy = Math.round(head.y / ART);
     const r = 9 + Math.round(3 * p);
-    hp.disc(hx, hy, r, PAL.meteor[2]);
-    hp.disc(hx, hy, r - 2, PAL.meteor[1]);
-    hp.disc(hx, hy, r - 4, PAL.meteor[0]);
+    hp.disc(hx, hy, r, this.fire[2]);
+    hp.disc(hx, hy, r - 2, this.fire[1]);
+    hp.disc(hx, hy, r - 4, this.fire[0]);
     hp.disc(hx - 1, hy - 1, r - 7, PAL.white);
   }
 
@@ -490,7 +572,7 @@ export class MeteorIntro {
         ctx.globalAlpha = 1;
       }
       const s = 1 + Math.floor(hash2(i, 59) * 2);
-      const color = c.age < 0.25 ? PAL.meteor[0] : c.age < 0.5 ? PAL.meteor[1] : i % 2 ? PAL.stone[2] : PAL.crater[1];
+      const color = c.age < 0.25 ? this.fire[0] : c.age < 0.5 ? this.fire[1] : i % 2 ? PAL.stone[2] : PAL.crater[1];
       p.rect(gx, Math.round((c.y - c.alt) / ART), s, s, color);
     }
   }
@@ -499,9 +581,22 @@ export class MeteorIntro {
   private drawShockwave(ctx: CanvasRenderingContext2D, inView: (x: number, y: number) => boolean): void {
     const wave = shockwaveProgress(this.t);
     if (wave === null) return;
-    const reach = Math.hypot(this.nest.x - this.impact.x, this.nest.y - this.impact.y) + 900;
+    const reach = Math.hypot(this.from.x - this.impact.x, this.from.y - this.impact.y) + 900;
     const r = reach * (1 - (1 - wave) ** 2);
     const a = wave < 0.25 ? 1 : wave < 0.5 ? 0.8 : wave < 0.75 ? 0.55 : 0.3;
+    if (this.player === 'crystal') {
+      // A Crystal player's meteor is all crystal: its shockwave rings out cyan, drawn additively
+      ctx.globalCompositeOperation = 'lighter';
+      this.drawRing(ctx, inView, r, a, [
+        [0, PAL.crystal.shell[4], 8, 1],
+        [8, PAL.crystal.shield, 6, 0.85],
+        [18, PAL.crystal.shell[3], 6, 0.65],
+        [30, PAL.crystal.shell[2], 4, 0.5],
+        [46, PAL.crystal.shell[1], 4, 0.35],
+      ]);
+      ctx.globalCompositeOperation = 'source-over';
+      return;
+    }
     this.drawRing(ctx, inView, r, a, [
       // offset behind the front, color, square size, alpha factor
       [0, PAL.meteor[0], 8, 1],
@@ -588,6 +683,83 @@ export class MeteorIntro {
     for (const [i, d] of drones) this.drawDrone(ctx, p, i, d);
   }
 
+  /**
+   * A Crystal player's Hive waking in its crater: the crater glows from
+   * inside, the crown's crystal towers push up out of it (the prism first)
+   * shedding rubble, the cyan pulse rings out, and the two starting drones
+   * push up at its foot, unfold and hover out to their posts.
+   */
+  private drawHiveRise(ctx: CanvasRenderingContext2D, inView: (x: number, y: number) => boolean): void {
+    const t = this.t;
+    if (t < INTRO_TIMELINE.impact || !inView(this.impact.x, this.impact.y)) return;
+    this.ensureCraterArt();
+    const art = (this.crownArt ??= new CrystalRivalArt());
+    const p = new PixelPainter(ctx, ART);
+    const hx = this.impact.x;
+    const hy = this.impact.y;
+
+    // The core's glow under the crown, brighter while the pulse rings out
+    const pulse = introPulse(this.variant, t);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = pulse !== null ? 1 : 0.6;
+    const cx = Math.round(hx) - CR_CX * ART;
+    const cy = Math.round(hy) - CR_CY * ART;
+    ctx.drawImage(this.crackLayers[2], cx, cy);
+    const h = this.crystalHalo!.width / 2;
+    ctx.drawImage(this.crystalHalo!, Math.round(hx - h), Math.round(hy - h));
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+
+    // The crown, back to front: each tower rises out of the ground tip first
+    HIVE_CROWN.forEach((piece, i) => {
+      const g = hiveCrownGrowth(i, t);
+      if (g <= 0) return;
+      const px = hx + piece.dx;
+      const py = hy + piece.dy;
+      const span = art.spireSpan(py, piece.kind, piece.floors);
+      if (g >= 1) {
+        art.drawSpire(ctx, px, py, piece.kind, piece.floors);
+        return;
+      }
+      // Pushed up from below, tip first: the whole tower drawn sunk into the ground, cut off at its foot
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(px - TILE_SIZE * 2, span.top - TILE_SIZE, TILE_SIZE * 4, span.bottom - span.top + TILE_SIZE);
+      ctx.clip();
+      ctx.translate(0, even((span.bottom - span.top) * (1 - g)));
+      art.drawSpire(ctx, px, py, piece.kind, piece.floors);
+      ctx.restore();
+      // Rubble chips hop off its foot
+      for (let k = 0; k < 6; k++) {
+        const hop = Math.sin(Math.PI * ((g * 3 + hash2(i, k)) % 1)) * 4;
+        const ox = (hash2(k, i + 3) - 0.5) * 14;
+        p.px(Math.round(px / ART + ox), Math.round(py / ART + 3 - hop), k % 2 ? PAL.stone[2] : PAL.crystal.shell[2]);
+      }
+    });
+
+    if (pulse !== null) {
+      ctx.globalCompositeOperation = 'lighter';
+      const r = 560 * (1 - (1 - pulse) ** 2);
+      const a = pulse < 0.25 ? 1 : pulse < 0.5 ? 0.75 : pulse < 0.75 ? 0.5 : 0.25;
+      this.drawRing(ctx, inView, r, a, [
+        [0, PAL.crystal.shell[4], 6, 1],
+        [6, PAL.crystal.shield, 6, 0.9],
+        [16, PAL.crystal.shell[2], 4, 0.6],
+      ]);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
+
+    // The starting drones, back to front
+    const drones: Array<[number, DroneState, Vec2]> = [];
+    this.dronePosts.forEach((post, i) => {
+      const d = playerDroneState(i, t, this.impact, post);
+      if (d) drones.push([i, d, post]);
+    });
+    drones.sort((a, b) => a[1].y - b[1].y);
+    for (const [i, d, post] of drones) this.drawDrone(ctx, p, i, d, playerDroneTrail(i, t, this.impact, post));
+  }
+
   /** World px of drone state `d`'s core art pixel: its frame stands on the ground point, `lift` above it. */
   private droneCore(d: { x: number; y: number; lift: number }): Vec2 {
     return { x: even(d.x), y: even(d.y) - d.lift - DRONE_FRAME_SIZE + DRONE_CORE_OFFSET.y };
@@ -600,7 +772,7 @@ export class MeteorIntro {
    * pushing up out of the crater floor, everything below the ground line is
    * cut off.
    */
-  private drawDrone(ctx: CanvasRenderingContext2D, p: PixelPainter, i: number, d: DroneState): void {
+  private drawDrone(ctx: CanvasRenderingContext2D, p: PixelPainter, i: number, d: DroneState, trail = droneTrail(i, this.t, this.impact, this.nest)): void {
     const gx = even(d.x);
     const gy = even(d.y);
     const sink = even((1 - d.emerge) * DRONE_FRAME_SIZE);
@@ -618,7 +790,7 @@ export class MeteorIntro {
       p.shadow(gx / ART, gy / ART, high ? 3 : 4, 1, PAL.crystal.outline);
     }
     ctx.globalCompositeOperation = 'lighter';
-    for (const q of droneTrail(i, this.t, this.impact, this.nest)) {
+    for (const q of trail) {
       const c = this.droneCore(q);
       const young = q.age < 0.34;
       const size = young ? 6 : q.age < 0.67 ? 4 : 2;
@@ -777,7 +949,9 @@ export class MeteorIntro {
         }
         continue;
       }
-      drawHumanBuilding(ctx, b.kind, at.x, at.y, UNIT_ART_PX, { progress, time: t, faceLeft: this.nest.x < at.x });
+      // A player's own buildings face the way the game draws them (left, until they have a target)
+      const faceLeft = this.player === 'swarm' ? this.nest.x < at.x : true;
+      drawHumanBuilding(ctx, b.kind, at.x, at.y, UNIT_ART_PX, { progress, time: t, faceLeft });
       if (progress < 1) {
         // Welding sparks up on the frame, dust kicked up at its foot
         const art = humanBuildingArtSize(b.kind);
@@ -823,7 +997,8 @@ export class MeteorIntro {
     const ccKind = base.buildings[0].kind;
     const lamp = { x: cc.x, y: cc.y - (HUMAN_BUILDING_STATS[ccKind].floors * 10 + 6) * ART };
     p.rect(Math.round(lamp.x / ART) - 2, Math.round(lamp.y / ART), 4, 2, PAL.human.steel[0]);
-    const spot = searchlightSpot(t, lamp, this.nest);
+    // The rival's searchlight sweeps the approach from the colony; a player's sweeps toward the rival
+    const spot = searchlightSpot(t, lamp, this.player === 'swarm' ? this.nest : (this.rivalBase ?? this.from));
     if (!spot || !searchlightOn(t)) return;
     p.rect(Math.round(lamp.x / ART) - 1, Math.round(lamp.y / ART), 2, 1, PAL.white);
     const ground = { x: spot.x, y: spot.y + (cc.y - lamp.y) };
@@ -852,7 +1027,7 @@ export class MeteorIntro {
    * struts down for the landing.
    */
   private drawDropship(ctx: CanvasRenderingContext2D, alt0: number): void {
-    const d: DropshipState | null = dropshipState(this.t, this.nest, this.impact, alt0);
+    const d: DropshipState | null = dropshipState(this.t, this.from, this.impact, alt0);
     if (!d) return;
     this.ensureHumanArt();
     const p = new PixelPainter(ctx, ART);
@@ -1005,7 +1180,7 @@ export class MeteorIntro {
     const glow = this.traits.arrival === 'meteor' ? impactGlowAlpha(this.t) : 0;
     if (flash > 0 || glow > 0) {
       ctx.globalAlpha = flash > 0 ? flash : glow;
-      ctx.fillStyle = flash > 0 ? PAL.white : PAL.meteor[1];
+      ctx.fillStyle = flash > 0 ? PAL.white : this.fire[1];
       ctx.fillRect(0, 0, W, H);
     }
     // A cold cyan blink as the Hive's pulse goes off
@@ -1037,19 +1212,22 @@ export class MeteorIntro {
    * arrival's colors: crystal, Human steel and amber, or the meteor's embers.
    */
   private drawEdgePing(ctx: CanvasRenderingContext2D, camera: Camera, px: number): void {
-    if (this.t < INTRO_TIMELINE.impact) return;
+    // A player race's opening points at the rival's base once the camera glances that way; the Swarm's at the landing
+    const target = this.player === 'swarm' ? this.impact : this.rivalBase;
+    if (!target) return;
+    if (this.t < (this.player === 'swarm' ? INTRO_TIMELINE.impact : PLAYER_INTRO.peekStart)) return;
     if (Math.floor(this.t * 4) % 2 === 1) return;
     const v = camera.getViewport();
-    const s = camera.worldToScreen(this.impact.x, this.impact.y);
+    const s = camera.worldToScreen(target.x, target.y);
     if (s.x >= v.x && s.x <= v.x + v.w && s.y >= v.y && s.y <= v.y + v.h) return;
     const m = 9 * px;
     const bar = even(v.h * LETTERBOX_SHARE * letterboxAmount(this.t));
     const x = Math.round(Math.max(v.x + m, Math.min(v.x + v.w - m, s.x)) / px);
     const y = Math.round(Math.max(v.y + bar + m, Math.min(v.y + v.h - bar - m, s.y)) / px);
     const p = new PixelPainter(ctx, px);
-    const [rim, fill, core] = this.variant === 'crystal'
+    const [rim, fill, core] = this.rival === 'crystal'
       ? [PAL.crystal.outline, PAL.crystal.shield, PAL.crystal.shell[4]]
-      : this.variant === 'human'
+      : this.rival === 'human'
         ? [PAL.human.outline, PAL.human.visor, PAL.white]
         : [PAL.outline, PAL.meteor[1], PAL.meteor[0]];
     for (const [dy, half] of [[-3, 0], [-2, 1], [-1, 2], [0, 3], [1, 2], [2, 1], [3, 0]] as const) {
@@ -1071,11 +1249,13 @@ export class MeteorIntro {
    */
   private drawTitle(ctx: CanvasRenderingContext2D, alpha: number, centerY: number, rivalLine: string): void {
     const W = ctx.canvas.width;
-    const S = introTitleScale(W, ctx.canvas.height);
+    const lines = introTitleLines(this.variant);
+    const style = TITLE_STYLE[this.player];
+    const S = introTitleScale(W, ctx.canvas.height, lines);
     /** Plate, rule and outline sizes were drawn for the 10× title */
     const u = (v: number) => Math.max(1, Math.round((v * S) / TITLE_SCALE));
     const lineH = GLYPH_H * S;
-    const blockH = INTRO_TITLE_LINES.length * lineH + (INTRO_TITLE_LINES.length - 1) * u(TITLE_LINE_GAP);
+    const blockH = lines.length * lineH + (lines.length - 1) * u(TITLE_LINE_GAP);
     const top = even(centerY - blockH / 2);
     const plateY = top - u(28);
     // The rival line hangs under the title, inside the plate
@@ -1084,33 +1264,33 @@ export class MeteorIntro {
     const plateH = blockH + rivalH + 2 * u(28);
 
     ctx.globalAlpha = alpha * 0.78;
-    ctx.fillStyle = PAL.swarm.outline;
+    ctx.fillStyle = style.plate;
     ctx.fillRect(0, plateY, W, plateH);
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = PAL.swarm.vein[1];
+    ctx.fillStyle = style.rule;
     ctx.fillRect(0, plateY, W, u(4));
     ctx.fillRect(0, plateY + plateH - u(4), W, u(4));
-    ctx.fillStyle = PAL.swarm.flesh[3];
+    ctx.fillStyle = style.thinRule;
     ctx.fillRect(0, plateY + u(8), W, u(2));
     ctx.fillRect(0, plateY + plateH - u(10), W, u(2));
 
     const o = u(4);
-    INTRO_TITLE_LINES.forEach((line, i) => {
+    lines.forEach((line, i) => {
       const x = Math.round((W - textWidth(line, S)) / 2);
       const y = top + i * (lineH + u(TITLE_LINE_GAP));
-      drawPixelText(ctx, line, x + 2 * o, y + 2 * o, S, PAL.swarm.flesh[2]);
+      drawPixelText(ctx, line, x + 2 * o, y + 2 * o, S, style.drop);
       for (const [ox, oy] of [[-o, 0], [o, 0], [0, -o], [0, o], [-o, -o], [o, -o], [-o, o], [o, o]]) {
-        drawPixelText(ctx, line, x + ox, y + oy, S, PAL.swarm.outline);
+        drawPixelText(ctx, line, x + ox, y + oy, S, style.plate);
       }
-      drawPixelText(ctx, line, x, y, S, titleRowColor);
+      drawPixelText(ctx, line, x, y, S, style.rows);
     });
     if (rivalLine) {
       const x = Math.round((W - textWidth(rivalLine, R)) / 2);
       const y = top + blockH + u(18);
       for (const [ox, oy] of [[-R, 0], [R, 0], [0, -R], [0, R], [R, R]]) {
-        drawPixelText(ctx, rivalLine, x + ox, y + oy, R, PAL.swarm.outline);
+        drawPixelText(ctx, rivalLine, x + ox, y + oy, R, style.plate);
       }
-      drawPixelText(ctx, rivalLine, x, y, R, RIVAL_LINE_COLOR[this.variant]);
+      drawPixelText(ctx, rivalLine, x, y, R, RIVAL_COLOR[this.rival]);
     }
   }
 
@@ -1186,7 +1366,8 @@ export class MeteorIntro {
     this.crystalHalo = makeHalo(PAL.crystal.shield, 14);
     this.droneHalo = makeHalo(PAL.crystal.shield, 7);
     this.buildShardArt();
-    this.buildSpires();
+    // The rim spires are the rival Hive's; a Crystal player's Hive grows its own crown
+    if (this.player === 'swarm') this.buildSpires();
     this.droneFrames = buildDroneFrames();
     this.shardFrames = buildShardFrames();
   }

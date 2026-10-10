@@ -9,9 +9,7 @@ import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
 import { HudLayer } from './ui/HudLayer';
 import { WaveAlert } from './ui/WaveAlert';
-import { CrystalIntroTitle } from './ui/races/crystal/CrystalIntroTitle';
 import { NestAlert } from './ui/NestAlert';
-import { HumanIntroBanner } from './ui/races/human/HumanIntroBanner';
 import { NextWaveCard } from './ui/NextWaveCard';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
@@ -77,7 +75,7 @@ const DEFAULT_STATS: GameStats = {
   mutationOffer: null,
   mutationSelection: null,
   lastMutationPick: null,
-  introPlaying: true, // every run opens on the meteor intro, so the HUD starts hidden
+  introPlaying: true, // every run opens on its race's cinematic, so the HUD starts hidden
 };
 
 /** While paused the simulation stops pushing stats; poll so pause, selection and layer still show. */
@@ -265,14 +263,10 @@ export default function App() {
       {!stats.introPlaying && (
         <WaveAlert invasion={stats.invasion} activeLayer={stats.activeLayer} view={gameManager?.getActiveView() ?? null} />
       )}
-      {/* The Crystal Hive skips the Swarm's meteor intro: a short title instead */}
-      {runSetup.playerRace === 'crystal' && !stats.gameOver && <CrystalIntroTitle />}
       {/* Invaders inside the nest: the banner with "Ir al nido", and the all-clear */}
       {!stats.introPlaying && stats.nestAlert && (
         <NestAlert state={stats.nestAlert} activeLayer={stats.activeLayer} onGoToNest={handleGoToNest} />
       )}
-      {/* A Human expedition's landing line (the Swarm opens with the meteor cinematic instead) */}
-      {stats.human?.intro && !stats.gameOver && <HumanIntroBanner title={stats.human.intro} />}
       {/* Pause menu: save, load, back to the start screen */}
       {/* Hidden while Hormi teaches: the tutorial has its own Salir, and nothing of it is saved */}
       {!stats.introPlaying && !stats.gameOver && gameManager && !tutorialOpen && (

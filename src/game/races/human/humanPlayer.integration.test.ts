@@ -72,11 +72,11 @@ describe('a Humans run against the Crystal Hive', () => {
     game.stop();
   });
 
-  it('skips the meteor cinematic and greets the expedition instead', () => {
+  it('opens on the expedition landing at home, under the HUD-less cinematic', () => {
     const game = new GameManager(fakeCanvas(), VS_CRYSTAL);
-    const stats = game.getStats();
-    expect(stats.introPlaying).toBe(false);
-    expect(stats.human?.intro).toMatch(/EXPEDICI/);
+    expect(game.getStats().introPlaying).toBe(true);
+    finishIntro(game);
+    expect(game.getStats().introPlaying).toBe(false);
     game.stop();
   });
 
