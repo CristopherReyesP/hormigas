@@ -117,6 +117,16 @@ export const PAL = {
   uiBorder: '#4a3a26',
   uiText: '#d8d0c0',
   uiTextDim: '#8a8070',
+
+  // ── The Humans (third faction): muted steel and olive drab, no glow ──
+  // Low-chroma ramps so they never compete with the Swarm's magenta or the
+  // Crystal Hive's cyan; the dull amber visor is their only warm accent.
+  human: {
+    steel: ['#1c2024', '#33393f', '#525a62', '#7a838a', '#a9b0b4'],
+    olive: ['#23271a', '#3a4128', '#56603a', '#77804f'],
+    visor: '#c8a050',
+    outline: '#0f1210',
+  },
 } as const;
 
 /** `#rrggbb` palette token → `rgba()` string for screen-space washes. */
