@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { GameStats } from '../../game/GameManager';
 import type { QuickSelectKind } from '../../game/systems/helpers/quickSelect';
 import { PixelIcon } from './PixelIcon';
@@ -8,6 +9,10 @@ import type { TouchHint } from './touchHint';
 interface TouchCommandBarProps {
   stats: GameStats;
   hint: TouchHint;
+  /** A live readout under the hint text (Excavar's counter) */
+  hintExtra?: ReactNode;
+  /** The hint explains a refusal (the dig limit): drawn red */
+  hintRefused?: boolean;
   /** The full info panel is open over the map */
   infoOpen: boolean;
   onToggleInfo: () => void;
@@ -25,6 +30,9 @@ const CHIP: Record<QuickSelectKind, { label: string; icon: IconName }> = {
   'human-marksman': { label: 'Tiradores', icon: 'target' },
   'human-tank': { label: 'Tanques', icon: 'shield' },
   'human-builder': { label: 'Constructores', icon: 'pick' },
+  // A Crystal player's units
+  'crystal-drone': { label: 'Drones', icon: 'sword' },
+  'crystal-sentinel': { label: 'Centinelas', icon: 'eye' },
   all: { label: 'Todas', icon: 'group' },
 };
 
@@ -36,13 +44,24 @@ const CHIP: Record<QuickSelectKind, { label: string; icon: IconName }> = {
  * every ant of its kind on the map; a second tap centers the camera on them.
  * Hidden on the desktop console.
  */
-export function TouchCommandBar({ stats, hint, infoOpen, onToggleInfo, onQuickSelect, onRecallGroup, onClearSelection }: TouchCommandBarProps) {
+export function TouchCommandBar({ stats, hint, hintExtra, hintRefused, infoOpen, onToggleInfo, onQuickSelect, onRecallGroup, onClearSelection }: TouchCommandBarProps) {
   const chips = stats.quickSelect ?? [];
   const groups = stats.controlGroups ?? [];
   return (
     <section className="console-quick" aria-label="Elegir tropas">
-      <div className={`quick-hint quick-hint--${hint.mode}`} data-coach="hint-line" aria-live="polite">
-        <span className="quick-hint-text">{hint.text}</span>
+      <div
+        className={`quick-hint quick-hint--${hint.mode}${hintExtra ? ' quick-hint--meter' : ''}${hintRefused ? ' quick-hint--refused' : ''}`}
+        data-coach="hint-line"
+        aria-live="polite"
+      >
+        {hintExtra ? (
+          <span className="quick-hint-text">
+            <span className="quick-hint-line">{hint.text}</span>
+            {hintExtra}
+          </span>
+        ) : (
+          <span className="quick-hint-text">{hint.text}</span>
+        )}
         {hint.selection && (
           <button
             type="button"

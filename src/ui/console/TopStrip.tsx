@@ -5,6 +5,8 @@ import type { IconName } from './pixelIcons';
 import { formatClock, stripEmoji } from './format';
 import { useFlashOnChange } from '../useFlashOnChange';
 import { SoundToggle } from '../../audio/ui/SoundToggle';
+import { CrystalResources } from '../races/crystal/CrystalResources';
+import '../races/crystal/crystal.css';
 import { HumanResources } from '../races/human/HumanResources';
 
 type FoodType = 'leaf' | 'mushroom' | 'meat';
@@ -131,7 +133,7 @@ export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
   return (
     <header className={open ? 'top-strip top-strip--open' : 'top-strip'}>
       <div className="strip-group">
-        {stats.human ? <HumanResources human={stats.human} /> : (<>
+        {stats.crystal ? <CrystalResources crystal={stats.crystal} /> : stats.human ? <HumanResources human={stats.human} /> : (<>
         <FoodResource icon="leaf" value={leaves} label="Hojas" active={eatFirst === 'leaf'} onSelect={select('leaf')} />
         <FoodResource icon="fungus" value={stats.mushroomStored} label="Hongos" active={eatFirst === 'mushroom'} onSelect={select('mushroom')} />
         <FoodResource icon="meat" value={stats.meatStored} label="Carne" active={eatFirst === 'meat'} onSelect={select('meat')} />

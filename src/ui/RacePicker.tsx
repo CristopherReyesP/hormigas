@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { installAudioUi } from '../audio';
 import { sanitizeRunSetup, withPlayerRace, withRivalRace, type RunSetup } from '../game/run/RunSetup';
 import { RACE_CARDS, raceName, rivalName, rivalOptionsFor, type RaceCardInfo, type RaceStat, type RivalInfo } from './racePicker/races';
@@ -11,14 +11,17 @@ interface RacePickerProps {
   onStart: (setup: RunSetup) => void;
   /** Start the guided tutorial instead */
   onTutorial?: () => void;
+  /** Shown above the setup: the saved run to continue, when there is one */
+  savedRun?: ReactNode;
 }
 
 /**
  * Pre-run skirmish setup, StarCraft style: pick your race and the rival, then
  * COMENZAR. Races that are not playable yet show as "Próximamente" cards so
- * the roster (and its identity) is visible from the first run.
+ * the roster (and its identity) is visible from the first run. The rival list
+ * follows the race: the Crystal Hive also lists the Swarm, coming soon.
  */
-export function RacePicker({ initialSetup, onStart, onTutorial }: RacePickerProps) {
+export function RacePicker({ initialSetup, onStart, onTutorial, savedRun }: RacePickerProps) {
   const [setup, setSetup] = useState(() => sanitizeRunSetup(initialSetup));
   // The first screen: from here on every button ticks and taps, and the first click unlocks audio
   useEffect(() => installAudioUi(), []);
@@ -26,6 +29,7 @@ export function RacePicker({ initialSetup, onStart, onTutorial }: RacePickerProp
   return (
     <div className="race-picker" role="dialog" aria-modal="true" aria-labelledby="race-picker-title">
       <div className="race-picker-frame">
+        {savedRun}
         <header className="race-picker-head">
           <h1 id="race-picker-title" className="race-picker-title">NUEVA PARTIDA</h1>
           <p className="race-picker-subtitle">Elige tu raza y contra quién vas a combatir</p>

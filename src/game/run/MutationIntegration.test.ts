@@ -51,7 +51,10 @@ describe('mutation read sites', () => {
 
     expect(game.applyMutation('acid_mandibles')).toBe(true);
     expect(get<HealthComponent>(world, soldier, COMPONENT.HEALTH).damage).toBe(11); // round(8 × 1.4)
-    vi.spyOn(game as unknown as { deductMushrooms(cost: number): boolean }, 'deductMushrooms').mockReturnValue(true);
+    // Upgrades are paid for here: the test is about the stats, not the price
+    const shop = game as unknown as { upgradeFunds(): unknown; payUpgradeCost(): void };
+    vi.spyOn(shop, 'upgradeFunds').mockReturnValue({ food: 1e6, mushrooms: 1e6, minerals: 1e6 });
+    vi.spyOn(shop, 'payUpgradeCost').mockImplementation(() => {});
     game.purchaseUpgrade('damage');
     game.purchaseUpgrade('carry');
     game.applyMutation('acid_mandibles');

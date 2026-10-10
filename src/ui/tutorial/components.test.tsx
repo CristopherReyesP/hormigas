@@ -16,6 +16,19 @@ describe('tutorial entry points', () => {
     expect(renderToStaticMarkup(<RacePicker initialSetup={DEFAULT_RUN_SETUP} onStart={noop} />)).not.toContain('data-tutorial-start');
   });
 
+  it('the start screen shows Continuar and Tutorial together', () => {
+    const html = renderToStaticMarkup(
+      <RacePicker
+        initialSetup={DEFAULT_RUN_SETUP}
+        onStart={noop}
+        onTutorial={noop}
+        savedRun={<button type="button" data-continue="">Continuar</button>}
+      />,
+    );
+    expect(html).toContain('data-continue');
+    expect(html).toContain('data-tutorial-start');
+  });
+
   it('the first-visit offer has Hormi, an accept and a skip button', () => {
     const html = renderToStaticMarkup(<TutorialOffer onAccept={noop} onDecline={noop} />);
     expect(html).toContain('role="dialog"');

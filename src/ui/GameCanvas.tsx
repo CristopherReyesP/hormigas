@@ -16,6 +16,8 @@ interface GameCanvasProps {
   introPlaying: boolean;
   /** The guided tutorial: its own calm, seeded map (the setup is ignored) */
   tutorial?: boolean;
+  /** Builds the GameManager instead of a new run (a loaded save); read once */
+  createGame?: (canvas: HTMLCanvasElement) => GameManager;
 }
 
 /**
@@ -27,7 +29,7 @@ interface GameCanvasProps {
  * During the intro the HUD is hidden and that band is the whole window; as
  * the HUD fades in, the band eases back so the camera glides instead of jumping.
  */
-export function GameCanvas({ setup, onStatsUpdate, onGameManager, introPlaying, tutorial = false }: GameCanvasProps) {
+export function GameCanvas({ setup, onStatsUpdate, onGameManager, introPlaying, tutorial = false, createGame }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const gameManagerRef = useRef<GameManager | null>(null);
@@ -42,7 +44,11 @@ export function GameCanvas({ setup, onStatsUpdate, onGameManager, introPlaying, 
     if (gameManagerRef.current) return; // prevent double init in strict mode
 
     const canvas = canvasRef.current;
-    const gm = tutorial ? createTutorialGame((s) => new GameManager(canvas, s)) : new GameManager(canvas, setup);
+    const gm = tutorial
+      ? createTutorialGame((s) => new GameManager(canvas, s))
+      : createGame
+        ? createGame(canvas)
+        : new GameManager(canvas, setup);
     gameManagerRef.current = gm;
 
     gm.onStats(onStatsUpdate);

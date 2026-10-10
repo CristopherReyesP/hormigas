@@ -39,14 +39,15 @@ export class CrystalRivalArt {
   drawUnit(ctx: Ctx, px: number, py: number, kind: CrystalUnitKind, entityId: number, time: number): number {
     const frames = this.framesOf(kind);
     // Per-entity phase so a wave does not bob in lockstep
-    const frame = frames[(Math.floor((time * 1000) / CRYSTAL_FRAME_MS) + entityId) % frames.length];
+    // Wrapped into range even for a negative or non-finite clock, so a bad frame time never drops the whole frame
+    const step = Math.floor((time * 1000) / CRYSTAL_FRAME_MS) + entityId;
+    const frame = frames[Number.isFinite(step) ? ((step % frames.length) + frames.length) % frames.length : 0];
     const top = Math.round(py - frame.height + TILE_SIZE * 0.35);
     ctx.drawImage(frame, Math.round(px - frame.width / 2), top);
     return top;
   }
 
-  /** A spire seated on (px, py); returns its tip (world px) */
-  drawSpire(ctx: Ctx, px: number, py: number, kind: CrystalStructureKind, floors: number): number {
+  private spireArt(kind: CrystalStructureKind, floors: number): SpireArt {
     const key = `${kind}:${floors}`;
     let art = this.spires.get(key);
     if (!art) {
@@ -54,6 +55,19 @@ export class CrystalRivalArt {
       art = buildSpire(shape.width, shape.height, shape.lean);
       this.spires.set(key, art);
     }
+    return art;
+  }
+
+  /** Where a spire seated on py starts and ends vertically (world px), without drawing it */
+  spireSpan(py: number, kind: CrystalStructureKind, floors: number): { top: number; bottom: number } {
+    const art = this.spireArt(kind, floors);
+    const top = Math.round(py + TILE_SIZE * 0.3 + art.baseBelow - art.body.height);
+    return { top, bottom: top + art.body.height };
+  }
+
+  /** A spire seated on (px, py); returns its tip (world px) */
+  drawSpire(ctx: Ctx, px: number, py: number, kind: CrystalStructureKind, floors: number): number {
+    const art = this.spireArt(kind, floors);
     const left = Math.round(px - art.baseX);
     const top = Math.round(py + TILE_SIZE * 0.3 + art.baseBelow - art.body.height);
     ctx.drawImage(art.body, left, top);

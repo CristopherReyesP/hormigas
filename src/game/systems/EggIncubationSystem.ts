@@ -25,6 +25,7 @@ import { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import { ChamberType } from '../../simulation/world/types';
 import { emitAudio } from '../../audio/events';
 import { eggLaidAudio } from '../../audio/gameHooks';
+import { incubationSpeed } from '../upgrades/upgradeEffects';
 
 const ROLE_BIRTH_NAMES: Record<string, string> = {
   worker: 'una obrera',
@@ -118,7 +119,7 @@ export class EggIncubationSystem implements System {
 
       // Eggs incubate just by being in the incubation area
       if (inIncubation) {
-        egg.hatchTimer -= dt;
+        egg.hatchTimer -= dt * incubationSpeed(this.world.upgradeLevels); // Cámara de incubación
 
         if (egg.hatchTimer <= 0) {
           egg.hatchTimer = 0;

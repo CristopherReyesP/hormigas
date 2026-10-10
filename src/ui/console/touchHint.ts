@@ -23,6 +23,8 @@ export interface TouchHintInput {
   touch: boolean;
   /** A Human player's base (null for the Swarm): its selected group */
   human?: Pick<HumanPlayerStats, 'group'> | null;
+  /** A Crystal player's HUD (null for the other races): the selected units by kind */
+  crystal?: { selectedKinds: { drones: number; sentinels: number } } | null;
   /** A race's own placement hint (a Human building being placed): it wins over everything */
   toolHint?: string | null;
 }
@@ -71,6 +73,20 @@ export function humanCountLabel(byType: Partial<Record<HumanUnitType, number>>):
   return `${count} ${(count === 1 ? HUMAN_ONE : HUMAN_MANY)[types[0]]} ${count === 1 ? 'elegido' : 'elegidos'}`;
 }
 
+/** "2 drones elegidos", "1 centinela elegido", "3 unidades elegidas" (mixed kinds). */
+export function crystalCountLabel(kinds: { drones: number; sentinels: number }): string {
+  const count = kinds.drones + kinds.sentinels;
+  if (kinds.drones > 0 && kinds.sentinels > 0) return `${count} unidades elegidas`;
+  const noun = kinds.drones > 0 ? (count === 1 ? 'dron' : 'drones') : (count === 1 ? 'centinela' : 'centinelas');
+  return `${count} ${noun} ${count === 1 ? 'elegido' : 'elegidos'}`;
+}
+
+/** A Crystal player's selected own units, or null when none */
+function selectedCrystalKinds(input: TouchHintInput): { drones: number; sentinels: number } | null {
+  const kinds = input.crystal?.selectedKinds;
+  return kinds && kinds.drones + kinds.sentinels > 0 ? kinds : null;
+}
+
 /** A Human player's selected own units per type: a group, or one unit; null when none */
 function selectedHumanTypes(input: TouchHintInput): Partial<Record<HumanUnitType, number>> | null {
   const group = input.human?.group;
@@ -115,6 +131,8 @@ const TEXT = {
   },
 } as const;
 
+/** A Crystal player's own spire or Hive selected: its card produces and grows */
+const OWN_CRYSTAL = 'Produce o añade pisos con los botones de abajo · elige tropas en la barra';
 /** A Human player's own building selected: its card trains and builds */
 const OWN_BUILDING = 'Entrena o construye con los botones de abajo · elige tropas en la barra';
 const AREA = 'Arrastra un rectángulo para elegir hormigas';
@@ -123,9 +141,13 @@ const BELOW_ANTS = 'Bajo tierra las hormigas trabajan solas · sube para darles 
 export function touchHint(input: TouchHintInput): TouchHint {
   const text = input.touch ? TEXT.touch : TEXT.mouse;
   const humans = selectedHumanTypes(input);
-  const roles = selectedRoles(input) ?? humans;
+  const crystals = selectedCrystalKinds(input);
+  const roles = crystals ? null : selectedRoles(input) ?? humans;
   const sel = input.selectedEntity;
-  const selection = humans ? humanCountLabel(humans) : roles ? selectionCountLabel(roles as Partial<Record<AntRole, number>>) : sel ? selectionTitle(sel).name : null;
+  const selection = crystals ? crystalCountLabel(crystals)
+    : humans ? humanCountLabel(humans)
+    : roles ? selectionCountLabel(roles as Partial<Record<AntRole, number>>)
+    : sel ? selectionTitle(sel).name : null;
 
   if (input.toolHint) return { mode: 'build', text: input.toolHint, selection };
 
@@ -134,7 +156,12 @@ export function touchHint(input: TouchHintInput): TouchHint {
   if (input.activeLayer === 'underground') {
     return { mode: roles ? 'info' : 'pick', text: roles ? BELOW_ANTS : text.below, selection };
   }
-  if (input.areaSelect) return { mode: 'area', text: AREA, selection };
+  if (input.areaSelect) return { mode: 'area', text: input.crystal ? AREA.replace('hormigas', 'unidades') : AREA, selection };
+  if (crystals) {
+    if (input.commandTarget === 'move') return { mode: 'target', text: text.move, selection };
+    if (input.commandTarget === 'attack') return { mode: 'target', text: text.attack, selection };
+    return { mode: 'order', text: text.order, selection };
+  }
   if (roles) {
     if (humans) {
       if (input.commandTarget === 'move') return { mode: 'target', text: text.move, selection };
@@ -149,11 +176,12 @@ export function touchHint(input: TouchHintInput): TouchHint {
   }
   if (sel) {
     if (sel.human?.own) return { mode: 'info', text: OWN_BUILDING, selection };
+    if (sel.owned) return { mode: 'info', text: OWN_CRYSTAL, selection };
     if (ENEMY_TYPES.has(sel.type)) return { mode: 'info', text: text.enemy, selection };
     if (sel.type === 'nest') return { mode: 'info', text: text.nest, selection };
     return { mode: 'info', text: text.food, selection };
   }
   // A Human player picks units, not ants
-  const pick = input.human ? text.pick.replace('una hormiga', 'una unidad') : text.pick;
+  const pick = input.human || input.crystal ? text.pick.replace('una hormiga', 'una unidad') : text.pick;
   return { mode: 'pick', text: pick, selection: null };
 }

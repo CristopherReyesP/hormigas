@@ -35,9 +35,11 @@ import { combatVfxFor, type BodyKind, type CombatVfx, type VictimKind } from '..
 import { damageAfterArmor } from './helpers/combatHelpers';
 import { humanShotsFor } from '../rival/humanShots';
 import { applyHumanSplash, fireHumanShot, handleHumanDeath, isHumanEntity } from './HumanCombat';
+import { FactionId, ownerOf } from '../factions/factions';
 import { advanceWaveFx, waveRuntimeFor } from '../run/waveRuntime';
 import { onWaveUnitDeath } from '../run/waveDeaths';
 import { DEFENSE_STATS, STRUCTURE_COMPONENT, type StructureComponent } from '../run/defenses';
+import { tallyDeath } from '../upgrades/applyUpgrades';
 
 export class CombatSystem implements System {
   readonly name = 'CombatSystem';
@@ -288,6 +290,7 @@ export class CombatSystem implements System {
   }
 
   private handleDeath(entityId: EntityId, _toDestroy: EntityId[]): void {
+    tallyDeath(this.world, entityId);
     onWaveUnitDeath(this.world, entityId);
     if (this.handleStructureDeath(entityId)) return;
     if (handleHumanDeath(this.world, this.vfx, entityId)) return;
@@ -326,6 +329,12 @@ export class CombatSystem implements System {
     const pos = this.world.getComponent<PositionComponent>(entityId, COMPONENT.POSITION);
     const hive = this.world.getComponent(entityId, COMPONENT.CRYSTAL_HIVE) !== undefined;
     if (pos) this.vfx.crystalShards(pos.x, pos.y, this.layerOf(entityId), hive ? 32 : 10);
+    if (ownerOf(this.world, entityId) === FactionId.PLAYER) {
+      // A Crystal player's own loss
+      if (hive) this.world.pushNotification('danger', '💎 ¡Tu colmena se hizo añicos!');
+      else if (this.world.getComponent(entityId, COMPONENT.CRYSTAL_SPIRE)) this.world.pushNotification('danger', '💎 Perdiste una estructura de cristal');
+      return;
+    }
     if (hive) this.world.pushNotification('success', '💎 ¡La Colmena de Cristal se hizo añicos!');
     else if (this.world.getComponent(entityId, COMPONENT.CRYSTAL_SPIRE)) this.world.pushNotification('success', '💎 ¡Derribaste una aguja de la Colmena de Cristal!');
   }
