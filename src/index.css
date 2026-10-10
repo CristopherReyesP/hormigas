@@ -1733,19 +1733,23 @@ button:focus-visible {
    COMPACT (PHONE) LAYOUTS — HudLayer adds hud-layer--phone-portrait or
    --phone-landscape when the window cannot hold the 1280×720 console
    (hudLayout in src/ui/layout/hudMetrics.ts, whose HUD_BARS and
-   COMPACT_* mirror --strip-row, --card-h, --cmd-btn and --info-bar-h
+   COMPACT_*, HINT_LINE_PX and QUICK_BAR_PX mirror --strip-row, --card-h, --cmd-btn, --hint-h and --quick-h
    here), and hud-layer--touch on touch screens.
    The map gets most of the screen: a one-row strip with the key
-   readouts (Más datos opens the rest), a command card of icon-only
-   buttons, the info panel folded to a one-line bar, and a small
-   minimap that floats over the map and folds to its tabs. The bars
-   grow by the safe areas (notch, home indicator), as the camera does.
+   readouts (Más datos opens the rest), the hint line (what a tap does
+   now), the quick-select bar (Soldados · Obreras · Exploradoras ·
+   Todas · groups), a command card whose main orders are big labeled
+   buttons, the info panel behind the hint line's details button, and
+   a small minimap that floats over the map and folds to its tabs. The
+   bars grow by the safe areas (notch, home indicator), as the camera does.
    ════════════════════════════════════════════════════════════ */
 
 /* Compact-only controls */
 .minimap-tab-icon,
 .minimap-toggle,
 .info-summary,
+.console-quick,
+.cmd-label,
 .strip-more {
   display: none;
 }
@@ -1753,7 +1757,8 @@ button:focus-visible {
 .hud-layer--phone {
   --cmd-btn: 40px;
   --cmd-gap: 4px;
-  --info-bar-h: 32px;
+  --hint-h: 40px;
+  --quick-h: 40px;
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-l: env(safe-area-inset-left, 0px);
@@ -1765,8 +1770,8 @@ button:focus-visible {
 
 .hud-layer--phone-portrait {
   --strip-row: 30px;
-  --card-h: 140px;
-  --deck-h: calc(var(--card-h) + var(--info-bar-h) + var(--safe-b));
+  --card-h: 96px;
+  --deck-h: calc(var(--card-h) + var(--quick-h) + var(--hint-h) + var(--safe-b));
 }
 
 .hud-layer--phone-landscape {
@@ -1899,9 +1904,11 @@ button:focus-visible {
   height: 100%;
 }
 
+/* Portrait: two rows of eight; empty slots give way, the main orders go first */
 .hud-layer--phone-portrait .cmd-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  grid-template-rows: repeat(3, var(--cmd-btn));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-rows: repeat(2, var(--cmd-btn));
+  grid-auto-flow: row dense;
 }
 
 /* Landscape: one row, as many buttons as the page has */
@@ -1912,8 +1919,44 @@ button:focus-visible {
   grid-auto-columns: minmax(0, 1fr);
 }
 
-.hud-layer--phone-landscape .cmd-slot--empty {
+.hud-layer--phone .cmd-slot--empty {
   display: none;
+}
+
+/* The main orders (Mover, Atacar, Volver al nido, Atacar guarida): big buttons with their name */
+.hud-layer--phone .cmd-slot--wide {
+  grid-column: span 3;
+}
+
+.hud-layer--phone-portrait .cmd-slot[data-cmd="rally"] {
+  grid-column: span 2;
+}
+
+.hud-layer--phone .cmd-slot[data-cmd="move"] { order: -3; }
+.hud-layer--phone .cmd-slot[data-cmd="attack"] { order: -2; }
+.hud-layer--phone .cmd-slot[data-cmd="rally"] { order: -1; }
+
+.hud-layer--phone .cmd-slot--wide .cmd-face {
+  gap: 6px;
+  padding: 0 6px;
+}
+
+.hud-layer--phone .cmd-label {
+  display: block;
+  min-width: 0;
+  font-size: 8px;
+  line-height: 1.4;
+  text-align: left;
+  text-transform: uppercase;
+  color: var(--chrome-text);
+}
+
+.hud-layer--phone .cmd-btn--danger .cmd-label {
+  color: #ffd0d0;
+}
+
+.hud-layer--phone .cmd-btn--active .cmd-label {
+  color: var(--chrome-accent);
 }
 
 .hud-layer--phone .cmd-slot {
@@ -1962,27 +2005,194 @@ button:focus-visible {
   min-width: 0;
 }
 
+/* Opened from the hint line's details button: the full panel over the map, above the bars */
 .hud-layer--phone-portrait .console-info {
   left: var(--safe-l);
   right: var(--safe-r);
-  bottom: calc(var(--card-h) + var(--safe-b));
+  bottom: var(--deck-h);
 }
 
 .hud-layer--phone-landscape .console-info {
   left: calc(6px + var(--safe-l));
-  bottom: calc(var(--deck-h) + 6px);
+  bottom: calc(var(--deck-h) + var(--hint-h) + var(--quick-h) + 12px);
   width: min(360px, 46%);
 }
 
-.hud-layer--phone .info-summary {
+/* The quick-select bar carries the control groups on phones */
+.hud-layer--phone .console-info .ctrl-groups {
+  display: none;
+}
+
+/* ── Hint line and quick-select bar, over the command card ── */
+.hud-layer--phone .console-quick {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.hud-layer--phone-portrait .console-quick {
+  left: var(--safe-l);
+  right: var(--safe-r);
+  bottom: calc(var(--card-h) + var(--safe-b));
+  height: calc(var(--hint-h) + var(--quick-h));
+}
+
+/* Landscape: they float over the map's bottom left, as the info bar did */
+.hud-layer--phone-landscape .console-quick {
+  left: calc(6px + var(--safe-l));
+  bottom: calc(var(--deck-h) + 6px);
+  width: min(460px, 58%);
+}
+
+.quick-hint {
   display: flex;
   gap: 4px;
-  height: var(--info-bar-h);
+  height: var(--hint-h);
   padding: 0 4px;
 }
 
-.hud-layer--phone-landscape .info-summary {
+.quick-hint-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  overflow: hidden;
+  line-height: 1.4; /* three lines fit the 40 px line */
+  color: var(--chrome-text);
+  background: var(--float-bg);
+  border: 2px solid var(--chrome-border);
+  border-left: 4px solid var(--chrome-dim);
+}
+
+.quick-hint--order .quick-hint-text {
+  border-left-color: var(--chrome-accent);
+}
+
+.quick-hint--target .quick-hint-text,
+.quick-hint--area .quick-hint-text {
+  color: var(--chrome-accent);
+  border-color: var(--chrome-accent-dim);
+  border-left-color: var(--chrome-accent);
+}
+
+.quick-hint--build .quick-hint-text {
+  border-left-color: var(--chrome-warn);
+}
+
+.quick-selection {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0 0 6px;
+  font: inherit;
+  line-height: 1.4;
+  text-align: left;
+  color: var(--chrome-accent);
+  background: var(--chrome-panel-light);
+  border: 2px solid var(--chrome-accent-dim);
+  cursor: pointer;
+}
+
+/* "5 soldados" over "elegidos": the widest caste name (exploradoras) fits one line */
+.quick-selection-text {
+  width: 96px;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.quick-selection-x {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 100%;
+  font-size: 12px;
+  color: var(--chrome-text);
+  border-left: 2px solid var(--chrome-accent-dim);
+}
+
+.quick-info {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
   padding: 0;
+  color: var(--chrome-text);
+  background: var(--float-bg);
+  border: 2px solid var(--chrome-border);
+  cursor: pointer;
+}
+
+.quick-info[aria-expanded="true"] {
+  border-color: var(--chrome-accent-dim);
+}
+
+.quick-bar {
+  display: flex;
+  gap: 4px;
+  height: var(--quick-h);
+  padding: 2px 4px;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+
+.quick-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.quick-chip {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 52px;
+  height: 36px;
+  padding: 0 6px;
+  font: inherit;
+  line-height: 1;
+  color: var(--chrome-text);
+  background: var(--float-bg);
+  border: 2px solid var(--chrome-border);
+  box-shadow: inset 2px 2px 0 var(--chrome-bg);
+  cursor: pointer;
+}
+
+.quick-chip-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.quick-chip-count {
+  color: var(--chrome-accent);
+}
+
+.quick-chip-label {
+  white-space: nowrap;
+}
+
+.quick-chip--selected {
+  color: var(--chrome-accent);
+  background: color-mix(in srgb, var(--chrome-accent) 16%, var(--chrome-panel));
+  border-color: var(--chrome-accent);
+}
+
+.quick-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.quick-chip--group {
+  flex: 0 0 auto;
+  border-style: dashed;
 }
 
 .info-toggle {
@@ -2086,7 +2296,7 @@ button:focus-visible {
   height: 32px;
 }
 
-/* Control group chips: finger-sized, over the info bar */
+/* Control group chips: finger-sized, over the info bar (on phones they ride the quick-select bar) */
 .hud-layer--touch .ctrl-groups {
   top: -36px;
 }
@@ -2166,8 +2376,10 @@ button:focus-visible {
 }
 
 .hud-layer--phone-landscape .notif-feed {
-  right: calc(8px + var(--safe-r) + 30%);
-  bottom: calc(var(--deck-h) + var(--info-bar-h) + 12px);
+  left: auto;
+  right: calc(8px + var(--safe-r));
+  width: min(320px, 38%);
+  bottom: calc(var(--deck-h) + 8px);
 }
 
 .hud-layer--phone .notif-line {
@@ -2183,6 +2395,158 @@ button:focus-visible {
   top: calc(var(--strip-h) + 6px);
   left: calc(6px + var(--safe-l));
   width: min(200px, calc(100% - 170px));
+}
+
+/* ── Touch order feedback: the toast and the long-press burst ── */
+.touch-feedback {
+  position: absolute;
+  inset: 0;
+  z-index: 35; /* over the console and the floating minimap, for a moment */
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.order-toast {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--strip-h) + 8px);
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 8px 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--chrome-text);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-accent-dim);
+  border-left: 6px solid var(--chrome-accent);
+  animation: order-toast 1600ms steps(8) forwards;
+}
+
+.order-toast--attack {
+  border-color: #7a2222;
+  border-left-color: var(--chrome-danger);
+}
+
+@keyframes order-toast {
+  0% { opacity: 0; transform: translate(-50%, 8px); }
+  12% { opacity: 1; transform: translate(-50%, 0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.caste-burst {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+/* The label hangs centered over the finger, or inward near a screen edge */
+.caste-burst--center .caste-burst-label { transform: translateX(-50%); }
+.caste-burst--left .caste-burst-label { transform: translateX(-24px); }
+.caste-burst--right .caste-burst-label { transform: translateX(calc(-100% + 24px)); }
+
+.caste-burst-ring {
+  position: absolute;
+  left: -40px;
+  top: -40px;
+  width: 80px;
+  height: 80px;
+  border: 3px solid var(--chrome-accent);
+  border-radius: 50%;
+  animation: caste-burst-ring 600ms steps(6) forwards;
+}
+
+.caste-burst-label {
+  position: absolute;
+  left: 0;
+  top: -64px;
+  padding: 4px 8px;
+  white-space: nowrap;
+  color: var(--chrome-accent);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-accent-dim);
+  animation: caste-burst-label 1100ms steps(8) forwards;
+}
+
+@keyframes caste-burst-ring {
+  0% { transform: scale(0.3); opacity: 1; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+@keyframes caste-burst-label {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ── First-game coach marks: a bubble above its target, with an arrow ── */
+.coach-mark {
+  position: absolute;
+  z-index: 40;
+  transform: translateY(calc(-100% - 12px));
+}
+
+.coach-mark::after {
+  content: '';
+  position: absolute;
+  left: calc(var(--arrow-x, 50%) - 8px);
+  bottom: -10px;
+  border: 8px solid transparent;
+  border-top-color: var(--chrome-accent);
+  border-bottom: 0;
+}
+
+.coach-mark-inner {
+  padding: 8px 10px;
+  line-height: 1.6;
+  color: var(--chrome-text);
+  background: var(--chrome-panel);
+  border: 2px solid var(--chrome-accent);
+  box-shadow: 0 0 0 2px var(--chrome-bg);
+}
+
+.coach-mark-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: var(--chrome-accent);
+}
+
+.coach-mark-step {
+  color: var(--chrome-dim);
+}
+
+.coach-mark-text {
+  margin-bottom: 8px;
+}
+
+.coach-mark-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.coach-mark-actions .hud-btn {
+  min-width: 64px;
+  height: 32px;
+  padding: 0 10px;
+}
+
+.coach-mark-next {
+  color: var(--chrome-accent);
+  border-color: var(--chrome-accent-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .order-toast,
+  .caste-burst-ring,
+  .caste-burst-label {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
 }
 
 /* ════════════════════════════════════════════════════════════

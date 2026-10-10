@@ -25,9 +25,12 @@ export function hudScale(width: number, height: number): number {
 /**
  * Phone layouts. A window narrower than PHONE_MAX_WIDTH or shorter than
  * PHONE_MAX_HEIGHT (CSS px) cannot hold the 1280×720 console, so the HUD
- * switches to a compact layout: a thin strip, a command card of icon-only
- * buttons along the bottom (3 rows in portrait, 1 in landscape), the info
- * panel folded to a one-line bar and a small minimap floating over the map.
+ * switches to a compact layout: a thin strip, a hint line that says what a
+ * tap does now, the quick-select bar (Soldados, Obreras, Exploradoras,
+ * Todas and the control groups), a command card along the bottom (2 rows
+ * in portrait, 1 in landscape; Mover and Atacar are big labeled buttons),
+ * the info panel folded behind the hint line's details button and a small
+ * minimap floating over the map.
  */
 export type HudLayout = 'desktop' | 'phone-portrait' | 'phone-landscape';
 export const PHONE_MAX_WIDTH = 820;
@@ -43,15 +46,17 @@ export function hudLayout(width: number, height: number): HudLayout {
  * Compact HUD sizes (CSS px). Command buttons stay finger-sized: 40 px is
  * under the 44 pt platform guideline but the usual size for dense game
  * controls, and every other touch target is at least 32 px. Mirrored by
- * --cmd-btn, --info-bar-h, --strip-row and --card-h in index.css.
+ * --cmd-btn, --hint-h, --quick-h, --strip-row and --card-h in index.css.
  */
 export const COMPACT_BUTTON_PX = 40;
 /** Gap between command buttons */
 export const COMPACT_BUTTON_GAP = 4;
 /** Plate border (2) plus inner padding (4), on both sides */
 export const COMPACT_CARD_FRAME = 12;
-/** The one-line info summary over the portrait command card (a tap expands it) */
-export const COMPACT_INFO_BAR_PX = 32;
+/** The hint line: what a tap does now, the selection count and its ✕, and the details button */
+export const HINT_LINE_PX = 40;
+/** The quick-select bar: chips 36 px tall (icon, count and label) with a little air */
+export const QUICK_BAR_PX = 40;
 
 /** Height of a compact command card with `rows` rows of buttons. */
 export function compactCardHeight(rows: number): number {
@@ -60,13 +65,15 @@ export function compactCardHeight(rows: number): number {
 
 /**
  * Top strip and bottom deck heights (CSS px at 1×) per layout, before safe
- * areas. Portrait reserves the info bar and a 3-row command card; landscape
- * only a one-row command card (the info bar and the minimap float over the
- * map). Mirrors --strip-h and --deck-h on .hud-layer--phone-* in index.css.
+ * areas. Portrait reserves the hint line, the quick-select bar and a 2-row
+ * command card (no taller than the info bar and 3-row card it replaced);
+ * landscape only a one-row command card (the hint line, the quick-select
+ * bar and the minimap float over the map). Mirrors --strip-h and --deck-h
+ * on .hud-layer--phone-* in index.css.
  */
 export const HUD_BARS: Record<HudLayout, { strip: number; deck: number }> = {
   desktop: { strip: STRIP_HEIGHT, deck: CONSOLE_DECK_HEIGHT },
-  'phone-portrait': { strip: 30, deck: COMPACT_INFO_BAR_PX + compactCardHeight(3) },
+  'phone-portrait': { strip: 30, deck: HINT_LINE_PX + QUICK_BAR_PX + compactCardHeight(2) },
   'phone-landscape': { strip: 28, deck: compactCardHeight(1) },
 };
 
