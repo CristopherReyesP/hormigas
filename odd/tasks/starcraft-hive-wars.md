@@ -27,6 +27,15 @@ The user wants the StarCraft fantasy, "even if we have to change sprites", as lo
   - The Swarm lives in a cave, the underground layer, and adds living structures on its mycelium at the surface (P7).
   - The other factions don't dig. The Crystal Hive and, later, the Humans build upward: buildings with floors. Each floor has an interior view, like the Swarm's NIDO view. The user picked "pisos hacia arriba" over upgrade tiers and surface terraces.
   - Implication: the layer model (surface/underground, the SUPERFICIE/NIDO tabs, an UndergroundGrid) generalizes into per-building interior floors. Design this in P4 before P5.
+- Each faction also eats and breeds differently (user approved the parent's proposal, 2026-10-09):
+
+  | Faction | Eats | Spends | Breeding | Growth limit |
+  |---|---|---|---|---|
+  | Swarm | biomass: leaves, farm fungus, meat (including enemy carcasses) | food for ants, minerals for living structures | the queen lays one egg at a time, nurses feed it in incubation chambers, and the larva mutates into its caste; the dawn mutation pick sits on top | the queen is the bottleneck (like Zerg larvae): protect her and keep nurses |
+  | Crystal Hive | nothing organic: minerals and meteor energy | minerals for everything | no eggs: units crystallize from mineral energy, and each spire floor produces one unit type | slow and expensive but strong; destroying a floor removes that production; growth needs the mineral fields, so it competes with the player for them (contested expansions) |
+  | Humans | rations from their crops, plus scrap/metal | rations to train, metal to build | units are trained on building floors (barracks floor → soldiers, workshop floor → machines) | parallel production: more buildings mean more output |
+
+  Implication for P4: each faction has its own resource table instead of today's single pantry, its own production model, and its own food rules in HungerSystem.
 - The rival AI runs a scripted build order (as StarCraft's AI does), not a learned or fully simulated economy, unless playtesting shows it is too predictable.
 
 ## Art direction (from the design audit, 2026-10-09)
