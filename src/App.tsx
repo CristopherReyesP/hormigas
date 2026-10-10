@@ -29,6 +29,8 @@ const DEFAULT_STATS: GameStats = {
   meatStored: 0,
   pantryStored: 0,
   entranceFoodStored: 0,
+  foodInTransit: 0,
+  pantryFull: false,
   pantryCapacity: 0,
   mineralsStored: 0,
   beetleCount: 0,

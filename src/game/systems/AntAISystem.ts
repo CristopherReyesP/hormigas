@@ -33,7 +33,7 @@ import { findPath } from '../../simulation/pathfinding/AStar';
 import { buildAttackerMap, ensureCombatComponent } from './helpers/combatHelpers';
 import { canFight, completePlayerOrder, endPlayerOrder, findEnemyStructureNear, isSurfaceEnemy } from './helpers/playerOrders';
 import { FactionId, isHostileTo } from '../factions/factions';
-import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
+import type { PantryFoodType, UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { TransitSystem } from './TransitSystem';
 import {
   ANT_HARVEST_RANGE,
@@ -1019,6 +1019,13 @@ export class AntAISystem implements System {
         carrying.amount = 0;
         carrying.resourceType = null;
         this.afterOreDelivery(_id, ant, pos, path);
+      } else if (carrying.amount > 0 && ant.role === AntRole.Worker && !this.pantryHasRoomFor(carrying.resourceType)) {
+        // The pantry is full: riding down only to come back up still holding
+        // the load kept every worker shuttling in the shaft, with nobody left
+        // to forage or mine. The load goes on the entrance pile (porters carry
+        // it down once there is room) and the worker gets back to work.
+        this.dropAtStockpile(carrying);
+        ant.state = AntState.Searching;
       } else if (carrying.amount > 0 && ant.role === AntRole.Worker) {
         // FOOD IS ONLY STORED UNDERGROUND: the load is already in stored units
         // (converted at harvest) — carry it down to the pantry. PorterSystem's
@@ -1410,6 +1417,13 @@ export class AntAISystem implements System {
   private isHungry(id: EntityId): boolean {
     const hunger = this.world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
     return hunger !== undefined && hunger.current < hunger.max * HUNGER_EAT_THRESHOLD;
+  }
+
+  /** Whether the pantry can take a load of this type (no underground wired: assume it can). */
+  private pantryHasRoomFor(resourceType: string | null): boolean {
+    if (!this.undergroundGrid) return true;
+    const type: PantryFoodType = resourceType === 'mushroom' || resourceType === 'meat' ? resourceType : 'leaf';
+    return this.undergroundGrid.hasDepositSpace([type]);
   }
 
   /** Hand a load to the nest's surface stockpile — worker porters haul it below */

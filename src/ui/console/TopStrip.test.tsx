@@ -32,21 +32,39 @@ describe('top strip', () => {
     expect(html).toContain('paga los huevos');
   });
 
-  it('explains that the food totals add up the entrance and the pantry', () => {
-    const html = renderToStaticMarkup(<TopStrip stats={STATS} />);
-    expect(html).toContain('Hojas: total de la colonia, en la entrada y en la despensa');
+  // Player report: "arriba se ven muchos recursos pero en la despensa nada".
+  // The big numbers added the entrance pile to the pantry; now they are the
+  // pantry, and the food on its way shows apart, smaller.
+  it('shows the pantry in the big food numbers, the same food that pays for eggs', () => {
+    const stats = { ...STATS, foodStored: 120, mushroomStored: 40, meatStored: 20, pantryStored: 120 } as GameStats;
+    const html = renderToStaticMarkup(<TopStrip stats={stats} />);
+    expect(html).toMatch(/strip-food--leaf[^>]*>.*?<span class="strip-value[^"]*">60</);
+    expect(html).toMatch(/strip-food--fungus[^>]*>.*?<span class="strip-value[^"]*">40</);
+    expect(html).toMatch(/strip-food--meat[^>]*>.*?<span class="strip-value[^"]*">20</);
+    expect(html).toContain('Hojas en la despensa: pagan los huevos.');
+    expect(html).not.toContain('en la entrada y en la despensa');
   });
 
-  it('shows the food still at the entrance next to the pantry, since only the pantry pays for eggs', () => {
-    const html = renderToStaticMarkup(<TopStrip stats={{ ...STATS, entranceFoodStored: 34 }} />);
-    expect(html).toMatch(/strip-pantry[^>]*>.*0\/450.*\+34 en la entrada/);
-    expect(html).toContain('Hay 34 más en la entrada: las obreras la bajan a la despensa.');
-    expect(html).toContain('Los huevos se pagan solo con la despensa.');
+  it('shows the food on its way apart and smaller, next to the pantry', () => {
+    const html = renderToStaticMarkup(<TopStrip stats={{ ...STATS, entranceFoodStored: 34, foodInTransit: 49 }} />);
+    expect(html).toMatch(/strip-pantry[^>]*>.*0\/450.*<span class="strip-pantry-incoming">\+49 en camino<\/span>/);
+    expect(html).toContain('Hay 49 en camino: 34 en la entrada y 15 en la boca de las obreras.');
+    expect(html).not.toContain('+34');
   });
 
-  it('hides the entrance note once everything is down in the pantry', () => {
-    const html = renderToStaticMarkup(<TopStrip stats={{ ...STATS, entranceFoodStored: 0 }} />);
-    expect(html).not.toContain('en la entrada</span>');
+  it('hides the note once everything is down in the pantry', () => {
+    const html = renderToStaticMarkup(<TopStrip stats={{ ...STATS, entranceFoodStored: 0, foodInTransit: 0 }} />);
+    expect(html).not.toContain('en camino');
+  });
+
+  it('says plainly when the pantry is full and points to the Almacén tool', () => {
+    const full = { ...STATS, pantryStored: 450, foodStored: 450, pantryFull: true, foodInTransit: 300, entranceFoodStored: 300 } as GameStats;
+    const html = renderToStaticMarkup(<TopStrip stats={full} />);
+    expect(html).toMatch(/<span class="strip-pantry-full"[^>]*>.*\+300 en camino.*<span>Despensa llena: marca más casillas de Almacén \([A-Z]\)<\/span>/);
+    expect(html).toMatch(/strip-pantry strip-pantry--full/);
+
+    const roomy = renderToStaticMarkup(<TopStrip stats={{ ...STATS, pantryFull: false }} />);
+    expect(roomy).not.toContain('Despensa llena');
   });
 
   it('keeps counting down to the attack once the wave is telegraphed', () => {

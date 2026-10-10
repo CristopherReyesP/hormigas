@@ -203,3 +203,17 @@ describe('info panel on a tapped farm tile', () => {
     expect(renderFarm(null)).not.toContain('Granja de hongos ·');
   });
 });
+
+describe('nest card', () => {
+  // The selected nest read "En el nido: 0 de comida" while the pantry below
+  // held 450: it showed only the entrance pile, under a name that meant the pantry.
+  it('shows the pantry and the entrance pile apart', () => {
+    const html = render({
+      ...STATS,
+      selectedEntity: { entityId: 1, type: 'nest', position: { x: 60, y: 45 }, totalAnts: 15, foodStored: 0, pantryStored: 450, pantryCapacity: 450 },
+    } as GameStats);
+    expect(html).toMatch(/Despensa: <strong>450\/450<\/strong> de comida/);
+    expect(html).toMatch(/En la entrada: <strong>0<\/strong> de comida/);
+    expect(html).not.toContain('En el nido');
+  });
+});

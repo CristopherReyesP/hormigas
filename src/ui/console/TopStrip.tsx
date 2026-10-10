@@ -6,6 +6,7 @@ import { formatClock, stripEmoji } from './format';
 import { useFlashOnChange } from '../useFlashOnChange';
 import { SoundToggle } from '../../audio/ui/SoundToggle';
 import { HumanResources } from '../races/human/HumanResources';
+import { broodKeys } from './commands';
 
 type FoodType = 'leaf' | 'mushroom' | 'meat';
 
@@ -33,7 +34,7 @@ function FoodResource({ icon, value, label, active, onSelect }: {
   onSelect?: () => void;
 }) {
   const flash = useFlashOnChange(value);
-  const where = `${label}: total de la colonia, en la entrada y en la despensa. Los huevos se pagan solo con la despensa.`;
+  const where = `${label} en la despensa: pagan los huevos.`;
   const title = active
     ? `${where} La colonia come esto primero.`
     : `${where} Clic para que la colonia coma esto primero.`;
@@ -54,24 +55,42 @@ function FoodResource({ icon, value, label, active, onSelect }: {
 }
 
 /**
- * The underground stock that pays for eggs, labeled so it never reads as the
- * food totals beside it. Food still at the entrance shows as "+N": the totals
- * count it, but it buys no egg until the porters carry it down.
+ * The underground stock that pays for eggs; the food totals beside it are the
+ * same pantry by type. Food on its way (on the entrance pile or in the ants'
+ * jaws) shows apart as "+N en camino": it buys no egg until it is down.
+ * A full pantry says so, with the tool that makes room.
  */
-function PantryStock({ stored, capacity, incoming }: { stored: number; capacity: number; incoming: number }) {
+function PantryStock({ stored, capacity, inTransit, atEntrance, full }: {
+  stored: number;
+  capacity: number;
+  inTransit: number;
+  atEntrance: number;
+  full: boolean;
+}) {
   const flash = useFlashOnChange(stored);
-  const base = 'Despensa: comida guardada bajo tierra que paga los huevos y alimenta a la reina, las nodrizas y las larvas.';
-  const title = incoming > 0
-    ? `${base} Hay ${incoming} más en la entrada: las obreras la bajan a la despensa.`
-    : base;
+  const fullText = `Despensa llena: marca más casillas de Almacén (${broodKeys().storage})`;
+  const carried = Math.max(0, inTransit - atEntrance);
+  let title = 'Despensa: comida guardada bajo tierra que paga los huevos y alimenta a la reina, las nodrizas y las larvas.';
+  if (inTransit > 0) {
+    title += ` Hay ${inTransit} en camino: ${atEntrance} en la entrada y ${carried} en la boca de las obreras.`;
+  }
+  if (full) title += ` ${fullText} en el nido; mientras tanto la comida espera en la entrada y se pudre.`;
   return (
-    <span className="strip-item strip-pantry" title={title}>
+    <span className={full ? 'strip-item strip-pantry strip-pantry--full' : 'strip-item strip-pantry'} title={title}>
+      {full && (
+        <span className="strip-pantry-full" role="status">
+          {inTransit > 0 && <span className="strip-pantry-waiting">+{inTransit} en camino · </span>}
+          <span>{fullText}</span>
+        </span>
+      )}
       <PixelIcon name="pantry" />
       <span className="strip-pantry-label">DESPENSA</span>
-      <span className={`strip-value ${flash}`} style={stored < 1 ? { color: 'var(--chrome-warn)' } : undefined}>
+      <span className={`strip-value ${flash}`} style={stored < 1 || full ? { color: 'var(--chrome-warn)' } : undefined}>
         {stored}/{capacity}
       </span>
-      {incoming > 0 && <span className="strip-pantry-incoming">+{incoming} en la entrada</span>}
+      {/* Full: the food on its way moves into the callout so the strip keeps its width */}
+      {inTransit > 0 && !full && <span className="strip-pantry-incoming">+{inTransit} en camino</span>}
+      {full && <span className="strip-pantry-full-short" aria-hidden="true">LLENA</span>}
     </span>
   );
 }
@@ -132,7 +151,13 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
         <FoodResource icon="leaf" value={leaves} label="Hojas" active={eatFirst === 'leaf'} onSelect={select('leaf')} />
         <FoodResource icon="fungus" value={stats.mushroomStored} label="Hongos" active={eatFirst === 'mushroom'} onSelect={select('mushroom')} />
         <FoodResource icon="meat" value={stats.meatStored} label="Carne" active={eatFirst === 'meat'} onSelect={select('meat')} />
-        <PantryStock stored={stats.pantryStored} capacity={stats.pantryCapacity} incoming={stats.entranceFoodStored ?? 0} />
+        <PantryStock
+          stored={stats.pantryStored}
+          capacity={stats.pantryCapacity}
+          inTransit={stats.foodInTransit ?? 0}
+          atEntrance={stats.entranceFoodStored ?? 0}
+          full={stats.pantryFull ?? false}
+        />
         <MineralStock stored={stats.mineralsStored ?? 0} />
         <span className="strip-sep" aria-hidden="true" />
         <span className="strip-pop">

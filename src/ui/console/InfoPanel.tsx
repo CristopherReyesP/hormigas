@@ -229,7 +229,8 @@ function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
       {sel.type === 'nest' && (
         <>
           <div className="info-line">Hormigas: <strong>{sel.totalAnts}</strong></div>
-          <div className="info-line">En el nido: <strong>{Math.round(sel.foodStored ?? 0)}</strong> de comida</div>
+          <div className="info-line">Despensa: <strong>{sel.pantryStored ?? 0}/{sel.pantryCapacity ?? 0}</strong> de comida</div>
+          <div className="info-line">En la entrada: <strong>{Math.floor(sel.foodStored ?? 0)}</strong> de comida</div>
         </>
       )}
       {sel.type === 'beetle_den' && (
