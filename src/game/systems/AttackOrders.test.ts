@@ -143,6 +143,46 @@ describe('attack-target order', () => {
   });
 });
 
+describe('an ordered soldier commits to a far target', () => {
+  // The ordered chase re-plans every ORDER_CHASE_REPATH_SECONDS, and A* starts
+  // on the ant's own tile. Walking back to that tile's center first undid the
+  // progress of each re-plan, so a soldier sent to a far den shuffled on the
+  // spot (by the nest, looking like it stayed home to defend) until the order
+  // timed out and left it on guard right there.
+  for (const [label, dx, dy] of [['along a diagonal', 1, 1], ['along a row', 1, 0], ['along a column', 0, -1]] as const) {
+    it(`walks all the way to a den ${label} and bites it`, () => {
+      const { world, surface, run, antOf, orderOf, dist } = setup();
+      const from = { x: NX - 14 * dx, y: NY - 14 * dy };
+      const den = createBeetleDen(world, NX + 14 * dx, NY + 14 * dy);
+      const denPos = world.getComponent<PositionComponent>(den, COMPONENT.POSITION)!;
+      const soldiers = [0, 1, 2, 3].map((i) => createAnt(world, from.x + (i % 2) * 0.3, from.y + (i >> 1) * 0.3, AntRole.Soldier));
+      issueAttackOrders(world, surface, soldiers, den);
+
+      // About 28 tiles at soldier pace (1.7 tiles/s): well inside 30 seconds
+      const allBiting = () => soldiers.every((id) => antOf(id).state === AntState.AttackingEnemy);
+      run(30, allBiting, () => {
+        for (const id of soldiers) expect(orderOf(id)?.kind).toBe(OrderKind.Attack);
+      });
+      for (const id of soldiers) {
+        expect(orderOf(id)).toMatchObject({ kind: OrderKind.Attack, targetId: den });
+        expect(dist(id, denPos.x, denPos.y)).toBeLessThan(SOLDIER_ATTACK_RANGE);
+      }
+    });
+  }
+
+  it('closes in on a far moving quarry instead of shuffling in place', () => {
+    const { world, surface, run, orderOf, posOf, dist, beetle } = setup();
+    const soldier = createAnt(world, NX - 12, NY - 12, AntRole.Soldier);
+    const prey = beetle(NX + 12, NY + 12, 500);
+    issueAttackOrders(world, surface, [soldier], prey);
+    const start = dist(soldier, posOf(prey).x, posOf(prey).y);
+    run(8);
+    expect(orderOf(soldier)?.kind).toBe(OrderKind.Attack);
+    // 8 seconds at 1.7 tiles/s covers most of the ~34 tiles
+    expect(dist(soldier, posOf(prey).x, posOf(prey).y)).toBeLessThan(start - 8);
+  });
+});
+
 describe('attack-move order', () => {
   it('fights an enemy that comes into view, then resumes the walk and arrives', () => {
     const { world, surface, run, orderOf, combatOf, dist, beetle } = setup();
