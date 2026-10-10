@@ -82,6 +82,15 @@ export interface AntComponent {
   mineralTargetId?: EntityId | null;
   /** Worker: seconds spent chipping at the node on this trip */
   miningProgress?: number;
+  /**
+   * Worker: a player's resource order it keeps looping until told otherwise
+   * (mine a node, or gather from one food source until it is empty). Unlike
+   * a PlayerOrder it leaves the colony AI running: the ant still eats, fights
+   * back and hauls; it just goes back to its source after each delivery.
+   */
+  resourceOrder?: ResourceOrderKind;
+  /** Worker on a gather order: the food source it keeps going back to */
+  foodTargetId?: EntityId | null;
   /** Nurse: the farm tile she is harvesting and how far along the trip is */
   farmHarvest?: FarmHarvestJob | null;
 }
@@ -94,6 +103,9 @@ export interface FarmHarvestJob {
   /** Seconds spent in the current phase */
   timer: number;
 }
+
+/** The resource orders: Minar (a mineral node) and Recolectar (a food source) */
+export type ResourceOrderKind = 'mine' | 'gather';
 
 export interface HungerComponent {
   current: number; // 0 = starving, max = full
@@ -134,6 +146,8 @@ export interface MineralComponent {
 export interface FoodSourceComponent {
   resourceType: string;
   amount: number;
+  /** What it held when it appeared: the amount bar and the card read amount / maxAmount */
+  maxAmount?: number;
 }
 
 export interface NestComponent {

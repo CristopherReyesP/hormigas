@@ -10,7 +10,8 @@ import { createHumanBuilding, createHumanUnit, nearestWalkable } from '../../riv
 import { HUMAN_BUILDING_STATS, type HumanBuildingKind, type HumanUnitType } from '../../rival/humanBase';
 import type { TilePos } from '../../run/craterSite';
 import { HUMAN_PLAYER_COMPONENT, type HumanProducerComponent, type HumanWorkerComponent } from './humanPlayerComponents';
-import { PLAYER_HUMAN_START, trainableAt } from './humanPlayerRules';
+import { PLAYER_HUMAN_START, startBuildingSpot, trainableAt } from './humanPlayerRules';
+import { placementWorldOf, positionOf } from './humanPlayerQueries';
 
 /** A player Human unit of `type` at (x, y); builders also get their job slot. */
 export function createPlayerHumanUnit(
@@ -48,11 +49,14 @@ export interface HumanPlayerStart {
   coreId: EntityId;
   builders: EntityId[];
   soldiers: EntityId[];
+  /** The finished Cuartel beside the command center (null when left out or nothing fits) */
+  barracksId: EntityId | null;
   /** The home field's nodes (empty when it was not asked for) */
   minerals: EntityId[];
 }
 
 type Walkable = { isWalkable(x: number, y: number): boolean };
+type MapGrid = Walkable & { width: number; height: number };
 
 /** Directions tried for the home mineral field, in order */
 const FIELD_DIRECTIONS: ReadonlyArray<readonly [number, number]> = [
@@ -83,15 +87,17 @@ export function spawnHomeMineralField(world: World, grid: Walkable, core: TilePo
 }
 
 /**
- * The expedition lands at `center`: the player's command center, two builders
- * and two soldiers beside it, the starting minerals in the bank and (unless
- * turned off) a home mineral field nearby. No nest and no queen.
+ * The expedition lands at `center`: the player's command center, a finished
+ * Cuartel beside it, two builders and two soldiers, the starting minerals in
+ * the bank and (unless turned off) a home mineral field nearby. No nest and
+ * no queen. The Cuartel goes on the first nearby spot the placement rules
+ * accept, after the field, so it never sits on a node or on a unit.
  */
 export function spawnHumanPlayerStart(
   world: World,
-  grid: Walkable,
+  grid: MapGrid,
   center: TilePos,
-  options: { homeField?: boolean } = {},
+  options: { homeField?: boolean; barracks?: boolean } = {},
 ): HumanPlayerStart {
   const coreId = createPlayerHumanBuilding(world, 'command_center', center.x, center.y);
   const ring = Math.ceil(HUMAN_BUILDING_STATS.command_center.halfWidth) + 1;
@@ -107,5 +113,11 @@ export function spawnHumanPlayerStart(
   }
   world.minerals.deposit(PLAYER_HUMAN_START.minerals);
   const minerals = options.homeField === false ? [] : spawnHomeMineralField(world, grid, center);
-  return { coreId, builders, soldiers, minerals };
+  let barracksId: EntityId | null = null;
+  if (options.barracks !== false) {
+    const units = [...builders, ...soldiers].map((id) => positionOf(world, id)!);
+    const spot = startBuildingSpot('barracks', center, placementWorldOf(world, grid), units);
+    if (spot) barracksId = createPlayerHumanBuilding(world, 'barracks', spot.x, spot.y);
+  }
+  return { coreId, builders, soldiers, barracksId, minerals };
 }

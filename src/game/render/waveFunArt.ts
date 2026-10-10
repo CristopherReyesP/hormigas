@@ -41,8 +41,17 @@ export interface WaveOverlay {
   } | null;
   /** While building: the tiles the build area is around on the layer in view */
   anchors: Array<{ x: number; y: number }>;
-  /** Scouted next wave: the breach entrance (underground) and the raiders' origin (surface) */
-  scout: { breach: { x: number; y: number } | null; origin: { x: number; y: number } | null; nest: { x: number; y: number } } | null;
+  /**
+   * Scouted next wave: the breach entrance (underground); on the surface the
+   * raiders' origin, the edge the beetles leave from and the mound hole they march on
+   */
+  scout: {
+    breach: { x: number; y: number } | null;
+    origin: { x: number; y: number } | null;
+    wildlife?: { x: number; y: number } | null;
+    hole?: { x: number; y: number } | null;
+    nest: { x: number; y: number };
+  } | null;
   /** Invaders inside the nest while the player watches the surface (0: none): the mound throbs red */
   nestAttack?: number;
 }
@@ -404,6 +413,29 @@ function drawFx(ctx: CanvasRenderingContext2D, fx: WaveFx, time: number): void {
       ctx.stroke();
       break;
     }
+    case 'dig': {
+      // A wave unit digging into a hole (or a siege blow): a dark mouth and clods of dirt thrown in arcs
+      ctx.fillStyle = withAlpha('#0d0812', 0.6 * (1 - t));
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + T * 0.15, radius * 0.5, radius * 0.25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // A puff of dust
+      ctx.fillStyle = withAlpha(PAL.sand[0], 0.35 * (1 - t));
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, radius * (0.4 + 0.6 * t), radius * (0.25 + 0.35 * t), 0, 0, Math.PI * 2);
+      ctx.fill();
+      const clods = 12;
+      for (let i = 0; i < clods; i++) {
+        const a = (i / clods) * Math.PI * 2 + (fx.x + fx.y) * 0.7;
+        const reach = radius * (0.35 + 0.9 * t) * (0.7 + 0.3 * ((i * 7) % 3) / 2);
+        const x = cx + Math.cos(a) * reach;
+        const y = cy + Math.sin(a) * reach * 0.6 - Math.sin(t * Math.PI) * T * 0.7 * (0.6 + 0.4 * (i % 2));
+        const size = i % 3 === 0 ? 5 : 3;
+        ctx.fillStyle = withAlpha(i % 2 === 0 ? PAL.sand[1] : PAL.soil[4], 1 - t * t);
+        ctx.fillRect(Math.round(x - size / 2), Math.round(y - size / 2), size, size);
+      }
+      break;
+    }
     case 'enrage': {
       ctx.strokeStyle = withAlpha('#ff1e3c', 1 - t);
       ctx.lineWidth = 3;
@@ -489,67 +521,79 @@ export function drawGhost(ctx: CanvasRenderingContext2D, overlay: WaveOverlay, t
   }
 }
 
-/** The scouted breach: a throbbing amber marker on the entrance, and on the surface a trail toward the raiders */
+/** A throbbing amber diamond with a "BRECHA" tag: where the wave breaks in */
+function drawBreachMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, pulse: number): void {
+  const amber = PAL.glowAmber;
+  ctx.strokeStyle = withAlpha(amber, 0.6 + 0.4 * pulse);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - size);
+  ctx.lineTo(cx + size, cy);
+  ctx.lineTo(cx, cy + size);
+  ctx.lineTo(cx - size, cy);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.fillStyle = withAlpha(amber, 0.15 + 0.15 * pulse);
+  ctx.fill();
+  ctx.fillStyle = amber;
+  ctx.font = 'bold 10px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('!', cx, cy + 1);
+  ctx.font = 'bold 8px system-ui, sans-serif';
+  const label = 'BRECHA';
+  const w = ctx.measureText(label).width + 6;
+  ctx.fillStyle = 'rgba(14, 8, 11, 0.85)';
+  ctx.fillRect(Math.round(cx - w / 2), Math.round(cy + size + T * 0.15), Math.round(w), 10);
+  ctx.fillStyle = amber;
+  ctx.fillText(label, cx, cy + size + T * 0.15 + 5);
+}
+
+/** A dashed amber trail from `home` toward `origin`, its arrow head pointing home: they come this way */
+function drawComingTrail(ctx: CanvasRenderingContext2D, home: { x: number; y: number }, origin: { x: number; y: number }, pulse: number, time: number): void {
+  const amber = PAL.glowAmber;
+  const nx = px(home.x);
+  const ny = px(home.y);
+  const dx = origin.x - home.x;
+  const dy = origin.y - home.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  const from = { x: nx + ux * T * 3, y: ny + uy * T * 3 };
+  const to = { x: nx + ux * T * 11, y: ny + uy * T * 11 };
+  ctx.strokeStyle = withAlpha(amber, 0.45 + 0.4 * pulse);
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 5]);
+  ctx.lineDashOffset = time * 14;
+  ctx.beginPath();
+  ctx.moveTo(to.x, to.y);
+  ctx.lineTo(from.x, from.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const head = 7;
+  ctx.fillStyle = withAlpha(amber, 0.6 + 0.4 * pulse);
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(from.x + ux * head - uy * head * 0.7, from.y + uy * head + ux * head * 0.7);
+  ctx.lineTo(from.x + ux * head + uy * head * 0.7, from.y + uy * head - ux * head * 0.7);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * The scouted wave: a throbbing amber marker on the breach entrance below; on
+ * the surface, the same marker on the mound hole the beetles march on and
+ * trails toward where they (and the rival's raiders) come from.
+ */
 export function drawScoutMarks(ctx: CanvasRenderingContext2D, overlay: WaveOverlay, layer: LayerValue, time: number): void {
   const scout = overlay.scout;
   if (!scout) return;
   const pulse = 0.5 + 0.5 * Math.sin(time * 4);
-  const amber = PAL.glowAmber;
   if (layer === Layer.Underground && scout.breach) {
-    const cx = px(scout.breach.x);
-    const cy = px(scout.breach.y);
-    ctx.strokeStyle = withAlpha(amber, 0.6 + 0.4 * pulse);
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - T * 1.1);
-    ctx.lineTo(cx + T * 1.1, cy);
-    ctx.lineTo(cx, cy + T * 1.1);
-    ctx.lineTo(cx - T * 1.1, cy);
-    ctx.closePath();
-    ctx.stroke();
-    ctx.fillStyle = withAlpha(amber, 0.15 + 0.15 * pulse);
-    ctx.fill();
-    ctx.fillStyle = amber;
-    ctx.font = 'bold 10px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('!', cx, cy + 1);
-    ctx.font = 'bold 8px system-ui, sans-serif';
-    const label = 'BRECHA';
-    const w = ctx.measureText(label).width + 6;
-    ctx.fillStyle = 'rgba(14, 8, 11, 0.85)';
-    ctx.fillRect(Math.round(cx - w / 2), Math.round(cy + T * 1.25), Math.round(w), 10);
-    ctx.fillStyle = amber;
-    ctx.fillText(label, cx, cy + T * 1.25 + 5);
+    drawBreachMark(ctx, px(scout.breach.x), px(scout.breach.y), T * 1.1, pulse);
   }
-  if (layer === Layer.Surface && scout.origin) {
-    // A dashed amber trail from the nest toward where the raiders will come from
-    const nx = px(scout.nest.x);
-    const ny = px(scout.nest.y);
-    const dx = scout.origin.x - scout.nest.x;
-    const dy = scout.origin.y - scout.nest.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len;
-    const uy = dy / len;
-    const from = { x: nx + ux * T * 3, y: ny + uy * T * 3 };
-    const to = { x: nx + ux * T * 11, y: ny + uy * T * 11 };
-    ctx.strokeStyle = withAlpha(amber, 0.45 + 0.4 * pulse);
-    ctx.lineWidth = 2;
-    ctx.setLineDash([6, 5]);
-    ctx.lineDashOffset = time * 14;
-    ctx.beginPath();
-    ctx.moveTo(to.x, to.y);
-    ctx.lineTo(from.x, from.y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    // Arrow head pointing at the nest: they come this way
-    const head = 7;
-    ctx.fillStyle = withAlpha(amber, 0.6 + 0.4 * pulse);
-    ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(from.x + ux * head - uy * head * 0.7, from.y + uy * head + ux * head * 0.7);
-    ctx.lineTo(from.x + ux * head + uy * head * 0.7, from.y + uy * head - ux * head * 0.7);
-    ctx.closePath();
-    ctx.fill();
-  }
+  if (layer !== Layer.Surface) return;
+  if (scout.wildlife) drawComingTrail(ctx, scout.hole ?? scout.nest, scout.wildlife, pulse, time);
+  if (scout.origin) drawComingTrail(ctx, scout.nest, scout.origin, pulse, time);
+  if (scout.hole) drawBreachMark(ctx, px(scout.hole.x), px(scout.hole.y), T * 0.8, pulse);
 }

@@ -14,6 +14,8 @@ type FoodType = 'leaf' | 'mushroom' | 'meat';
 interface TopStripProps {
   stats: GameStats;
   gameManager?: GameManager | null;
+  /** Opens the help card (controls and Repetir tutorial) */
+  onHelp?: () => void;
 }
 
 function Resource({ icon, value, label, tone }: { icon: IconName; value: number; label: string; tone?: string }) {
@@ -67,7 +69,7 @@ function PantryStock({ stored, capacity, incoming }: { stored: number; capacity:
     ? `${base} Hay ${incoming} más en la entrada: las obreras la bajan a la despensa.`
     : base;
   return (
-    <span className="strip-item strip-pantry" title={title}>
+    <span className="strip-item strip-pantry" title={title} data-hud="pantry">
       <PixelIcon name="pantry" />
       <span className="strip-pantry-label">DESPENSA</span>
       <span className={`strip-value ${flash}`} style={stored < 1 ? { color: 'var(--chrome-warn)' } : undefined}>
@@ -78,16 +80,20 @@ function PantryStock({ stored, capacity, incoming }: { stored: number; capacity:
   );
 }
 
-/** The minerals bank: ore the miners delivered, the currency for structures (never food). */
-function MineralStock({ stored }: { stored: number }) {
+/** The minerals bank: ore the miners delivered, the currency for structures (never food), and who is mining. */
+function MineralStock({ stored, miners }: { stored: number; miners: number }) {
   const flash = useFlashOnChange(stored);
   return (
     <span
       className="strip-item strip-minerals"
-      title="Minerales: cristal que extraen las obreras de los yacimientos. Paga las estructuras; no se come."
+      data-hud="minerals"
+      title={`Minerales ${stored} · ${miners} ${miners === 1 ? 'minera' : 'mineras'}. Cristal que extraen las obreras de los yacimientos. Paga las estructuras; no se come.`}
     >
       <PixelIcon name="mineral" />
-      <span className={`strip-value ${flash}`}>{stored}</span>
+      <span className={`strip-value strip-minerals-value ${flash}`}>{stored}</span>
+      <span className="strip-miners" aria-label={`${miners} ${miners === 1 ? 'minera' : 'mineras'}`}>
+        <PixelIcon name="worker" />{miners}
+      </span>
     </span>
   );
 }
@@ -120,7 +126,7 @@ function WaveStatus({ stats }: { stats: GameStats }) {
  * control right. The compact HUD keeps only the key readouts on it and folds
  * the rest into a drawer that Más datos (strip-more, phones only) opens.
  */
-export function TopStrip({ stats, gameManager }: TopStripProps) {
+export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
   const leaves = Math.max(0, stats.foodStored - stats.mushroomStored - stats.meatStored);
   const night = stats.dayPhase === 'night';
   const eatFirst = gameManager?.getConsumptionPriority();
@@ -135,7 +141,7 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
         <FoodResource icon="fungus" value={stats.mushroomStored} label="Hongos" active={eatFirst === 'mushroom'} onSelect={select('mushroom')} />
         <FoodResource icon="meat" value={stats.meatStored} label="Carne" active={eatFirst === 'meat'} onSelect={select('meat')} />
         <PantryStock stored={stats.pantryStored} capacity={stats.pantryCapacity} incoming={stats.entranceFoodStored ?? 0} />
-        <MineralStock stored={stats.mineralsStored ?? 0} />
+        <MineralStock stored={stats.mineralsStored ?? 0} miners={stats.miners?.count ?? 0} />
         <span className="strip-sep" aria-hidden="true" />
         <span className="strip-pop">
         <Resource icon="ant" value={stats.antCount} label="Población total" tone="var(--chrome-text)" />
@@ -181,6 +187,19 @@ export function TopStrip({ stats, gameManager }: TopStripProps) {
           {stats.paused ? 'PAUSA' : `×${stats.speed}`}
         </button>
         <SoundToggle />
+        {onHelp && (
+          <button
+            type="button"
+            className="strip-item strip-help"
+            data-hud="help"
+            aria-label="Ayuda y controles"
+            title="Ayuda y controles"
+            onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+            onClick={onHelp}
+          >
+            ?
+          </button>
+        )}
       </div>
       <button
         type="button"

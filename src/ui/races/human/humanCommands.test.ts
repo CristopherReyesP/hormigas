@@ -3,7 +3,7 @@ import type { GameManager, GameStats } from '../../../game/GameManager';
 import type { HumanPlayerStats } from '../../../game/races/human/HumanPlayerRun';
 import { buildCommands, type CommandContext, type CommandDef } from '../../console/commands';
 import type { ColonyDetails } from '../../console/useColonyDetails';
-import { humanHint } from './humanCommands';
+import { HUMAN_RECRUIT_HINT, humanHint, humanIdleHint } from './humanCommands';
 
 function humanStats(overrides: Partial<HumanPlayerStats> = {}): HumanPlayerStats {
   return {
@@ -33,6 +33,7 @@ function context(human: HumanPlayerStats, stats: Partial<GameStats> = {}, page: 
     clearRally: vi.fn(() => true),
     selectIdleBuilders: vi.fn(() => 1),
     selectCore: vi.fn(() => true),
+    startBarracksPlacement: vi.fn((): string | null => null),
   };
   const gm = {
     getHumanPlayer: () => player,
@@ -172,5 +173,104 @@ describe('the Human command card', () => {
     const { ctx } = context(humanStats(), { selectedEntity: { entityId: 30, type: 'human_building', position: { x: 0, y: 0 } } });
     expect(byId(buildCommands(ctx), 'attack-den')).toBeNull();
     expect(byId(buildCommands(ctx), 'deselect')).not.toBeNull();
+  });
+});
+
+const NO_BARRACKS = 'Necesitas un Cuartel: selecciona un constructor → Construir → Cuartel';
+const NO_FACTORY = 'Necesitas una Fábrica: selecciona un constructor → Construir → Fábrica';
+
+function commandCenter(reasons: { soldier?: string | null; marksman?: string | null; tank?: string | null } = {}) {
+  return {
+    id: 1,
+    kind: 'command_center' as const,
+    name: 'Centro de Mando',
+    construction: null,
+    queue: [],
+    progress: 0,
+    remaining: 0,
+    rally: null,
+    trains: [
+      { type: 'builder' as const, name: 'Constructor', cost: { rations: 50, minerals: 0 }, reason: null },
+      { type: 'soldier' as const, name: 'Soldado', cost: { rations: 70, minerals: 0 }, reason: reasons.soldier ?? null, at: 'barracks' as const },
+      { type: 'marksman' as const, name: 'Tirador', cost: { rations: 90, minerals: 25 }, reason: reasons.marksman ?? null, at: 'barracks' as const },
+      { type: 'tank' as const, name: 'Tanque', cost: { rations: 200, minerals: 150 }, reason: reasons.tank ?? null, at: 'factory' as const },
+    ],
+  };
+}
+
+describe('recruiting from the Human command center', () => {
+  const CORE_SEL = { selectedEntity: { entityId: 1, type: 'human_building' as const, position: { x: 0, y: 0 } } };
+
+  it('shows Entrenar Soldado, Entrenar Tirador and Fabricar Tanque next to Entrenar Constructor, plus Construir Cuartel', () => {
+    const { ctx } = context(humanStats({ selected: commandCenter() }), CORE_SEL);
+    const slots = buildCommands(ctx);
+    expect(byId(slots, 'human-train-builder')!.label).toBe('Entrenar Constructor');
+    expect(byId(slots, 'human-train-soldier')!.label).toBe('Entrenar Soldado');
+    expect(byId(slots, 'human-train-marksman')!.label).toBe('Entrenar Tirador');
+    expect(byId(slots, 'human-train-tank')!.label).toBe('Fabricar Tanque');
+    expect(byId(slots, 'human-shortcut-barracks')!.label).toBe('Construir Cuartel');
+    // The barracks-made units say where they queue
+    expect(byId(slots, 'human-train-soldier')!.description).toMatch(/Cuartel/);
+    expect(byId(slots, 'human-train-tank')!.description).toMatch(/Fábrica/);
+  });
+
+  it('disables them with the reason when there is no Cuartel or no Fábrica', () => {
+    const { ctx } = context(humanStats({ selected: commandCenter({ soldier: NO_BARRACKS, marksman: NO_BARRACKS, tank: NO_FACTORY }) }), CORE_SEL);
+    const slots = buildCommands(ctx);
+    for (const type of ['soldier', 'marksman']) {
+      const button = byId(slots, `human-train-${type}`)!;
+      expect(button.disabled).toBe(true);
+      expect(button.disabledReason).toBe(NO_BARRACKS);
+    }
+    const tank = byId(slots, 'human-train-tank')!;
+    expect(tank.disabled).toBe(true);
+    expect(tank.disabledReason).toMatch(/^Necesitas una Fábrica/);
+    // Entrenar Constructor stays available
+    expect(byId(slots, 'human-train-builder')!.disabled).toBe(false);
+  });
+
+  it('Entrenar Soldado on the command center card asks the run to train a soldier', () => {
+    const { ctx, player, notify } = context(humanStats({ selected: commandCenter() }), CORE_SEL);
+    byId(buildCommands(ctx), 'human-train-soldier')!.run();
+    expect(player.train).toHaveBeenCalledWith('soldier');
+    expect(notify).not.toHaveBeenCalledWith(expect.anything(), 'danger');
+  });
+
+  it('Construir Cuartel picks a builder and starts the placement ghost', () => {
+    const { ctx, player, notify } = context(humanStats({ selected: commandCenter(), minerals: 200 }), CORE_SEL);
+    const shortcut = byId(buildCommands(ctx), 'human-shortcut-barracks')!;
+    expect(shortcut.disabled).toBeFalsy();
+    expect(shortcut.cost).toMatchObject({ amount: 150, resource: 'minerales' });
+    shortcut.run();
+    expect(player.startBarracksPlacement).toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalledWith(expect.anything(), 'danger');
+  });
+
+  it('Construir Cuartel explains itself when it cannot start', () => {
+    const { ctx, player, notify } = context(humanStats({ selected: commandCenter(), minerals: 200 }), CORE_SEL);
+    player.startBarracksPlacement.mockReturnValue('No hay constructores.');
+    byId(buildCommands(ctx), 'human-shortcut-barracks')!.run();
+    expect(notify).toHaveBeenCalledWith('No hay constructores.', 'danger');
+    const poor = context(humanStats({ selected: commandCenter(), minerals: 40 }), CORE_SEL);
+    const button = byId(buildCommands(poor.ctx), 'human-shortcut-barracks')!;
+    expect(button.disabled).toBe(true);
+    expect(button.disabledReason).toMatch(/minerales/);
+  });
+
+  it('a Cuartel card does not grow the command center\'s extras', () => {
+    const barracks = { ...commandCenter(), id: 9, kind: 'barracks' as const, name: 'Cuartel',
+      trains: [{ type: 'soldier' as const, name: 'Soldado', cost: { rations: 70, minerals: 0 }, reason: null }] };
+    const { ctx } = context(humanStats({ selected: barracks }), { selectedEntity: { entityId: 9, type: 'human_building', position: { x: 0, y: 0 } } });
+    expect(byId(buildCommands(ctx), 'human-shortcut-barracks')).toBeNull();
+  });
+
+  it('with nothing selected, the hint line says where soldiers come from (mouse and touch)', () => {
+    expect(HUMAN_RECRUIT_HINT).toBe('Toca el Cuartel o el Centro de mando para entrenar soldados');
+    const idle = { human: humanStats(), selectedEntity: null } as GameStats;
+    expect(humanIdleHint(idle)).toBe(HUMAN_RECRUIT_HINT);
+    // Not while something is selected or a building is being placed
+    expect(humanIdleHint({ ...idle, selectedEntity: { entityId: 1, type: 'human_building', position: { x: 0, y: 0 } } } as GameStats)).toBeNull();
+    expect(humanIdleHint({ human: humanStats({ selectedUnits: 2 }), selectedEntity: null } as GameStats)).toBeNull();
+    expect(humanIdleHint({ selectedEntity: null } as GameStats)).toBeNull();
   });
 });

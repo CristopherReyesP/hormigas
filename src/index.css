@@ -145,6 +145,26 @@ button:focus-visible {
 .flash-a { animation: stat-flash-a 0.3s steps(2, end); }
 .flash-b { animation: stat-flash-b 0.3s steps(2, end); }
 
+/* Ore banked: the minerals counter blinks cyan, longer than the other stats */
+@keyframes mineral-flash-a {
+  0%, 24%, 50%, 74% { color: #7fe8f0; text-shadow: 0 0 4px #2fa3b8; }
+  25%, 49%, 75%, 100% { color: inherit; text-shadow: none; }
+}
+@keyframes mineral-flash-b {
+  0%, 24%, 50%, 74% { color: #7fe8f0; text-shadow: 0 0 4px #2fa3b8; }
+  25%, 49%, 75%, 100% { color: inherit; text-shadow: none; }
+}
+.strip-minerals-value.flash-a { animation: mineral-flash-a 0.8s steps(1, end); }
+.strip-minerals-value.flash-b { animation: mineral-flash-b 0.8s steps(1, end); }
+.strip-miners {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  color: #9a8088;
+  font-size: 0.85em;
+}
+.strip-miners .pixel-icon { width: 12px; height: 12px; }
+
 /* ── Dithered overlay (checkerboard, no smooth alpha blur) ── */
 .dither-overlay {
   background-image: repeating-conic-gradient(
@@ -2048,7 +2068,7 @@ button:focus-visible {
 
 /* Portrait closed: leaves, the pantry and the wave countdown */
 .hud-layer--phone-portrait .top-strip:not(.top-strip--open) :is(
-  .strip-food--fungus, .strip-food--meat, .strip-food-badge, .strip-minerals, .strip-day, .strip-phase, .strip-time
+  .strip-food--fungus, .strip-food--meat, .strip-food-badge, .strip-miners, .strip-day, .strip-phase, .strip-time
 ) {
   display: none;
 }
@@ -2157,6 +2177,27 @@ button:focus-visible {
 .hud-layer--phone .cmd-slot[data-cmd="move"] { order: -3; }
 .hud-layer--phone .cmd-slot[data-cmd="attack"] { order: -2; }
 .hud-layer--phone .cmd-slot[data-cmd="rally"] { order: -1; }
+
+/* Workers selected: Recolectar and Minar join the big buttons. In portrait the
+   first row is Mover, Atacar, Recolectar and Minar (2 columns each); Volver al
+   nido gives up its name and opens the second row */
+.hud-layer--phone .cmd-grid:has([data-cmd="mine-order"]) .cmd-slot[data-cmd="move"] { order: -5; }
+.hud-layer--phone .cmd-grid:has([data-cmd="mine-order"]) .cmd-slot[data-cmd="attack"] { order: -4; }
+.hud-layer--phone .cmd-slot[data-cmd="gather-order"] { order: -3; }
+.hud-layer--phone .cmd-slot[data-cmd="mine-order"] { order: -2; }
+.hud-layer--phone-portrait .cmd-grid:has([data-cmd="mine-order"]) .cmd-slot--wide {
+  grid-column: span 2;
+}
+.hud-layer--phone-portrait .cmd-grid:has([data-cmd="mine-order"]) .cmd-slot--wide .cmd-face {
+  gap: 2px;
+  padding: 0 3px;
+}
+.hud-layer--phone-portrait .cmd-grid:has([data-cmd="mine-order"]) .cmd-slot[data-cmd="rally"] {
+  grid-column: span 1;
+}
+.hud-layer--phone-portrait .cmd-grid:has([data-cmd="mine-order"]) .cmd-slot[data-cmd="rally"] .cmd-label {
+  display: none;
+}
 
 .hud-layer--phone .cmd-slot--wide .cmd-face {
   gap: 6px;

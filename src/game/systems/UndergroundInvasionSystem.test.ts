@@ -10,6 +10,7 @@ import {
   WAVE_WARNING_LEAD,
 } from '../../shared/constants';
 import { waveComposition } from '../run/waveComposition';
+import { WAVE_MARCH_COMPONENT } from '../run/waveMarch';
 import { DayNightSystem } from './DayNightSystem';
 import { TransitSystem } from './TransitSystem';
 import { UndergroundInvasionSystem, isBossNight, type RaidSource } from './UndergroundInvasionSystem';
@@ -87,8 +88,9 @@ describe('wave size per wave number', () => {
     while (dayNight.getPhase() === 'day') step();
     for (let i = 0; i < 20 / DT; i++) step();
     expect(sent).toHaveLength(wave.drones);
-    const underground = world.query(COMPONENT.BEETLE).filter((id) => world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground);
-    expect(underground).toHaveLength(wave.youngBeetles + wave.beetles);
+    // The beetles cross the surface from the map edge to break into the nest
+    const marching = world.query(COMPONENT.BEETLE, WAVE_MARCH_COMPONENT).filter((id) => world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Surface);
+    expect(marching).toHaveLength(wave.youngBeetles + wave.beetles);
     expect(invasion.getInfo().remaining).toBe(wave.total);
   });
 });

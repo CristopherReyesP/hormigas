@@ -21,6 +21,7 @@ import { ENEMY_PICK_RADIUS, ORDER_SNAP_RADIUS } from '../../../shared/constants'
 import { FactionId, isHostileTo } from '../../factions/factions';
 import { HUMAN_COMPONENT, type HumanBuildingComponent } from '../../rival/humanComponents';
 import { HUMAN_BUILDING_STATS } from '../../rival/humanBase';
+import { clearResourceOrder } from './resourceOrders';
 import { isPlayerUnit } from '../../factions/playerUnits';
 
 /**
@@ -462,7 +463,12 @@ export function endPlayerOrder(world: World, id: EntityId): void {
 export function stopAnts(world: World, ids: readonly EntityId[]): number {
   let stopped = 0;
   for (const id of ids) {
-    if (!hasPlayerOrder(world, id)) continue;
+    // Minar and Recolectar loop until told otherwise: Detener is how
+    const looped = clearResourceOrder(world, id);
+    if (!hasPlayerOrder(world, id)) {
+      if (looped) stopped++;
+      continue;
+    }
     endPlayerOrder(world, id);
     stopped++;
   }
@@ -520,6 +526,7 @@ export function soundRetreatHorn(world: World): number {
     if (layer.layer !== Layer.Surface) continue;
     const ant = world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
     if (hasPlayerOrder(world, id)) endPlayerOrder(world, id);
+    clearResourceOrder(world, id);
     if (ant.state === AntState.FetchingFood || ant.state === AntState.Hauling) continue;
     ant.state = ant.role === AntRole.Soldier ? AntState.PatrollingNest : AntState.ReturningHome;
     ant.stateTimer = 0;
@@ -531,8 +538,15 @@ export function soundRetreatHorn(world: World): number {
 
 /** Drop the target and the route; the caller sets the new state. */
 function abandonCurrentTask(world: World, id: EntityId): void {
+  // A new order replaces a Minar or Recolectar loop
+  clearResourceOrder(world, id);
   const ant = world.getComponent<AntComponent>(id, COMPONENT.ANT);
-  if (ant) ant.stateTimer = 0;
+  if (ant) {
+    ant.stateTimer = 0;
+    // An autonomous miner taken off its node is not a miner any more
+    ant.mineralTargetId = null;
+    ant.miningProgress = 0;
+  }
   clearCombatTarget(world, id);
   clearPath(world, id);
 }

@@ -16,6 +16,7 @@ import { fakeCanvas, finishIntro } from '../../test/gameManagerMocks';
 import { captureSave, restoreSave, serializeState } from './snapshot';
 import { parseSave, stringifySave } from './format';
 import { stateDiff } from './stateDiff';
+import { WAVE_MARCH_COMPONENT, type WaveMarchComponent } from '../run/waveMarch';
 
 vi.mock('../../engine/input/InputManager', async () =>
   (await import('../../test/gameManagerMocks')).mockInputManager());
@@ -139,7 +140,8 @@ describe('saving a Humans player run against the Crystal Hive', () => {
     expect(human.train('builder')).toBeNull();
     run(a, 4);
     const buildings = () => world.query(HUMAN_COMPONENT.BUILDING).filter((id) => ownerOf(world, id) === FactionId.PLAYER);
-    const barracks = buildings().find((id) => world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!.kind === 'barracks')!;
+    // Humans start with a finished Cuartel: the frame placed above is the newest one
+    const barracks = Math.max(...buildings().filter((id) => world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!.kind === 'barracks'));
     expect(world.getComponent<HumanBuildingComponent>(barracks, HUMAN_COMPONENT.BUILDING)!.constructing).toBeGreaterThan(0);
 
     const save = captureSave(a);
@@ -166,6 +168,54 @@ describe('saving a Humans player run against the Crystal Hive', () => {
     run(b, 8);
     expectSameState(b, a);
     expect(b.getStats().human!.units).toEqual(a.getStats().human!.units);
+    a.stop();
+    b.stop();
+  });
+});
+
+describe('saving while a night wave marches on the nest', () => {
+  it('round-trips the column, its road and holes, a unit digging in, and continues in lockstep', () => {
+    const a = start({ playerRace: 'swarm', rivalRace: 'wildlife' });
+    const world = a['world'] as World;
+    (a['invasionSystem'] as unknown as { waveNumber: number }).waveNumber = 4;
+    const next = a.getStats().invasion.next!;
+    expect(next.wildlife).toBeTruthy();
+    expect(next.hole).toBeTruthy();
+    (a['dayNightSystem'] as unknown as { phaseTimer: number }).phaseTimer = 0.05;
+    run(a, 6);
+    // Mid-march: the column on the surface, units still leaving the edge
+    const marching = () => idsOf(a, WAVE_MARCH_COMPONENT);
+    expect(marching().length).toBeGreaterThan(0);
+    expect(a.getInvaderCount('underground')).toBe(0);
+
+    let b = reload(a);
+    expectSameState(b, a);
+    expect(idsOf(b, WAVE_MARCH_COMPONENT)).toEqual(marching());
+    for (const id of marching()) {
+      expect((b['world'] as World).getComponent(id, WAVE_MARCH_COMPONENT)).toEqual(world.getComponent(id, WAVE_MARCH_COMPONENT));
+    }
+    expect(b.getStats().invasion).toEqual(a.getStats().invasion);
+    expect(b.getScoutMarks('surface')).toEqual(a.getScoutMarks('surface'));
+
+    // Save again while a unit is digging into its hole
+    const digging = () => idsOf(a, WAVE_MARCH_COMPONENT)
+      .some((id) => world.getComponent<WaveMarchComponent>(id, WAVE_MARCH_COMPONENT)!.phase === 'digging');
+    for (let t = 0; t < 60 && !digging(); t += 0.25) {
+      run(a, 0.25);
+      run(b, 0.25);
+    }
+    expect(digging()).toBe(true);
+    expectSameState(b, a);
+    b.stop();
+    b = reload(a);
+    expectSameState(b, a);
+
+    // Both break in the same way afterwards
+    run(a, 10);
+    run(b, 10);
+    expectSameState(b, a);
+    expect(a.getInvaderCount('underground')).toBeGreaterThan(0);
+    expect(b.getInvaderCount('underground')).toBe(a.getInvaderCount('underground'));
     a.stop();
     b.stop();
   });

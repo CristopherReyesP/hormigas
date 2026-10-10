@@ -28,6 +28,8 @@ const NEXT: NextWaveIntel = {
   boss: { kind: 'prism', name: 'Prisma Guardián', ability: 'Lo protege un escudo enorme.' },
   entrance: { x: 45, y: 1, label: 'centro' },
   surface: { x: 100, y: 10, direction: 'noreste' },
+  wildlife: { x: 1, y: 45, direction: 'oeste' },
+  hole: { x: 60, y: 45 },
 };
 
 const alert = (invasion: Partial<InvasionInfo>) =>
@@ -101,6 +103,8 @@ describe('Próxima oleada card', () => {
     expect(html).toContain('Prisma Guardián');
     expect(html).toContain('entrada centro');
     expect(html).toContain('noreste');
+    // The beetles cross the surface from the scouted edge before they break in
+    expect(html).toContain('Acorazados: desde el oeste');
   });
 
   it('is gone while a wave is on', () => {

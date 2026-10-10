@@ -5,7 +5,7 @@
 
 import type { GameStats } from '../../../game/GameManager';
 import type { HumanPlayerStats, HumanSelectedBuilding } from '../../../game/races/human/HumanPlayerRun';
-import type { HumanUnitType } from '../../../game/rival/humanBase';
+import type { HumanBuildingKind, HumanUnitType } from '../../../game/rival/humanBase';
 import { HUMAN_BUILDING_NAME } from '../../../game/rival/humanInfo';
 import { PLAYER_BUILD_COST, PLAYER_BUILDABLE, type PlayerBuildable } from '../../../game/races/human/humanPlayerRules';
 import type { CommandContext, CommandDef } from '../../console/commands';
@@ -251,16 +251,44 @@ function placingPage(ctx: CommandContext, human: HumanPlayerStats): Slot[] {
   ];
 }
 
+/** Where the command center's shortcut buttons queue each unit */
+const QUEUED_AT: Partial<Record<HumanBuildingKind, string>> = {
+  barracks: 'Se entrena en el Cuartel más cercano.',
+  factory: 'Se fabrica en la Fábrica más cercana.',
+};
+
+/** Construir Cuartel on the command center's card: a builder and the placement ghost in one tap */
+function barracksShortcut(ctx: CommandContext, human: HumanPlayerStats): CommandDef {
+  const cost = PLAYER_BUILD_COST.barracks.minerals;
+  const short = human.minerals < cost;
+  const noBuilder = human.units.builder === 0;
+  return {
+    id: 'human-shortcut-barracks',
+    label: `Construir ${HUMAN_BUILDING_NAME.barracks}`,
+    icon: BUILD_ICON.barracks,
+    description: `Elige al constructor ocioso más cercano y empieza a colocar un Cuartel. ${BUILD_BLURB.barracks} ${ctx.touch ? 'Toca el lugar y vuelve a tocar para confirmar.' : 'Haz clic en el lugar; el fantasma verde marca un sitio válido.'}`,
+    cost: { amount: cost, resource: 'minerales' as const, short },
+    disabled: short || noBuilder,
+    disabledReason: noBuilder ? 'No hay constructores: entrena uno en el Centro de Mando.' : `Faltan minerales: ${HUMAN_BUILDING_NAME.barracks} cuesta ${cost}.`,
+    run: act(ctx, () => {
+      const run = player(ctx);
+      const reason = run ? run.startBarracksPlacement() : 'No hay constructores.';
+      if (reason) ctx.notify(reason, 'danger');
+    }),
+  };
+}
+
 /** The selected own building: its training buttons, queue and rally point */
-function buildingPage(ctx: CommandContext, selected: HumanSelectedBuilding): Slot[] {
+function buildingPage(ctx: CommandContext, selected: HumanSelectedBuilding, human: HumanPlayerStats): Slot[] {
   const trains: Slot[] = selected.trains.map((option) => {
-    const queued = selected.queue.filter((t) => t === option.type).length;
+    const queued = option.at ? 0 : selected.queue.filter((t) => t === option.type).length;
     const extra = option.cost.minerals > 0 ? ` y ${option.cost.minerals} minerales` : '';
+    const where = option.at ? ` ${QUEUED_AT[option.at] ?? ''}` : '';
     return {
       id: `human-train-${option.type}`,
       label: `${TRAIN_VERB[option.type]} ${option.name}`,
       icon: TRAIN_ICON[option.type],
-      description: `${TRAIN_BLURB[option.type]} Cuesta ${option.cost.rations} raciones${extra}.`,
+      description: `${TRAIN_BLURB[option.type]}${where} Cuesta ${option.cost.rations} raciones${extra}.`,
       cost: { amount: option.cost.rations, resource: 'raciones' as const, short: option.reason !== null && /raciones/.test(option.reason) },
       badge: queued > 0 ? String(queued) : undefined,
       disabled: option.reason !== null,
@@ -272,6 +300,7 @@ function buildingPage(ctx: CommandContext, selected: HumanSelectedBuilding): Slo
       }),
     };
   });
+  if (selected.kind === 'command_center' && selected.construction === null) trains.push(barracksShortcut(ctx, human));
   while (trains.length < 5) trains.push(null);
   const producer = selected.trains.length > 0;
   return [
@@ -320,7 +349,7 @@ function rootPage(ctx: CommandContext, human: HumanPlayerStats): Slot[] {
       id: 'human-select-core',
       label: 'Centro de Mando',
       icon: 'den',
-      description: 'Selecciona el Centro de Mando para entrenar constructores.',
+      description: 'Selecciona el Centro de Mando: entrena constructores y, con un Cuartel o una Fábrica, soldados, tiradores y tanques.',
       run: act(ctx, () => player(ctx)?.selectCore()),
     },
     null, null, null,
@@ -335,7 +364,7 @@ function rootPage(ctx: CommandContext, human: HumanPlayerStats): Slot[] {
 /** The 15 slots of a Human player's card */
 export function humanCommands(ctx: CommandContext, human: HumanPlayerStats): Slot[] {
   if (human.placing) return placingPage(ctx, human);
-  if (human.selected) return buildingPage(ctx, human.selected);
+  if (human.selected) return buildingPage(ctx, human.selected, human);
   if (human.selectedUnits > 0) return ctx.page === 'build' && human.selectedBuilders > 0 ? buildPage(ctx, human) : unitPage(ctx, human);
   if (ctx.stats.selectedEntity) {
     // Something not ours (an enemy, a mineral): look, but no orders for it
@@ -353,4 +382,15 @@ export function humanHint(stats: GameStats, touch: boolean): string | null {
   return touch
     ? `${name}: toca dónde va y vuelve a tocar para confirmar · Cancelar para salir${problem}`
     : `${name}: haz clic donde va · clic derecho o Esc cancela${problem}`;
+}
+
+/** What a Human player with nothing selected reads on the hint line: where soldiers come from */
+export const HUMAN_RECRUIT_HINT = 'Toca el Cuartel o el Centro de mando para entrenar soldados';
+
+/** The hint line of a Human player with nothing selected and no mode on; null otherwise */
+export function humanIdleHint(stats: GameStats): string | null {
+  const human = stats.human;
+  if (!human || human.placing || human.selected || human.selectedUnits > 0) return null;
+  if (stats.selectedEntity || stats.commandTarget || stats.areaSelect) return null;
+  return HUMAN_RECRUIT_HINT;
 }

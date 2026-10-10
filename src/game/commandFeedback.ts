@@ -9,7 +9,7 @@ import type { HumanUnitType } from './rival/humanBase';
  * confirm it on a phone (a toast, a buzz, a burst where the finger was):
  * an order the selected ants took, or a long press that took a caste.
  */
-export type OrderFeedbackKind = 'move' | 'attack' | 'attack-move' | 'rally';
+export type OrderFeedbackKind = 'move' | 'attack' | 'attack-move' | 'rally' | 'mine' | 'gather';
 
 /** What an attack order names, for the toast ("atacar guarida") */
 export type FeedbackTarget = 'den' | 'hive' | 'spire' | 'beetle' | 'cricket' | 'crystal-unit' | 'human-unit' | 'human-building' | 'enemy';
@@ -28,6 +28,8 @@ export interface OrderFeedback {
   target: FeedbackTarget | null;
   /** Given with a finger tap (the phone HUD confirms it louder) */
   touch: boolean;
+  /** Recolectar: what the source holds, plural ("hojas", "hongos", "carne") */
+  resource?: string;
 }
 
 export interface CasteSelectFeedback {

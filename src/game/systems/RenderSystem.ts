@@ -24,6 +24,7 @@ import {
   CricketState,
   Layer,
   OrderKind,
+  isOreLoad,
   type PositionComponent,
   type RenderComponent,
   type FacingComponent,
@@ -62,12 +63,23 @@ import { combatVfxFor } from '../vfx/CombatVfx';
 import { drawCombatVfx } from '../vfx/drawCombatVfx';
 import { HumanRenderer } from './HumanRenderer';
 import { drawDefenses, drawGhost, drawScoutMarks, drawWaveFx, drawWaveUnits, type WaveOverlay } from '../render/waveFunArt';
+import { WAVE_MARCH_COMPONENT, type WaveMarchComponent } from '../run/waveMarch';
 import { drawDigOverlay, type DigOverlay } from '../render/digOverlayArt';
 import type { IntroClock, Vec2 } from '../render/introTimeline';
 import type { IntroArrival } from '../render/introArrival';
 import { LeapTracker, type LeapDraw } from '../render/leapMotion';
 import type { TilePos } from '../run/craterSite';
 import type { EntityId } from '../../shared/types';
+import {
+  ORE_FLOAT_SECONDS,
+  RESOURCE_COLOR,
+  drawAmountBar,
+  drawMineHint,
+  drawMineralCluster,
+  drawOreFloat,
+  drawResourceHalo,
+  foodTone,
+} from '../render/resourceArt';
 
 // === Food pile rendering (nest stockpile + underground pantry) ===
 // Max dots drawn per pile (perf cap — flat fills only, deterministic positions)
@@ -137,8 +149,8 @@ export interface OrderPing {
   /** Tile the order points at */
   x: number;
   y: number;
-  /** Green for a move, red for an attack or attack-move */
-  kind: 'move' | 'attack';
+  /** Green for a move, red for an attack or attack-move, the resource's color for Recolectar and Minar */
+  kind: 'move' | 'attack' | 'gather' | 'mine';
   /** Attack on one enemy: the ping follows it and its ellipse flashes */
   targetId?: EntityId;
   /**
@@ -241,6 +253,8 @@ export class RenderSystem {
   private fxTargetEllipse!: Record<TargetFlashSize, OffscreenCanvas>;
   /** Order pings still animating (birth in animationTime seconds) */
   private orderPings: Array<OrderPing & { born: number }> = [];
+  /** "+N" floats of ore banked lately (tile coords), drawn rising over the nest */
+  private oreFloats: Array<{ amount: number; x: number; y: number; born: number }> = [];
   /** Enemies named by an attack order, with the animationTime of the order */
   private targetFlashes = new Map<EntityId, number>();
   private commandOverlay: CommandOverlaySource | null;
@@ -498,8 +512,10 @@ export class RenderSystem {
       const age = (this.animationTime - ping.born) / ORDER_PING_SECONDS;
       if (age > 0.55 && Math.floor(this.animationTime * 16) % 2 === 1) continue; // blink out
       const attack = ping.kind === 'attack';
-      const dark = attack ? ATTACK_RED : SELECT_GREEN;
-      const light = attack ? ATTACK_RED_LIGHT : SELECT_GREEN_LIGHT;
+      const resource = ping.kind === 'gather' || ping.kind === 'mine';
+      const resourceColor = ping.kind === 'mine' ? RESOURCE_COLOR.crystal : RESOURCE_COLOR.leaf;
+      const dark = attack ? ATTACK_RED : resource ? resourceColor : SELECT_GREEN;
+      const light = attack ? ATTACK_RED_LIGHT : resource ? '#ffffff' : SELECT_GREEN_LIGHT;
       const at = ping.targetId !== undefined ? this.world.getComponent<PositionComponent>(ping.targetId, COMPONENT.POSITION) : undefined;
       const step = Math.min(2, Math.floor(age * 3));
       const rx = [13, 9, 6][step];
@@ -1031,6 +1047,7 @@ export class RenderSystem {
     drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Surface, this.visibilityGrid);
     this.fogRenderer.update();
     this.fogRenderer.draw(ctx);
+    this.renderWaveMarchOverFog(ctx, interpolation);
     // The player's own command feedback reads over the fog
     this.renderOrderPings(ctx);
     const overlay = this.getWaveOverlay?.() ?? null;
@@ -1893,9 +1910,11 @@ export class RenderSystem {
     }
 
     // Render order: minerals → food → nest → beetle_dens → cricket_dens → beetles → crickets → ants
+    // No worker mining anywhere: the nodes pulse, a hint that the colony could mine
+    const mineHint = mineralEntities.length > 0 && this.mineHintWanted();
     for (const { id, pos } of mineralEntities) {
       if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
-      this.drawMineral(ctx, pos.x, pos.y, id);
+      this.drawMineral(ctx, pos.x, pos.y, id, mineHint);
     }
     for (const { id, pos } of foodEntities) {
       if (!this.visibilityGrid.isExplored(Math.round(pos.x), Math.round(pos.y))) continue;
@@ -1954,7 +1973,13 @@ export class RenderSystem {
     // Moving wildlife hides under fog: drawn only where the colony sees RIGHT
     // NOW (dens above stay remembered on explored ground)
     for (const { id, pos } of beetleEntities) {
+      // A night wave marching on the nest is drawn over the fog where the colony cannot see (renderWaveMarchOverFog)
+      const march = this.world.getComponent<WaveMarchComponent>(id, WAVE_MARCH_COMPONENT);
       if (!isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
+      if (march) {
+        this.drawWaveMarcher(ctx, id, pos, march, interpolation);
+        continue;
+      }
       const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
       const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
       const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE);
@@ -2011,7 +2036,8 @@ export class RenderSystem {
       const selectable = this.world.getComponent<SelectableComponent>(id, COMPONENT.SELECTABLE);
 
       if (facing && ant) {
-        const isCarrying = !!(carrying && carrying.amount > 0);
+        // A miner carries a cyan crystal chunk instead of a leaf
+        const isCarrying = carrying && carrying.amount > 0 ? (isOreLoad(carrying.resourceType) ? 'ore' as const : true) : false;
         const isSelected = !!(selectable && selectable.selected);
         const isInCombat = ant.state === AntState.AttackingEnemy;
         const isFleeing = ant.state === AntState.Fleeing;
@@ -2034,6 +2060,33 @@ export class RenderSystem {
         }
       }
     }
+
+    this.renderOreFloats(ctx);
+  }
+
+  /** "+5" in cyan over the nest each time a miner banks its ore. */
+  private renderOreFloats(ctx: CanvasRenderingContext2D): void {
+    for (const d of this.world.minerals.drainDeposits()) this.oreFloats.push({ ...d, born: this.animationTime });
+    if (this.oreFloats.length === 0) return;
+    this.oreFloats = this.oreFloats.filter((f) => this.animationTime - f.born < ORE_FLOAT_SECONDS);
+    for (const f of this.oreFloats) {
+      drawOreFloat(ctx, f.x * TILE_SIZE + TILE_SIZE / 2, f.y * TILE_SIZE + TILE_SIZE / 2, f.amount, this.animationTime - f.born);
+    }
+  }
+
+  /**
+   * Whether no worker is bound to a mineral node while the colony has workers
+   * (the unmined-node hint). Runs without worker ants (Crystal, Humans) mine
+   * their own way and never get it.
+   */
+  private mineHintWanted(): boolean {
+    let workers = false;
+    for (const id of this.world.query(COMPONENT.ANT)) {
+      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+      if (ant.mineralTargetId != null) return false;
+      if (ant.role === AntRole.Worker) workers = true;
+    }
+    return workers;
   }
 
   private recordGlowAnt(x: number, y: number, angle: number, role: AntRole): void {
@@ -2180,7 +2233,7 @@ export class RenderSystem {
     legPhase: number,
     role: AntRole,
     isSelected: boolean,
-    isCarrying: boolean,
+    isCarrying: boolean | 'ore',
     isInCombat: boolean,
     isFleeing: boolean
   ): void {
@@ -2213,31 +2266,23 @@ export class RenderSystem {
     this.spriteAtlas.drawAnt(ctx, px, py, facing, legPhase, role, isCarrying);
   }
 
-  /** A mineral node: a cluster of cyan crystal shards that shrinks as it is mined out. */
-  private drawMineral(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number): void {
+  /**
+   * A mineral node: a cluster of cyan crystal shards that shrinks as it is
+   * mined out, on a cyan halo, with its ore bar once mining started. While
+   * the colony has no miner at all, every node pulses: a hint to send some.
+   */
+  private drawMineral(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number, hint: boolean): void {
     const node = this.world.getComponent<MineralComponent>(entityId, COMPONENT.MINERAL);
     const left = node && node.maxAmount > 0 ? node.amount / node.maxAmount : 1;
     const px = tileX * TILE_SIZE + TILE_SIZE / 2;
     const py = tileY * TILE_SIZE + TILE_SIZE / 2;
-    this.drawShadow(ctx, px + 1.5, py + 5.5, TILE_SIZE * 0.3, TILE_SIZE * 0.1);
-
-    // Art grid: 2 screen px per art px, base line 4 art px under the tile center
-    const p = new PixelPainter(ctx, 2, Math.round(px), Math.round(py + 8));
-    const shell = PAL.crystal.shell;
-    // Three shards (left, tall middle, right); heights scale with the ore left
-    const shards: Array<[number, number]> = [[-5, 5], [-1, 9], [3, 6]];
-    shards.forEach(([x, h], i) => {
-      const height = Math.max(2, Math.round(h * (0.4 + 0.6 * left)));
-      const lean = (entityId + i) % 3 === 0 ? 1 : 0;
-      p.rect(x, -height, 3, height, shell[1]);
-      p.vline(x + 1, -height, height - 1, shell[3]);
-      p.vline(x + 2, -height + 1, height - 1, shell[2]);
-      p.px(x + 1 + lean, -height - 1, shell[4]);
-    });
-    p.hline(-6, 0, 13, PAL.crystal.outline);
+    drawResourceHalo(ctx, px, py + 14, 13, 5, 'crystal');
+    if (hint) drawMineHint(ctx, px, py + 14, this.animationTime);
+    drawMineralCluster(ctx, px, py, left, entityId);
+    if (left < 1) drawAmountBar(ctx, px, py, left, 'crystal', 12, 10);
 
     const selectable = this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE);
-    if (selectable && selectable.selected) this.drawSelectionBrackets(ctx, px, py, TILE_SIZE * 0.45, 'amber');
+    if (selectable && selectable.selected) this.drawSelectionBrackets(ctx, px, py, TILE_SIZE * 0.78, 'amber');
   }
 
   private drawFood(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number): void {
@@ -2246,16 +2291,23 @@ export class RenderSystem {
 
     const foodSource = this.world.getComponent<FoodSourceComponent>(entityId, COMPONENT.FOOD_SOURCE);
     const amount = foodSource ? foodSource.amount : 100;
+    const max = Math.max(amount, foodSource?.maxAmount ?? 100, 1);
+    const left = amount / max;
+    const tone = foodTone(foodSource?.resourceType);
+    const giant = foodSource?.resourceType === 'giant_mushroom';
+    // A halo in the food's own color lifts it off the terrain
+    if (giant) drawResourceHalo(ctx, px, py + 10, 17, 6, tone);
+    else drawResourceHalo(ctx, px, py + 4, 10, 6, tone);
 
     // Check if it's a giant mushroom
-    if (foodSource?.resourceType === 'giant_mushroom') {
+    if (giant) {
       // Drop shadow for giant mushroom (pre-rendered dither stamp)
       this.drawShadow(ctx, px + 2.5, py + 3.5, TILE_SIZE * 0.6, TILE_SIZE * 0.25);
 
       this.spriteAtlas.drawGiantMushroom(ctx, px, py);
     } else {
-      // Normal food rendering
-      const sizeLevel = Math.min(4, Math.floor(amount / 100 * 5));
+      // Normal food rendering: the item shrinks as it is used up
+      const sizeLevel = Math.max(0, Math.min(4, Math.ceil(left * 5) - 1));
 
       // Determine variant based on resource type
       let variant = entityId % 2; // Default: leaves (0 or 1)
@@ -2270,17 +2322,18 @@ export class RenderSystem {
       const rotation = (entityId * 1.234) % (Math.PI * 2);
 
       // Drop shadow (pre-rendered dither stamp)
-      const sizeFact = Math.max(0.3, Math.min(1, amount / 100));
-      this.drawShadow(ctx, px + 1.5, py + 2.5, TILE_SIZE * 0.22 * sizeFact, TILE_SIZE * 0.12 * sizeFact);
+      const sizeFact = Math.max(0.4, Math.min(1, left));
+      this.drawShadow(ctx, px + 1.5, py + 3.5, TILE_SIZE * 0.33 * sizeFact, TILE_SIZE * 0.16 * sizeFact);
 
       this.spriteAtlas.drawFood(ctx, px, py, variant, sizeLevel, rotation);
     }
+    // What is left, once it has been started on
+    if (left < 1) drawAmountBar(ctx, px, py, left, tone, giant ? 16 : 12, giant ? 14 : 10);
 
     // Selection feedback: amber corner brackets, 3Hz blink
     const selectable = this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE);
     if (selectable && selectable.selected) {
-      const sizeFactor = Math.max(0.3, Math.min(1, amount / 100));
-      const half = TILE_SIZE * 0.35 * sizeFactor * 1.4 + 3;
+      const half = giant ? TILE_SIZE * 1.05 : TILE_SIZE * 0.75;
       this.drawSelectionBrackets(ctx, px, py, half, 'amber');
     }
   }
@@ -2348,6 +2401,44 @@ export class RenderSystem {
     }
     ctx.globalAlpha = 1;
     ctx.restore();
+  }
+
+  /**
+   * A night-wave unit on its way into the nest: marching (lunging while it
+   * fights), or digging in, shrinking and fading into the hole as it sinks.
+   */
+  private drawWaveMarcher(ctx: CanvasRenderingContext2D, id: EntityId, pos: PositionComponent, march: WaveMarchComponent, interpolation: number): void {
+    const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
+    if (!facing) return;
+    const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
+    const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
+    this.drawTargetFlash(ctx, id, x, y, 'beetle');
+    const dig = march.phase === 'digging' ? 1 - Math.max(0, march.timer) / Math.max(0.01, march.duration) : 0;
+    if (dig <= 0) {
+      const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
+      this.drawBeetle(ctx, x, y, facing.angle, facing.legPhase, id, !!combat && combat.targetEntityId !== null);
+      return;
+    }
+    const cx = x * TILE_SIZE + TILE_SIZE / 2;
+    const cy = y * TILE_SIZE + TILE_SIZE / 2;
+    const scale = 1 - 0.75 * dig;
+    ctx.save();
+    ctx.globalAlpha = 1 - 0.8 * dig;
+    ctx.translate(cx, cy + dig * TILE_SIZE * 0.25);
+    ctx.scale(scale, scale);
+    ctx.translate(-cx, -cy);
+    this.drawBeetle(ctx, x, y, facing.angle, facing.legPhase + dig * 6, id, false);
+    ctx.restore();
+  }
+
+  /** The announced night wave stays in sight on its march, even across ground the colony cannot see */
+  private renderWaveMarchOverFog(ctx: CanvasRenderingContext2D, interpolation: number): void {
+    for (const id of this.world.query(WAVE_MARCH_COMPONENT, COMPONENT.POSITION)) {
+      if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      if (isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
+      this.drawWaveMarcher(ctx, id, pos, this.world.getComponent<WaveMarchComponent>(id, WAVE_MARCH_COMPONENT)!, interpolation);
+    }
   }
 
   /**

@@ -4,6 +4,7 @@ import { AntRole } from '../../game/components/components';
 import { getSpriteAtlas } from '../sharedAtlas';
 import { drawUnitFrame, type CrystalUnitKind } from '../../engine/renderer/crystalUnits';
 import { crystalSheet } from '../racePicker/unitSheets';
+import { drawMineralCluster } from '../../game/render/resourceArt';
 import { NEST_PORTRAIT_RADIUS, PORTRAIT_SIZE, portraitPlacement, portraitSprite } from './portraitScale';
 
 const FRAME_MS = 160;
@@ -46,7 +47,7 @@ function drawCrystalPortrait(ctx: CanvasRenderingContext2D, unit: CrystalUnitKin
  * sprite (2 world px per art px) is drawn at the largest whole number of
  * screen px per art px that fits the 64 px frame, centered on a whole screen
  * px, so it stays crisp: ant 24 and beetle 28 art px at 2, cricket 48, dens
- * 40 and nest 40 at 1, food 16 at 4, giant mushroom 32 at 2 (see portraitScale).
+ * 40 and nest 40 at 1, food and the mineral node 24 at 2, giant mushroom 32 at 2 (see portraitScale).
  */
 export function Portrait({ kind, role = AntRole.Worker, foodType, carrying = false, crystalKind }: PortraitProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -92,6 +93,9 @@ export function Portrait({ kind, role = AntRole.Worker, foodType, carrying = fal
           break;
         case 'nest':
           atlas.drawNest(ctx, at, at, NEST_PORTRAIT_RADIUS);
+          break;
+        case 'mineral':
+          drawMineralCluster(ctx, at, at, 1, 0);
           break;
         case 'food':
           if (sprite === 'giantMushroom') atlas.drawGiantMushroom(ctx, at, at);

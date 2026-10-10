@@ -5,7 +5,7 @@ import type { HumanPlayerStats } from '../../../game/races/human/HumanPlayerRun'
 import { TopStrip } from '../../console/TopStrip';
 import { GameOverScreen } from '../../GameOverScreen';
 import { HumanIntroBanner } from './HumanIntroBanner';
-import { HumanBaseSummary } from './HumanInfo';
+import { HumanBaseSummary, HumanProduction } from './HumanInfo';
 
 const HUMAN: HumanPlayerStats = {
   rations: 180,
@@ -70,6 +70,23 @@ describe('the Human HUD', () => {
     expect(html).toContain('Constructores');
     expect(html).toMatch(/ocioso/);
     expect(html).toMatch(/depósito de suministros/);
+  });
+
+  it('the base summary lists what the expedition trains and where each comes from', () => {
+    const html = renderToStaticMarkup(<HumanBaseSummary human={HUMAN} stats={STATS} />);
+    expect(html).toContain('Entrena: Constructor · Soldado · Tirador · Tanque');
+    expect(html).toMatch(/Constructor[^]*Centro de Mando/);
+    expect(html).toMatch(/Soldado[^]*Cuartel/);
+    expect(html).toMatch(/Tirador[^]*Cuartel/);
+    expect(html).toMatch(/Tanque[^]*Fábrica/);
+  });
+
+  it('the command center\'s info card lists the same guide', () => {
+    const core = { id: 1, kind: 'command_center' as const, name: 'Centro de Mando', construction: null, queue: [], progress: 0, remaining: 0, rally: null,
+      trains: [{ type: 'builder' as const, name: 'Constructor', cost: { rations: 50, minerals: 0 }, reason: null }] };
+    const html = renderToStaticMarkup(<HumanProduction selected={core} />);
+    expect(html).toContain('Entrena: Constructor · Soldado · Tirador · Tanque');
+    expect(html).toMatch(/Tanque[^]*Fábrica/);
   });
 
   it('the landing banner shows the expedition line', () => {

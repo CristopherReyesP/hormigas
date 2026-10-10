@@ -9,6 +9,8 @@ interface RacePickerProps {
   /** The last choice (or the default); anything not available yet falls back to the default. */
   initialSetup: RunSetup;
   onStart: (setup: RunSetup) => void;
+  /** Start the guided tutorial instead */
+  onTutorial?: () => void;
   /** Shown above the setup: the saved run to continue, when there is one */
   savedRun?: ReactNode;
 }
@@ -19,7 +21,7 @@ interface RacePickerProps {
  * the roster (and its identity) is visible from the first run. The rival list
  * follows the race: the Crystal Hive also lists the Swarm, coming soon.
  */
-export function RacePicker({ initialSetup, onStart, savedRun }: RacePickerProps) {
+export function RacePicker({ initialSetup, onStart, onTutorial, savedRun }: RacePickerProps) {
   const [setup, setSetup] = useState(() => sanitizeRunSetup(initialSetup));
   // The first screen: from here on every button ticks and taps, and the first click unlocks audio
   useEffect(() => installAudioUi(), []);
@@ -74,6 +76,11 @@ export function RacePicker({ initialSetup, onStart, savedRun }: RacePickerProps)
           </button>
           <p className="race-launch-hint">{runGoalText(setup.playerRace)}</p>
           <p className="race-launch-hint">Tu elección se recordará en la próxima partida</p>
+          {onTutorial && (
+            <button type="button" className="race-tutorial" data-tutorial-start="" title="¿Primera vez? Aprende a jugar con Hormi" onClick={onTutorial}>
+              TUTORIAL
+            </button>
+          )}
         </div>
       </div>
     </div>

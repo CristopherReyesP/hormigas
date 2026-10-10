@@ -39,6 +39,13 @@ export class DayNightSystem implements System {
    *  dusk warning is the last moment the player can still prepare for one. */
   private isWaveArmed: (() => boolean) | null = null;
 
+  /** Held (the tutorial): the clock stops, so no dusk, night or wave comes until it is released */
+  private held = false;
+
+  setHeld(held: boolean): void {
+    this.held = held;
+  }
+
   setWaveArmedProvider(fn: () => boolean): void {
     this.isWaveArmed = fn;
   }
@@ -74,7 +81,7 @@ export class DayNightSystem implements System {
   }
 
   update(dt: number): void {
-    this.phaseTimer -= dt;
+    if (!this.held) this.phaseTimer -= dt;
 
     if (this.phase === 'day' && !this.duskWarned && this.phaseTimer <= DUSK_WARNING) {
       this.duskWarned = true;

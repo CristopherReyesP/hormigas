@@ -75,7 +75,7 @@ class DirectionalSheet {
  * time; unit sheets bake lazily on first use.
  */
 export class SpriteAtlas {
-  // Ant sheets, one per caste × shadow × the marks that caste shows: rows 0 = empty-handed, 1 = carrying
+  // Ant sheets, one per caste × shadow × the marks that caste shows: rows 0 = empty-handed, 1 = carrying food, 2 = carrying ore
   private antSheets = new Map<string, DirectionalSheet>();
   // Per mark-set object, the sheet of each caste/shadow slot: draws skip key building
   private antSheetIndex = new WeakMap<AntMarks, DirectionalSheet[]>();
@@ -131,8 +131,8 @@ export class SpriteAtlas {
     const key = antSheetKey(role, shadow, marks);
     let sheet = this.antSheets.get(key);
     if (!sheet) {
-      sheet = new DirectionalSheet(SPRITE_GRID.ant, WALK_FRAMES, 2, (row, frame, direction) =>
-        paintAnt({ role, frame, direction, carrying: row === 1, shadow, marks }));
+      sheet = new DirectionalSheet(SPRITE_GRID.ant, WALK_FRAMES, 3, (row, frame, direction) =>
+        paintAnt({ role, frame, direction, carrying: row === 2 ? 'ore' : row === 1, shadow, marks }));
       this.antSheets.set(key, sheet);
       if (this.antSheets.size > MAX_ANT_SHEETS) this.antSheets.delete(this.antSheets.keys().next().value!);
     }
@@ -281,11 +281,12 @@ export class SpriteAtlas {
     angle: number,
     legPhase: number,
     role: AntRole,
-    isCarrying: boolean,
+    isCarrying: boolean | 'ore',
     noShadow = false,
     marks: AntMarks = this.colonyMarks
   ): void {
-    this.antSheet(role, !noShadow, marks).draw(ctx, worldX, worldY, angle, walkFrame(legPhase), isCarrying ? 1 : 0);
+    const row = isCarrying === 'ore' ? 2 : isCarrying ? 1 : 0;
+    this.antSheet(role, !noShadow, marks).draw(ctx, worldX, worldY, angle, walkFrame(legPhase), row);
   }
 
   /** The brood queen; `swollen` is the breathing step of her egg sac. */

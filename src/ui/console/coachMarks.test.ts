@@ -51,6 +51,8 @@ describe('coach marks per race', () => {
     expect(steps.map((s) => s.anchor)).toEqual(['quick-bar', 'hint-line', 'attack']);
     expect(steps[0].text).toContain('Constructores');
     expect(steps[0].text).not.toContain('Obreras');
+    // The hint-line step tells a new player where soldiers come from
+    expect(steps[1].text).toContain('Toca el Cuartel o el Centro de mando para entrenar soldados');
     expect(coachSteps('swarm')).toBe(COACH_STEPS);
   });
 });

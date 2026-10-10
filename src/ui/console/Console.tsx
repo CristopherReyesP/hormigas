@@ -15,7 +15,7 @@ import { touchHint } from './touchHint';
 import { TouchFeedback, type CasteBurst, type OrderToast } from './TouchFeedback';
 import { CoachMarks } from './CoachMarks';
 import { HAPTIC_PATTERN, feedbackText, hapticFor, vibrate } from './feedbackText';
-import { humanHint } from '../races/human/humanCommands';
+import { humanHint, humanIdleHint } from '../races/human/humanCommands';
 import { DigMeter } from './DigMeter';
 import { UpgradesButton } from '../upgrades/UpgradesButton';
 import { UpgradesOverlay } from '../upgrades/UpgradesOverlay';
@@ -26,6 +26,8 @@ interface ConsoleProps {
   gameManager: GameManager | null;
   /** Pull a fresh stats snapshot (the sim stops pushing while paused) */
   refreshStats: () => void;
+  /** The guided tutorial is running: it teaches the same controls, so the coach marks stay away */
+  tutorialRunning?: boolean;
 }
 
 const NOTICE_MS = 3000;
@@ -47,7 +49,7 @@ function applyBuildMode(gm: GameManager | null, mode: BuildMode | null, layer: '
 }
 
 /** StarCraft-style bottom console: minimap · info panel · command card, plus the message feed. */
-export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
+export function Console({ stats, gameManager, refreshStats, tutorialRunning = false }: ConsoleProps) {
   const [details, refreshDetails] = useColonyDetails(gameManager);
   const [page, setPage] = useState<CardPage>('root');
   const [buildMode, setBuildMode] = useState<BuildMode | null>(null);
@@ -184,15 +186,18 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   const quickSelect = useCallback(
     (kind: QuickSelectKind) => {
       if (!gameManager) return;
-      if (gameManager.quickSelect(kind).selected > 0 && touch) {
+      const picked = gameManager.quickSelect(kind);
+      if (picked.selected > 0 && touch) {
         vibrate(typeof navigator !== 'undefined' ? navigator : undefined, HAPTIC_PATTERN.select);
       }
+      // A Human player's empty chip selected the building that trains that unit: say so
+      if (picked.notice) notify(picked.notice);
       // Picking troops leaves the Defensas page and drops its build tool: the next tap is an order
       setPage('root');
       setBuildMode((mode) => (isDefenseMode(mode) ? null : mode));
       refresh();
     },
-    [gameManager, touch, refresh],
+    [gameManager, touch, refresh, notify],
   );
 
   const areaHint = touch && stats.areaSelect
@@ -205,7 +210,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   const digLimit = digging ? digHint(digging) : null;
   const toolHint = buildMode ? (digLimit?.text ?? buildModeHint(buildMode, touch)) : areaHint;
   // The compact HUD's hint line already says what the mode does: the feed only carries notices there
-  const modeHint = compact ? null : placingHint ?? commandTargetHint(stats.commandTarget, touch) ?? toolHint;
+  const modeHint = compact ? null : placingHint ?? commandTargetHint(stats.commandTarget, touch) ?? toolHint ?? humanIdleHint(stats);
   const hint = notice?.text ?? modeHint;
   const hintTone = notice?.tone ?? (digLimit && hint === digLimit.text ? digLimit.tone : undefined);
   const hintExtra = digging && !compact && hint === toolHint ? <DigMeter status={digging} /> : null;
@@ -280,7 +285,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
         />
       )}
       {touch && <TouchFeedback toast={toast} burst={burst} />}
-      {touch && compact && <CoachMarks active={!stats.introPlaying && !overlayOpen} race={stats.human ? 'human' : 'swarm'} />}
+      {touch && compact && <CoachMarks active={!stats.introPlaying && !overlayOpen && !tutorialRunning} race={stats.human ? 'human' : 'swarm'} />}
     </>
   );
 }
