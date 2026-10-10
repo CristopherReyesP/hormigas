@@ -40,7 +40,7 @@ describe('the hint line says what a tap does now', () => {
 
   it('one ant selected counts as a selection too', () => {
     const hint = touchHint({ ...NONE, selectedEntity: entity('ant', AntRole.Worker) });
-    expect(hint.text).toBe('Toca el suelo para mover · toca un enemigo para atacar');
+    expect(hint.text).toBe('Toca el suelo para mover · toca un cristal para minar · toca comida para recolectar');
     expect(hint.selection).toBe('1 obrera elegida');
   });
 
@@ -151,5 +151,14 @@ describe('the hint line in a Humans run', () => {
       mode: 'build',
       text: 'CUARTEL: toca dónde va',
     });
+  });
+});
+
+describe('hints for the resource orders', () => {
+  it('explains taps on resources with workers selected, and the armed Recolectar and Minar', () => {
+    const workers = { ...NONE, selectedEntity: entity('ant', AntRole.Worker) };
+    expect(touchHint({ ...workers, commandTarget: 'mine' })).toMatchObject({ mode: 'target', text: 'Toca un cristal: lo minan sin parar hasta otra orden' });
+    expect(touchHint({ ...workers, commandTarget: 'gather' }).text).toBe('Toca una hoja, un hongo o carne: la llevan a la despensa hasta agotarla');
+    expect(touchHint({ ...NONE, selectedEntity: entity('mineral') }).text).toBe('Elige obreras en la barra y toca el cristal para minarlo');
   });
 });

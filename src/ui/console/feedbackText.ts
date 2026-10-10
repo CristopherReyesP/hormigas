@@ -15,6 +15,8 @@ const VERB: Record<OrderFeedbackKind, string> = {
   attack: 'atacar',
   'attack-move': 'avanzar peleando',
   rally: 'volver al nido',
+  mine: 'minar',
+  gather: 'recolectar',
 };
 
 const TARGET: Record<FeedbackTarget, string> = {
@@ -73,7 +75,8 @@ export function feedbackText(event: CommandFeedback): string {
   const verb = event.order === 'attack' && event.target
     ? `${VERB.attack} ${TARGET[event.target]}`
     : event.order === 'rally' && human ? 'volver a la base'
-    : event.order === 'rally' && crystal ? 'volver a la colmena' : VERB[event.order];
+    : event.order === 'rally' && crystal ? 'volver a la colmena'
+    : event.order === 'gather' && event.resource ? `${VERB.gather} ${event.resource}` : VERB[event.order];
   return `${who} → ${verb}`;
 }
 

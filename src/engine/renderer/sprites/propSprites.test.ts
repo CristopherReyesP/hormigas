@@ -103,7 +103,7 @@ function eachFoodFrame(visit: (grid: ArtGrid, label: string) => void, variants =
 }
 
 describe('prop sprite frames', () => {
-  it('keeps the atlas layout: 5 food variants × 5 sizes of 16×16 art px in 16 directions', () => {
+  it('keeps the atlas layout: 5 food variants × 5 sizes of 24×24 art px in 16 directions', () => {
     expect(FOOD_VARIANTS).toBe(5);
     expect(FOOD_SIZE_LEVELS).toBe(5);
     expect(DIRECTIONS).toBe(16);

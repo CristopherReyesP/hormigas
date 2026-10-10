@@ -12,6 +12,7 @@ import {
   type PositionComponent,
 } from '../components/components';
 import { findStructureAt } from './helpers/playerOrders';
+import { findResourceAt } from './helpers/resourceOrders';
 import { isPlayerUnit } from '../factions/playerUnits';
 import { HUMAN_COMPONENT, type HumanUnitComponent } from '../rival/humanComponents';
 
@@ -208,8 +209,9 @@ export class SelectionSystem implements System {
 
   /**
    * What a click at (tileX, tileY) picks: something right under the cursor,
-   * else a base whose big sprite covers the spot (a den, the hive), else the
-   * nearest selectable within CLICK_RANGE.
+   * else a base whose big sprite covers the spot (a den, the hive), else a
+   * food source or mineral node whose sprite covers it, else the nearest
+   * selectable within CLICK_RANGE.
    */
   private nearestAt(tileX: number, tileY: number, layer?: LayerValue): EntityId | null {
     const nearest = this.nearestPoint(tileX, tileY, layer);
@@ -217,6 +219,9 @@ export class SelectionSystem implements System {
     if (layer === undefined || layer === Layer.Surface) {
       const base = findStructureAt(this.world, { x: tileX, y: tileY });
       if (base !== null && this.world.getComponent(base, COMPONENT.SELECTABLE)) return base;
+      // A food source or mineral node is hit anywhere on its (big) sprite
+      const resource = findResourceAt(this.world, { x: tileX, y: tileY }, () => true);
+      if (resource !== null && this.world.getComponent(resource, COMPONENT.SELECTABLE)) return resource;
     }
     return nearest?.id ?? null;
   }

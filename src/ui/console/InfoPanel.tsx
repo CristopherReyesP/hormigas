@@ -11,7 +11,8 @@ import { deriveBroodPipeline } from './brood';
 import { BroodReadout } from './BroodReadout';
 import { broodKeys } from './commands';
 import { ControlGroupBar } from './ControlGroupBar';
-import { infoSummary, selectionHealth, selectionTitle } from './infoSummary';
+import { infoSummary, resourceAmountText, selectionHealth, selectionTitle } from './infoSummary';
+import { RESOURCE_COLOR, foodTone, type ResourceTone } from '../../game/render/resourceArt';
 import { CRYSTAL_UNIT_BLURB, SPIRE_BLURB } from '../../game/rival/crystalNames';
 import { CRYSTAL_MAX_FLOORS } from '../../game/rival/crystalRival';
 import { useTouchUi } from '../layout/touch';
@@ -216,8 +217,42 @@ export function SelectionBars({ sel }: { sel: SelectedEntityInfo }) {
       )}
       {sel.hunger && <Bar label="Saciedad" icon="bowl" value={sel.hunger.current} max={sel.hunger.max} color="var(--chrome-accent)" />}
       {sel.type === 'food' && (
-        <Bar label="Cantidad" icon="leaf" value={sel.foodAmount ?? 0} max={Math.max(100, sel.foodAmount ?? 0)} color="var(--chrome-accent)" numbers="value" />
+        <Bar label="Queda" icon={FOOD_ICON[sel.foodType ?? 'leaf'] ?? 'leaf'} value={sel.foodAmount ?? 0} max={Math.max(1, sel.foodMax ?? 100, sel.foodAmount ?? 0)} color={RESOURCE_BAR_COLOR[foodTone(sel.foodType)]} numbers="value" />
       )}
+      {sel.type === 'mineral' && (
+        <Bar label="Queda" icon="mineral" value={sel.mineralAmount ?? 0} max={Math.max(1, sel.mineralMax ?? 250)} color={RESOURCE_BAR_COLOR.crystal} numbers="value" />
+      )}
+    </>
+  );
+}
+
+/** Icons of the food types on the resource card */
+const FOOD_ICON: Record<string, 'leaf' | 'fungus' | 'meat'> = {
+  leaf: 'leaf', mushroom: 'fungus', giant_mushroom: 'fungus', beetle_meat: 'meat', cricket_meat: 'meat',
+};
+/** The resource bars in each resource's own color */
+const RESOURCE_BAR_COLOR: Record<ResourceTone, string> = {
+  leaf: RESOURCE_COLOR.leaf, fungus: RESOURCE_COLOR.fungus, meat: RESOURCE_COLOR.meat, crystal: RESOURCE_COLOR.crystal,
+};
+
+/** Food source or mineral node: "Cristal mineral · 180/250", who works it, and how to order it. */
+function ResourceFacts({ sel }: { sel: SelectedEntityInfo }) {
+  const mineral = sel.type === 'mineral';
+  const name = selectionTitle(sel).name;
+  const n = sel.workers ?? 0;
+  const verb = mineral ? 'minando' : 'recolectando';
+  const touch = useTouchUi();
+  return (
+    <>
+      <div className="info-line"><strong>{`${name} · ${resourceAmountText(sel)}`}</strong></div>
+      <div className="info-line">
+        {n > 0 ? `${n} ${n === 1 ? 'obrera' : 'obreras'} ${verb}` : mineral ? 'Nadie lo mina' : 'Nadie la recolecta'}
+      </div>
+      <div className="info-note">
+        {mineral
+          ? `Selecciona obreras y ${touch ? 'toca' : 'haz clic derecho en'} el cristal para que lo minen sin parar.`
+          : `Selecciona obreras y ${touch ? 'tócala' : 'haz clic derecho en ella'} para que la lleven a la despensa hasta agotarla.`}
+      </div>
     </>
   );
 }
@@ -225,6 +260,7 @@ export function SelectionBars({ sel }: { sel: SelectedEntityInfo }) {
 export function SelectionFacts({ sel }: { sel: SelectedEntityInfo }) {
   return (
     <>
+      {(sel.type === 'food' || sel.type === 'mineral') && <ResourceFacts sel={sel} />}
       {sel.type === 'ant' && <div className="info-note">{ROLE_BLURB[sel.role ?? AntRole.Worker]}</div>}
       {sel.type === 'ant' && (
         <div className="info-line">Estado: <strong>{ANT_STATE_LABEL[sel.state ?? ''] ?? sel.state}</strong></div>

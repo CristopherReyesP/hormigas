@@ -110,11 +110,15 @@ const TEXT = {
     order: 'Toca el suelo para mover · toca un enemigo para atacar',
     orderScouts: 'Toca el suelo para mover · las exploradoras no pelean',
     orderBuilders: 'Toca el suelo para mover · toca un mineral para extraerlo',
+    orderWorkers: 'Toca el suelo para mover · toca un cristal para minar · toca comida para recolectar',
     move: 'Toca el destino para mover',
+    gather: 'Toca una hoja, un hongo o carne: la llevan a la despensa hasta agotarla',
+    mine: 'Toca un cristal: lo minan sin parar hasta otra orden',
+    mineral: 'Elige obreras en la barra y toca el cristal para minarlo',
     attack: 'Toca un enemigo para atacarlo, o el suelo para avanzar peleando',
     enemy: 'Elige tropas en la barra y luego toca al enemigo para atacarlo',
     nest: 'Toca el nido otra vez para bajar al hormiguero',
-    food: 'Las obreras recogen la comida solas · elige tropas en la barra',
+    food: 'Las obreras recogen la comida solas · elige obreras y toca la comida para recolectarla',
     below: 'Elige una herramienta abajo y toca la tierra · arrastra para mover la vista',
   },
   mouse: {
@@ -122,11 +126,15 @@ const TEXT = {
     order: 'Clic derecho en el suelo para mover · en un enemigo para atacar',
     orderScouts: 'Clic derecho en el suelo para mover · las exploradoras no pelean',
     orderBuilders: 'Clic derecho en el suelo para mover · en un mineral para extraerlo',
+    orderWorkers: 'Clic derecho en el suelo para mover · en un cristal para minar · en comida para recolectar',
     move: 'Haz clic en el destino para mover',
+    gather: 'Haz clic en una hoja, un hongo o carne: la llevan a la despensa hasta agotarla',
+    mine: 'Haz clic en un cristal: lo minan sin parar hasta otra orden',
+    mineral: 'Elige obreras y haz clic derecho en el cristal para minarlo',
     attack: 'Haz clic en un enemigo para atacarlo, o en el suelo para avanzar peleando',
     enemy: 'Elige tropas en la barra y luego haz clic derecho en el enemigo',
     nest: 'Haz clic en el nido otra vez para bajar al hormiguero',
-    food: 'Las obreras recogen la comida solas · elige tropas en la barra',
+    food: 'Las obreras recogen la comida solas · elige obreras y haz clic derecho en la comida',
     below: 'Elige una herramienta abajo y haz clic en la tierra',
   },
 } as const;
@@ -173,14 +181,18 @@ export function touchHint(input: TouchHintInput): TouchHint {
     }
     if (input.commandTarget === 'move') return { mode: 'target', text: text.move, selection };
     if (input.commandTarget === 'attack') return { mode: 'target', text: text.attack, selection };
+    if (input.commandTarget === 'gather') return { mode: 'target', text: text.gather, selection };
+    if (input.commandTarget === 'mine') return { mode: 'target', text: text.mine, selection };
     const onlyScouts = Object.entries(roles).every(([role, n]) => role === AntRole.Scout || !n);
-    return { mode: 'order', text: onlyScouts ? text.orderScouts : text.order, selection };
+    const workers = ((roles as Partial<Record<AntRole, number>>)[AntRole.Worker] ?? 0) > 0;
+    return { mode: 'order', text: onlyScouts ? text.orderScouts : workers ? text.orderWorkers : text.order, selection };
   }
   if (sel) {
     if (sel.human?.own) return { mode: 'info', text: OWN_BUILDING, selection };
     if (sel.owned) return { mode: 'info', text: OWN_CRYSTAL, selection };
     if (ENEMY_TYPES.has(sel.type)) return { mode: 'info', text: text.enemy, selection };
     if (sel.type === 'nest') return { mode: 'info', text: text.nest, selection };
+    if (sel.type === 'mineral') return { mode: 'info', text: text.mineral, selection };
     return { mode: 'info', text: text.food, selection };
   }
   // A Human player picks units, not ants

@@ -166,6 +166,7 @@ export function createFood(
   world.addComponent<FoodSourceComponent>(entity, COMPONENT.FOOD_SOURCE, {
     resourceType,
     amount,
+    maxAmount: amount,
   });
 
   const foodColors: Record<FoodType, string> = {
@@ -197,6 +198,8 @@ export function createMineral(world: World, x: number, y: number, amount: number
   world.addComponent<MineralComponent>(entity, COMPONENT.MINERAL, { amount, maxAmount: amount });
   world.addComponent<RenderComponent>(entity, COMPONENT.RENDER, { color: '#2fa3b8', radius: 0.4, shape: 'mineral' });
   world.addComponent<LayerComponent>(entity, COMPONENT.LAYER, { layer: Layer.Surface });
+  // Selectable: a click shows its card (ore left, workers mining it)
+  world.addComponent<SelectableComponent>(entity, COMPONENT.SELECTABLE, { selected: false });
   return entity;
 }
 

@@ -1,4 +1,4 @@
-// Prop sprite recipes on the one art-pixel scale: food items (16×16, turned
+// Prop sprite recipes on the one art-pixel scale: food items (24×24, turned
 // to 16 directions like units) and the static dens and giant mushroom (drawn
 // with PixelPainter at ART_PX on doubled grids, light baked top-left since
 // they never rotate).
@@ -19,11 +19,80 @@ export interface FoodSpriteSpec {
   direction: number;
 }
 
-/** 16×16 art-pixel food item in one of the 16 directions, lit top-left after the turn. */
+/**
+ * Food recipes are authored on a 16×16 frame around (8, 8); the atlas grid is
+ * bigger (SPRITE_GRID.food), so they are re-rasterized FOOD_ART_SCALE times
+ * larger around its pivot. Primitives are scaled, never finished pixels: the
+ * sprite is still one art pixel = ART_PX world px, just with more of them.
+ */
+const FOOD_AUTHOR_CENTER = 8;
+export const FOOD_ART_SCALE = SPRITE_GRID.food / 16;
+
+/** The subset of ArtPen the food recipes use. */
+interface FoodPen {
+  px(x: number, y: number, color: string): void;
+  line(x0: number, y0: number, x1: number, y1: number, color: string): void;
+  rect(x: number, y: number, w: number, h: number, color: string): void;
+  ellipse(cx: number, cy: number, rx: number, ry: number, color: string): void;
+  capsule(x0: number, y0: number, x1: number, y1: number, r: number, color: string): void;
+  outlined(draw: (pen: FoodPen) => void, outline: string): void;
+  shade(ramps: ReadonlyArray<readonly string[]>): void;
+}
+
+/** An ArtPen seen through the 16-px authoring frame, scaled up around the grid's pivot. */
+class ScaledFoodPen implements FoodPen {
+  private readonly pen: ArtPen;
+  private readonly k: number;
+  private readonly center: number;
+
+  constructor(pen: ArtPen, k: number, center: number) {
+    this.pen = pen;
+    this.k = k;
+    this.center = center;
+  }
+
+  private at(v: number): number {
+    return this.center + (v - FOOD_AUTHOR_CENTER) * this.k;
+  }
+
+  px(x: number, y: number, color: string): void {
+    // One authoring pixel becomes a k×k block around its scaled centre
+    const half = this.k / 2;
+    const cx = this.at(Math.round(x) + 0.5);
+    const cy = this.at(Math.round(y) + 0.5);
+    this.pen.rect(cx - half, cy - half, this.k, this.k, color);
+  }
+
+  line(x0: number, y0: number, x1: number, y1: number, color: string): void {
+    this.pen.line(this.at(x0), this.at(y0), this.at(x1), this.at(y1), color);
+  }
+
+  rect(x: number, y: number, w: number, h: number, color: string): void {
+    this.pen.rect(this.at(x), this.at(y), w * this.k, h * this.k, color);
+  }
+
+  ellipse(cx: number, cy: number, rx: number, ry: number, color: string): void {
+    this.pen.ellipse(this.at(cx), this.at(cy), rx * this.k, ry * this.k, color);
+  }
+
+  capsule(x0: number, y0: number, x1: number, y1: number, r: number, color: string): void {
+    this.pen.capsule(this.at(x0), this.at(y0), this.at(x1), this.at(y1), r * this.k, color);
+  }
+
+  outlined(draw: (pen: FoodPen) => void, outline: string): void {
+    this.pen.outlined(() => draw(this), outline);
+  }
+
+  shade(ramps: ReadonlyArray<readonly string[]>): void {
+    this.pen.shade(ramps);
+  }
+}
+
+/** Food item on the SPRITE_GRID.food art-pixel grid, in one of the 16 directions, lit top-left after the turn. */
 export function paintFood({ variant, sizeLevel, direction }: FoodSpriteSpec): ArtGrid {
   const grid = new ArtGrid(SPRITE_GRID.food);
   const sl = Math.min(FOOD_SIZE_LEVELS - 1, Math.max(0, sizeLevel));
-  const p = new ArtPen(grid, directionAngle(direction));
+  const p = new ScaledFoodPen(new ArtPen(grid, directionAngle(direction)), FOOD_ART_SCALE, Math.floor(SPRITE_GRID.food / 2));
   if (variant === 1) paintPods(p, sl);
   else if (variant === 2) paintMushroomFood(p, sl);
   else if (variant === 3) paintBeetleMeat(p, sl);
@@ -33,7 +102,7 @@ export function paintFood({ variant, sizeLevel, direction }: FoodSpriteSpec): Ar
 }
 
 /** Alien frond: three tapering lobes fanning from one root, with glowing beads at the tips. */
-function paintFrond(p: ArtPen, sl: number): void {
+function paintFrond(p: FoodPen, sl: number): void {
   const L = PAL.leaf;
   const reach = [2.6, 3.2, 3.6, 4, 4.4][sl];
   const spread = [1.4, 1.8, 2.2, 2.6, 3][sl];
@@ -49,7 +118,7 @@ function paintFrond(p: ArtPen, sl: number): void {
 }
 
 /** Alien pod cluster: plump seed pods, each outlined on its own, on a short stalk; every pod has a glowing tip. */
-function paintPods(p: ArtPen, sl: number): void {
+function paintPods(p: FoodPen, sl: number): void {
   const L = PAL.leaf;
   const d = [0, 1.5, 1.8, 2.2, 2.5][sl];
   const pr = [1.3, 1.1, 1.3, 1.2, 1.4][sl];
@@ -64,7 +133,7 @@ function paintPods(p: ArtPen, sl: number): void {
 }
 
 /** Small alien fungus: blue-violet cap with mint glowing pores on a mauve stalk. */
-function paintMushroomFood(p: ArtPen, sl: number): void {
+function paintMushroomFood(p: FoodPen, sl: number): void {
   const F = PAL.fungus;
   const rx = [1.8, 2.4, 3.0, 3.7, 4.4][sl];
   const ry = [1.3, 1.6, 1.9, 2.3, 2.8][sl];
@@ -83,7 +152,7 @@ function paintMushroomFood(p: ArtPen, sl: number): void {
 }
 
 /** A cracked half of olive beetle shell cupping bulging amber ichor pulp with bubbled cells. */
-function paintBeetleMeat(p: ArtPen, sl: number): void {
+function paintBeetleMeat(p: FoodPen, sl: number): void {
   const F = PAL.alienFlesh;
   const B = PAL.beetle;
   const rx = [1.8, 2.4, 3.0, 3.6, 4.2][sl];
@@ -102,7 +171,7 @@ function paintBeetleMeat(p: ArtPen, sl: number): void {
 }
 
 /** A torn straw cricket leg with its amber ichor flesh bulging from the broken end. */
-function paintCricketMeat(p: ArtPen, sl: number): void {
+function paintCricketMeat(p: FoodPen, sl: number): void {
   const F = PAL.alienFlesh;
   const C = PAL.cricket;
   const len = [2, 3, 3.5, 4, 4.5][sl];

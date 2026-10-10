@@ -105,7 +105,8 @@ export interface AntSpriteSpec {
   role: AntRole;
   frame: number;
   direction: number;
-  carrying?: boolean;
+  /** A leaf chunk (true) or, for a miner, a cyan crystal chunk ('ore') in the mandibles */
+  carrying?: boolean | 'ore';
   /** Dithered ground shadow under the silhouette (off for UI previews that draw their own). */
   shadow?: boolean;
   /** The colony's mutation marks; only those this caste shows are drawn. */
@@ -345,7 +346,13 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
   }
 
   // Carrying: a leaf chunk held in the mandibles, ahead of the head
-  if (carrying) {
+  if (carrying === 'ore') {
+    // A miner's load: a faceted cyan crystal chunk, bigger than a leaf bit so it reads at a glance
+    const K = PAL.crystal.shell;
+    p.outlined(pen => pen.poly([[c.mouth - 2, AXIS - 2], [c.mouth + 1, AXIS - 2], [c.mouth + 2, AXIS], [c.mouth + 1, AXIS + 2], [c.mouth - 2, AXIS + 2], [c.mouth - 3, AXIS]], K[3]), PAL.crystal.outline);
+    p.line(c.mouth - 2, AXIS - 1, c.mouth, AXIS - 1, K[4]);
+    p.line(c.mouth - 1, AXIS + 1, c.mouth + 1, AXIS + 1, K[1]);
+  } else if (carrying) {
     p.outlined(pen => pen.ellipse(c.mouth, AXIS, 1.2, 1.8, PAL.leaf[1]), O);
     p.vline(c.mouth, AXIS - 1, 3, PAL.leaf[0]);
   }

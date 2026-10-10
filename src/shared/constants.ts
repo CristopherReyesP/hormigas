@@ -332,6 +332,11 @@ export const MINERAL_HOME_FIELD_MAX_DISTANCE = 26; // the first seeded field sta
 export const MINERAL_FIELD_SPACING = 16;         // minimum distance between two field centers
 export const MINERAL_EDGE_MARGIN = 4;            // tiles kept between a field center and the map edge
 export const MINER_MAX_SHARE = 0.4;              // share of the surface workers that keep returning to a field
+export const MINER_BASELINE = 2;                 // autonomous miners a colony keeps on a discovered field from the start
+export const MINER_WORKERS_PER_MINER = 5;        // past the baseline, one more autonomous miner per this many workers
+export const MINER_TARGET_MAX = 30;              // the highest miner target the player can set
+export const MINER_ALLOCATE_SECONDS = 0.5;       // how often the colony re-checks its miners
+export const MINER_FIELD_REACH = 8;              // an ordered miner whose node runs out moves to a node this close to it
 
 // === Player orders (StarCraft-style control) ===
 export const ORDER_PATHS_PER_TICK = 6;      // ordered ants routed per tick; a big group spreads its A* runs over frames
