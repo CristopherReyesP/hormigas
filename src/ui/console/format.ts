@@ -35,7 +35,7 @@ export const ROLE_ICON: Record<AntRole, IconName> = {
 /** What each caste does — selection panel and breeding tooltips. */
 export const ROLE_BLURB: Record<AntRole, string> = {
   [AntRole.Worker]: 'Recolecta, acarrea y excava.',
-  [AntRole.Soldier]: 'Pelea contra escarabajos y defiende el nido.',
+  [AntRole.Soldier]: 'Pelea contra acorazados y defiende el nido.',
   [AntRole.Scout]: 'Explora lejos y despeja la niebla.',
   [AntRole.Nurse]: 'Cuida y alimenta los huevos.',
   [AntRole.Defender]: 'Monta guardia en las áreas de defensa del nido.',
@@ -95,7 +95,7 @@ export const FOOD_LABEL: Record<string, string> = {
   leaf: 'Hoja',
   mushroom: 'Hongo',
   giant_mushroom: 'Hongo gigante',
-  beetle_meat: 'Carne de escarabajo',
+  beetle_meat: 'Carne de acorazado',
   cricket_meat: 'Carne de grillo',
 };
 

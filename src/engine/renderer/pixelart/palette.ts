@@ -69,7 +69,8 @@ export const PAL = {
   vfxFlash: '#ffffff', // the 1-frame death flash: pure white, brighter than PAL.white
 
   // ── Neutral wildlife: muted, no glow, never the faction hues ──
-  beetle: ['#2b2a1e', '#4a4630', '#6e6844'], // olive shell
+  beetle: ['#2b2a1e', '#4a4630', '#6e6844'], // olive hide
+  beetleAsh: ['#3a3832', '#5f5b50', '#8c877a'], // ash-grey bony plates and teeth
   beetleEye: '#ffb02e', // amber
   cricket: ['#5c5a2e', '#8a8444', '#b8b062'], // straw — reads on grass
 

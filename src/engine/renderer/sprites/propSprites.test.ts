@@ -247,7 +247,7 @@ describe('alien dens', () => {
   const REGOLITH = [...PAL.soil, ...PAL.stone, ...PAL.dust, ...PAL.earth, PAL.mineralFleck, PAL.outcropVein, PAL.outline, PAL.black];
 
   it('paints both dens from the alien regolith palette, with no grass or moss tufts', () => {
-    const beetleAllowed = new Set<string>([...REGOLITH, PAL.beetleEye]);
+    const beetleAllowed = new Set<string>([...REGOLITH, ...PAL.beetleAsh, PAL.beetleEye]);
     const cricketAllowed = new Set<string>([...REGOLITH, ...PAL.cricket]);
     for (const c of new Set(staticColors(beetleDen()))) expect(beetleAllowed.has(c), `beetle den ${c}`).toBe(true);
     for (const c of new Set(staticColors(cricketDen()))) expect(cricketAllowed.has(c), `cricket den ${c}`).toBe(true);
