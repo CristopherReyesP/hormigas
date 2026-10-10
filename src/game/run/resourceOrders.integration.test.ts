@@ -238,3 +238,20 @@ describe('the colony mines on its own', () => {
     }
   }, 120000);
 });
+
+describe('Minar and Recolectar belong to the Swarm', () => {
+  it('a Crystal or Human run gives no resource orders and keeps no autonomous ant miners', () => {
+    for (const playerRace of ['crystal', 'human'] as const) {
+      const game = new GameManager(fakeCanvas(), { playerRace, rivalRace: 'wildlife' });
+      finishIntro(game);
+      const world = game['world'] as World;
+      const node = world.query(COMPONENT.MINERAL)[0];
+      const food = world.query(COMPONENT.FOOD_SOURCE)[0];
+      expect(game.orderSelectedMine(node)).toBe(0);
+      if (food !== undefined) expect(game.orderSelectedGather(food)).toBe(0);
+      for (let i = 0; i < 30 * 5; i++) game['update'](DT);
+      expect(game.getMinerStatus().miners).toBe(0);
+      game.stop();
+    }
+  });
+});

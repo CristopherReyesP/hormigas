@@ -1,6 +1,7 @@
 import { AntRole } from '../../game/components/components';
 import type { CommandFeedback, FeedbackTarget, OrderFeedbackKind } from '../../game/commandFeedback';
 import type { HumanUnitType } from '../../game/rival/humanBase';
+import type { CrystalUnitKind } from '../../game/components/components';
 import { ROLE_LABEL, ROLE_PLURAL } from './format';
 
 /**
@@ -40,6 +41,16 @@ function humanUnitsLabel(count: number, byType: Partial<Record<HumanUnitType, nu
   return `${count} ${(count === 1 ? HUMAN_ONE : HUMAN_MANY)[types[0]]}`;
 }
 
+const CRYSTAL_ONE: Record<CrystalUnitKind, string> = { drone: 'dron', sentinel: 'centinela', queen: 'reina' };
+const CRYSTAL_MANY: Record<CrystalUnitKind, string> = { drone: 'drones', sentinel: 'centinelas', queen: 'reinas' };
+
+/** "3 drones", "1 centinela", "5 unidades" (mixed kinds): a Crystal player's units */
+function crystalUnitsLabel(count: number, byKind: Partial<Record<CrystalUnitKind, number>>): string {
+  const kinds = (Object.keys(byKind) as CrystalUnitKind[]).filter((kind) => (byKind[kind] ?? 0) > 0);
+  if (kinds.length !== 1) return `${count} ${count === 1 ? 'unidad' : 'unidades'}`;
+  return `${count} ${(count === 1 ? CRYSTAL_ONE : CRYSTAL_MANY)[kinds[0]]}`;
+}
+
 /** "5 soldados", "1 obrera", "4 hormigas" (mixed castes) */
 function unitsLabel(count: number, byRole: Partial<Record<AntRole, number>>): string {
   const roles = (Object.keys(byRole) as AntRole[]).filter((role) => (byRole[role] ?? 0) > 0);
@@ -51,14 +62,20 @@ export function feedbackText(event: CommandFeedback): string {
   if (event.type === 'caste-select') {
     const who = event.humanType
       ? humanUnitsLabel(event.count, { [event.humanType]: event.count })
-      : unitsLabel(event.count, { [event.role]: event.count });
+      : event.crystalKind
+        ? crystalUnitsLabel(event.count, { [event.crystalKind]: event.count })
+        : unitsLabel(event.count, { [event.role]: event.count });
     return `${who} en pantalla`;
   }
   const human = Object.values(event.byHuman ?? {}).some((n) => (n ?? 0) > 0);
-  const who = human ? humanUnitsLabel(event.count, event.byHuman ?? {}) : unitsLabel(event.count, event.byRole);
+  const crystal = Object.values(event.byCrystal ?? {}).some((n) => (n ?? 0) > 0);
+  const who = human ? humanUnitsLabel(event.count, event.byHuman ?? {})
+    : crystal ? crystalUnitsLabel(event.count, event.byCrystal ?? {})
+    : unitsLabel(event.count, event.byRole);
   const verb = event.order === 'attack' && event.target
     ? `${VERB.attack} ${TARGET[event.target]}`
     : event.order === 'rally' && human ? 'volver a la base'
+    : event.order === 'rally' && crystal ? 'volver a la colmena'
     : event.order === 'gather' && event.resource ? `${VERB.gather} ${event.resource}` : VERB[event.order];
   return `${who} → ${verb}`;
 }

@@ -5,17 +5,19 @@ import {
   COMPONENT,
   Layer,
   type AntComponent,
+  type CrystalUnitComponent,
   type LayerComponent,
   type LayerValue,
   type SelectableComponent,
   type PositionComponent,
 } from '../components/components';
-import { findStructureAt, isPlayerUnit } from './helpers/playerOrders';
+import { findStructureAt } from './helpers/playerOrders';
 import { findResourceAt } from './helpers/resourceOrders';
+import { isPlayerUnit } from '../factions/playerUnits';
 import { HUMAN_COMPONENT, type HumanUnitComponent } from '../rival/humanComponents';
 
 /** Unit stores a box or a ctrl-click can catch (only the player's own count) */
-const UNIT_STORES = [COMPONENT.ANT, HUMAN_COMPONENT.UNIT] as const;
+const UNIT_STORES = [COMPONENT.ANT, HUMAN_COMPONENT.UNIT, COMPONENT.CRYSTAL_UNIT] as const;
 
 /** A rectangle in entity-position space (tile units, fractional). */
 export interface SelectionBox {
@@ -251,7 +253,7 @@ export class SelectionSystem implements System {
     if (selectable) selectable.selected = on;
   }
 
-  /** An own unit (an ant, or a Human player's trooper or builder): what groups are made of */
+  /** An own unit (an ant, a Human player's trooper or builder, a Crystal player's unit): what groups are made of */
   private isAnt(id: EntityId): boolean {
     return isPlayerUnit(this.world, id);
   }
@@ -262,10 +264,12 @@ export class SelectionSystem implements System {
       .filter((id) => this.isAnt(id));
   }
 
-  /** What ctrl-click groups by: an ant's caste, a Human unit's type */
+  /** What ctrl-click groups by: an ant's caste, a Human unit's type, a Crystal unit's kind */
   private kindOf(id: EntityId): string {
     const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT);
     if (ant) return `ant:${ant.role}`;
+    const crystal = this.world.getComponent<CrystalUnitComponent>(id, COMPONENT.CRYSTAL_UNIT);
+    if (crystal) return `crystal:${crystal.kind}`;
     return `human:${this.world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT)?.type ?? ''}`;
   }
 

@@ -1637,6 +1637,7 @@ export class AntAISystem implements System {
     const nest = this.world.getComponent<NestComponent>(this.nestEntityId!, COMPONENT.NEST);
     if (!nest) return;
     nest.foodStored += carrying.amount;
+    this.world.runTally.foodGathered += carrying.amount;
     if (carrying.resourceType === 'mushroom') nest.mushroomStored += carrying.amount;
     else if (carrying.resourceType === 'meat') nest.meatStored += carrying.amount;
     carrying.amount = 0;

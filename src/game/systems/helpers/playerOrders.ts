@@ -18,10 +18,11 @@ import {
   type RenderComponent,
 } from '../../components/components';
 import { ENEMY_PICK_RADIUS, ORDER_SNAP_RADIUS } from '../../../shared/constants';
-import { FactionId, isHostileTo, ownerOf } from '../../factions/factions';
+import { FactionId, isHostileTo } from '../../factions/factions';
 import { HUMAN_COMPONENT, type HumanBuildingComponent } from '../../rival/humanComponents';
 import { HUMAN_BUILDING_STATS } from '../../rival/humanBase';
 import { clearResourceOrder } from './resourceOrders';
+import { isPlayerUnit } from '../../factions/playerUnits';
 
 /**
  * Player orders, StarCraft style: move, attack a target, attack-move, hold
@@ -286,14 +287,8 @@ export interface MoveOrderResult {
   target: Vector2;
 }
 
-/**
- * A unit the player commands: an own ant, or a Human unit the player owns
- * (a Human player's troops; HumanPlayerUnitSystem carries their orders out).
- */
-export function isPlayerUnit(world: World, id: EntityId): boolean {
-  if (world.getComponent(id, COMPONENT.ANT) !== undefined) return true;
-  return world.getComponent(id, HUMAN_COMPONENT.UNIT) !== undefined && ownerOf(world, id) === FactionId.PLAYER;
-}
+/** A unit the player commands: an own ant, or a Human or Crystal player's unit (factions/playerUnits) */
+export { isPlayerUnit };
 
 /** Own surface units among `ids` that can take an order, with their distance to `target`. */
 function orderableUnits(world: World, ids: readonly EntityId[], target: Vector2): Array<{ id: EntityId; dist: number }> {
@@ -409,7 +404,9 @@ export function completePlayerOrder(world: World, id: EntityId): void {
   const ant = world.getComponent<AntComponent>(id, COMPONENT.ANT);
   const order = world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER);
   const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
-  if (!ant || !order || !pos || !isWarrior(ant.role)) {
+  // A playable race's units are all warriors: they keep the spot too
+  const warrior = ant ? isWarrior(ant.role) : isPlayerUnit(world, id);
+  if (!order || !pos || !warrior) {
     endPlayerOrder(world, id);
     return;
   }
@@ -419,8 +416,10 @@ export function completePlayerOrder(world: World, id: EntityId): void {
   order.elapsed = 0;
   order.routes = 0;
   order.repath = 0;
-  ant.state = AntState.Guarding;
-  ant.stateTimer = 0;
+  if (ant) {
+    ant.state = AntState.Guarding;
+    ant.stateTimer = 0;
+  }
   clearCombatTarget(world, id);
   clearPath(world, id);
 }

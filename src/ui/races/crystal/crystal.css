@@ -1,0 +1,69 @@
+/* The Crystal Hive's HUD pieces: the opening title and the production queue chips. */
+
+.crystal-intro {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  pointer-events: none;
+  z-index: 35;
+  animation: crystal-intro-life 3600ms steps(12) forwards;
+}
+
+.crystal-intro-line {
+  font-family: var(--font-pixel);
+  font-size: clamp(18px, 4.4vw, 44px);
+  line-height: 1.2;
+  text-align: center;
+  color: var(--race-crystal, #5ff3ff);
+  text-shadow: 4px 4px 0 #0a1620, 0 0 18px rgba(95, 243, 255, 0.55);
+  padding: 0 16px;
+}
+
+.crystal-intro-sub {
+  font-family: var(--font-pixel);
+  font-size: clamp(8px, 1.4vw, 12px);
+  color: #ffe27a;
+  text-shadow: 2px 2px 0 #0a1620;
+  padding: 0 16px;
+  text-align: center;
+}
+
+@keyframes crystal-intro-life {
+  0% { opacity: 0; transform: scale(1.08); }
+  12% { opacity: 1; transform: none; }
+  75% { opacity: 1; }
+  100% { opacity: 0; visibility: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crystal-intro { animation-duration: 2400ms; animation-timing-function: linear; }
+}
+
+.crystal-queue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 20px;
+}
+
+.crystal-queue-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: #0e2a3a;
+  border: 1px solid var(--race-crystal, #5ff3ff);
+}
+
+.crystal-queue-chip:first-child {
+  background: #1b5a73;
+}
+
+.strip-supply .strip-pantry-label {
+  margin-right: 2px;
+}
