@@ -13,7 +13,8 @@ import { ROLE_BLURB, ROLE_LABEL, stripEmoji } from './format';
  */
 
 export type BuildMode = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense';
-export type CardPage = 'root' | 'colony';
+/** 'groups' is the touch stand-in for Ctrl/Shift+digit: bind the selection to a control group */
+export type CardPage = 'root' | 'colony' | 'groups';
 
 export interface CommandDef {
   id: string;
@@ -52,6 +53,11 @@ export interface CommandContext {
   refresh: () => void;
   /** Short-lived message in the feed; 'danger' for refusals */
   notify: (message: string, tone?: NoticeTone) => void;
+  /** Touch screen: on-screen stand-ins for mouse and keyboard actions, tap wording */
+  touch?: boolean;
+  /** Groups page: add to the group (Shift+digit) instead of replacing it (Ctrl+digit) */
+  groupAdd?: boolean;
+  setGroupAdd?: (add: boolean) => void;
 }
 
 export type NoticeTone = 'hint' | 'danger';
@@ -78,17 +84,50 @@ const UPGRADE_ICON: Record<UpgradeId, IconName> = {
   heal: 'heart',
 };
 
-const BUILD_TOOLS: ReadonlyArray<{ mode: BuildMode; label: string; icon: IconName; description: string }> = [
-  { mode: 'dig', label: 'Excavar', icon: 'pick', description: 'Haz clic en casillas de tierra para marcarlas. Las obreras cavan túneles allí.' },
-  { mode: 'incubation', label: 'Incubación', icon: 'egg', description: 'Haz clic en casillas excavadas para marcar el área donde se incuban los huevos.' },
-  { mode: 'farm', label: 'Granja de hongos', icon: 'fungus', description: 'Haz clic en casillas excavadas: la granja convierte hojas de la despensa en hongos, el doble de nutritivos.' },
-  { mode: 'storage', label: 'Almacén', icon: 'crate', description: 'Haz clic en casillas excavadas para ampliar la despensa de comida.' },
+interface BuildToolDef {
+  mode: BuildMode;
+  label: string;
+  icon: IconName;
+  description: string;
+  /** The description for touch screens */
+  touch: string;
+}
+
+const BUILD_TOOLS: ReadonlyArray<BuildToolDef> = [
+  {
+    mode: 'dig', label: 'Excavar', icon: 'pick',
+    description: 'Haz clic en casillas de tierra para marcarlas. Las obreras cavan túneles allí.',
+    touch: 'Toca casillas de tierra o pasa el dedo sobre ellas para marcarlas. Las obreras cavan túneles allí.',
+  },
+  {
+    mode: 'incubation', label: 'Incubación', icon: 'egg',
+    description: 'Haz clic en casillas excavadas para marcar el área donde se incuban los huevos.',
+    touch: 'Toca casillas excavadas o pasa el dedo sobre ellas para marcar el área donde se incuban los huevos.',
+  },
+  {
+    mode: 'farm', label: 'Granja de hongos', icon: 'fungus',
+    description: 'Haz clic en casillas excavadas: la granja convierte hojas de la despensa en hongos, el doble de nutritivos.',
+    touch: 'Toca o pinta con el dedo casillas excavadas: la granja convierte hojas de la despensa en hongos, el doble de nutritivos.',
+  },
+  {
+    mode: 'storage', label: 'Almacén', icon: 'crate',
+    description: 'Haz clic en casillas excavadas para ampliar la despensa de comida.',
+    touch: 'Toca o pinta con el dedo casillas excavadas para ampliar la despensa de comida.',
+  },
 ];
 
 /** Area tools on the bottom row of the nest card, beside the time controls (they used to hide on the Colonia page). */
-const AREA_TOOLS: ReadonlyArray<{ mode: BuildMode; label: string; icon: IconName; description: string }> = [
-  { mode: 'defense', label: 'Área de defensa', icon: 'shield', description: 'Haz clic en casillas excavadas: las defensoras montan guardia allí y atacan a los intrusos.' },
-  { mode: 'throne', label: 'Trono', icon: 'crown', description: 'Marca casillas de trono. Luego, sin herramienta activa, haz clic en un trono para mudar a la reina.' },
+const AREA_TOOLS: ReadonlyArray<BuildToolDef> = [
+  {
+    mode: 'defense', label: 'Área de defensa', icon: 'shield',
+    description: 'Haz clic en casillas excavadas: las defensoras montan guardia allí y atacan a los intrusos.',
+    touch: 'Toca o pinta con el dedo casillas excavadas: las defensoras montan guardia allí y atacan a los intrusos.',
+  },
+  {
+    mode: 'throne', label: 'Trono', icon: 'crown',
+    description: 'Marca casillas de trono. Luego, sin herramienta activa, haz clic en un trono para mudar a la reina.',
+    touch: 'Marca casillas de trono. Luego, sin herramienta activa, toca un trono para mudar a la reina.',
+  },
 ];
 
 /** Hint shown above the console while a build tool is armed. */
@@ -100,6 +139,21 @@ export const BUILD_MODE_HINT: Record<BuildMode, string> = {
   throne: 'TRONO: marca casillas de trono; luego, sin herramienta, haz clic en un trono para mudar a la reina · Esc cancela',
   defense: 'DEFENSA: haz clic en casillas excavadas; las defensoras montan guardia allí · Esc cancela',
 };
+
+/** BUILD_MODE_HINT for touch screens: tap or paint with a finger (two fingers still move the camera); the tool's button turns it off. */
+export const BUILD_MODE_TOUCH_HINT: Record<BuildMode, string> = {
+  dig: 'EXCAVAR: toca o arrastra el dedo sobre la tierra · toca Excavar para salir',
+  incubation: 'INCUBACIÓN: toca o pinta casillas excavadas',
+  farm: 'GRANJA: toca o pinta casillas excavadas',
+  storage: 'ALMACÉN: toca o pinta casillas excavadas',
+  throne: 'TRONO: pinta casillas de trono; luego, sin herramienta, toca un trono',
+  defense: 'DEFENSA: toca o pinta casillas excavadas',
+};
+
+/** Hint above the console while a build tool is armed. */
+export function buildModeHint(mode: BuildMode, touch = false): string {
+  return (touch ? BUILD_MODE_TOUCH_HINT : BUILD_MODE_HINT)[mode];
+}
 
 function act(ctx: CommandContext, action: () => void): () => void {
   return () => {
@@ -186,7 +240,9 @@ function attackDen(ctx: CommandContext): CommandDef {
     badge: ready ? String(count) : undefined,
     tone: 'danger',
     disabled: !ready,
-    disabledReason: `No hay soldados libres. Cría soldados, o selecciona hormigas y haz clic derecho en ${base}.`,
+    disabledReason: ctx.touch
+      ? `No hay soldados libres. Cría soldados, o selecciona hormigas y toca ${base}.`
+      : `No hay soldados libres. Cría soldados, o selecciona hormigas y haz clic derecho en ${base}.`,
     run: act(ctx, () => {
       if (!selected || !ready) return;
       const sent = ctx.gm.dispatchAttackWave(selected.entityId, count);
@@ -195,12 +251,13 @@ function attackDen(ctx: CommandContext): CommandDef {
   };
 }
 
-function buildTool(ctx: CommandContext, mode: BuildMode, label: string, icon: IconName, description: string, badge?: number): CommandDef {
+function buildTool(ctx: CommandContext, tool: BuildToolDef, badge?: number): CommandDef {
+  const { mode, label, icon } = tool;
   return {
     id: mode,
     label,
     icon,
-    description,
+    description: ctx.touch ? tool.touch : tool.description,
     badge: badge ? String(badge) : undefined,
     active: ctx.buildMode === mode,
     run: act(ctx, () => ctx.toggleBuildMode(mode)),
@@ -208,7 +265,12 @@ function buildTool(ctx: CommandContext, mode: BuildMode, label: string, icon: Ic
 }
 
 /** Hint above the console while a card order waits for its target click. */
-export function commandTargetHint(target: GameStats['commandTarget']): string | null {
+export function commandTargetHint(target: GameStats['commandTarget'], touch = false): string | null {
+  if (touch) {
+    if (target === 'move') return 'MOVER: toca el destino · toca Mover otra vez para cancelar';
+    if (target === 'attack') return 'ATACAR: toca un enemigo para atacarlo, o el suelo para avanzar peleando · toca Atacar otra vez para cancelar';
+    return null;
+  }
   if (target === 'move') return 'MOVER: haz clic en el destino · el clic derecho también mueve · Esc cancela';
   if (target === 'attack') {
     return 'ATACAR: haz clic en un enemigo para atacarlo, o en el suelo para avanzar peleando · Esc cancela';
@@ -234,24 +296,28 @@ function unitPage(ctx: CommandContext): Slot[] {
       id: 'move',
       label: 'Mover',
       icon: 'move',
-      description: `Haz clic derecho en el suelo para mover a ${ants}. También puedes pulsar Mover y luego hacer clic en el destino. Cada una ocupa su lugar en la formación. Al llegar, las obreras vuelven a su trabajo y las guerreras montan guardia allí.`,
-      altKeys: 'clic derecho en el suelo',
+      description: ctx.touch
+        ? `Toca el suelo para mover a ${ants}, o pulsa Mover y luego toca el destino. Cada una ocupa su lugar en la formación. Al llegar, las obreras vuelven a su trabajo y las guerreras montan guardia allí.`
+        : `Haz clic derecho en el suelo para mover a ${ants}. También puedes pulsar Mover y luego hacer clic en el destino. Cada una ocupa su lugar en la formación. Al llegar, las obreras vuelven a su trabajo y las guerreras montan guardia allí.`,
+      altKeys: ctx.touch ? 'tocar el suelo' : 'clic derecho en el suelo',
       active: ctx.stats.commandTarget === 'move',
-      run: act(ctx, () => ctx.gm.armMoveTarget()),
+      run: act(ctx, () => armOrCancel(ctx, 'move')),
     },
     null,
     null,
     null,
-    null,
+    ctx.touch ? groupsButton(ctx) : null,
     {
       id: 'attack',
       label: 'Atacar',
       icon: 'attack',
-      description: `Pulsa Atacar y haz clic. Sobre un enemigo, ${ants} lo persiguen hasta matarlo. En el suelo, avanzan, pelean con cada enemigo que ven en el camino y, al llegar, atacan la guarida o la colmena que haya allí. Al terminar, vuelven a su trabajo y defienden el nido si hace falta.`,
-      altKeys: 'clic derecho en un enemigo',
+      description: ctx.touch
+        ? `Pulsa Atacar y toca un enemigo: ${ants} lo persiguen hasta matarlo. Si tocas el suelo, avanzan, pelean con cada enemigo que ven en el camino y, al llegar, atacan la guarida o la colmena que haya allí. Al terminar, vuelven a su trabajo y defienden el nido si hace falta.`
+        : `Pulsa Atacar y haz clic. Sobre un enemigo, ${ants} lo persiguen hasta matarlo. En el suelo, avanzan, pelean con cada enemigo que ven en el camino y, al llegar, atacan la guarida o la colmena que haya allí. Al terminar, vuelven a su trabajo y defienden el nido si hace falta.`,
+      altKeys: ctx.touch ? 'tocar un enemigo' : 'clic derecho en un enemigo',
       tone: 'danger',
       active: ctx.stats.commandTarget === 'attack',
-      run: act(ctx, () => ctx.gm.armAttackTarget()),
+      run: act(ctx, () => armOrCancel(ctx, 'attack')),
     },
     {
       id: 'stop',
@@ -276,9 +342,86 @@ function unitPage(ctx: CommandContext): Slot[] {
     null,
     null,
     ...timeCommands(ctx),
-    null,
+    ctx.touch ? areaSelect(ctx) : null,
     null,
     deselect(ctx),
+  ];
+}
+
+/** Mover / Atacar: arm the order; on a touch screen pressing the armed one again cancels it (there is no Esc). */
+function armOrCancel(ctx: CommandContext, target: 'move' | 'attack'): void {
+  if (ctx.touch && ctx.stats.commandTarget === target) ctx.gm.cancelCommandTarget();
+  else if (target === 'move') ctx.gm.armMoveTarget();
+  else ctx.gm.armAttackTarget();
+}
+
+/** Touch stand-in for a left drag: the next finger drag draws a selection box instead of moving the camera. */
+function areaSelect(ctx: CommandContext): CommandDef {
+  const on = Boolean(ctx.stats.areaSelect);
+  return {
+    id: 'area-select',
+    label: 'Seleccionar área',
+    icon: 'area',
+    description: 'Arrastra el dedo sobre el mapa para encerrar a tus hormigas en un recuadro y seleccionarlas. Se apaga después de cada recuadro. Sin esto, arrastrar mueve la cámara.',
+    active: on,
+    run: act(ctx, () => ctx.gm.setAreaSelect(!on)),
+  };
+}
+
+/** Touch stand-in for Ctrl+digit: opens the page that binds the selection to a group. */
+function groupsButton(ctx: CommandContext): CommandDef {
+  return {
+    id: 'groups-page',
+    label: 'Asignar grupo',
+    icon: 'group',
+    description: 'Guarda la selección en un grupo de control (1-9). Luego, toca su ficha sobre el panel para volver a seleccionarlo; tócala dos veces seguidas para ir hacia él.',
+    run: () => {
+      ctx.setGroupAdd?.(false);
+      ctx.setPage('groups');
+    },
+  };
+}
+
+/** Bind the selected ants to a control group: Ctrl+digit, or Shift+digit with Añadir on. */
+function groupsPage(ctx: CommandContext): Slot[] {
+  const add = Boolean(ctx.groupAdd);
+  const bound = new Map((ctx.stats.controlGroups ?? []).map((g) => [g.slot, g.count]));
+  const slot = (n: number): CommandDef => ({
+    id: `bind-group-${n}`,
+    label: add ? `Añadir al grupo ${n}` : `Guardar en el grupo ${n}`,
+    glyph: String(n),
+    description: add
+      ? `Suma la selección al grupo ${n} sin quitar a las que ya están.`
+      : `La selección pasa a ser el grupo ${n}${bound.has(n) ? ' y reemplaza al anterior' : ''}.`,
+    altKeys: add ? `Mayús+${n}` : `Ctrl+${n}`,
+    badge: bound.has(n) ? String(bound.get(n)) : undefined,
+    run: act(ctx, () => {
+      if (ctx.gm.bindControlGroup(n, add)) ctx.notify(add ? `Añadidas al grupo ${n}` : `Grupo ${n} guardado`);
+      ctx.setPage('root');
+    }),
+  });
+  return [
+    slot(1), slot(2), slot(3), slot(4), slot(5),
+    slot(6), slot(7), slot(8), slot(9), null,
+    {
+      id: 'group-add',
+      label: 'Añadir en vez de reemplazar',
+      icon: 'plus',
+      description: 'Encendido, el grupo que elijas suma la selección a las hormigas que ya tiene (como Mayús+número).',
+      active: add,
+      run: () => ctx.setGroupAdd?.(!add),
+    },
+    null,
+    null,
+    null,
+    {
+      id: 'back',
+      label: 'Volver',
+      icon: 'back',
+      description: 'Regresa a las órdenes de la selección.',
+      altKeys: 'Esc',
+      run: () => ctx.setPage('root'),
+    },
   ];
 }
 
@@ -326,11 +469,12 @@ function surfaceRoot(ctx: CommandContext): Slot[] {
       label: 'Bajar al nido',
       icon: 'descend',
       description: 'Cambia a la vista del hormiguero subterráneo.',
-      altKeys: 'clic en el nido seleccionado',
+      altKeys: ctx.touch ? 'tocar el nido seleccionado' : 'clic en el nido seleccionado',
       run: act(ctx, () => ctx.switchLayer('underground')),
     },
     ...breedCommands(ctx),
     ...timeCommands(ctx),
+    ctx.touch ? areaSelect(ctx) : null,
   ];
 }
 
@@ -347,7 +491,7 @@ function nestRoot(ctx: CommandContext): Slot[] {
     storage: ctx.details.storageTiles,
   };
   const defs: CommandDef[] = [
-    ...BUILD_TOOLS.map((tool) => buildTool(ctx, tool.mode, tool.label, tool.icon, tool.description, counts[tool.mode])),
+    ...BUILD_TOOLS.map((tool) => buildTool(ctx, tool, counts[tool.mode])),
     {
       id: 'ascend',
       label: 'Subir a la superficie',
@@ -357,7 +501,7 @@ function nestRoot(ctx: CommandContext): Slot[] {
     },
     ...breedCommands(ctx),
     ...timeCommands(ctx),
-    ...AREA_TOOLS.map((tool) => buildTool(ctx, tool.mode, tool.label, tool.icon, tool.description)),
+    ...AREA_TOOLS.map((tool) => buildTool(ctx, tool)),
     {
       id: 'colony-page',
       label: 'Colonia',
@@ -453,7 +597,7 @@ export function buildCommands(ctx: CommandContext): Slot[] {
   const slots =
     ctx.stats.activeLayer === 'underground'
       ? ctx.page === 'colony' ? colonyPage(ctx) : nestRoot(ctx)
-      : hasUnitSelection(ctx.stats) ? unitPage(ctx)
+      : hasUnitSelection(ctx.stats) ? ctx.page === 'groups' ? groupsPage(ctx) : unitPage(ctx)
       : isDenSelected(ctx.stats) ? denPage(ctx)
       : surfaceRoot(ctx);
   return Array.from({ length: CARD_SLOTS }, (_, i) => slots[i] ?? null);

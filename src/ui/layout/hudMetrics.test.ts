@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONSOLE_DECK_HEIGHT, STRIP_HEIGHT, hudInsets, hudScale } from './hudMetrics';
+import { CONSOLE_DECK_HEIGHT, HUD_BARS, STRIP_HEIGHT, hudInsets, hudLayout, hudScale } from './hudMetrics';
 
 describe('HUD insets around the intro', () => {
   it('gives the world the whole window during the intro and the band between the bars after the fade', () => {
@@ -47,5 +47,28 @@ describe('HUD scale on big screens', () => {
     expect(hudInsets(1, 2)).toEqual({ top: STRIP_HEIGHT * 2, bottom: CONSOLE_DECK_HEIGHT * 2 });
     expect(hudInsets(0, 2)).toEqual({ top: 0, bottom: 0 });
     expect(hudInsets(1)).toEqual(hudInsets(1, 1));
+  });
+});
+
+describe('phone layouts', () => {
+  it('keeps the desktop console on windows that can hold it', () => {
+    expect(hudLayout(1280, 720)).toBe('desktop');
+    expect(hudLayout(1024, 600)).toBe('desktop');
+    expect(hudLayout(0, 0)).toBe('desktop');
+  });
+
+  it('stacks the HUD on a portrait phone and lowers the deck on a landscape one', () => {
+    expect(hudLayout(390, 844)).toBe('phone-portrait');
+    expect(hudLayout(412, 915)).toBe('phone-portrait');
+    expect(hudLayout(844, 390)).toBe('phone-landscape');
+    expect(hudLayout(915, 412)).toBe('phone-landscape');
+    // A small tablet or a narrow desktop window in landscape still needs the compact deck
+    expect(hudLayout(800, 600)).toBe('phone-landscape');
+  });
+
+  it('keeps the camera clear of the bars of the layout in use', () => {
+    expect(hudInsets(1, 1, 'phone-portrait')).toEqual({ top: HUD_BARS['phone-portrait'].strip, bottom: HUD_BARS['phone-portrait'].deck });
+    expect(hudInsets(1, 1, 'phone-landscape')).toEqual({ top: HUD_BARS['phone-landscape'].strip, bottom: HUD_BARS['phone-landscape'].deck });
+    expect(hudInsets(1, 1, 'desktop')).toEqual(hudInsets(1));
   });
 });

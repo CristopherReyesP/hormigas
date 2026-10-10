@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GameManager, GameStats } from '../../game/GameManager';
 import { NotificationStack } from '../NotificationStack';
-import { buildCommands, BUILD_MODE_HINT, commandTargetHint, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
+import { buildCommands, buildModeHint, commandTargetHint, type BuildMode, type CardPage, type CommandDef, type NoticeTone } from './commands';
 import { CommandCard } from './CommandCard';
 import { InfoPanel } from './InfoPanel';
 import { MinimapPanel } from './MinimapPanel';
 import { useColonyDetails } from './useColonyDetails';
+import { useTouchUi } from '../layout/touch';
 
 interface ConsoleProps {
   stats: GameStats;
@@ -33,6 +34,8 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   const [buildMode, setBuildMode] = useState<BuildMode | null>(null);
   const [attackCount, setAttackCount] = useState(10);
   const [notice, setNotice] = useState<{ text: string; tone: NoticeTone } | null>(null);
+  const [groupAdd, setGroupAdd] = useState(false);
+  const touch = useTouchUi();
 
   // Leaving the nest (any route) drops nest-only tools and pages
   const [seenLayer, setSeenLayer] = useState(stats.activeLayer);
@@ -79,6 +82,9 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
   }, []);
 
   const hasSelection = Boolean(stats.selectedEntity || stats.selectedGroup);
+  // The groups page belongs to a selection of own ants: it closes when they are gone
+  const hasAnts = stats.activeLayer === 'surface' && Boolean(stats.selectedGroup || stats.selectedEntity?.type === 'ant');
+  if (page === 'groups' && !hasAnts) setPage('root');
   const onEscape = useCallback(() => {
     if (stats.commandTarget) gameManager?.cancelCommandTarget();
     else if (buildMode) setBuildMode(null);
@@ -101,12 +107,16 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
             switchLayer,
             refresh,
             notify,
+            touch,
+            groupAdd,
+            setGroupAdd,
           })
         : [],
-    [gameManager, stats, details, page, buildMode, attackCount, toggleBuildMode, switchLayer, refresh, notify],
+    [gameManager, stats, details, page, buildMode, attackCount, toggleBuildMode, switchLayer, refresh, notify, touch, groupAdd],
   );
 
-  const hint = notice?.text ?? commandTargetHint(stats.commandTarget) ?? (buildMode ? BUILD_MODE_HINT[buildMode] : null);
+  const areaHint = touch && stats.areaSelect ? 'SELECCIONAR ÁREA: arrastra el dedo para encerrar a tus hormigas' : null;
+  const hint = notice?.text ?? commandTargetHint(stats.commandTarget, touch) ?? (buildMode ? buildModeHint(buildMode, touch) : areaHint);
   const overlayOpen = Boolean(stats.mutationOffer || stats.gameOver);
 
   return (
@@ -129,6 +139,7 @@ export function Console({ stats, gameManager, refreshStats }: ConsoleProps) {
           hotkeysEnabled={!overlayOpen && commands.length > 0}
           onEscape={onEscape}
           onBlocked={explainBlocked}
+          touch={touch}
         />
       </footer>
     </>

@@ -43,6 +43,9 @@ function context(stats: Partial<GameStats>) {
     clearSelection: vi.fn(),
     togglePause: vi.fn(),
     setSpeed: vi.fn(),
+    cancelCommandTarget: vi.fn(),
+    setAreaSelect: vi.fn(),
+    bindControlGroup: vi.fn(() => true),
   };
   const ctx: CommandContext = {
     gm: gm as unknown as GameManager,
@@ -149,5 +152,60 @@ describe('unit command card', () => {
   it('ants selected below keep the nest card: orders run on the surface only', () => {
     const { ctx } = context({ selectedGroup: GROUP, activeLayer: 'underground' });
     expect(ids(ctx)[0]).toBe('dig');
+  });
+});
+
+describe('the card on a touch screen', () => {
+  const touch = (stats: Partial<GameStats>, extra: Partial<CommandContext> = {}) => {
+    const made = context(stats);
+    Object.assign(made.ctx, { touch: true, ...extra });
+    return made;
+  };
+
+  it('adds Seleccionar área and Asignar grupo to the unit card, and Seleccionar área to the colony card', () => {
+    expect(ids(touch({ selectedGroup: GROUP }).ctx)).toEqual([
+      'move', null, null, null, 'groups-page',
+      'attack', 'stop', 'hold', null, null,
+      'pause', 'speed', 'area-select', null, 'deselect',
+    ]);
+    expect(ids(touch({}).ctx)[12]).toBe('area-select');
+    // The desktop card is unchanged
+    expect(ids(context({}).ctx)[12]).toBeNull();
+  });
+
+  it('Seleccionar área toggles the box drag', () => {
+    const { gm, ctx } = touch({ selectedGroup: GROUP });
+    buildCommands(ctx)[12]!.run();
+    expect(gm.setAreaSelect).toHaveBeenCalledWith(true);
+    const on = touch({ selectedGroup: GROUP, areaSelect: true });
+    expect(buildCommands(on.ctx)[12]!.active).toBe(true);
+    buildCommands(on.ctx)[12]!.run();
+    expect(on.gm.setAreaSelect).toHaveBeenCalledWith(false);
+  });
+
+  it('pressing the armed Atacar again cancels it (there is no Esc), and the hints talk of tapping', () => {
+    const { gm, ctx } = touch({ selectedGroup: GROUP, commandTarget: 'attack' });
+    buildCommands(ctx)[5]!.run();
+    expect(gm.cancelCommandTarget).toHaveBeenCalled();
+    expect(gm.armAttackTarget).not.toHaveBeenCalled();
+    expect(commandTargetHint('attack', true)).toMatch(/^ATACAR: toca/);
+    expect(commandTargetHint('attack', true)).not.toMatch(/clic|Esc/);
+    // With a mouse, Atacar re-arms as before
+    const desk = context({ selectedGroup: GROUP, commandTarget: 'attack' });
+    buildCommands(desk.ctx)[5]!.run();
+    expect(desk.gm.armAttackTarget).toHaveBeenCalled();
+  });
+
+  it('the groups page binds the selection to a digit, or adds to it with Añadir on (Ctrl/Shift+digit)', () => {
+    const { gm, ctx } = touch({ selectedGroup: GROUP, controlGroups: [{ slot: 2, count: 5, role: AntRole.Soldier, selected: false }] }, { page: 'groups' });
+    const slots = buildCommands(ctx);
+    expect(slots[1]).toMatchObject({ id: 'bind-group-2', badge: '5', altKeys: 'Ctrl+2' });
+    slots[2]!.run();
+    expect(gm.bindControlGroup).toHaveBeenCalledWith(3, false);
+    expect(ctx.setPage).toHaveBeenCalledWith('root');
+
+    const adding = touch({ selectedGroup: GROUP }, { page: 'groups', groupAdd: true });
+    buildCommands(adding.ctx)[0]!.run();
+    expect(adding.gm.bindControlGroup).toHaveBeenCalledWith(1, true);
   });
 });
