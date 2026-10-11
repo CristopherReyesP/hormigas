@@ -40,6 +40,14 @@ describe('planStripFolds', () => {
     expect(at('fullTag')).toBeLessThan(at('leaf'));
   });
 
+  it('keeps the ant total long after the castes fold', () => {
+    const order = planStripFolds({ natural: 10_000, available: 0, reserve: 0, items: items() });
+    const at = (id: StripFoldId) => order.indexOf(id);
+    expect(at('pop')).toBeLessThan(at('antTotal'));
+    expect(at('waveWords')).toBeLessThan(at('antTotal'));
+    expect(at('antTotal')).toBeLessThan(at('leaf'));
+  });
+
   it('folds everything it may when nothing else fits, and never more', () => {
     const order = planStripFolds({ natural: 10_000, available: 0, reserve: 0, items: items() });
     expect(new Set(order)).toEqual(new Set(STRIP_FOLDS.map((f) => f.id)));

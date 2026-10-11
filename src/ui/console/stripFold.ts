@@ -3,7 +3,8 @@
 // The strip is one nowrap row; on a narrow window its three groups used to
 // spill into each other. Now TopStrip measures what the row needs and folds
 // the least important readouts (into the Más datos drawer) until the rest
-// fits. The pantry total, the minerals, the wave timer and pause never fold.
+// fits. The pantry total, the minerals, the wave timer and pause never fold;
+// the ant total is nearly the last to go.
 
 export type StripFoldId =
   | 'pop'
@@ -20,6 +21,7 @@ export type StripFoldId =
   | 'otherFood'
   | 'fullTag'
   | 'waveWords'
+  | 'antTotal'
   | 'leaf';
 
 export interface StripFold {
@@ -55,6 +57,8 @@ export const STRIP_FOLDS: readonly StripFold[] = [
   { id: 'fullTag', selector: '.strip-pantry-full-short', priority: 1.5 },
   // "OLEADA 3 EN 0:45" → "0:45" beside the beetle; "¡OLEADA 3! 9 INVASORES" → "9"
   { id: 'waveWords', selector: '.strip-wave-word', priority: 1 },
+  // The colony's head count: the castes went first, the total holds out to the end
+  { id: 'antTotal', selector: '.strip-ant-total', priority: 0.75 },
   { id: 'leaf', selector: '.strip-food--leaf', priority: 0.5 },
 ];
 
