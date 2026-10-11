@@ -10,6 +10,7 @@ import type { ScreenBox } from '../../engine/input/InputManager';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { TerrainRenderer } from '../../engine/renderer/TerrainRenderer';
 import { FoliageOverlay } from '../../engine/renderer/FoliageOverlay';
+import { CloudShadows } from '../../engine/renderer/CloudShadows';
 import { PostProcessor, nightGlowAlpha, type ScreenLight } from '../../engine/renderer/PostProcessor';
 import { SpriteAtlas, antGlowPoints, sharedSpriteAtlas } from '../../engine/renderer/SpriteAtlas';
 import { snapAngle } from '../../engine/renderer/pixelart/directions';
@@ -47,7 +48,7 @@ import {
   type CrystalUnitComponent,
   type CrystalSpireComponent,
 } from '../components/components';
-import { FARM_MULCH_CAPACITY, TILE_SIZE, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
+import { FARM_MULCH_CAPACITY, TILE_SIZE, WORLD_WIDTH, WORLD_HEIGHT, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
 import { UndergroundTerrainType, ChamberType, TerrainType } from '../../simulation/world/types';
 import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
@@ -211,6 +212,7 @@ export class RenderSystem {
   private grid: TileGrid;
   private terrainRenderer: TerrainRenderer;
   private foliageOverlay: FoliageOverlay;
+  private cloudShadows = new CloudShadows(WORLD_WIDTH * TILE_SIZE, WORLD_HEIGHT * TILE_SIZE);
   private postProcessor: PostProcessor;
   private spriteAtlas: SpriteAtlas;
   private fogRenderer: FogRenderer;
@@ -1080,6 +1082,10 @@ export class RenderSystem {
     drawWaveUnits(ctx, this.world, Layer.Surface, this.animationTime, interpolation, seen);
     drawWaveFx(ctx, this.world, Layer.Surface, this.animationTime, seen);
     this.renderDeathEffects(ctx, dt);
+    // Clouds pass over the ground and everything on it — daytime only, no sun at night
+    if (this.camera && dayPhase?.phase !== 'night') {
+      this.cloudShadows.draw(ctx, this.animationTime, this.camera.getCanvasWorldRect());
+    }
     drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Surface, this.visibilityGrid);
     this.fogRenderer.update();
     this.fogRenderer.draw(ctx);

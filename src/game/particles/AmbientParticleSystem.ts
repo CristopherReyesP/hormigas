@@ -60,7 +60,22 @@ export class AmbientParticleSystem {
     this.grid = grid;
   }
 
+  /** Seconds of game time, drives the wind gusts */
+  private time = 0;
+
+  /**
+   * Wind in px/sec: a steady breeze plus gusts that build and die every few
+   * seconds. Every light particle rides the same wind, so a gust visibly
+   * sweeps pollen, leaves and dust the same way at once.
+   */
+  windAt(time: number): number {
+    const gust = Math.max(0, Math.sin(time * 0.35) * Math.sin(time * 0.11 + 1));
+    return 3 + gust * gust * 22;
+  }
+
   update(dt: number): void {
+    this.time += dt;
+    const wind = this.windAt(this.time) * dt;
     // Update existing particles
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
@@ -68,6 +83,10 @@ export class AmbientParticleSystem {
       p.y += p.vy * dt;
       p.life -= dt;
       p.rotation += p.rotationSpeed * dt;
+      if (p.type === 'leaf' || p.type === 'pollen' || p.type === 'dust' || p.type === 'spore' || p.type === 'sand_grain') {
+        p.x += wind * (p.type === 'leaf' ? 1.3 : 1);
+        if (p.type === 'leaf') p.rotation += wind * 0.15; // gusts tumble leaves faster
+      }
 
       // Add gentle wave motion for floating particles
       if (p.type === 'spore' || p.type === 'pollen' || p.type === 'dust') {
