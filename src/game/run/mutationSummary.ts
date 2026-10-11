@@ -38,6 +38,13 @@ const STAT_INFO: Record<RunStat, StatInfo> = {
   extraInvadersPerWave: { label: 'Invasores por oleada', better: 'lower' },
   scoutVisionMult: { label: 'Visión de las exploradoras', better: 'higher' },
   flankingBonusMult: { label: 'Bonificación de flanqueo', better: 'higher' },
+  antMaxHealthMult: { label: 'Vida máxima de la colonia', better: 'higher' },
+  antDamageMult: { label: 'Daño de la colonia', better: 'higher' },
+  incubationSpeedMult: { label: 'Velocidad de incubación', better: 'higher' },
+  antVisionMult: { label: 'Visión de la colonia', better: 'higher' },
+  queenDamageTakenMult: { label: 'Daño recibido por la reina', better: 'lower' },
+  defenderDamageMult: { label: 'Daño de las defensoras', better: 'higher' },
+  defenderMaxHealthMult: { label: 'Vida máxima de las defensoras', better: 'higher' },
 };
 
 export interface StatLine {

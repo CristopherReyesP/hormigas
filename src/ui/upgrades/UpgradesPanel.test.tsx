@@ -81,7 +81,7 @@ describe('Mejoras button and helpers', () => {
   it('lists each mutation with how many times the swarm carries it and the colony total', () => {
     const html = panel('mutations', false, ['acid_mandibles', 'carrion_gut', 'acid_mandibles', 'hyper_metabolism']);
     expect(html).toContain('Mutaciones');
-    expect(html).toContain('3 de 10 mutaciones · 4 de 30 niveles');
+    expect(html).toContain('3 de 16 mutaciones · 4 de 48 niveles');
     expect(html).toContain('data-mutation="acid_mandibles"');
     expect(html).toContain('>×2<');
     expect(html).toContain('aria-label="Nivel 2 de 3"');

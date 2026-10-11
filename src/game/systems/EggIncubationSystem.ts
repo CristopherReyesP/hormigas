@@ -119,7 +119,7 @@ export class EggIncubationSystem implements System {
 
       // Eggs incubate just by being in the incubation area
       if (inIncubation) {
-        egg.hatchTimer -= dt * incubationSpeed(this.world.upgradeLevels); // Cámara de incubación
+        egg.hatchTimer -= dt * incubationSpeed(this.world.upgradeLevels) * this.world.runModifiers.incubationSpeedMult; // Cámara de incubación, Frenesí de cría
 
         if (egg.hatchTimer <= 0) {
           egg.hatchTimer = 0;

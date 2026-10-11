@@ -34,6 +34,6 @@ describe('mutation summary', () => {
   });
 
   it('knows the size of a full build', () => {
-    expect(mutationCapacity()).toEqual({ kinds: 10, stacks: 30 });
+    expect(mutationCapacity()).toEqual({ kinds: 16, stacks: 48 });
   });
 });

@@ -136,6 +136,8 @@ export class CombatSystem implements System {
         damage *= 1 + FLANKING_BONUS_PER_ALLY * run.flankingBonusMult * Math.min(allies, FLANKING_MAX_ALLIES);
         if (attackerLayer?.layer === Layer.Underground) damage *= run.undergroundDamageMult;
       }
+      // Reina acorazada: the queen takes less from every blow
+      if (this.world.getComponent(targetId, COMPONENT.QUEEN_ENTITY)) damage *= this.world.runModifiers.queenDamageTakenMult;
 
       // Attack beetle den directly
       const beetleDen = this.world.getComponent<BeetleDenComponent>(targetId, COMPONENT.BEETLE_DEN);

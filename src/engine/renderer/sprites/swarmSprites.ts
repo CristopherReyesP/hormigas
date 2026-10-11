@@ -392,6 +392,48 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
   if (mind > 2) both(elbow[0], elbow[1], V[0]);
   if (mind > 0) both(tip[0], tipY, V[1]);
 
+  // Chitin carapace: dark armor plates across the thorax (and the gaster's front at 2+ stacks)
+  const chitin = stacks('chitin_plates');
+  if (chitin > 0) {
+    p.hline(c.thCx - 1, AXIS - 1, 3, F[0]);
+    p.hline(c.thCx - 1, mirror(AXIS - 1), 3, F[0]);
+    if (chitin > 1) for (const dy of [2, 1]) both(c.gx + Math.round(grx) - 1, AXIS - dy, F[0]);
+    if (chitin > 2) both(c.thCx, AXIS - 2, F[4]);
+  }
+  // Venom glands: a green sac glowing at the gaster's tip, bigger per stack
+  const venom = stacks('venom_sac');
+  if (venom > 0) {
+    const tail = Math.round(c.gx - grx);
+    p.px(tail, AXIS, PAL.acid[2]);
+    if (venom > 1) both(tail + 1, AXIS - 1, PAL.acid[1]);
+    if (venom > 2) p.px(tail - 1, AXIS, PAL.acid[3]);
+  }
+  // Brood frenzy: glowing nodes along the nurse's gaster
+  const brood = stacks('brood_nodes');
+  for (let i = 0; i < brood; i++) both(c.gx - 1 + i, AXIS - Math.max(1, Math.floor(gry) - 1), V[1]);
+  // Night eyes: big phosphor-green compound eyes
+  const eyes = stacks('compound_eyes');
+  if (eyes > 0) {
+    both(c.hX + 1, AXIS - 1, PAL.acid[3]);
+    if (eyes > 1) both(c.hX, AXIS - 2, PAL.acid[2]);
+    if (eyes > 2) both(c.hX + 2, AXIS - 2, PAL.acid[2]);
+  }
+  // Royal shell: the queen's gold sigil worn on the thorax
+  const sigil = stacks('royal_sigil');
+  if (sigil > 0) {
+    p.px(c.thCx, AXIS, PAL.queen);
+    if (sigil > 1) both(c.thCx, AXIS - 1, PAL.queen);
+    if (sigil > 2) both(c.thCx - 1, AXIS - 1, PAL.legionCrown);
+  }
+  // Sentinel spines: a crest of pale spikes down the back, more per stack
+  const spines = stacks('dorsal_spines');
+  // (on the gaster's rim, so they stay inside the rotation-safe circle)
+  for (let i = 0; i < spines * 2; i++) {
+    const x = Math.round(c.gx + grx - 2) - i;
+    const half = gasterHalf(x);
+    if (half > 0) both(x, AXIS - half, F[4]);
+  }
+
   // Screen-space light: top-left rim, sheen on the gaster and head, cast shadow
   p.shade([F, PAL.leaf]);
   p.sheen(c.gx, AXIS, Math.max(1, Math.round(Math.min(grx, gry) * 0.6)), F[4]);

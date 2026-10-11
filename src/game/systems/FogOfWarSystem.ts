@@ -48,7 +48,7 @@ export class FogOfWarSystem implements System {
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       const roleStats = this.world.getComponent<RoleStatsComponent>(id, COMPONENT.ROLE_STATS);
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
-      const scoutMult = ant.role === AntRole.Scout ? this.world.runModifiers.scoutVisionMult : 1;
+      const scoutMult = (ant.role === AntRole.Scout ? this.world.runModifiers.scoutVisionMult : 1) * this.world.runModifiers.antVisionMult;
       const visionRange = (roleStats ? roleStats.visionRange : DEFAULT_VISION_RANGE) * scoutMult;
 
       // Fog reveal uses a fraction of combat vision — ants detect enemies far but map terrain slower

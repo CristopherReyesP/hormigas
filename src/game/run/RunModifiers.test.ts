@@ -15,6 +15,12 @@ const EXPECTED: Record<MutationId, { upside: Partial<Record<RunStat, number>>; c
   titan_brood: { upside: { soldierMaxHealthMult: 1.5 }, cost: { soldierSpeedMult: 0.75, soldierCostBonus: 10 } },
   wing_stubs: { upside: { scoutVisionMult: 1.5 }, cost: {} },
   hive_mind: { upside: { flankingBonusMult: 2 }, cost: {} },
+  chitin_carapace: { upside: { antMaxHealthMult: 1.25 }, cost: { movementSpeedMult: 0.92 } },
+  venom_glands: { upside: { antDamageMult: 1.3 }, cost: { hungerDecayMult: 1.1 } },
+  brood_frenzy: { upside: { incubationSpeedMult: 1.35 }, cost: { maxHungerMult: 0.9 } },
+  night_eyes: { upside: { antVisionMult: 1.3 }, cost: {} },
+  royal_shell: { upside: { queenDamageTakenMult: 0.6 }, cost: { soldierCostBonus: 5 } },
+  sentinel_spines: { upside: { defenderDamageMult: 1.5, defenderMaxHealthMult: 1.3 }, cost: { digSpeedMult: 0.9 } },
 };
 
 function neutral(stat: RunStat): number {
@@ -26,7 +32,7 @@ function stacked(stat: RunStat, value: number, stacks: number): number {
 }
 
 describe('mutation definitions', () => {
-  it('defines the ten T2b mutations with text, tags, a mark and three stacks', () => {
+  it('defines the sixteen mutations with text, tags, a mark and three stacks', () => {
     expect([...MUTATION_IDS]).toEqual(Object.keys(EXPECTED));
     for (const id of MUTATION_IDS) {
       const definition = MUTATION_DEFINITIONS[id];

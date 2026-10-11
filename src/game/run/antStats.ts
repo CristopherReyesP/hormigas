@@ -31,10 +31,11 @@ export function antSpawnStats(world: World, role: AntRole): AntSpawnStats {
   const run = world.runModifiers;
   const caste = casteMultipliers(world.upgradeLevels, role);
   const soldier = role === AntRole.Soldier;
+  const defender = role === AntRole.Defender;
   return {
     carryCapacity: Math.round(base.carryCapacity * caste.carry * (role === AntRole.Worker ? run.workerCarryMult : 1)),
-    damage: Math.round(base.damage * caste.damage * (soldier ? run.soldierDamageMult : 1)),
-    maxHealth: Math.round(base.health * caste.health * (soldier ? run.soldierMaxHealthMult : 1)),
+    damage: Math.round(base.damage * caste.damage * run.antDamageMult * (soldier ? run.soldierDamageMult : 1) * (defender ? run.defenderDamageMult : 1)),
+    maxHealth: Math.round(base.health * caste.health * run.antMaxHealthMult * (soldier ? run.soldierMaxHealthMult : 1) * (defender ? run.defenderMaxHealthMult : 1)),
     maxHunger: Math.round(base.hungerMax * run.maxHungerMult),
     speedMultiplier: base.speedMultiplier * caste.speed,
   };

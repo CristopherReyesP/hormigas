@@ -521,7 +521,7 @@ export class NurseAISystem implements System {
     }
 
     this.clearPath(id);
-    egg.hatchTimer = Math.max(0, egg.hatchTimer - BROOD_CARE_SPEEDUP * incubationSpeed(this.world.upgradeLevels) * dt);
+    egg.hatchTimer = Math.max(0, egg.hatchTimer - BROOD_CARE_SPEEDUP * incubationSpeed(this.world.upgradeLevels) * this.world.runModifiers.incubationSpeedMult * dt);
     ant.stateTimer += dt;
     // Short bouts: decideNextAction gets a regular say, so a new egg to carry,
     // a hungry larva or the queen still outrank grooming. Re-decide in the same

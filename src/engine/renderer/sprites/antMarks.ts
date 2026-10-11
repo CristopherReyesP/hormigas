@@ -7,6 +7,7 @@ import { AntRole } from '../../../game/components/components';
 export const ANT_MARK_IDS = [
   'chartreuse_jaws', 'pulsing_vein', 'swollen_pale_gaster', 'leg_spurs', 'pink_stitches',
   'dark_gaster_rings', 'thorax_pustules', 'thick_head_plate', 'wing_stubs', 'glowing_antenna_tips',
+  'chitin_plates', 'venom_sac', 'brood_nodes', 'compound_eyes', 'royal_sigil', 'dorsal_spines',
 ] as const;
 export type AntMarkId = typeof ANT_MARK_IDS[number];
 
@@ -31,6 +32,12 @@ const MARK_CASTES: Record<AntMarkId, readonly AntRole[]> = {
   thick_head_plate: [AntRole.Soldier],
   wing_stubs: [AntRole.Scout],
   glowing_antenna_tips: ALL_CASTES,
+  chitin_plates: ALL_CASTES,
+  venom_sac: ALL_CASTES,
+  brood_nodes: [AntRole.Nurse],
+  compound_eyes: ALL_CASTES,
+  royal_sigil: [AntRole.Nurse, AntRole.Defender],
+  dorsal_spines: [AntRole.Defender],
 };
 
 /** The marks `role` shows, stacks clamped to 1..3 (marks with no stacks dropped). */
