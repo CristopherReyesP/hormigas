@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { GameManager, GameStats } from '../../game/GameManager';
 import { PixelIcon } from './PixelIcon';
 import type { IconName } from './pixelIcons';
@@ -8,7 +8,8 @@ import { SoundToggle } from '../../audio/ui/SoundToggle';
 import { CrystalResources } from '../races/crystal/CrystalResources';
 import '../races/crystal/crystal.css';
 import { HumanResources } from '../races/human/HumanResources';
-import { broodKeys } from './commands';
+import { pantryFullText, pantryWaitersText, pantryWaitingText } from './pantryNote';
+import { STRIP_FOLDS, foldClassNames, planStripFolds, type StripFoldId } from './stripFold';
 
 type FoodType = 'leaf' | 'mushroom' | 'meat';
 
@@ -74,13 +75,12 @@ function PantryStock({ stored, capacity, inTransit, atEntrance, full, waiting }:
   waiting: number;
 }) {
   const flash = useFlashOnChange(stored);
-  const fullText = `Despensa llena: marca más casillas de Almacén (${broodKeys().storage})`;
+  const fullText = pantryFullText();
   const carried = Math.max(0, inTransit - atEntrance);
   let title = 'Despensa: comida guardada bajo tierra que paga los huevos y alimenta a la reina, las nodrizas y las larvas.';
   if (inTransit > 0) {
     title += ` Hay ${inTransit} en camino: ${atEntrance} en la entrada y ${carried} en la boca de las obreras.`;
   }
-  const waitingText = `${waiting} ${waiting === 1 ? 'obrera esperando' : 'obreras esperando'}`;
   if (full) {
     title += ` ${fullText} en el nido.`;
     if (waiting > 0) {
@@ -91,9 +91,10 @@ function PantryStock({ stored, capacity, inTransit, atEntrance, full, waiting }:
   return (
     <span className={full ? 'strip-item strip-pantry strip-pantry--full' : 'strip-item strip-pantry'} title={title} data-hud="pantry">
       {full && (
-        <span className="strip-pantry-full" role="status">
-          {inTransit > 0 && <span className="strip-pantry-waiting">+{inTransit} en camino · </span>}
-          {waiting > 0 && <span className="strip-pantry-waiting">{waitingText} · </span>}
+        // Shown in the open drawer; the banner column (PantryFullNote) says it the rest of the time
+        <span className="strip-pantry-full">
+          {inTransit > 0 && <span className="strip-pantry-waiting">{pantryWaitingText(inTransit)}</span>}
+          {waiting > 0 && <span className="strip-pantry-waiting">{pantryWaitersText(waiting)}</span>}
           <span>{fullText}</span>
         </span>
       )}
@@ -102,7 +103,7 @@ function PantryStock({ stored, capacity, inTransit, atEntrance, full, waiting }:
       <span className={`strip-value ${flash}`} style={stored < 1 || full ? { color: 'var(--chrome-warn)' } : undefined}>
         {stored}/{capacity}
       </span>
-      {/* Full: the food on its way moves into the callout so the strip keeps its width */}
+      {/* Full: the food on its way moves into the full-pantry message */}
       {inTransit > 0 && !full && <span className="strip-pantry-incoming">+{inTransit} en camino</span>}
       {full && <span className="strip-pantry-full-short" aria-hidden="true">LLENA</span>}
     </span>
@@ -131,9 +132,12 @@ function WaveStatus({ stats }: { stats: GameStats }) {
   const { invasion } = stats;
   if (invasion.active) {
     return (
-      <span className="strip-item strip-item--danger strip-blink" title="Oleada en curso">
+      <span className="strip-item strip-wave strip-item--danger strip-blink" title="Oleada en curso">
         <PixelIcon name="beetle" />
-        ¡OLEADA {invasion.waveNumber}! {invasion.invadersAlive}<span className="strip-wave-words"> INVASORES</span>
+        {/* A narrow strip keeps the invaders alive beside the blinking beetle */}
+        <span className="strip-wave-text">
+          <span className="strip-wave-word">{`¡OLEADA ${invasion.waveNumber}! `}</span>{invasion.invadersAlive}<span className="strip-wave-word"> INVASORES</span>
+        </span>
       </span>
     );
   }
@@ -141,19 +145,107 @@ function WaveStatus({ stats }: { stats: GameStats }) {
   const urgent = invasion.armed || invasion.nextWaveIn < 30;
   return (
     <span
-      className={`strip-item ${urgent ? 'strip-item--danger' : 'strip-item--warn'}`}
+      className={`strip-item strip-wave ${urgent ? 'strip-item--danger' : 'strip-item--warn'}`}
       title={invasion.armed ? 'La oleada llega al anochecer' : 'Próxima oleada'}
     >
       <PixelIcon name="beetle" />
-      <span className="strip-wave-words">OLEADA {invasion.waveNumber + 1} EN </span>{formatClock(invasion.nextWaveIn)}
+      {/* A narrow strip folds the words and keeps the clock beside the beetle */}
+      <span className="strip-wave-text">
+        <span className="strip-wave-word">{`OLEADA ${invasion.waveNumber + 1} EN `}</span>{formatClock(invasion.nextWaveIn)}
+      </span>
     </span>
   );
 }
 
+const px = (value: string) => parseFloat(value) || 0;
+
+/** Room for the Más datos button at the end of the desktop strip (38 px and the group gap) */
+const DESKTOP_MORE_RESERVE = 52;
+
+/** A plan may not unfold this soon (ms) after folding more: a guard against flip-flopping on a pixel */
+const FLIP_GUARD_MS = 400;
+
+/**
+ * What the strip needs and has, measured on the page: the row with every
+ * readout unfolded (folded ones are only hidden, so they still have a width)
+ * against the strip's inner width, for planStripFolds.
+ */
+function measureStrip(strip: HTMLElement): StripFoldId[] {
+  const style = getComputedStyle(strip);
+  const available = strip.clientWidth - px(style.paddingLeft) - px(style.paddingRight);
+  const groups = Array.from(strip.children).filter((el) => el.classList.contains('strip-group'));
+  let natural = px(style.columnGap) * Math.max(0, groups.length - 1);
+  for (const group of groups) {
+    const shown = Array.from(group.children).filter((el) => {
+      if (el.classList.contains('strip-more')) return false;
+      const position = getComputedStyle(el).position;
+      return position !== 'absolute' && position !== 'fixed' && (el as HTMLElement).offsetParent !== null;
+    });
+    natural += shown.reduce((sum, el) => sum + el.getBoundingClientRect().width, 0);
+    natural += px(getComputedStyle(group).columnGap) * Math.max(0, shown.length - 1);
+  }
+  // Folded units still have a width: the row needs it back once unfolded
+  const items = STRIP_FOLDS.map((fold) => {
+    let cost = 0;
+    for (const el of strip.querySelectorAll<HTMLElement>(fold.selector)) {
+      const width = el.getBoundingClientRect().width;
+      if (width === 0) continue;
+      const parent = el.parentElement;
+      cost += width + (parent ? px(getComputedStyle(parent).columnGap) : 0);
+    }
+    return { id: fold.id, priority: fold.priority, cost };
+  });
+  const foldedNow = strip.classList.contains('top-strip--folded');
+  if (foldedNow) {
+    for (const item of items) {
+      if (strip.classList.contains(`top-strip--fold-${item.id}`)) natural += item.cost;
+    }
+  }
+  // Phones always show the button, in the strip's own padding
+  const more = strip.querySelector<HTMLElement>('.strip-more');
+  const reserve = more && getComputedStyle(more).position === 'absolute' ? 0 : DESKTOP_MORE_RESERVE;
+  // A couple of pixels of slack for rounding
+  return planStripFolds({ natural: Math.ceil(natural) + 2, available, reserve, items });
+}
+
+/**
+ * The readouts to fold on this strip: re-measured after every render (the
+ * numbers change width) and on every resize. The open drawer keeps the plan.
+ */
+function useStripFolds(ref: RefObject<HTMLElement | null>, open: boolean): StripFoldId[] {
+  const [folded, setFolded] = useState<StripFoldId[]>([]);
+  /** When the plan last folded more: a plan that unfolds right after is a rounding flip, not more room */
+  const foldedMoreAt = useRef(-Infinity);
+  const replan = useCallback(() => {
+    const strip = ref.current;
+    if (!strip || strip.classList.contains('top-strip--open')) return;
+    const next = measureStrip(strip);
+    setFolded((current) => {
+      if (current.join() === next.join()) return current;
+      const now = performance.now();
+      if (next.length < current.length && now - foldedMoreAt.current < FLIP_GUARD_MS) return current;
+      if (next.length > current.length) foldedMoreAt.current = now;
+      return next;
+    });
+  }, [ref]);
+  // The readouts change width with their numbers: re-plan after every render, before paint
+  useLayoutEffect(replan);
+  // And whenever the window (so the strip) changes size
+  useLayoutEffect(() => {
+    const strip = ref.current;
+    if (!strip || open || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(replan);
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, [ref, open, replan]);
+  return folded;
+}
+
 /**
  * Thin full-width resource bar: economy left, clock and waves center, time
- * control right. The compact HUD keeps only the key readouts on it and folds
- * the rest into a drawer that Más datos (strip-more, phones only) opens.
+ * control right. When the row runs short (a narrow window, a phone) the
+ * least important readouts fold away (stripFold.ts) into a drawer that Más
+ * datos opens; the pantry, the minerals, the wave timer and pause stay.
  */
 export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
   const leaves = Math.max(0, stats.foodStored - stats.mushroomStored - stats.meatStored);
@@ -161,9 +253,12 @@ export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
   const eatFirst = gameManager?.getConsumptionPriority();
   const select = (type: FoodType) => (gameManager ? () => gameManager.setConsumptionPriority(type) : undefined);
   const [open, setOpen] = useState(false);
+  const header = useRef<HTMLElement>(null);
+  const folded = useStripFolds(header, open);
+  const classes = ['top-strip', open ? 'top-strip--open' : '', foldClassNames(folded)].filter(Boolean).join(' ');
 
   return (
-    <header className={open ? 'top-strip top-strip--open' : 'top-strip'}>
+    <header ref={header} className={classes}>
       <div className="strip-group">
         {stats.crystal ? <CrystalResources crystal={stats.crystal} /> : stats.human ? <HumanResources human={stats.human} /> : (<>
         <FoodResource icon="leaf" value={leaves} label="Hojas" active={eatFirst === 'leaf'} onSelect={select('leaf')} />
@@ -203,12 +298,17 @@ export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
       </div>
 
       <div className="strip-group strip-group--right">
-        {stats.activeEvents.map((event) => (
-          <span key={event.name} className="strip-item strip-item--event" title="Evento activo">
-            <PixelIcon name="star" />
-            {stripEmoji(event.name).toUpperCase()} {formatClock(event.remaining)}
-          </span>
-        ))}
+        {stats.activeEvents.map((event) => {
+          const name = stripEmoji(event.name);
+          return (
+            <span key={event.name} className="strip-item strip-item--event" title={`Evento activo: ${name}`}>
+              <PixelIcon name="star" />
+              <span className="strip-event-text">
+                <span className="strip-event-name">{`${name.toUpperCase()} `}</span>{formatClock(event.remaining)}
+              </span>
+            </span>
+          );
+        })}
         <button
           type="button"
           className={`strip-item strip-time ${stats.paused ? 'strip-item--danger strip-blink' : 'strip-item--accent'}`}
@@ -236,18 +336,18 @@ export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
             ?
           </button>
         )}
+        <button
+          type="button"
+          className="strip-more"
+          aria-expanded={open}
+          aria-label="Más datos"
+          title={open ? 'Ocultar los datos de la colonia' : 'Ver todos los datos de la colonia'}
+          onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+          onClick={() => setOpen((o) => !o)}
+        >
+          <PixelIcon name={open ? 'minus' : 'plus'} />
+        </button>
       </div>
-      <button
-        type="button"
-        className="strip-more"
-        aria-expanded={open}
-        aria-label="Más datos"
-        title={open ? 'Ocultar los datos de la colonia' : 'Ver todos los datos de la colonia'}
-        onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
-        onClick={() => setOpen((o) => !o)}
-      >
-        <PixelIcon name={open ? 'minus' : 'plus'} />
-      </button>
     </header>
   );
 }

@@ -24,6 +24,7 @@ import { AntAISystem } from './AntAISystem';
 import { MovementSystem } from './MovementSystem';
 import { TransitSystem } from './TransitSystem';
 import { PorterSystem } from './PorterSystem';
+import { WAVE_MARCH_COMPONENT } from '../run/waveMarch';
 import { UndergroundInvasionSystem } from './UndergroundInvasionSystem';
 import { DayNightSystem } from './DayNightSystem';
 import { formationSlots, issueMoveOrders, hasPlayerOrder } from './helpers/playerOrders';
@@ -247,6 +248,11 @@ describe('colony systems leave ordered ants alone', () => {
       antOf(id).state = AntState.Idle;
     }
     invasion['spawnInvader']({ kind: 'adult' });
+    // The invader got into the nest (the draft only answers invaders inside it)
+    const invader = world.query(COMPONENT.BEETLE).at(-1)!;
+    world.removeComponent(invader, WAVE_MARCH_COMPONENT);
+    world.getComponent<LayerComponent>(invader, COMPONENT.LAYER)!.layer = Layer.Underground;
+    Object.assign(world.getComponent<PositionComponent>(invader, COMPONENT.POSITION)!, { x: entrance.x + 0.5, y: entrance.y + 3.5 });
 
     invasion.update(TICK);
     expect(antOf(free).state).toBe(AntState.AttackingEnemy);

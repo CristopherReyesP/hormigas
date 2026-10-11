@@ -61,6 +61,6 @@ describe('Crystal player rules', () => {
   it('night waves bring fewer beetles against the Crystal Hive, never none', () => {
     expect(crystalWaveBeetles(0)).toBe(0);
     expect(crystalWaveBeetles(1)).toBe(1);
-    expect(crystalWaveBeetles(10)).toBe(5);
+    expect(crystalWaveBeetles(10)).toBe(4);
   });
 });

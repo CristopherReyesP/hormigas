@@ -42,7 +42,7 @@ export const FOOD_RESPAWN_INTERVAL = 30; // seconds — new food clusters appear
 
 // Role-specific stats table
 export const ROLE_STATS = {
-  worker:   { health: 80,  damage: 1,  hungerMax: 1000, hungerDecay: 1.0, carryCapacity: 15, speedMultiplier: 1.0,  visionRange: 10, carrySpeedPenalty: 0.8  },
+  worker:   { health: 80,  damage: 3,  hungerMax: 1000, hungerDecay: 1.0, carryCapacity: 15, speedMultiplier: 1.0,  visionRange: 10, carrySpeedPenalty: 0.8  },
   soldier:  { health: 150, damage: 8,  hungerMax: 1200, hungerDecay: 1.2, carryCapacity: 8,  speedMultiplier: 0.85, visionRange: 8,  carrySpeedPenalty: 0.9  },
   scout:    { health: 60,  damage: 0,  hungerMax: 800,  hungerDecay: 1.5, carryCapacity: 5,  speedMultiplier: 1.5,  visionRange: 10, carrySpeedPenalty: 0.7  },
   nurse:    { health: 40,  damage: 0,  hungerMax: 600,  hungerDecay: 0.8, carryCapacity: 10, speedMultiplier: 0.7,  visionRange: 6,  carrySpeedPenalty: 0.9  },
@@ -159,11 +159,16 @@ export const CRICKET_DEN_STATS = {
 // real expansion — but reachable, unlike the old 1000 measured against a
 // surface stockpile that nothing fills any more (crickets never spawned).
 export const CRICKET_SPAWN_FOOD_THRESHOLD = 600;
+// Balance pass: the threshold alone let the leaper's den appear on day 1
+// (the surface stockpile fills fast while the pantry is full), and a 600 HP
+// leaper at the nest against ten workers ended runs before the first wave.
+// No den before this many seconds of run (three full day/night cycles).
+export const CRICKET_DEN_GRACE_SECONDS = 630;
 export const CRICKET_DEN_MIN_NEST_DISTANCE = 40;
 export const MAX_TOTAL_CRICKETS = 4;
 
 // Cricket behavior
-export const CRICKET_STEAL_AMOUNT = 40;
+export const CRICKET_STEAL_AMOUNT = 12; // food per second while it raids the nest (was 40: a 450 pantry gone in ~11 s)
 export const CRICKET_STEAL_TIME = 2; // seconds to steal food
 export const CRICKET_MEAT_AMOUNT = 150; // meat dropped on death
 export const CRICKET_MEAT_NUTRITION_MULTIPLIER = 3.5;
@@ -226,7 +231,18 @@ export const NIGHT_ENEMY_SPAWN_MULTIPLIER = 2.2; // predators spawn faster at ni
 export const NIGHT_FOOD_SPAWN_MULTIPLIER = 0.4;  // food regrows slower at night
 
 // Queen entity
-export const QUEEN_MAX_HEALTH = 500;
+// Balance pass: was 500. The nest alert fires when the first invader gets in;
+// at 500 a handful of beetles killed her before a player on the surface could
+// bring soldiers down, which is how runs ended with ants still outside.
+export const QUEEN_MAX_HEALTH = 800;
+// Her own chitin, before any upgrade. Balance pass: unarmored, the three young
+// beetles of wave 1 (6 damage a bite) killed an undefended queen in under a
+// minute; 2 armor turns their bites into 4 and a full beetle's 12 into 10.
+export const QUEEN_ARMOR = 2;
+// She bites what reaches her: the last defense of a nest with nobody left.
+// Balance pass: a defenceless queen made every wave that got in a death
+// sentence for a colony that had lost its few nurses.
+export const QUEEN_BITE = { damage: 10, range: 1.6, cooldown: 1.2 } as const;
 export const QUEEN_MAX_HUNGER = 1000;
 export const QUEEN_HUNGER_DECAY = 2.0;
 export const QUEEN_EGG_LAY_TIME = 3;

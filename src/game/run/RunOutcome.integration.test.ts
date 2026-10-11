@@ -75,6 +75,9 @@ describe('run outcome manager integration', () => {
     expect(state.gameOver).toEqual({
       outcome: 'defeat', survivedTicks: 123, ...world.metrics, build: expect.any(Array),
       nightsSurvived: 9, bestNight: 9, newRecord: true,
+      // Nothing was seen taking her health away: the cause is unknown
+      cause: { kind: 'unknown', core: 'queen' },
+      diedOn: { day: 10, phase: 'night' }, // the whole day passed in one tick: dusk fell
     });
     expect(gameLoop.isPaused()).toBe(true);
     expect(statsCallback).toHaveBeenCalledWith({ gameOver: state.gameOver, paused: true });

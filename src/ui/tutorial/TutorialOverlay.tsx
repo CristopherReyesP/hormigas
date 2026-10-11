@@ -65,8 +65,12 @@ function sameHighlight(a: Highlight, b: Highlight): boolean {
   );
 }
 
-/** Floating HUD pieces over the map (the phone's minimap) that the bubble should leave free */
-const FLOATING_HUD = ['.console-minimap'];
+/**
+ * Floating HUD pieces over the map that the bubble should leave free: the
+ * phone's minimap, the banner column under the top strip (wave, nest and
+ * pantry alerts) and the MEJORAS button
+ */
+const FLOATING_HUD = ['.console-minimap', '.alert-stack', '.upg-launch'];
 
 function floatingHud(): Rect[] {
   const out: Rect[] = [];

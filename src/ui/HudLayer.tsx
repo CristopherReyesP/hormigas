@@ -1,5 +1,6 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { hudLayout, hudScale, type HudLayout } from './layout/hudMetrics';
+import type { CSSProperties, ReactNode } from 'react';
+import type { HudLayout } from './layout/hudMetrics';
+import { useWindowHud } from './layout/useWindowHud';
 import { useTouchUi } from './layout/touch';
 
 interface HudLayerProps {
@@ -10,31 +11,6 @@ interface HudLayerProps {
   /** Desktop or a phone layout; defaults to what the window size calls for */
   layout?: HudLayout;
   children: ReactNode;
-}
-
-interface WindowHud {
-  scale: number;
-  layout: HudLayout;
-}
-
-function windowHud(): WindowHud {
-  if (typeof window === 'undefined') return { scale: 1, layout: 'desktop' };
-  return { scale: hudScale(window.innerWidth, window.innerHeight), layout: hudLayout(window.innerWidth, window.innerHeight) };
-}
-
-/** The HUD scale step and layout for the current window, updated on resize and rotation. */
-function useWindowHud(): WindowHud {
-  const [hud, setHud] = useState(windowHud);
-  useEffect(() => {
-    const update = () => setHud((current) => {
-      const next = windowHud();
-      return next.scale === current.scale && next.layout === current.layout ? current : next;
-    });
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
-  return hud;
 }
 
 /**
