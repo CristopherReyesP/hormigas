@@ -17,7 +17,7 @@ vi.mock('../../engine/input/InputManager', () => ({ InputManager: class {
   setCamera() {} onKeyAction() {} onCanvasClick() {} destroy() {} getDragBox() { return null; }
 } }));
 vi.mock('../systems/RenderSystem', () => ({ RenderSystem: class {
-  setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {}
+  setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {} setCreep() {}
   setFarmStatusProvider() {} setFarmFocusProvider() {} queueFarmHarvest() {} setWaveOverlayProvider() {} setDigOverlayProvider() {} invalidateTerrain() {} startMeteorIntro() {} skipIntro() {} renderInterpolated() {}
 } }));
 // The intro-skip listeners hang off window and the canvas; node has neither.

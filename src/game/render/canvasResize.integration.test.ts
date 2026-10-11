@@ -6,7 +6,7 @@ vi.mock('../../engine/input/InputManager', () => ({ InputManager: class {
   setCamera() {} onKeyAction() {} onCanvasClick() {} destroy() {}
 } }));
 vi.mock('../systems/RenderSystem', () => ({ RenderSystem: class {
-  setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {}
+  setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {} setCreep() {}
   setFarmStatusProvider() {} setFarmFocusProvider() {} queueFarmHarvest() {} setWaveOverlayProvider() {} setDigOverlayProvider() {} invalidateTerrain() {} renderInterpolated() {}
   startMeteorIntro() {} skipIntro() { return true; }
 } }));

@@ -374,3 +374,14 @@ export const ENEMY_PICK_RADIUS = 1.5;       // a right-click this close to an en
 export const CONTROL_GROUP_SLOTS = 9;          // Ctrl+1..9 bind a group, 1..9 recall it
 export const CONTROL_GROUP_DOUBLE_TAP_MS = 300; // the same digit twice this fast also centers the camera on the group
 export const GAME_SPEED_MAX = 3;               // + and - step game speed between x1 and this
+
+// === Mycelium creep (the Swarm's living carpet around the nest) ===
+export const CREEP_BASE_RADIUS = 4;          // tiles of creep a newly founded nest holds
+export const CREEP_MAX_RADIUS = 13;          // the carpet never reaches farther from a nest
+export const CREEP_ANTS_PER_RADIUS = 4;      // every this many living ants push the edge one tile out
+export const CREEP_UPDATE_SECONDS = 0.25;    // how often the carpet grows or recedes
+export const CREEP_GROW_STEP = 40;           // coverage a tile gains per update (0-255)
+export const CREEP_DECAY_STEP = 12;          // coverage a tile loses per update once outside the reach
+export const CREEP_SOLID = 128;              // coverage from which a tile counts as creep and spreads further
+export const CREEP_SPEED_MULT = 1.3;         // colony ants run this much faster on creep
+export const CREEP_HEAL_PER_SECOND = 1.5;    // HP a colony ant on creep regains per second

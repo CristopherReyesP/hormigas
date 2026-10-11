@@ -45,6 +45,8 @@ const DENY_FIELDS: Record<string, readonly string[]> = {
   SelectionSystem: ['selected', 'selectionLayer'],
   ControlGroups: ['lastTap'],
   PorterSystem: ['lastPantryFullNotify'],
+  // Scratch copy of the carpet, rewritten every spread
+  CreepSystem: ['prev'],
   // Per-tick lookup caches, rebuilt by the systems every tick
   AntAISystem: ['foodGrid', 'foodNearby'],
   BeetleAISystem: ['preyGrid', 'foodGrid', 'preyNearby', 'escortsNearby', 'foodNearby', 'preyBuilt', 'foodBuilt'],
