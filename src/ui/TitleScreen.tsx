@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { GAME_VERSION } from '../shared/version';
 import { installAudioUi } from '../audio';
 import { AntRole } from '../game/components/components';
 import { UNIT_ART_PX, drawUnitFrame, type CrystalUnitKind, type UnitFrame, type UnitSheet } from '../engine/renderer/crystalUnits';
@@ -67,6 +68,7 @@ export function TitleScreen({ onStart, onTutorial, savedRun }: TitleScreenProps)
         )}
         {savedRun && <div className="title-saves">{savedRun}</div>}
       </div>
+      <p className="game-version game-version--title" data-game-version="">{GAME_VERSION}</p>
     </div>
   );
 }

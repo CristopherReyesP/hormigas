@@ -3719,3 +3719,24 @@ button:focus-visible {
   }
 }
 /* ── end TITLE SCREEN ── */
+
+/* The game's version, small and quiet: on the title screen (bottom) and the pause menu */
+.game-version {
+  margin: 10px 0 0;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--chrome-dim, #8a8070);
+  opacity: 0.75;
+  text-align: center;
+  user-select: text;
+}
+
+.game-version--title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 6px;
+  margin: 0;
+  pointer-events: none;
+  z-index: 2;
+}

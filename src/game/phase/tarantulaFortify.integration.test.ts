@@ -53,18 +53,24 @@ describe('the alien tarantula', () => {
     pos.y = pos.prevY = cy + 3;
     // Alone with it: the starting workers would be nearer prey
     for (const other of world.query(COMPONENT.ANT)) world.destroyEntity(other);
-    const ant = createAnt(world, cx + 3, cy + 3, AntRole.Worker);
-    const antPos = world.getComponent<PositionComponent>(ant, COMPONENT.POSITION)!;
-    const start = Math.hypot(antPos.x - pos.x, antPos.y - pos.y);
+    const first = createAnt(world, cx + 3, cy + 3, AntRole.Worker);
+    const from = { x: pos.x, y: pos.y };
     tickFor(0.2);
     // It has a route toward the ant (or already pounced)
     const path = world.getComponent<PathComponent>(id, COMPONENT.PATH)!;
     expect(path.waypoints.length).toBeGreaterThan(0);
-    tickFor(3);
-    const health = world.getComponent<HealthComponent>(ant, COMPONENT.HEALTH);
-    const now = world.hasEntity(ant) ? Math.hypot(antPos.x - pos.x, antPos.y - pos.y) : 0;
-    // Either the ant is already dead, wounded, or the hunter is much closer
-    expect(!world.hasEntity(ant) || (health && health.current < health.max) || now < start).toBe(true);
+    // It moves on the ant's side: east, where the worker stood
+    tickFor(1.5);
+    expect(pos.x - from.x).toBeGreaterThan(1.5);
+
+    // A worker within its reach: within an attack cooldown one of the two (the nearer) is bitten
+    const prey = createAnt(world, pos.x + 1.2, pos.y, AntRole.Worker);
+    const bitten = (ant: number) => {
+      const h = world.getComponent<HealthComponent>(ant, COMPONENT.HEALTH);
+      return !world.hasEntity(ant) || (h !== undefined && h.current < h.max);
+    };
+    tickFor(1.5);
+    expect(bitten(prey) || bitten(first)).toBe(true);
     game.stop();
   });
 
