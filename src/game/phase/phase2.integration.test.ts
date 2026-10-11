@@ -74,16 +74,16 @@ describe('Phase 2: La Frontera Salvaje, in a real run', () => {
     expect(game.getSurfaceArea()).toMatchObject({ x: 0, y: 0, width: WORLD_WIDTH, height: WORLD_HEIGHT });
     expect(stats.frontierBanner?.title).toContain('FASE 2');
 
-    // The meteor shower: 2 Hives of the picked rival and a Human base, all on the new ground
+    // The meteor shower: 3 Hives of the picked rival and a Human base, all on the new ground
     const hives = world.query(COMPONENT.CRYSTAL_HIVE, COMPONENT.POSITION);
-    expect(hives).toHaveLength(2);
+    expect(hives).toHaveLength(3);
     const cores = game['phase2Cores'] as number[];
-    expect(cores).toHaveLength(3);
+    expect(cores).toHaveLength(4);
     for (const id of cores) {
       const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
       expect(inBounds(zone, pos.x, pos.y)).toBe(false);
     }
-    expect(stats.frontier?.basesLeft).toBe(3);
+    expect(stats.frontier?.basesLeft).toBe(4);
     // And the wildlife beyond the wall
     const kinds = new Set(world.query(FRONTIER_CREATURE_COMPONENT).map((id) => frontierCreatureOf(world, id)!.kind));
     expect(kinds).toEqual(new Set(['legion_queen', 'legionary', 'spider', 'mantis']));
@@ -130,8 +130,8 @@ describe('Phase 2: La Frontera Salvaje, in a real run', () => {
     tickFor(1.5);
     const invasion = game['invasionSystem'] as unknown as { raidSource: { launch(n: number): number[] } };
     const sent = invasion.raidSource.launch(6);
-    // 6 asked, +50% per base standing (2): 12 raiders from the Hive, the Human base and the nest
-    expect(sent.length).toBeGreaterThanOrEqual(9);
+    // 6 asked, x1.5 plus 60% per base standing (2): 17 raiders from the Hive, the Human base and the nest
+    expect(sent.length).toBeGreaterThanOrEqual(12);
     const kinds = new Set(sent.map((id) => (world.getComponent(id, COMPONENT.CRYSTAL_UNIT) ? 'crystal' : frontierCreatureOf(world, id) ? 'legion' : 'human')));
     expect(kinds.size).toBe(3);
     game.stop();

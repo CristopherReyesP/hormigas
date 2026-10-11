@@ -43,7 +43,7 @@ export const BREED_TIME_NURSE = 4;
 export const SCOUT_VISION_RANGE = 10; // tiles (combat/detection range)
 export const FOG_REVEAL_MULTIPLIER = 0.5; // fog reveal = visionRange * this (separate from combat)
 export const SCOUT_SPEED_MULTIPLIER = 1.5;
-export const FOOD_RESPAWN_INTERVAL = 30; // seconds — new food clusters appear
+export const FOOD_RESPAWN_INTERVAL = 36; // seconds — new food clusters appear (difficulty pass: was 30)
 
 // Role-specific stats table
 export const ROLE_STATS = {
@@ -68,7 +68,7 @@ export const MUSHROOM_PREFERENCE_MULTIPLIER = 0.5;
 // Beetle stats
 export const BEETLE_STATS = {
   health: 240,
-  damage: 12,
+  damage: 14, // difficulty pass: was 12
   speed: 0.9,
   visionRange: 6,
   attackRange: 1.2,
@@ -79,17 +79,18 @@ export const BEETLE_STATS = {
 // Beetle den stats
 export const BEETLE_DEN_STATS = {
   health: 800,
-  spawnCooldown: 45,
+  spawnCooldown: 35, // difficulty pass: was 45
   maxBeetles: 3,
   size: 0.8,
 } as const;
 
 // Beetle spawning
-export const INITIAL_BEETLE_DENS = 2;
+export const INITIAL_BEETLE_DENS = 3; // difficulty pass: was 2
 export const BEETLE_DEN_MIN_NEST_DISTANCE = 30;
-export const BEETLE_EDGE_SPAWN_INTERVAL = 60;
-export const BEETLE_EDGE_SPAWN_CHANCE = 0.5;
-export const MAX_TOTAL_BEETLES = 8;
+// Difficulty pass: was every 60 s at 50%, 8 at most
+export const BEETLE_EDGE_SPAWN_INTERVAL = 45;
+export const BEETLE_EDGE_SPAWN_CHANCE = 0.65;
+export const MAX_TOTAL_BEETLES = 11;
 
 // Beetle meat
 export const BEETLE_MEAT_AMOUNT = 60;

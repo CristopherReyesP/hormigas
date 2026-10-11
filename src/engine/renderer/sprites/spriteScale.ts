@@ -23,6 +23,7 @@ export const SPRITE_GRID = {
   legionQueen: 44,
   spider: 32,
   mantis: 40,
+  tarantula: 44,
 } as const;
 
 export const WALK_FRAMES = 4;

@@ -23,9 +23,9 @@ export const CRYSTAL_DRONE_STATS = {
 export const CRYSTAL_HIVE_STATS = {
   health: 1500,
   /** Seconds between two crystallized drones */
-  productionInterval: 45,
+  productionInterval: 36, // difficulty pass: was 45
   /** Idle drones the hive keeps at home; production waits while it is full */
-  garrisonCap: 4,
+  garrisonCap: 5, // difficulty pass: was 4
   /** Garrison drones keep within this many tiles of the hive */
   guardRadius: 4,
   size: 1.6,

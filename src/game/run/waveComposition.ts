@@ -68,7 +68,8 @@ const EMPTY: Omit<WaveComposition, 'wave'> = { total: 0, youngBeetles: 0, beetle
  * nights 7-9 while a sensible Swarm still stood untouched at night 25, so the
  * middle of the curve is gentler and the endless part past the cap steeper.
  */
-export const WAVE_CURVE = { base: 3, linear: 1.5, quadratic: 0.4, overflowScale: 1 } as const;
+// Difficulty pass: was { base: 3, linear: 1.5, quadratic: 0.4 }
+export const WAVE_CURVE = { base: 4, linear: 1.8, quadratic: 0.5, overflowScale: 1 } as const;
 
 /** The uncapped size: 3 on wave 1, then a linear plus quadratic rise (5, 8, 11, 15, 21, 26, 33, 41, 49, ...) */
 function rawSize(wave: number): number {
@@ -104,7 +105,8 @@ export function miniBossFor(wave: number, rival: WaveRival): MiniBossKind | null
  * onto the fast middle of the curve and decided most Human and Crystal runs
  * by night 9-11. Now the share tops out around wave 11.
  */
-export const ELITE_SHARE = { from: 3, start: 0.1, step: 0.03, max: 0.35 } as const;
+// Difficulty pass: was 10% rising 3 points a wave to 35%
+export const ELITE_SHARE = { from: 3, start: 0.15, step: 0.04, max: 0.45 } as const;
 
 /** The share of wave `wave` that comes as elites (ELITE_SHARE): none before wave 3, then 10% rising 3 points a wave to 35% */
 export function eliteShare(wave: number): number {
@@ -119,7 +121,8 @@ export function eliteShare(wave: number): number {
  * Hive's drones and come in full (only beetles are halved against it), so the
  * Hive fell by night 6-7 to the raid alone.
  */
-export const HUMAN_RAID_SHARE = { start: 0.2, step: 0.03, max: 0.3, min: 2 } as const;
+// Difficulty pass: was 20% rising to 30%
+export const HUMAN_RAID_SHARE = { start: 0.25, step: 0.03, max: 0.35, min: 2 } as const;
 
 /** Phase 2: the Legionary nest's share of each wave (its army ants), and the fewest it sends */
 export const LEGION_RAID_SHARE = { share: 0.45, min: 4 } as const;
@@ -178,7 +181,8 @@ export function waveComposition(wave: number, rival: WaveRival = 'crystal'): Wav
   const eliteCount = n >= 3 ? Math.max(1, Math.floor(base * eliteShare(n))) : 0;
   const units = Math.max(1, base - Math.floor(eliteCount / ELITE_TRIM_RATIO) - (boss ? BOSS_UNIT_WEIGHT : 0));
   const total = units + (boss ? 1 : 0);
-  const youngShare = Math.floor(units * Math.max(0, 1 - 0.2 * (n - 1)));
+  // Young beetles fade out by wave 5 (difficulty pass: was by wave 6)
+  const youngShare = Math.floor(units * Math.max(0, 1 - 0.25 * (n - 1)));
   let young: number;
   let drones: number;
   if (rival === 'human') {
@@ -191,7 +195,7 @@ export function waveComposition(wave: number, rival: WaveRival = 'crystal'): Wav
   } else {
     young = youngShare;
     drones = rival === 'crystal' && n >= 3
-      ? Math.min(units - young, Math.max(1, Math.floor(units * Math.min(0.3, 0.1 * (n - 2)))))
+      ? Math.min(units - young, Math.max(1, Math.floor(units * Math.min(0.35, 0.1 * (n - 2)))))
       : 0;
   }
   const beetles = units - young - drones;

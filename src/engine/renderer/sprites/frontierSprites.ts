@@ -168,6 +168,60 @@ export function paintMantis({ frame, direction, shadow = true }: WildlifeSpriteS
   return grid;
 }
 
+/**
+ * 44×44 alien tarantula: a hairy deep-violet body bristling with teal crystal
+ * spines, eight thick jointed legs and a crown of eight glowing green eyes
+ * over two heavy fangs. Bigger than a soldier ant several times over.
+ */
+export function paintTarantula({ frame, direction, shadow = true }: WildlifeSpriteSpec): ArtGrid {
+  const grid = new ArtGrid(SPRITE_GRID.tarantula);
+  const p = new ArtPen(grid, directionAngle(direction));
+  const T = PAL.tarantula;
+  const O = PAL.outline;
+  const A = Math.floor(SPRITE_GRID.tarantula / 2);
+  const swing = GAIT[frame % GAIT.length];
+
+  // Eight thick legs, four a side: a raised knee, a long shin, alternate pairs step
+  for (let side = -1; side <= 1; side += 2) {
+    for (let i = 0; i < 4; i++) {
+      const s = (i + (side === 1 ? 1 : 0)) % 2 === 0 ? swing : -swing;
+      const hipX = 22 + i * 2;
+      const kneeX = 15 + i * 6 + s;
+      const footX = 10 + i * 9 + s * 2;
+      for (const off of [0, 1]) {
+        p.polyline([[hipX + off, A + side * 3], [kneeX + off, A + side * 12], [footX + off, A + side * 18]], off === 0 ? T[3] : T[2]);
+      }
+      p.px(kneeX, A + side * 12, PAL.tarantulaBristle);
+    }
+  }
+  p.outlined(pen => {
+    pen.ellipse(13, A, 10, 8.5, T[1]); // the hairy abdomen
+    pen.disc(27, A, 6, T[2]); // the cephalothorax
+    pen.capsule(33, A - 2, 35, A - 3, 1.3, T[1]); // fangs
+    pen.capsule(33, A + 2, 35, A + 3, 1.3, T[1]);
+  }, O);
+  p.ellipse(13, A, 8.5, 7, T[2]);
+  // Fur: dark strokes across the abdomen
+  for (let i = 0; i < 9; i++) {
+    const x = 6 + ((i * 5) % 14);
+    const y = A - 6 + ((i * 7) % 12);
+    p.line(x, y, x + 1, y + 1, T[1]);
+  }
+  // Crystal bristles: a ridge of teal spines down the back
+  for (const [x, y] of [[7, -1], [10, -3], [10, 3], [13, -4], [13, 4], [16, -3], [16, 3], [19, 0], [5, 2]] as const) {
+    p.px(x, A + y, PAL.tarantulaBristle);
+  }
+  // The eye crown: eight glowing points
+  for (const [x, y] of [[29, -2], [29, 2], [30, -1], [30, 1], [31, -3], [31, 3], [28, 0], [31, 0]] as const) {
+    p.px(x, A + y, PAL.tarantulaEye);
+  }
+
+  p.shade([T]);
+  p.sheen(13, A, 4, T[3]);
+  if (shadow) p.castShadow(O, 1, 2);
+  return grid;
+}
+
 /** The Legionary nest (40×40 art px): a crimson mound riddled with holes, bones of prey around it */
 export function paintLegionNest(p: PixelPainter): void {
   const L = PAL.legion;
