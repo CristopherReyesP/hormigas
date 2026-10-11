@@ -78,3 +78,29 @@ describe('evolution chamber two-step pick', () => {
     expect(html).toMatch(/<button[^>]*evo-cancel-btn[^>]*>Cancelar<\/button>/);
   });
 });
+
+describe('evolution chamber build', () => {
+  it('shows the swarm it already carries, and the total a repeat pick reaches', () => {
+    const stacks = (id: MutationId) => (id === 'acid_mandibles' ? 2 : 0);
+    const offer = buildMutationOffer(5, ['acid_mandibles', 'cargo_sacs', 'hive_mind'], stacks);
+    const owned = [{ id: 'acid_mandibles' as const, name: 'Mandíbulas ácidas', stacks: 2 }];
+    const html = renderToStaticMarkup(
+      <EvolutionChamber offer={offer} selected={null} lastPick={null} onSelect={noop} onConfirm={noop} owned={owned} />,
+    );
+    expect(html).toContain('TU ENJAMBRE');
+    expect(html).toContain('Mandíbulas ácidas <strong>×2</strong>');
+    // The third stack: 1.4³ and 0.9³
+    expect(html).toContain('Total con esta · nivel 3/3');
+    expect(html).toContain('Daño de los soldados ×2.7');
+    expect(html).toContain('Velocidad de los soldados −27%');
+    // Only the card the swarm already has gets a total
+    expect(html.match(/evo-card-total"/g)).toHaveLength(1);
+  });
+
+  it('shows no build row before the first pick', () => {
+    const offer = buildMutationOffer(2, ['acid_mandibles'], () => 0);
+    const html = renderToStaticMarkup(<EvolutionChamber offer={offer} selected={null} lastPick={null} onSelect={noop} onConfirm={noop} />);
+    expect(html).not.toContain('TU ENJAMBRE');
+    expect(html).not.toContain('evo-card-total');
+  });
+});

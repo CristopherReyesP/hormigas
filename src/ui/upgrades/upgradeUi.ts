@@ -2,14 +2,20 @@ import type { UpgradeInfo } from '../../game/upgrades/upgradeView';
 import type { UpgradeCost, UpgradeGroup, UpgradeId } from '../../game/upgrades/upgradeTable';
 import type { IconName } from '../console/pixelIcons';
 
-/** The panel's tabs: the four upgrade groups, then Estadísticas */
-export type UpgradeTab = UpgradeGroup | 'stats';
+/** The panel's tabs: the four upgrade groups, then Mutaciones and Estadísticas */
+export type UpgradeTab = UpgradeGroup | 'mutations' | 'stats';
+
+/** Tabs that hold no upgrade lines to buy */
+export function isInfoTab(tab: UpgradeTab): tab is 'mutations' | 'stats' {
+  return tab === 'mutations' || tab === 'stats';
+}
 
 export const UPGRADE_TABS: ReadonlyArray<{ tab: UpgradeTab; label: string; icon: IconName }> = [
   { tab: 'queen', label: 'Reina', icon: 'crown' },
   { tab: 'brood', label: 'Incubación', icon: 'egg' },
   { tab: 'castes', label: 'Castas', icon: 'sword' },
   { tab: 'colony', label: 'Colonia', icon: 'pantry' },
+  { tab: 'mutations', label: 'Mutaciones', icon: 'vein' },
   { tab: 'stats', label: 'Estadísticas', icon: 'flag' },
 ];
 
@@ -39,7 +45,7 @@ export function upgradeBadge(affordable: number): { glow: boolean; text: string 
 
 /** Lines of a tab that can be bought now (the number on its tab) */
 export function affordableIn(upgrades: readonly UpgradeInfo[], tab: UpgradeTab): number {
-  if (tab === 'stats') return 0;
+  if (isInfoTab(tab)) return 0;
   return upgrades.filter((u) => u.group === tab && u.affordable).length;
 }
 

@@ -33,6 +33,7 @@ export function UpgradesOverlay({ gm, upgrades, funds, tab, touch, onClose, refr
       report={report}
       funds={funds}
       initialTab={tab}
+      mutations={gm.getAppliedMutations()}
       touch={touch}
       onClose={onClose}
       onBuy={(id) => {

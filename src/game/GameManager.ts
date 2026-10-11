@@ -494,6 +494,8 @@ export interface GameStats {
   /** The card the player has selected in the pending offer; only confirming it applies it. */
   mutationSelection: MutationId | null;
   lastMutationPick: MutationId | null;
+  /** The mutations the swarm carries, in first-pick order, with their stack counts (empty for other races) */
+  mutations?: MutationBuildEntry[];
   /** True while the opening cinematic plays: the HUD stays hidden and the world takes the whole window. */
   introPlaying: boolean;
   /** The Crystal Hive's side of the HUD when the player plays it; absent for the Swarm */
@@ -3850,6 +3852,7 @@ export class GameManager {
       mutationOffer: this.mutationOffer,
       mutationSelection: this.mutationSelection,
       lastMutationPick: this.lastMutationPick,
+      mutations: summarizeMutationBuild(this.runModifiers.getAppliedMutations()),
       introPlaying: this.introClock.isPlaying(),
       crystal: this.crystal?.snapshot(this.selectionSystem.getSelectedEntityId(), this.selectionSystem.getSelectedAnts()) ?? null,
       human: this.humanPlayer?.stats() ?? null,

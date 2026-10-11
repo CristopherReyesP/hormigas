@@ -27,3 +27,31 @@ export function UpgradesButton({ affordable, onOpen }: UpgradesButtonProps) {
     </button>
   );
 }
+
+interface MutationsButtonProps {
+  /** The swarm's mutations with their stacks */
+  mutations: ReadonlyArray<{ name: string; stacks: number }>;
+  onOpen: () => void;
+}
+
+/** Over MEJORAS once the swarm has mutated: how many mutation levels it carries; opens the Mutaciones tab. */
+export function MutationsButton({ mutations, onOpen }: MutationsButtonProps) {
+  const levels = mutations.reduce((sum, m) => sum + m.stacks, 0);
+  if (levels === 0) return null;
+  const list = mutations.map((m) => `${m.name} ×${m.stacks}`).join(' · ');
+  return (
+    <button
+      type="button"
+      className="upg-mut-launch"
+      aria-label={`Mutaciones: ${list}`}
+      title={`Mutaciones: ${list}`}
+      data-sfx="command"
+      onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+      onClick={onOpen}
+    >
+      <PixelIcon name="vein" size={8} />
+      <span className="upg-mut-launch-label">MUTACIONES</span>
+      <span className="upg-mut-launch-count">{levels}</span>
+    </button>
+  );
+}

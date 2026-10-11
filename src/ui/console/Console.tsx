@@ -17,7 +17,7 @@ import { CoachMarks } from './CoachMarks';
 import { HAPTIC_PATTERN, feedbackText, hapticFor, vibrate } from './feedbackText';
 import { humanHint, humanIdleHint } from '../races/human/humanCommands';
 import { DigMeter } from './DigMeter';
-import { UpgradesButton } from '../upgrades/UpgradesButton';
+import { MutationsButton, UpgradesButton } from '../upgrades/UpgradesButton';
 import { UpgradesOverlay } from '../upgrades/UpgradesOverlay';
 import type { UpgradeTab } from '../upgrades/upgradeUi';
 
@@ -229,7 +229,10 @@ export function Console({ stats, gameManager, refreshStats, tutorialRunning = fa
         </div>
         {/* Before the plates, so the command card's tooltip paints over it */}
         {swarm && gameManager && page === 'root' && (
-          <UpgradesButton affordable={stats.upgradesAffordable ?? 0} onOpen={() => openUpgrades()} />
+          <>
+            <UpgradesButton affordable={stats.upgradesAffordable ?? 0} onOpen={() => openUpgrades()} />
+            <MutationsButton mutations={stats.mutations ?? []} onOpen={() => openUpgrades('mutations')} />
+          </>
         )}
         <MinimapPanel
           gameManager={gameManager}

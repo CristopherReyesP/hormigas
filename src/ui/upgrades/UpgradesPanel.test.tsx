@@ -8,11 +8,12 @@ import { createAnt, createQueen } from '../../game/entities/factories';
 import { UpgradesPanel } from './UpgradesPanel';
 import { UpgradesButton } from './UpgradesButton';
 import { affordableIn, effectText, missingText, upgradeBadge } from './upgradeUi';
+import type { MutationId } from '../../game/run/MutationDefinitions';
 
 const funds = { food: 45, mushrooms: 0, minerals: 0 };
 const noop = () => false;
 
-function panel(tab: Parameters<typeof UpgradesPanel>[0]['initialTab'], touch = false) {
+function panel(tab: Parameters<typeof UpgradesPanel>[0]['initialTab'], touch = false, mutations: MutationId[] = []) {
   const world = new World();
   createAnt(world, 1, 1);
   createQueen(world, 5, 5);
@@ -22,6 +23,7 @@ function panel(tab: Parameters<typeof UpgradesPanel>[0]['initialTab'], touch = f
       report={buildColonyStats(world, { food: 45, mushrooms: 0, day: 2, nightsSurvived: 1 })}
       funds={funds}
       initialTab={tab}
+      mutations={mutations}
       touch={touch}
       onBuy={noop}
       onClose={() => {}}
@@ -74,6 +76,26 @@ describe('Mejoras button and helpers', () => {
     const ready = renderToStaticMarkup(<UpgradesButton affordable={2} onOpen={() => {}} />);
     expect(ready).toContain('upg-launch upg-launch--ready');
     expect(ready).toContain('<span class="upg-launch-badge">2</span>');
+  });
+
+  it('lists each mutation with how many times the swarm carries it and the colony total', () => {
+    const html = panel('mutations', false, ['acid_mandibles', 'carrion_gut', 'acid_mandibles', 'hyper_metabolism']);
+    expect(html).toContain('Mutaciones');
+    expect(html).toContain('3 de 10 mutaciones · 4 de 30 niveles');
+    expect(html).toContain('data-mutation="acid_mandibles"');
+    expect(html).toContain('>×2<');
+    expect(html).toContain('aria-label="Nivel 2 de 3"');
+    expect(html).toContain('Daño de los soldados +96%');
+    expect(html).toContain('TOTAL DE LA COLONIA');
+    // Tripa carroñera and Hipermetabolismo both touch hunger: ×0.7 × ×1.25
+    expect(html).toContain('▲ Consumo de hambre −13%');
+    // The tab carries the level count; no buy footer on an info tab
+    expect(html).toContain('<span class="upg-tab-count">4</span>');
+    expect(html).not.toContain('MEJORAR');
+  });
+
+  it('explains the mutations before the first pick', () => {
+    expect(panel('mutations')).toContain('Aún no hay mutaciones');
   });
 
   it('counts affordable lines per tab and words what is missing', () => {
