@@ -102,3 +102,17 @@ describe('mycelium creep', () => {
     expect(creep.isCreepAt(1.3, 0.8)).toBe(true);
   });
 });
+
+describe('mycelium creep — active area', () => {
+  it('a carpet left behind by a nest that moved still recedes', () => {
+    const { world, creep, system } = setup();
+    const nest = createNest(world, 20, 20);
+    system.settle();
+    const pos = world.getComponent<PositionComponent>(nest, COMPONENT.POSITION)!;
+    pos.x = 100;
+    pos.y = 70;
+    system.settle();
+    expect(creep.get(20, 20)).toBe(0);
+    expect(creep.isCreepAt(100, 70)).toBe(true);
+  });
+});

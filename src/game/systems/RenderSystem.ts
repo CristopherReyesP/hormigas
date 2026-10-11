@@ -1057,7 +1057,7 @@ export class RenderSystem {
     // The crater is ground: under trails and units, hidden by unexplored fog
     // The spires are the Crystal Hive's: once it falls, only the bare crater stays
     this.intro?.setSpiresStanding(this.hiveStandsOnCrater());
-    this.intro?.drawCrater(ctx, this.animationTime);
+    this.intro?.drawCrater(ctx, this.animationTime, this.camera?.getCanvasWorldRect());
     this.renderCreep();
     this.renderPheromones();
     this.renderParticles();

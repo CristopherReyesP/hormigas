@@ -3,7 +3,8 @@
 // shows loose hyphae threads; a solid tile shows the dithered mat, thinning
 // out towards each side that borders bare ground so the carpet's edge frays
 // instead of stepping tile by tile. Stamps are baked lazily per (kind, bare
-// sides, variant) and cached; per frame a tile costs one drawImage.
+// sides, variant) and cached, and the carpet itself is cached per 8×8-tile
+// chunk (see CreepArt).
 // 1 art px = 2 px.
 
 import { PAL, hash2 } from '../../engine/renderer/pixelart/palette';
@@ -28,15 +29,6 @@ const VEIN = PAL.swarm.vein;
 export const BARE = { N: 1, E: 2, S: 4, W: 8 } as const;
 
 export type CreepTile = { readonly kind: 'threads' } | { readonly kind: 'mat'; readonly bare: number };
-
-/** How a creep tile is drawn: threads while growing in, else the mat with its bare sides */
-export function creepTile(creep: CreepGrid, x: number, y: number): CreepTile | null {
-  const c = creep.get(x, y);
-  if (c === 0) return null;
-  if (c < CREEP_SOLID) return { kind: 'threads' };
-  const bare = (nx: number, ny: number, bit: number) => (creep.get(nx, ny) >= CREEP_SOLID ? 0 : bit);
-  return { kind: 'mat', bare: bare(x, y - 1, BARE.N) | bare(x + 1, y, BARE.E) | bare(x, y + 1, BARE.S) | bare(x - 1, y, BARE.W) };
-}
 
 /** Distance (art px) from (x, y) to the nearest bare side, Infinity when there is none */
 function distToBare(bare: number, x: number, y: number): number {
@@ -95,8 +87,41 @@ function bakeStamp(tile: CreepTile, variant: number): OffscreenCanvas {
   return c;
 }
 
+/** Tiles per chunk side */
+const CHUNK = 8;
+/** Chunks repainted per frame at most: a burst of growth spreads over a few frames */
+const MAX_REPAINTS_PER_FRAME = 8;
+
+/** How a creep tile is drawn: 0 = nothing, 1 = threads (still growing in), 2 + bare 4-neighbour mask = mat */
+function creepCode(creep: CreepGrid, x: number, y: number): number {
+  const c = creep.get(x, y);
+  if (c === 0) return 0;
+  if (c < CREEP_SOLID) return 1;
+  return 2
+    + (creep.get(x, y - 1) >= CREEP_SOLID ? 0 : BARE.N)
+    + (creep.get(x + 1, y) >= CREEP_SOLID ? 0 : BARE.E)
+    + (creep.get(x, y + 1) >= CREEP_SOLID ? 0 : BARE.S)
+    + (creep.get(x - 1, y) >= CREEP_SOLID ? 0 : BARE.W);
+}
+
+/**
+ * The creep, cached in 8×8-tile chunks like the pheromone trails: a chunk's
+ * picture is repainted only when one of its tiles changes how it is drawn (or
+ * gets explored), so a frame blits a few dozen chunk canvases instead of one
+ * stamp per carpet tile.
+ */
 export class CreepArt {
   private stamps = new Map<number, OffscreenCanvas>();
+  private cols = 0;
+  private rows = 0;
+  private width = 0;
+  /** Drawn code per tile (255 = never drawn) */
+  private codes = new Uint8Array(0);
+  private canvases: Array<OffscreenCanvas | null> = [];
+  private filled = new Uint8Array(0);
+  /** Per chunk, the tile box (chunk-local, inclusive) its picture covers: x0, y0, x1, y1 */
+  private boxes = new Uint8Array(0);
+  private dirty = new Uint8Array(0);
 
   private stamp(tile: CreepTile, variant: number): OffscreenCanvas {
     // Threads: key 16; mat: its bare mask 0-15
@@ -109,6 +134,18 @@ export class CreepArt {
     return s;
   }
 
+  private ensure(creep: CreepGrid): void {
+    if (this.width === creep.width && this.codes.length === creep.width * creep.height) return;
+    this.width = creep.width;
+    this.cols = Math.ceil(creep.width / CHUNK);
+    this.rows = Math.ceil(creep.height / CHUNK);
+    this.codes = new Uint8Array(creep.width * creep.height).fill(255);
+    this.canvases = new Array(this.cols * this.rows).fill(null);
+    this.filled = new Uint8Array(this.cols * this.rows);
+    this.boxes = new Uint8Array(this.cols * this.rows * 4);
+    this.dirty = new Uint8Array(this.cols * this.rows).fill(1);
+  }
+
   /** Paint the creep on every explored tile in [startX, endX) × [startY, endY) (world transform set) */
   draw(
     ctx: Ctx,
@@ -119,16 +156,84 @@ export class CreepArt {
     endY: number,
     explored: (x: number, y: number) => boolean,
   ): void {
+    this.ensure(creep);
+    const c0 = Math.max(0, Math.floor(startX / CHUNK));
+    const r0 = Math.max(0, Math.floor(startY / CHUNK));
+    const c1 = Math.min(this.cols - 1, Math.floor((endX - 1) / CHUNK));
+    const r1 = Math.min(this.rows - 1, Math.floor((endY - 1) / CHUNK));
+    let repaints = 0;
     ctx.save();
     ctx.globalAlpha = CARPET_ALPHA;
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
-        const tile = creepTile(creep, x, y);
-        if (tile === null || !explored(x, y)) continue;
-        const variant = Math.floor(hash2(x, y) * VARIANTS);
-        ctx.drawImage(this.stamp(tile, variant), x * TILE_SIZE, y * TILE_SIZE);
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const chunk = r * this.cols + c;
+        if (this.scan(creep, explored, c, r)) this.dirty[chunk] = 1;
+        if (this.dirty[chunk] && repaints < MAX_REPAINTS_PER_FRAME) {
+          this.repaint(creep, c, r);
+          repaints++;
+        }
+        const canvas = this.canvases[chunk];
+        if (canvas && this.filled[chunk]) {
+          // Only the box the carpet covers: an edge chunk is mostly bare ground
+          const b = chunk * 4;
+          const sx = this.boxes[b] * TILE_SIZE;
+          const sy = this.boxes[b + 1] * TILE_SIZE;
+          const sw = (this.boxes[b + 2] - this.boxes[b] + 1) * TILE_SIZE;
+          const sh = (this.boxes[b + 3] - this.boxes[b + 1] + 1) * TILE_SIZE;
+          ctx.drawImage(canvas, sx, sy, sw, sh, c * CHUNK * TILE_SIZE + sx, r * CHUNK * TILE_SIZE + sy, sw, sh);
+        }
       }
     }
     ctx.restore();
+  }
+
+  /** Recompute the chunk's tile codes; true when any changed since it was last painted */
+  private scan(creep: CreepGrid, explored: (x: number, y: number) => boolean, c: number, r: number): boolean {
+    let changed = false;
+    const x1 = Math.min(creep.width, (c + 1) * CHUNK);
+    const y1 = Math.min(creep.height, (r + 1) * CHUNK);
+    for (let y = r * CHUNK; y < y1; y++) {
+      for (let x = c * CHUNK; x < x1; x++) {
+        const code = creep.get(x, y) > 0 && explored(x, y) ? creepCode(creep, x, y) : 0;
+        const i = y * this.width + x;
+        if (this.codes[i] !== code) {
+          this.codes[i] = code;
+          changed = true;
+        }
+      }
+    }
+    return changed;
+  }
+
+  private repaint(creep: CreepGrid, c: number, r: number): void {
+    const chunk = r * this.cols + c;
+    this.dirty[chunk] = 0;
+    const x1 = Math.min(creep.width, (c + 1) * CHUNK);
+    const y1 = Math.min(creep.height, (r + 1) * CHUNK);
+    let canvas = this.canvases[chunk];
+    let any = false;
+    let bx0 = CHUNK, by0 = CHUNK, bx1 = 0, by1 = 0;
+    for (let y = r * CHUNK; y < y1; y++) {
+      for (let x = c * CHUNK; x < x1; x++) {
+        const code = this.codes[y * this.width + x];
+        if (code === 0) continue;
+        if (!any) {
+          any = true;
+          canvas ??= this.canvases[chunk] = new OffscreenCanvas(CHUNK * TILE_SIZE, CHUNK * TILE_SIZE);
+          canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        const lx = x - c * CHUNK;
+        const ly = y - r * CHUNK;
+        if (lx < bx0) bx0 = lx;
+        if (lx > bx1) bx1 = lx;
+        if (ly < by0) by0 = ly;
+        if (ly > by1) by1 = ly;
+        const tile: CreepTile = code === 1 ? { kind: 'threads' } : { kind: 'mat', bare: code - 2 };
+        const variant = Math.floor(hash2(x, y) * VARIANTS);
+        canvas!.getContext('2d')!.drawImage(this.stamp(tile, variant), lx * TILE_SIZE, ly * TILE_SIZE);
+      }
+    }
+    this.filled[chunk] = any ? 1 : 0;
+    this.boxes.set([bx0, by0, bx1, by1], chunk * 4);
   }
 }

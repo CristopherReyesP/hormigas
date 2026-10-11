@@ -17,6 +17,7 @@ import {
   type CricketDenComponent,
   type FacingComponent,
   type LayerValue,
+  type FoodSourceComponent,
 } from '../components/components';
 import { createFood } from '../entities/factories';
 import { emitAudio } from '../../audio/events';
@@ -24,6 +25,7 @@ import { deathAudio, hitAudio } from '../../audio/gameHooks';
 import {
   BEETLE_MEAT_AMOUNT,
   CRICKET_MEAT_AMOUNT,
+  MEAT_MERGE_RADIUS,
   PHEROMONE_MAX,
   FLANKING_BONUS_PER_ALLY,
   FLANKING_MAX_ALLIES,
@@ -339,6 +341,26 @@ export class CombatSystem implements System {
     else if (this.world.getComponent(entityId, COMPONENT.CRYSTAL_SPIRE)) this.world.pushNotification('success', '💎 ¡Derribaste una aguja de la Colmena de Cristal!');
   }
 
+  /**
+   * Leave a kill's meat: onto a pile of the same meat already lying this close
+   * on the same layer, else as a new pile. A big fight used to scatter one
+   * entity per carcass that every food scan and the renderer then paid for.
+   */
+  private dropMeat(pos: PositionComponent, amount: number, type: FoodType, layer: LayerValue): void {
+    const r2 = MEAT_MERGE_RADIUS * MEAT_MERGE_RADIUS;
+    for (const id of this.world.query(COMPONENT.FOOD_SOURCE, COMPONENT.POSITION)) {
+      const food = this.world.getComponent<FoodSourceComponent>(id, COMPONENT.FOOD_SOURCE)!;
+      if (food.resourceType !== type) continue;
+      if ((this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer ?? Layer.Surface) !== layer) continue;
+      const at = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      if ((at.x - pos.x) ** 2 + (at.y - pos.y) ** 2 > r2) continue;
+      food.amount += amount;
+      food.maxAmount = (food.maxAmount ?? food.amount - amount) + amount;
+      return;
+    }
+    createFood(this.world, pos.x, pos.y, amount, type, layer);
+  }
+
   /** Meat left by a kill, scaled by run mutations (carrion_gut) */
   private meatDrop(amount: number): number {
     return Math.round(amount * this.world.runModifiers.meatDropMult);
@@ -361,7 +383,7 @@ export class CombatSystem implements System {
     if (pos) {
       const layerComp = this.world.getComponent<LayerComponent>(entityId, COMPONENT.LAYER);
       const deathLayer = layerComp ? layerComp.layer : Layer.Surface;
-      createFood(this.world, pos.x, pos.y, this.meatDrop(BEETLE_MEAT_AMOUNT), FoodType.BeetleMeat, deathLayer);
+      this.dropMeat(pos, this.meatDrop(BEETLE_MEAT_AMOUNT), FoodType.BeetleMeat, deathLayer);
 
       // Burst danger pheromone at death site — surface grid only; an
       // underground death must not stamp pheromone on surface tiles that
@@ -397,7 +419,7 @@ export class CombatSystem implements System {
     if (pos) {
       const layerComp = this.world.getComponent<LayerComponent>(entityId, COMPONENT.LAYER);
       const deathLayer = layerComp ? layerComp.layer : Layer.Surface;
-      createFood(this.world, pos.x, pos.y, this.meatDrop(CRICKET_MEAT_AMOUNT), FoodType.CricketMeat, deathLayer);
+      this.dropMeat(pos, this.meatDrop(CRICKET_MEAT_AMOUNT), FoodType.CricketMeat, deathLayer);
 
       if (deathLayer === Layer.Surface) {
         const tileX = Math.round(pos.x);

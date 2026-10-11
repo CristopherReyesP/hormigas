@@ -264,6 +264,8 @@ export class PorterSystem implements System {
 
   /** A soldier or scout idling on the surface, or a free nurse below, with empty jaws and no order. */
   private sortStandInCandidate(id: number, ant: AntComponent, surface: number[], nurses: number[]): void {
+    // Cheap fields first: most ants are busy and never reach the component lookups
+    if (ant.state !== AntState.Idle && ant.state !== AntState.Searching && ant.state !== AntState.PatrollingNest) return;
     if (hasPlayerOrder(this.world, id) || this.transitSystem.isInTransit(id)) return;
     const load = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
     if (load.amount > 0) return;
@@ -503,6 +505,11 @@ export class PorterSystem implements System {
 
     // Underground — AntAISystem skips this layer, so the porter ticks its own timer
     ant.stateTimer += dt;
+
+    // Still walking the route to its pile: the deposit tile is re-picked on arrival
+    // (searching the pantry every tick per porter was a hot spot with many loads below)
+    const route = this.world.getComponent<PathComponent>(id, COMPONENT.PATH);
+    if (route && route.currentIndex < route.waypoints.length) return;
 
     const target = this.grid.findDepositTile(type, pos.x, pos.y);
     if (!target) {
