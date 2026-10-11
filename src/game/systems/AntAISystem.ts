@@ -2043,7 +2043,8 @@ export class AntAISystem implements System {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         total++;
-        if (!this.visibilityGrid.isExplored(cx + dx, cy + dy)) {
+        // Ground beyond the thorn wall is not worth scouting until it opens
+        if (!this.visibilityGrid.isExplored(cx + dx, cy + dy) && !this.grid.isSealed(cx + dx, cy + dy)) {
           unexplored++;
         }
       }
@@ -2086,7 +2087,7 @@ export class AntAISystem implements System {
       let unexploredCount = 0;
       for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) {
-          if (!this.visibilityGrid.isExplored(neighbor.x + dx, neighbor.y + dy)) {
+          if (!this.visibilityGrid.isExplored(neighbor.x + dx, neighbor.y + dy) && !this.grid.isSealed(neighbor.x + dx, neighbor.y + dy)) {
             unexploredCount++;
           }
         }

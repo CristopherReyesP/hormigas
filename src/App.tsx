@@ -1,3 +1,4 @@
+import { FrontierBanner } from './ui/FrontierBanner';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { GameCanvas } from './ui/GameCanvas';
 import { TopStrip } from './ui/console/TopStrip';
@@ -275,7 +276,7 @@ export default function App() {
       <HudLayer introPlaying={stats.introPlaying}>
         <TopStrip stats={stats} gameManager={gameManager} onHelp={openHelp} />
         {/* Defaults carry no objective: wait for the first real snapshot */}
-        {stats.tickCount > 0 && !stats.human && <ObjectivePanel objective={stats.objective} />}
+        {stats.tickCount > 0 && !stats.human && <ObjectivePanel objective={stats.objective} frontier={stats.frontier} />}
         {/* Scouting: the coming wave's mix, elites, boss and breach, all day */}
         {stats.tickCount > 0 && <NextWaveCard invasion={stats.invasion} />}
         <Console stats={stats} gameManager={gameManager} refreshStats={refreshStats} tutorialRunning={tutorialOpen} />
@@ -297,6 +298,7 @@ export default function App() {
           <NestAlert state={stats.nestAlert} activeLayer={stats.activeLayer} onGoToNest={handleGoToNest} />
         )}
         {!stats.introPlaying && !stats.gameOver && <MilestoneBanner milestone={stats.milestone} />}
+        {!stats.introPlaying && !stats.gameOver && <FrontierBanner banner={stats.frontierBanner} />}
       </AlertStack>
       {/* Pause menu: save, load, back to the start screen */}
       {/* Hidden while Hormi teaches: the tutorial has its own Salir, and nothing of it is saved */}

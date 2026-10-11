@@ -81,6 +81,9 @@ interface ManagerInternals {
     invalidateTerrain(): void;
   };
   detachIntroSkip(): void;
+  fitCameraToFrontier(): void;
+  wirePhase2Raid(): void;
+  ensurePhase2Rivals(): void;
   publishStats(): void;
 }
 
@@ -212,8 +215,11 @@ function applyState(gm: GameManager, state: SaveState): void {
   decoder.decodeRoot(m.grid, state.grid);
   decoder.decodeRoot(m.undergroundGrid, state.underground);
   decoder.decodeRoot(m.visibilityGrid, state.visibility);
-  const systems = systemsByName(m.world);
   if (typeof state.systems !== 'object' || state.systems === null) throw new SaveShapeError('sin sistemas');
+  // Phase 2 brought every rival race: their systems exist before their state is written
+  const have = new Set(systemsOf(m.world).map((system) => system.name));
+  if (['CrystalHiveSystem', 'HumanBaseSystem'].some((name) => name in state.systems && !have.has(name))) m.ensurePhase2Rivals();
+  const systems = systemsByName(m.world);
   for (const name of Object.keys(state.systems)) {
     const system = systems.get(name);
     // A system this build no longer has: its state has nowhere to go
@@ -246,6 +252,10 @@ function rebuildDerived(gm: GameManager): void {
   m.renderSystem.startMeteorIntro(m.craterSite, nest, m.introClock);
   m.renderSystem.skipIntro();
   m.renderSystem.invalidateTerrain();
+  // The camera is not saved: it stays on the walled zone, or the whole map if the frontier opened
+  m.fitCameraToFrontier();
+  // Phase 2's raids are functions the save does not keep
+  m.wirePhase2Raid();
   // A pending dawn pick or a finished run stays paused, as it was
   if (m.mutationOffer || m.gameOver) m.gameLoop.setPaused(true);
 }

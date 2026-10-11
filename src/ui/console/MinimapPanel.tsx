@@ -118,8 +118,9 @@ export function MinimapPanel({ gameManager, activeLayer, onSwitchLayer, hideNest
       if (!gameManager) return;
       const rect = e.currentTarget.getBoundingClientRect();
       const surface = activeLayer === 'surface';
+      const area = gameManager.getSurfaceArea?.() ?? { x: 0, y: 0, width: WORLD_WIDTH, height: WORLD_HEIGHT };
       const layout = surface
-        ? fitMinimap(WORLD_WIDTH, WORLD_HEIGHT, rect.width, rect.height)
+        ? fitMinimap(area.width, area.height, rect.width, rect.height, area.x, area.y)
         : fitMinimap(UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT, rect.width, rect.height);
       const tile = minimapToTile(layout, e.clientX - rect.left, e.clientY - rect.top);
       if (surface) gameManager.centerSurfaceOn(tile.x, tile.y);

@@ -1,4 +1,5 @@
 import type { System } from '../../../engine/ecs/types';
+import { areaOf } from '../../../simulation/world/frontier';
 import type { World } from '../../../engine/ecs/World';
 import type { EntityId, Vector2 } from '../../../shared/types';
 import { findPath, type PathGrid } from '../../../simulation/pathfinding/AStar';
@@ -19,6 +20,7 @@ import {
   type MiniBossKind,
   type WaveComposition,
   type WaveRival,
+  raiderGroupLabel,
   type WaveUnitKind,
 } from '../../run/waveComposition';
 import { ELITE_AFFIXES, makeElite } from '../../run/eliteAffixes';
@@ -78,7 +80,7 @@ interface PendingInvader {
 const GROUP_LABELS: Record<WaveUnitKind, (rival: WaveRival) => string> = {
   young: () => 'Acorazados jóvenes',
   beetle: () => 'Acorazados',
-  drone: (rival) => (rival === 'human' ? 'Tropas humanas' : 'Drones de cristal'),
+  drone: (rival) => raiderGroupLabel(rival),
 };
 
 /** Seconds between two steering passes over the wave's beetles */
@@ -416,13 +418,15 @@ export class HumanWaveSystem implements WaveDirector {
     if (!at) return null;
     const from = { x: Math.round(at.x), y: Math.round(at.y) };
     const options: Vector2[] = [];
+    // The edge of the area the run plays on (inside the thorn wall in Phase 1)
+    const area = areaOf(this.grid);
     for (let i = 0; i < SPAWN_RAYS; i++) {
       const angle = (i / SPAWN_RAYS) * Math.PI * 2;
       const dx = Math.cos(angle);
       const dy = Math.sin(angle);
       // Distance to the inset border along this ray
-      const tx = dx > 0 ? (this.grid.width - 1 - EDGE_INSET - from.x) / dx : dx < 0 ? (EDGE_INSET - from.x) / dx : Infinity;
-      const ty = dy > 0 ? (this.grid.height - 1 - EDGE_INSET - from.y) / dy : dy < 0 ? (EDGE_INSET - from.y) / dy : Infinity;
+      const tx = dx > 0 ? (area.x1 - EDGE_INSET - from.x) / dx : dx < 0 ? (area.x0 + EDGE_INSET - from.x) / dx : Infinity;
+      const ty = dy > 0 ? (area.y1 - EDGE_INSET - from.y) / dy : dy < 0 ? (area.y0 + EDGE_INSET - from.y) / dy : Infinity;
       const reach = Math.min(tx, ty);
       for (let d = reach; d > reach * 0.6; d -= 1) {
         const x = Math.round(from.x + dx * d);

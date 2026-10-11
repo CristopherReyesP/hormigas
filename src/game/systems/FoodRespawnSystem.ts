@@ -1,5 +1,6 @@
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
+import { randomTileIn } from '../../simulation/world/frontier';
 import type { TileGrid } from '../../simulation/world/TileGrid';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
 import { createFood } from '../entities/factories';
@@ -76,8 +77,7 @@ export class FoodRespawnSystem implements System {
     // Random position, at least minNestDist tiles from nest
     let cx: number, cy: number;
     do {
-      cx = 5 + Math.floor(Math.random() * (WORLD_WIDTH - 10));
-      cy = 5 + Math.floor(Math.random() * (WORLD_HEIGHT - 10));
+      ({ x: cx, y: cy } = randomTileIn(this.grid.bounds, Math.random, 5));
     } while (
       Math.abs(cx - nestX) < minNestDist && Math.abs(cy - nestY) < minNestDist
     );

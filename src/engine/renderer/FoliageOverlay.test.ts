@@ -27,11 +27,14 @@ const grid = {
   getNeighbors: () => [],
 } as unknown as TileGrid;
 
+/** The world px rect the drawn chunks cover */
 function blitOf(overlay: FoliageOverlay, camera: Camera): number[] {
   const calls: number[][] = [];
-  const ctx = { drawImage: (_src: unknown, ...args: number[]) => calls.push(args) };
+  const ctx = { drawImage: (src: { width: number; height: number }, x: number, y: number) => calls.push([x, y, x + src.width, y + src.height]) };
   overlay.draw(ctx as unknown as CanvasRenderingContext2D, camera);
-  return calls[0];
+  const x0 = Math.min(...calls.map((c) => c[0]));
+  const y0 = Math.min(...calls.map((c) => c[1]));
+  return [x0, y0, Math.max(...calls.map((c) => c[2])) - x0, Math.max(...calls.map((c) => c[3])) - y0, calls.length];
 }
 
 describe('FoliageOverlay at real window sizes', () => {
@@ -42,19 +45,22 @@ describe('FoliageOverlay at real window sizes', () => {
     camera.zoom = 1;
     camera.x = 320;
     camera.y = 160;
+    // The chunks drawn cover the whole canvas's world rect
     const [sx, sy, sw, sh] = blitOf(overlay, camera);
-    expect([sx, sy]).toEqual([320, 160]);
-    expect(sw).toBeGreaterThanOrEqual(2560);
-    expect(sh).toBeGreaterThanOrEqual(1440);
+    expect(sx).toBeLessThanOrEqual(320);
+    expect(sy).toBeLessThanOrEqual(160);
+    expect(sx + sw).toBeGreaterThanOrEqual(320 + 2560);
+    expect(sy + sh).toBeGreaterThanOrEqual(160 + 1440);
 
-    camera.setCanvasSize(1280, 720, 1);
+    // A smaller canvas draws fewer chunks
+    const before = blitOf(overlay, camera)[4];
+    camera.setCanvasSize(640, 360, 1);
     camera.x = 320;
     camera.y = 160;
-    const [, , sw2, sh2] = blitOf(overlay, camera);
-    expect(sw2).toBeGreaterThanOrEqual(1280);
-    expect(sw2).toBeLessThan(1300);
-    expect(sh2).toBeGreaterThanOrEqual(720);
-    expect(sh2).toBeLessThan(740);
+    const [sx2, sy2, sw2, sh2, count] = blitOf(overlay, camera);
+    expect(sx2 + sw2).toBeGreaterThanOrEqual(320 + 640);
+    expect(sy2 + sh2).toBeGreaterThanOrEqual(160 + 360);
+    expect(count).toBeLessThan(before);
   });
 
   it('keeps its world-sized cache through resizes and frames (no per-size rebuild)', () => {

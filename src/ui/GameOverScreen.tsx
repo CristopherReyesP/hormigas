@@ -116,8 +116,10 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
           </div>
         )}
         <div style={{ color: 'var(--chrome-dim)', marginBottom: 18 }}>
-          {crystal ? crystal.subtitle : human ? human.line : victory
-            ? stats.rivalCoreDestroyed === 'human'
+          {crystal && !stats.frontierConquered ? crystal.subtitle : human ? human.line : victory
+            ? stats.frontierConquered
+              ? '¡Dominio total! La frontera salvaje es tuya.'
+              : stats.rivalCoreDestroyed === 'human'
               ? 'La colonia destruyó el Centro de Mando humano.'
               : stats.hiveDestroyed || stats.rivalCoreDestroyed === 'crystal'
                 ? 'La colonia destruyó la Colmena de Cristal.'

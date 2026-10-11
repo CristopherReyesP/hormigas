@@ -24,8 +24,10 @@ export class PheromoneSystem implements System {
     // Decay rate (affected by event modifiers) — constant across the grid, hoisted out of the loop
     const effectiveDecayRate = Math.pow(PHEROMONE_DECAY_RATE, this.modifiers.pheromoneDecayMultiplier);
 
-    for (let y = 0; y < this.grid.height; y++) {
-      for (let x = 0; x < this.grid.width; x++) {
+    // Only the area the run plays on holds scent (Phase 1: inside the thorn wall)
+    const area = this.grid.bounds;
+    for (let y = area.y0; y <= area.y1; y++) {
+      for (let x = area.x0; x <= area.x1; x++) {
         const tile = this.grid.getTile(x, y)!;
         // Most of the map holds no scent at all: nothing to decay
         if (tile.foodPheromone === 0 && tile.homePheromone === 0 && tile.dangerPheromone === 0) continue;

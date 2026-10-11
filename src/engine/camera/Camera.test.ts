@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Camera, MAX_ZOOM, MIN_ZOOM, ZOOM_STEP, snapZoom, stepZoom, zoomLimits } from './Camera';
-import { TILE_SIZE, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
+import { PHASE1_ZONE_HEIGHT, PHASE1_ZONE_WIDTH, TILE_SIZE } from '../../shared/constants';
 
 describe('zoom steps', () => {
   it('moves in increments of 0.5 between the limits', () => {
@@ -199,8 +199,9 @@ describe('directed camera (cinematics)', () => {
 });
 
 describe('zoom limits follow the canvas', () => {
-  const WORLD_W = WORLD_WIDTH * TILE_SIZE;
-  const WORLD_H = WORLD_HEIGHT * TILE_SIZE;
+  // The area the camera starts on: Phase 1's walled zone
+  const WORLD_W = PHASE1_ZONE_WIDTH * TILE_SIZE;
+  const WORLD_H = PHASE1_ZONE_HEIGHT * TILE_SIZE;
 
   it('never zooms out past the whole map, never below the 0.5 grid', () => {
     expect(zoomLimits(1600, 900, 1, WORLD_W, WORLD_H).min).toBe(0.5);
@@ -236,13 +237,35 @@ describe('zoom limits follow the canvas', () => {
   });
 
   it('pulls the zoom and the default zoom into the new limits on a resize', () => {
-    const camera = new Camera();
+    const camera = new Camera(PHASE1_ZONE_WIDTH, PHASE1_ZONE_HEIGHT);
     camera.setCanvasSize(1600, 900, 1);
     camera.setDefaultZoom(0.5);
     camera.zoom = 0.5;
     camera.setCanvasSize(2560, 1440, 1);
     expect(camera.zoom).toBe(1);
     expect(camera.getDefaultZoom()).toBe(1);
+  });
+});
+
+describe('the area the view stays on', () => {
+  it('keeps the view inside Phase 1\'s zone, then the whole map once it opens', () => {
+    const camera = new Camera(168, 126);
+    camera.setViewport({ x: 0, y: 0, w: 800, h: 600 });
+    camera.setWorldArea(24, 18, 120, 90);
+    camera.zoom = 1;
+    camera.centerOn(0, 0);
+    const topLeft = camera.screenToWorld(0, 0);
+    expect(topLeft.x).toBeGreaterThanOrEqual(24 * TILE_SIZE - 50);
+    expect(topLeft.y).toBeGreaterThanOrEqual(18 * TILE_SIZE - 50);
+    camera.centerOn(168 * TILE_SIZE, 126 * TILE_SIZE);
+    const bottomRight = camera.screenToWorld(800, 600);
+    expect(bottomRight.x).toBeLessThanOrEqual(144 * TILE_SIZE + 50);
+    expect(bottomRight.y).toBeLessThanOrEqual(108 * TILE_SIZE + 50);
+
+    camera.setWorldArea(0, 0, 168, 126);
+    camera.centerOn(0, 0);
+    expect(camera.screenToWorld(0, 0).x).toBeLessThanOrEqual(0);
+    expect(camera.getWorldArea()).toEqual({ x: 0, y: 0, width: 168, height: 126 });
   });
 });
 

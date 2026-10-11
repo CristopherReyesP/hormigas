@@ -1,5 +1,6 @@
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
+import { randomTileIn } from '../../simulation/world/frontier';
 import type { TileGrid } from '../../simulation/world/TileGrid';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import {
@@ -59,8 +60,7 @@ export class CricketSpawnSystem implements System {
 
     // Try up to 50 times to find a valid position
     for (let attempt = 0; attempt < 50; attempt++) {
-      const x = Math.floor(Math.random() * this.grid.width);
-      const y = Math.floor(Math.random() * this.grid.height);
+      const { x, y } = randomTileIn(this.grid.bounds, Math.random);
 
       if (!this.grid.isWalkable(x, y)) continue;
 

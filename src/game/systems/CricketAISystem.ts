@@ -298,7 +298,8 @@ export class CricketAISystem implements System {
     }
 
     // Check if at map edge — destroy
-    if (pos.x < 1 || pos.x > this.grid.width - 2 || pos.y < 1 || pos.y > this.grid.height - 2) {
+    const area = this.grid.bounds;
+    if (pos.x < area.x0 + 1 || pos.x > area.x1 - 1 || pos.y < area.y0 + 1 || pos.y > area.y1 - 1) {
       // Decrement den active count if den still exists
       if (cricket.denEntityId !== null && this.world.hasEntity(cricket.denEntityId)) {
         const den = this.world.getComponent<CricketDenComponent>(cricket.denEntityId, COMPONENT.CRICKET_DEN);
@@ -502,17 +503,19 @@ export class CricketAISystem implements System {
   }
 
   private getNearestEdge(pos: PositionComponent): { x: number; y: number } {
-    const distLeft = pos.x;
-    const distRight = this.grid.width - 1 - pos.x;
-    const distTop = pos.y;
-    const distBottom = this.grid.height - 1 - pos.y;
+    // The edge of the area the run plays on (inside the thorn wall in Phase 1)
+    const area = this.grid.bounds;
+    const distLeft = pos.x - area.x0;
+    const distRight = area.x1 - pos.x;
+    const distTop = pos.y - area.y0;
+    const distBottom = area.y1 - pos.y;
 
     const minDist = Math.min(distLeft, distRight, distTop, distBottom);
 
-    if (minDist === distLeft) return { x: 0, y: Math.round(pos.y) };
-    if (minDist === distRight) return { x: this.grid.width - 1, y: Math.round(pos.y) };
-    if (minDist === distTop) return { x: Math.round(pos.x), y: 0 };
-    return { x: Math.round(pos.x), y: this.grid.height - 1 };
+    if (minDist === distLeft) return { x: area.x0, y: Math.round(pos.y) };
+    if (minDist === distRight) return { x: area.x1, y: Math.round(pos.y) };
+    if (minDist === distTop) return { x: Math.round(pos.x), y: area.y0 };
+    return { x: Math.round(pos.x), y: area.y1 };
   }
 
   private distance(a: { x: number; y: number }, b: { x: number; y: number }): number {

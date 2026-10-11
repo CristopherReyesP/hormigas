@@ -8,7 +8,9 @@ import type { Encoded } from './codec';
  * Bump when a save written by the old code can no longer be loaded as is,
  * and add a migration from the old version below if one is possible.
  */
-export const SAVE_VERSION = 1;
+// 2: the map grew to 168×126 with Phase 1's walled zone in the middle (no migration:
+// every saved position and tile would move)
+export const SAVE_VERSION = 2;
 
 /** Tag every save carries, so foreign JSON is told apart from an old save */
 export const SAVE_FORMAT = 'hormigas-save';

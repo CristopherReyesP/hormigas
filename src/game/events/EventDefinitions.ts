@@ -1,6 +1,7 @@
 import type { GlobalModifiers } from './GlobalModifiers';
 import type { World } from '../../engine/ecs/World';
 import type { TileGrid } from '../../simulation/world/TileGrid';
+import { randomEdgeTile } from '../../simulation/world/frontier';
 import { createFood } from '../entities/factories';
 import { FoodType } from '../components/components';
 
@@ -97,15 +98,8 @@ export const EVENT_REGISTRY: EventDefinition[] = [
     onStart: (ctx: EventContext) => {
       const edgePositions: Array<{x: number; y: number}> = [];
       for (let i = 0; i < 3; i++) {
-        const side = Math.floor(Math.random() * 4);
-        let x: number, y: number;
-        switch (side) {
-          case 0: x = 0; y = Math.floor(Math.random() * ctx.grid.height); break;
-          case 1: x = ctx.grid.width - 1; y = Math.floor(Math.random() * ctx.grid.height); break;
-          case 2: x = Math.floor(Math.random() * ctx.grid.width); y = 0; break;
-          default: x = Math.floor(Math.random() * ctx.grid.width); y = ctx.grid.height - 1; break;
-        }
-        edgePositions.push({x, y});
+        // The edge of the area the run plays on (inside the thorn wall in Phase 1)
+        edgePositions.push(randomEdgeTile(ctx.grid.bounds, Math.floor(Math.random() * 4), Math.random, 0));
       }
       for (const pos of edgePositions) {
         for (let dy = -3; dy <= 3; dy++) {

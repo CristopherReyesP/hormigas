@@ -1,11 +1,14 @@
 import { useState, type CSSProperties } from 'react';
 import type { ObjectiveState } from '../game/systems/ObjectiveSystem';
+import type { FrontierStats } from '../game/GameManager';
 import { PixelIcon } from './console/PixelIcon';
 import { stripEmoji } from './console/format';
 import { RUN_GOAL_TEXT } from '../game/run/nightMilestones';
 
 interface ObjectivePanelProps {
   objective: ObjectiveState | null;
+  /** The way to Phase 2, and Phase 2 itself */
+  frontier?: FrontierStats;
 }
 
 /**
@@ -13,9 +16,9 @@ interface ObjectivePanelProps {
  * small OBJETIVOS toggle so the opening cinematic plays unobstructed; a
  * click unfolds the full plate and folds it back.
  */
-export function ObjectivePanel({ objective }: ObjectivePanelProps) {
+export function ObjectivePanel({ objective, frontier }: ObjectivePanelProps) {
   const [open, setOpen] = useState(false);
-  return <ObjectivePanelView objective={objective} open={open} onToggle={() => setOpen((o) => !o)} />;
+  return <ObjectivePanelView objective={objective} frontier={frontier} open={open} onToggle={() => setOpen((o) => !o)} />;
 }
 
 interface ObjectivePanelViewProps extends ObjectivePanelProps {
@@ -39,7 +42,7 @@ const TOGGLE: CSSProperties = {
 };
 
 /** The plate itself, open or folded (state lives in ObjectivePanel). */
-export function ObjectivePanelView({ objective, open, onToggle }: ObjectivePanelViewProps) {
+export function ObjectivePanelView({ objective, frontier, open, onToggle }: ObjectivePanelViewProps) {
   const ratio = objective && objective.target > 0 ? Math.min(1, objective.progress / objective.target) : 1;
 
   return (
@@ -61,6 +64,7 @@ export function ObjectivePanelView({ objective, open, onToggle }: ObjectivePanel
               {objective.completedCount}/{objective.totalCount}
             </span>
           )}
+          {frontier && <span className="hud-dim objective-count">F{frontier.phase}</span>}
           <span className="hud-dim" aria-hidden="true">{open ? '-' : '+'}</span>
         </button>
         {open && <div className="hud-dim objective-goal">{RUN_GOAL_TEXT}</div>}
@@ -84,8 +88,46 @@ export function ObjectivePanelView({ objective, open, onToggle }: ObjectivePanel
         ) : (
           <div className="objective-title">¡Todos cumplidos! La colonia domina el territorio.</div>
         ))}
+        {open && frontier && <FrontierSection frontier={frontier} />}
       </div>
       </div>
     </aside>
+  );
+}
+
+/** The road to Phase 2 (the rival core and the dominion), then Phase 2's own goal */
+export function FrontierSection({ frontier }: { frontier: FrontierStats }) {
+  const ratio = Math.min(1, frontier.dominion / frontier.target);
+  return (
+    <div className="objective-frontier" style={{ marginTop: 8 }}>
+      <div className="objective-title">
+        {frontier.phase === 1 ? 'FASE 2 · La Frontera Salvaje' : 'FASE 2 · La Frontera Salvaje (abierta)'}
+      </div>
+      <div className="objective-desc">{frontier.hint}</div>
+      {frontier.phase === 1 ? (
+        <>
+          {frontier.coreNeeded && (
+            <div className="hud-dim objective-progress">
+              {frontier.coreDestroyed ? '✓' : '·'} Núcleo rival destruido
+            </div>
+          )}
+          <div className="hud-bar">
+            <div
+              className="hud-bar-fill"
+              style={{ width: `${ratio * 100}%`, backgroundColor: ratio >= 1 ? 'var(--chrome-accent)' : 'var(--chrome-warn)' }}
+            />
+          </div>
+          <div className="hud-dim objective-progress">
+            Dominio {Math.round(frontier.dominion * 100)}% / {Math.round(frontier.target * 100)}% · explorado {Math.round(frontier.territory * 100)}% · guaridas {frontier.densDestroyed}/{frontier.densDestroyed + frontier.densAlive}
+          </div>
+        </>
+      ) : (
+        <div className="hud-dim objective-progress">
+          {frontier.basesLeft > 0 || frontier.legionQueenAlive
+            ? `Bases rivales en pie: ${frontier.basesLeft}${frontier.legionQueenAlive ? ' · la Reina Legionaria vive' : ''}`
+            : 'Frontera conquistada'}
+        </div>
+      )}
+    </div>
   );
 }

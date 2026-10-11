@@ -30,6 +30,7 @@ npm run dev   # http://localhost:5173/hormigas/
 - **Grow the nest.** Underground, you mark tiles to excavate and assign incubation, fungus farm, food storage and defense post zones.
 - **Survive the night.** A day lasts 150 s and a night 60 s. Invasion waves arm on a timer and strike at nightfall, growing from 1 to 4 beetles.
 - **Steer, don't micromanage.** The Gather, Explore and Defend priorities reweight how every ant scores its options.
+- **Break out in Phase 2.** Destroy the rival core and dominate 75% of the walled zone (explore it, wipe out the dens): the thorn wall falls, the map grows, and a meteor shower brings more rivals (new Crystal Hives and Human bases), plus the Legionary ants and their Queen, weaver spiders and stalker mantises.
 - **Follow the objectives.** Eight goals guide the early game, from hatching your first ant to destroying three enemy dens.
 
 Random events shake things up: rain, drought, disease, raids, leaf fall, resource blooms, panic, and a dead bird that drops a meat feast far from the nest.
@@ -64,7 +65,7 @@ flowchart LR
 | ECS | Numeric entity IDs and one store per component. Queries start from the smallest store, and systems run in priority order. |
 | Game loop | `requestAnimationFrame` feeds an accumulator that steps the simulation at a fixed 60 ticks per second. Rendering interpolates between ticks, and frame time is capped at 250 ms to avoid a spiral of death. |
 | Rendering | Canvas 2D. Every sprite is painted in code and cached on an offscreen canvas, so there are no sprite sheets. |
-| World | Two 32 px tile grids: the surface (120×90) holds terrain and pheromones, the underground (90×60) holds tunnels, chambers and stored food. |
+| World | Two 32 px tile grids: the surface (168×126, with Phase 1 in the middle 120×90 behind a thorn wall) holds terrain and pheromones, the underground (90×60) holds tunnels, chambers and stored food. |
 | Pathfinding | Octile A* with 8 neighbours on the surface; BFS with waypoint simplification underground. |
 | Ant AI | Each ant scores its options by role, weighted by the colony priority. Food and enemy positions are snapshotted once per tick instead of scanned per ant. |
 | React boundary | React owns the canvas and the manager's lifecycle. The simulation pushes stats to React every 10 ticks, so React never re-renders per frame. |

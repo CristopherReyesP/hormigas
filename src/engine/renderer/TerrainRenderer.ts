@@ -5,6 +5,7 @@ import { TerrainDecorator } from './TerrainDecorator';
 import { DECOR_SEED, patchNoise } from './alienDecor';
 import { PAL, hash2 } from './pixelart/palette';
 import { PixelPainter } from './pixelart/PixelPainter';
+import { ChunkedCanvas } from './ChunkedCanvas';
 
 /** Art pixels per tile side (16×16 art px @ scale 2 = 32 canvas px). */
 const ART = 16;
@@ -62,8 +63,8 @@ function edgeCoord(edge: Edge, row: number, i: number): { ax: number; ay: number
 }
 
 export class TerrainRenderer {
-  private offscreenCanvas: HTMLCanvasElement;
-  private offscreenCtx: CanvasRenderingContext2D;
+  /** The pre-rendered terrain, in chunks (one world-sized canvas breaks iOS's canvas size limit) */
+  private chunks: ChunkedCanvas;
   private decorator: TerrainDecorator;
   private shimmerTimer: number = 0;
   private shimmerPhase: number = 0;
@@ -72,15 +73,8 @@ export class TerrainRenderer {
 
   constructor(grid: TileGrid) {
     this.grid = grid;
-    // Create offscreen canvas for terrain pre-rendering (full WORLD size, not viewport)
-    this.offscreenCanvas = document.createElement('canvas');
-    this.offscreenCanvas.width = WORLD_WIDTH * TILE_SIZE;
-    this.offscreenCanvas.height = WORLD_HEIGHT * TILE_SIZE;
-
-    const ctx = this.offscreenCanvas.getContext('2d');
-    if (!ctx) throw new Error('Could not get 2d context for terrain canvas');
-    this.offscreenCtx = ctx;
-    this.offscreenCtx.imageSmoothingEnabled = false;
+    // Offscreen terrain pre-rendering (full WORLD size, not viewport), split in chunks
+    this.chunks = new ChunkedCanvas(WORLD_WIDTH * TILE_SIZE, WORLD_HEIGHT * TILE_SIZE);
 
     this.decorator = new TerrainDecorator();
 
@@ -162,7 +156,8 @@ export class TerrainRenderer {
       return;
     }
 
-    const p = new PixelPainter(this.offscreenCtx, SCALE).at(tileX * TILE_SIZE, tileY * TILE_SIZE);
+    const ctx = this.tileCtx(tileX, tileY);
+    const p = new PixelPainter(ctx, SCALE).at(tileX * TILE_SIZE, tileY * TILE_SIZE);
     const ramp = RAMPS[terrain];
     const baseIdx = this.baseIndex(terrain, tileX, tileY);
     p.rect(0, 0, ART, ART, ramp[baseIdx]);
@@ -187,10 +182,42 @@ export class TerrainRenderer {
     }
 
     // Decorations (flowers, mushrooms, specks) — fully opaque pixel art
-    this.decorator.decorate(terrain, this.offscreenCtx, tileX * TILE_SIZE, tileY * TILE_SIZE, TILE_SIZE, this.hash(tileX, tileY));
+    this.decorator.decorate(terrain, ctx, tileX * TILE_SIZE, tileY * TILE_SIZE, TILE_SIZE, this.hash(tileX, tileY));
 
     // Dithered biome transitions + shorelines (drawn last so bands stay clean)
     this.addBiomeTransitions(p, tileX, tileY, terrain);
+
+    if (this.grid.getTile(tileX, tileY)?.thorns) this.renderThorns(p, tileX, tileY);
+  }
+
+  /**
+   * The thorn wall that seals Phase 1's zone: a dense tangle of blighted
+   * bramble over the ground, curved barbs with ember-lit tips.
+   */
+  private renderThorns(p: PixelPainter, tileX: number, tileY: number): void {
+    const T = PAL.thorns;
+    p.rect(0, 0, ART, ART, T[0]);
+    // Woven stems: a few thick diagonal strands per tile, hashed so the wall never repeats
+    for (let i = 0; i < 4; i++) {
+      const h = hash2(tileX * 13 + i * 7, tileY * 17 + i * 3);
+      const start = Math.floor(h * ART);
+      const rising = hash2(tileX + i * 5, tileY * 3 + i) < 0.5;
+      for (let t = 0; t < ART; t++) {
+        const x = t;
+        const y = rising ? (start - t + ART * 2) % ART : (start + t) % ART;
+        p.px(x, y, T[1 + (i % 2)]);
+        if (t % 3 === 0) p.px(x, (y + 1) % ART, T[1]);
+      }
+    }
+    // Barbs: short hooked spines with a lit edge and, now and then, an ember tip
+    const barbs = 5 + Math.floor(hash2(tileX * 29, tileY * 31) * 4);
+    for (let i = 0; i < barbs; i++) {
+      const bx = Math.floor(hash2(tileX * 37 + i * 11, tileY * 41 + i) * (ART - 2)) + 1;
+      const by = Math.floor(hash2(tileX * 43 + i, tileY * 47 + i * 13) * (ART - 3)) + 2;
+      p.px(bx, by, T[3]);
+      p.px(bx, by - 1, T[2]);
+      p.px(bx + 1, by - 2, hash2(tileX * 53 + i, tileY * 59 + i) < 0.3 ? PAL.thornEmber : T[3]);
+    }
   }
 
   /** Moss: low cushions — a lit 2px top over a dark 1px underside. */
@@ -362,7 +389,7 @@ export class TerrainRenderer {
    * shimmer phase. No sin color offsets — animation is pure dither phase + hash.
    */
   private renderWaterTile(tileX: number, tileY: number): void {
-    const p = new PixelPainter(this.offscreenCtx, SCALE).at(tileX * TILE_SIZE, tileY * TILE_SIZE);
+    const p = new PixelPainter(this.tileCtx(tileX, tileY), SCALE).at(tileX * TILE_SIZE, tileY * TILE_SIZE);
     const phase = this.shimmerPhase;
 
     const landEdges: Edge[] = [];
@@ -412,6 +439,11 @@ export class TerrainRenderer {
     }
   }
 
+  /** The chunk a tile paints into (chunks are whole tiles wide, so exactly one) */
+  private tileCtx(tileX: number, tileY: number): CanvasRenderingContext2D {
+    return this.chunks.contextsFor(tileX * TILE_SIZE, tileY * TILE_SIZE, TILE_SIZE, TILE_SIZE)[0];
+  }
+
   private hash(x: number, y: number): number {
     let h = x * 374761393 + y * 668265263;
     h = ((h ^ (h >> 13)) * 1274126177) >>> 0;
@@ -436,9 +468,9 @@ export class TerrainRenderer {
     }
   }
 
-  draw(targetCtx: CanvasRenderingContext2D): void {
-    // Blit the entire pre-rendered terrain to the target canvas
-    targetCtx.drawImage(this.offscreenCanvas, 0, 0);
+  /** Blit the pre-rendered terrain: the chunks the camera's view touches, or all of them */
+  draw(targetCtx: CanvasRenderingContext2D, view?: { x: number; y: number; w: number; h: number }): void {
+    this.chunks.draw(targetCtx, view);
   }
 
   invalidate(): void {

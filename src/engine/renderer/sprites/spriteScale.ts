@@ -18,6 +18,11 @@ export const SPRITE_GRID = {
   den: 40,
   giantMushroom: 32,
   nest: 40,
+  // Phase 2's creatures beyond the wall
+  legionary: 24,
+  legionQueen: 44,
+  spider: 32,
+  mantis: 40,
 } as const;
 
 export const WALK_FRAMES = 4;
