@@ -70,7 +70,7 @@ function sameHighlight(a: Highlight, b: Highlight): boolean {
  * phone's minimap, the banner column under the top strip (wave, nest and
  * pantry alerts) and the MEJORAS button
  */
-const FLOATING_HUD = ['.console-minimap', '.alert-stack', '.upg-launch'];
+const FLOATING_HUD = ['.console-minimap', '.alert-stack', '.upg-launch', '.upg-mut-launch'];
 
 function floatingHud(): Rect[] {
   const out: Rect[] = [];

@@ -426,6 +426,52 @@ button:focus-visible {
   color: var(--chrome-dim);
 }
 
+/* A mutation already carried: its total once this stack joins */
+.evo-card-total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--chrome-accent);
+  border: 1px dashed var(--chrome-border-light);
+}
+
+.evo-card-total-title {
+  color: var(--chrome-dim);
+}
+
+.evo-card-total-line--cost {
+  color: var(--chrome-danger);
+}
+
+/* Tu enjambre: the mutations already carried, under the cards */
+.evo-owned {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 6px;
+  margin-top: 14px;
+  font-size: 11px;
+}
+
+.evo-owned-title {
+  color: var(--chrome-dim);
+}
+
+.evo-owned-chip {
+  padding: 1px 5px;
+  color: var(--chrome-text);
+  border: 1px solid var(--chrome-border-light);
+}
+
+.evo-owned-chip strong {
+  font-weight: normal;
+  color: var(--chrome-accent);
+}
+
 .evo-tags {
   display: flex;
   flex-wrap: wrap;

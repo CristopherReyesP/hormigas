@@ -86,7 +86,8 @@ function Brood({ details }: { details: ColonyDetails }) {
 }
 
 /** Surface, nothing selected: castes, reserves, threats, brood. */
-function ColonySummary({ stats, details }: { stats: GameStats; details: ColonyDetails }) {
+function ColonySummary({ stats, details, onOpenUpgrades }: { stats: GameStats; details: ColonyDetails; onOpenUpgrades?: (tab?: UpgradeTab) => void }) {
+  const mutationLevels = (stats.mutations ?? []).reduce((sum, m) => sum + m.stacks, 0);
   const counts: Record<AntRole, number> = {
     [AntRole.Worker]: stats.workerCount,
     [AntRole.Soldier]: stats.soldierCount,
@@ -101,6 +102,17 @@ function ColonySummary({ stats, details }: { stats: GameStats; details: ColonyDe
         {(Object.keys(counts) as AntRole[]).map((role) => (
           <Row key={role} icon={ROLE_ICON[role]} label={ROLE_PLURAL[role]} value={counts[role]} />
         ))}
+        {onOpenUpgrades && mutationLevels > 0 && (
+          <button
+            type="button"
+            className="hud-btn info-upgrade-queen info-mutations"
+            title={(stats.mutations ?? []).map((m) => `${m.name} ×${m.stacks}`).join(' · ')}
+            onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+            onClick={() => onOpenUpgrades('mutations')}
+          >
+            <PixelIcon name="vein" size={8} /> Mutaciones · {mutationLevels}
+          </button>
+        )}
       </Column>
       <Column title="RESERVAS">
         <Row icon="leaf" label="En la entrada" value={details.brood.surfaceStock} />
@@ -505,7 +517,7 @@ export function InfoPanel(props: InfoPanelProps) {
         ) : stats.human ? (
           <HumanBaseSummary human={stats.human} stats={stats} />
         ) : (
-          <ColonySummary stats={stats} details={details} />
+          <ColonySummary stats={stats} details={details} onOpenUpgrades={props.onOpenUpgrades} />
         )}
       </div>
       </div>
