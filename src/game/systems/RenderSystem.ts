@@ -2023,6 +2023,7 @@ export class RenderSystem {
       // A night wave marching on the nest is drawn over the fog where the colony cannot see (renderWaveMarchOverFog)
       const march = this.world.getComponent<WaveMarchComponent>(id, WAVE_MARCH_COMPONENT);
       if (!isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
+      if (this.isTarantula(id)) continue; // drawn over the fog (renderWaveMarchOverFog)
       if (march) {
         this.drawWaveMarcher(ctx, id, pos, march, interpolation);
         continue;
@@ -2482,7 +2483,25 @@ export class RenderSystem {
   }
 
   /** The announced night wave stays in sight on its march, even across ground the colony cannot see */
+  private isTarantula(id: number): boolean {
+    return frontierCreatureOf(this.world, id)?.kind === 'tarantula';
+  }
+
   private renderWaveMarchOverFog(ctx: CanvasRenderingContext2D, interpolation: number): void {
+    // The tarantula hunts the colony: always shown, fog or not, so the player can react
+    for (const id of this.world.query(COMPONENT.BEETLE, COMPONENT.POSITION)) {
+      if (!this.isTarantula(id)) continue;
+      if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground) continue;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
+      if (!facing) continue;
+      const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE);
+      const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
+      const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
+      this.drawTargetFlash(ctx, id, x, y, 'beetle');
+      this.drawBeetle(ctx, x, y, facing.angle, facing.legPhase, id, beetle?.state === BeetleState.Attacking);
+    }
+
     for (const id of this.world.query(WAVE_MARCH_COMPONENT, COMPONENT.POSITION)) {
       if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground) continue;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
@@ -2552,11 +2571,19 @@ export class RenderSystem {
       this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.55, 'danger');
     }
 
+    // Phase 2's creatures share the beetle entity but not its look
+    const frontier = frontierCreatureOf(this.world, entityId);
+
+    // The tarantula's near-black body vanishes on the dark ground: a red
+    // danger halo under it, stepping between two sizes like a heartbeat
+    if (frontier?.kind === 'tarantula') {
+      const beat = Math.floor(this.animationTime * 2) % 2 === 0;
+      this.drawGlowStamp(ctx, px, py, TILE_SIZE * (beat ? 1.7 : 1.5), 'danger');
+    }
+
     // Drop shadow — slightly larger than ant shadow (pre-rendered dither stamp)
     this.drawShadow(ctx, px + 2.5, py + 4, TILE_SIZE * 0.32, TILE_SIZE * 0.16);
 
-    // Phase 2's creatures share the beetle entity but not its look
-    const frontier = frontierCreatureOf(this.world, entityId);
     if (frontier) this.spriteAtlas.drawFrontierCreature(ctx, frontier.kind, px, py, facing, legPhase);
     else this.spriteAtlas.drawBeetle(ctx, px, py, facing, legPhase);
 

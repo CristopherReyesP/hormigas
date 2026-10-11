@@ -70,7 +70,7 @@ export const FRONTIER_CREATURE_STATS: Readonly<Record<FrontierCreatureKind, Fron
   spider: { name: 'Araña tejedora', health: 520, damage: 26, speed: 1.4, attackRange: 1.3, attackCooldown: 1.3, visionRange: 7, size: 0.65 },
   mantis: { name: 'Mantis acechadora', health: 1400, damage: 48, speed: 1.1, attackRange: 1.8, attackCooldown: 2.0, visionRange: 9, size: 0.9 },
   // Hunts only ants: senses them from far, stalks, then pounces (TarantulaSystem)
-  tarantula: { name: 'Tarántula alienígena', health: 1300, damage: 34, speed: 1.25, attackRange: 2.4, attackCooldown: 1.2, visionRange: 14, size: 2.0 },
+  tarantula: { name: 'Tarántula alienígena', health: 2600, damage: 34, speed: 1.25, attackRange: 2.4, attackCooldown: 1.2, visionRange: 14, size: 2.0 },
 };
 
 export interface FrontierDenStats {
