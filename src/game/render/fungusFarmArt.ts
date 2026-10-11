@@ -17,6 +17,7 @@ import {
   farmGrowthProgress,
   farmGrowthStage,
   farmTileVariant,
+  mulchScrapCount,
   type FarmTileVariant,
 } from './fungusGrowth';
 
@@ -30,6 +31,10 @@ const SHAPES = 3;
 const CAP = PAL.fungus.cap;
 const STALK = PAL.fungus.stalk;
 const GLOW = PAL.fungus.glow;
+const LEAF = PAL.leaf;
+
+/** Where the chewed-leaf scraps of the mulch lie on a bed (art px, front-most last) */
+const MULCH_SPOTS: ReadonlyArray<[number, number]> = [[3, 13], [10, 14], [6, 10], [13, 11], [2, 9], [9, 7]];
 
 /**
  * Mushroom anchors (stem base, art px) per layout: `big` grow full caps,
@@ -171,6 +176,21 @@ export function paintCarriedMushroom(p: PixelPainter): void {
   p.px(4, 4, O);
 }
 
+/** The green leaf an ant carries to the farm (6×4 art px, outlined, with a midrib) */
+export function paintCarriedLeaf(p: PixelPainter): void {
+  const O = LEAF[0];
+  p.hline(2, 0, 3, O);
+  p.px(1, 1, O);
+  p.hline(2, 1, 3, LEAF[2]);
+  p.px(5, 1, O);
+  p.px(0, 2, O);
+  p.hline(1, 2, 4, LEAF[1]);
+  p.px(2, 2, LEAF[0]); // midrib
+  p.px(3, 2, LEAF[0]);
+  p.px(5, 2, O);
+  p.hline(1, 3, 4, O);
+}
+
 /** Sheet column of a crop cell */
 function cellCol(shape: number, swayIdx: number, flip: boolean): number {
   return (shape * SWAYS.length + swayIdx) * 2 + (flip ? 1 : 0);
@@ -184,6 +204,7 @@ export class FungusFarmArt {
   private sheet: OffscreenCanvas | null = null;
   private glow: OffscreenCanvas | null = null;
   private carried: OffscreenCanvas | null = null;
+  private carriedLeaf: OffscreenCanvas | null = null;
 
   /** Bake every crop frame once (first draw) */
   private bake(): void {
@@ -217,9 +238,12 @@ export class FungusFarmArt {
     }
     const carried = new OffscreenCanvas(7 * ART, 5 * ART);
     paintCarriedMushroom(new PixelPainter(carried.getContext('2d')!, ART));
+    const leaf = new OffscreenCanvas(6 * ART, 4 * ART);
+    paintCarriedLeaf(new PixelPainter(leaf.getContext('2d')!, ART));
     this.sheet = sheet;
     this.glow = glow;
     this.carried = carried;
+    this.carriedLeaf = leaf;
   }
 
   /**
@@ -256,6 +280,44 @@ export class FungusFarmArt {
       ctx.fillRect(cx, cy - r, ART, ART);
       ctx.fillRect(cx, cy + r - ART, ART, ART);
     }
+  }
+
+  /**
+   * The chewed-leaf mulch gardeners laid on a bed (tile pass, under the crop):
+   * green scraps that thin out as the fungus eats them.
+   */
+  drawMulch(ctx: Ctx, tx: number, ty: number, mulch: number, capacity: number): void {
+    const n = mulchScrapCount(mulch, capacity);
+    if (n === 0) return;
+    const v = farmTileVariant(tx, ty);
+    for (let i = 0; i < n; i++) {
+      const [ax, ay] = MULCH_SPOTS[i];
+      const x = tx * T + (v.flip ? 15 - ax - 1 : ax) * ART;
+      const y = ty * T + ay * ART;
+      ctx.fillStyle = LEAF[0];
+      ctx.fillRect(x - ART, y, 4 * ART, ART);
+      ctx.fillStyle = (i + v.shape) % 2 === 0 ? LEAF[1] : LEAF[2];
+      ctx.fillRect(x, y - ART, 2 * ART, ART);
+    }
+  }
+
+  /** "Cultivando": leaf crumbs falling from a gardener's jaws onto the bed as she lays the mulch */
+  drawTendCrumbs(ctx: Ctx, px: number, py: number, time: number): void {
+    for (let k = 0; k < 3; k++) {
+      const u = (time * 1.8 + k / 3) % 1;
+      const x = Math.round((px + (k - 1) * 5) / ART) * ART;
+      const y = Math.round((py - 6 + u * 12) / ART) * ART;
+      ctx.globalAlpha = u < 0.7 ? 1 : 0.5;
+      ctx.fillStyle = k === 1 ? LEAF[2] : LEAF[1];
+      ctx.fillRect(x, y, ART, ART);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** The leaf riding on a gardener's back (centered above the ant at px, py) */
+  drawCarriedLeaf(ctx: Ctx, px: number, py: number): void {
+    if (!this.carriedLeaf) this.bake();
+    ctx.drawImage(this.carriedLeaf!, Math.round(px / ART) * ART - 3 * ART, Math.round(py / ART) * ART - 7 * ART);
   }
 
   /**

@@ -3,12 +3,12 @@ import type { World } from '../../engine/ecs/World';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import { FUNGUS_CONVERSION_PER_TILE, FUNGUS_YIELD } from '../../shared/constants';
 
-export type FarmStatus = 'sin-tiles' | 'sin-hojas' | 'llena' | 'produciendo';
+export type FarmStatus = 'sin-tiles' | 'sin-hojas' | 'sin-abono' | 'llena' | 'produciendo';
 
 /**
- * Leafcutter-style fungus farming: tiles designated as FungusFarm slowly
- * convert stored LEAVES into MUSHROOMS (higher nutrition). More farm tiles
- * = faster conversion. Gives excavation a real economic purpose.
+ * Leafcutter-style fungus farming: gardener ants carry LEAVES from the pantry
+ * onto the FungusFarm tiles as mulch, and the fungus on each tile turns its
+ * mulch into MUSHROOMS (higher nutrition). More tended tiles = more growth.
  */
 export class FungusFarmSystem implements System {
   readonly name = 'FungusFarmSystem';
@@ -57,54 +57,34 @@ export class FungusFarmSystem implements System {
       return;
     }
 
-    // Leaves come from the pantry piles; mushrooms GROW ON THE FARM TILES.
-    // Draining leaves frees pantry space, so the farm never deadlocks against
-    // porters topping the pantry up — production is only bounded by farm size.
-    const stored = this.grid.getPantryStored();
-    if (stored.leaf <= 0) {
-      this.setStatus('sin-hojas');
-      return;
+    // The fungus grows on the leaf MULCH gardener ants lay on each farm tile
+    // (see farmTending): every mulched tile grows its own mushrooms in
+    // parallel, so the whole field visibly ripens while it is tended.
+    const cap = this.grid.getPantryTileCapacity();
+    let drained = 0;
+    let anyRoom = false;
+    for (const t of this.grid.getFarmTiles()) {
+      const grown = t.food?.type === 'mushroom' ? t.food.amount : 0;
+      const room = cap - grown;
+      if (room <= 1e-6) continue;
+      anyRoom = true;
+      const mulch = this.grid.getFarmMulch(t.x, t.y);
+      if (mulch <= 0) continue;
+      const leaves = this.grid.takeFarmMulch(t.x, t.y, Math.min(mulch, FUNGUS_CONVERSION_PER_TILE * elapsed, room / FUNGUS_YIELD));
+      drained += leaves;
+      this.grid.depositFood(t.x, t.y, 'mushroom', leaves * FUNGUS_YIELD);
     }
 
-    const farmSpace = this.grid.getFarmCapacity() - this.grid.getFarmStored();
-    if (farmSpace <= 0) {
+    if (!anyRoom) {
       this.setStatus('llena');
       return;
     }
-
-    const leaves = Math.min(
-      stored.leaf,
-      farmTiles * FUNGUS_CONVERSION_PER_TILE * elapsed,
-      farmSpace / FUNGUS_YIELD
-    );
-
-    const drained = this.grid.drainFoodOfType('leaf', leaves);
-    if (drained <= 0) return;
-
-    // Grow the mushrooms pile by pile across the farm tiles
-    let toPlace = drained * FUNGUS_YIELD;
-    while (toPlace > 1e-6) {
-      const tile = this.grid.findFarmDepositTile();
-      if (!tile) break;
-      const accepted = this.grid.depositFood(tile.x, tile.y, 'mushroom', toPlace);
-      if (accepted <= 0) break;
-      toPlace -= accepted;
+    if (drained <= 0) {
+      this.setStatus(this.grid.getPantryStored().leaf > 0 ? 'sin-abono' : 'sin-hojas');
+      return;
     }
 
-    // No tile accepted the rest — undo the unconverted share as leaves so food
-    // is conserved (the drained leaf piles just freed exactly that much space)
-    if (toPlace > 1e-6) {
-      let leavesBack = toPlace / FUNGUS_YIELD;
-      while (leavesBack > 1e-6) {
-        const tile = this.grid.findDepositTile('leaf');
-        if (!tile) break;
-        const accepted = this.grid.depositFood(tile.x, tile.y, 'leaf', leavesBack);
-        if (accepted <= 0) break;
-        leavesBack -= accepted;
-      }
-    }
-
-    const produced = drained * FUNGUS_YIELD - toPlace;
+    const produced = drained * FUNGUS_YIELD;
     this.producedTotal += produced;
     this.status = 'produciendo';
     this.lastRate = produced / elapsed;

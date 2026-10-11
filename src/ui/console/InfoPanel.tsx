@@ -129,6 +129,7 @@ function ColonySummary({ stats, details }: { stats: GameStats; details: ColonyDe
 const FARM_STATUS: Record<string, string> = {
   produciendo: 'Produciendo',
   'sin-hojas': 'Sin hojas en la despensa',
+  'sin-abono': 'Esperando jardineras',
   llena: 'Granja llena',
   'sin-tiles': 'Sin casillas de granja',
 };

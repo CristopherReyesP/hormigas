@@ -1,6 +1,6 @@
 import { UndergroundTerrainType, ChamberType } from './types';
 import type { WalkableGrid } from './WalkableGrid';
-import { UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT, QUEEN_CHAMBER_SIZE, STARTING_FOOD_CHAMBER_SIZE, INCUBATION_CHAMBER_SIZE, PANTRY_TILE_CAPACITY, ROCK_POCKET_COUNT, ENTRANCE_ROW } from '../../shared/constants';
+import { FARM_MULCH_CAPACITY, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT, QUEEN_CHAMBER_SIZE, STARTING_FOOD_CHAMBER_SIZE, INCUBATION_CHAMBER_SIZE, PANTRY_TILE_CAPACITY, ROCK_POCKET_COUNT, ENTRANCE_ROW } from '../../shared/constants';
 
 export type PantryFoodType = 'leaf' | 'mushroom' | 'meat';
 
@@ -17,6 +17,8 @@ export interface UndergroundTile {
   chamberType: ChamberType | null;
   /** Food pile — only ever non-null on FoodStorage tiles (any type) and FungusFarm tiles (mushrooms the farm grows) */
   food: PantryFood | null;
+  /** Leaf mulch gardener ants laid on a FungusFarm tile: the fungus grows by eating it */
+  mulch?: number;
 }
 
 const FOOD_EPSILON = 1e-6;
@@ -40,6 +42,7 @@ export class UndergroundGrid implements WalkableGrid {
         designated: false,
         chamberType: null,
         food: null,
+        mulch: 0, // on every tile so saves keep the tile array columnar
       };
     }
 
@@ -562,6 +565,49 @@ export class UndergroundGrid implements WalkableGrid {
     }
 
     return bestSame ?? bestEmpty;
+  }
+
+  /** Saves from before farm mulch: give every tile the field so the tile array stays uniform */
+  fillMissingTileFields(): void {
+    for (const tile of this.tiles) tile.mulch ??= 0;
+  }
+
+  /** Is (x, y) a walkable FungusFarm tile */
+  isFarmTileAt(x: number, y: number): boolean {
+    return this.isFarmTile(this.getTile(x, y));
+  }
+
+  /** Leaf mulch on a farm tile (0 off the farm) */
+  getFarmMulch(x: number, y: number): number {
+    const tile = this.getTile(x, y);
+    return this.isFarmTile(tile) ? tile.mulch ?? 0 : 0;
+  }
+
+  /** Lay mulch on a farm tile, up to FARM_MULCH_CAPACITY. Returns the amount accepted. */
+  addFarmMulch(x: number, y: number, amount: number): number {
+    const tile = this.getTile(x, y);
+    if (!this.isFarmTile(tile) || amount <= 0) return 0;
+    const accepted = Math.min(amount, FARM_MULCH_CAPACITY - (tile.mulch ?? 0));
+    if (accepted <= 0) return 0;
+    tile.mulch = (tile.mulch ?? 0) + accepted;
+    return accepted;
+  }
+
+  /** Eat up to `amount` of a farm tile's mulch. Returns the amount eaten. */
+  takeFarmMulch(x: number, y: number, amount: number): number {
+    const tile = this.getTile(x, y);
+    if (!this.isFarmTile(tile) || !tile.mulch || amount <= 0) return 0;
+    const taken = Math.min(amount, tile.mulch);
+    tile.mulch -= taken;
+    if (tile.mulch <= FOOD_EPSILON) tile.mulch = 0;
+    return taken;
+  }
+
+  /** Mulch lying on all farm tiles */
+  getFarmMulchTotal(): number {
+    let total = 0;
+    for (const { x, y } of this.getChamberCoords().farm) total += this.getTile(x, y)?.mulch ?? 0;
+    return total;
   }
 
   /** Nearest farm tile with room for grown mushrooms (farm piles are mushroom-only) */

@@ -56,6 +56,8 @@ export const AntState = {
   Mining: 'mining',
   /** A nurse picking ripe mushrooms off a farm tile and carrying them to the pantry (FarmHarvestJob) */
   FarmHarvesting: 'farm_harvesting',
+  /** A nurse carrying leaves from the pantry and laying them as mulch on a farm tile (FarmTendJob) */
+  FarmTending: 'farm_tending',
   /**
    * A worker below ground holding food the full pantry cannot take: it waits
    * in the storage area with the load and deposits it the moment a pile of
@@ -99,6 +101,17 @@ export interface AntComponent {
   foodTargetId?: EntityId | null;
   /** Nurse: the farm tile she is harvesting and how far along the trip is */
   farmHarvest?: FarmHarvestJob | null;
+  /** Nurse: the farm tile she is mulching and how far along the trip is */
+  farmTend?: FarmTendJob | null;
+}
+
+/** One gardening trip: take leaves from the pantry, carry them to a farm tile, lay them as mulch */
+export interface FarmTendJob {
+  tileX: number;
+  tileY: number;
+  phase: 'fetching' | 'going' | 'planting';
+  /** Seconds spent in the current phase */
+  timer: number;
 }
 
 /** One harvest trip: walk to a ripe farm tile, pick for a moment, carry the mushrooms to the pantry */

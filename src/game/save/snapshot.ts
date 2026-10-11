@@ -227,6 +227,7 @@ function rebuildDerived(gm: GameManager): void {
   ug.entranceCacheVersion = -1;
   ug.chamberRegions = null;
   ug.chamberCoords = null;
+  m.undergroundGrid.fillMissingTileFields();
   m.undergroundGrid.markLayoutChanged();
   (m.world.runModifiers as unknown as { marks: unknown }).marks = null;
   // The opening already played in the saved run: the crater stands where the meteor struck
