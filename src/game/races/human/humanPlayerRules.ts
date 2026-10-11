@@ -171,3 +171,18 @@ export function startBuildingSpot(
   }
   return null;
 }
+
+/**
+ * Night waves against a Human expedition bring this share of the Swarm's
+ * beetles (the rival's troops come in full). Balance pass: the Swarm meets
+ * its waves one by one at a single hole in the mound; an expedition on open
+ * ground meets the whole column at once, and with the full count it fell by
+ * night 10-11 in the headless runs while the Swarm lasted past night 20.
+ */
+export const HUMAN_WAVE_BEETLE_SHARE = 0.65;
+
+/** Beetles a wave of `beetles` sends against a Human expedition: at least one when there are any */
+export function humanWaveBeetles(beetles: number): number {
+  if (!(beetles > 0)) return 0;
+  return Math.max(1, Math.round(beetles * HUMAN_WAVE_BEETLE_SHARE));
+}

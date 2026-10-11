@@ -3082,8 +3082,12 @@ button:focus-visible {
   height: 100%;
 }
 
+.race-card:not(:disabled) .race-card-plate {
+  background: var(--race-dim);
+}
+
 .race-card:hover:not(:disabled) .race-card-plate {
-  background: var(--chrome-border-light);
+  background: var(--race-accent);
 }
 
 .race-card[aria-pressed='true'] .race-card-plate {
@@ -3236,6 +3240,8 @@ button:focus-visible {
 .rival-option--wildlife { --race-accent: var(--chrome-warn); }
 .rival-option--crystal { --race-accent: var(--race-crystal); }
 .rival-option--human { --race-accent: var(--race-human); }
+.rival-option--swarm { --race-accent: var(--race-swarm); }
+.rival-option { --race-dim: color-mix(in srgb, var(--race-accent, var(--chrome-border)) 45%, #000); }
 
 .rival-plate {
   --cut: 8px;
@@ -3243,8 +3249,12 @@ button:focus-visible {
   height: 100%;
 }
 
+.rival-option:not(:disabled) .rival-plate {
+  background: var(--race-dim);
+}
+
 .rival-option:hover:not(:disabled) .rival-plate {
-  background: var(--chrome-border-light);
+  background: var(--race-accent);
 }
 
 .rival-option[aria-pressed='true'] .rival-plate {
@@ -3511,6 +3521,11 @@ button:focus-visible {
   z-index: 16;
 }
 
+/* The narrow card has no room for the label's tracking: "Próxima oleada" lost its end */
+.hud-layer--phone .next-wave .hud-label {
+  letter-spacing: 0;
+}
+
 .hud-layer--phone .next-wave-body {
   max-height: 34vh;
   overflow-y: auto;
@@ -3520,3 +3535,140 @@ button:focus-visible {
 .hud-layer--phone-landscape .next-wave-body {
   max-height: max(48px, calc(100vh - var(--strip-h) - var(--deck-h) - var(--hint-h) - var(--quick-h) - 124px));
 }
+
+/* ── TITLE SCREEN ── */
+.title-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(64px, 14vh) 16px max(48px, 12vh);
+  background: #000;
+  overflow: hidden;
+}
+
+.title-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  animation: title-fade-in 2.4s ease-out both;
+}
+
+/* Letterbox: the bars close in like a film opening */
+.title-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 9vh;
+  background: #000;
+  pointer-events: none;
+  animation: title-bar-in 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.title-bar--top { top: 0; transform-origin: top; }
+.title-bar--bottom { bottom: 0; transform-origin: bottom; }
+
+.title-head,
+.title-launch {
+  position: relative;
+  text-align: center;
+}
+
+.title-name {
+  font-size: clamp(28px, 9vw, 80px);
+  font-weight: normal;
+  line-height: 1.1;
+  letter-spacing: 0.12em;
+  color: #f4ffe0;
+  text-shadow: 0 0 18px rgba(198, 255, 61, 0.7), 0 0 48px rgba(198, 255, 61, 0.35), 4px 4px 0 #000;
+  animation: title-reveal 2.6s 1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.title-tagline {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 18px;
+  font-size: clamp(9px, 2vw, 13px);
+  letter-spacing: 0.2em;
+  text-shadow: 2px 2px 0 #000;
+  animation: title-fade-in 1.2s 2.8s ease-out both;
+}
+
+.title-side--colony { color: var(--chrome-accent); }
+.title-side--crystal { color: #5fe3ff; }
+.title-vs { color: var(--chrome-warn); }
+
+.title-launch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: min(420px, 100%);
+  animation: title-fade-in 1s 3.4s ease-out both;
+}
+
+.title-tutorial,
+.title-saves {
+  width: 100%;
+}
+
+.title-saves .save-continue {
+  margin: 0;
+}
+
+.title-start {
+  width: 100%;
+  padding: 16px 12px 14px;
+  font-family: var(--font-pixel);
+  font-size: 20px;
+  letter-spacing: 3px;
+  color: var(--chrome-bg);
+  background: var(--chrome-accent);
+  border: 0;
+  cursor: pointer;
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px),
+    calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px);
+  box-shadow: inset -4px -4px 0 var(--chrome-accent-dim), inset 4px 4px 0 var(--chrome-text);
+  animation: race-start-glow 1.2s steps(2) infinite;
+}
+
+.title-start:hover { background: var(--chrome-text); }
+.title-start:active { transform: translate(2px, 2px); }
+.title-start:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 4px var(--chrome-bg), inset -4px -4px 0 6px var(--chrome-accent-dim);
+}
+
+@keyframes title-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes title-bar-in {
+  from { transform: scaleY(5.5); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes title-reveal {
+  from { opacity: 0; letter-spacing: 0.6em; filter: blur(8px); }
+  to { opacity: 1; letter-spacing: 0.12em; filter: blur(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .title-scene,
+  .title-bar,
+  .title-name,
+  .title-tagline,
+  .title-launch,
+  .title-start {
+    animation: none;
+  }
+}
+/* ── end TITLE SCREEN ── */

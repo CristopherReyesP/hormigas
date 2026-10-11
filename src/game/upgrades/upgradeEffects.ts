@@ -21,6 +21,7 @@ import {
   PORTER_MAX_COUNT,
   QUEEN_EGG_LAY_TIME,
   QUEEN_MAX_HEALTH,
+  QUEEN_ARMOR,
   ROLE_STATS,
 } from '../../shared/constants';
 import type { UpgradeLevels } from './upgradeLevels';
@@ -78,7 +79,7 @@ export function queenMaxHealth(levels: UpgradeLevels): number {
 
 /** Flat damage off every hit on the queen (the same armor rule as Human units) */
 export function queenArmor(levels: UpgradeLevels): number {
-  return UPGRADE_STEP.queenArmor * levels.queenHp;
+  return QUEEN_ARMOR + UPGRADE_STEP.queenArmor * levels.queenHp;
 }
 
 export function queenRegen(levels: UpgradeLevels): number {

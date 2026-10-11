@@ -48,10 +48,10 @@ function setup(runSetup: RunSetup) {
 afterEach(() => setAudioSink(null));
 
 describe('playing the Crystal Hive: the start', () => {
-  it('spawns the Hive at the center with its drones and minerals; no nest, no queen, no intro to wait for', () => {
+  it('spawns the Hive at the center with its drones and minerals; no nest, no queen; its own opening plays first', () => {
     const game = new GameManager(fakeCanvas(), VS_WILDLIFE);
     const world = game['world'] as World;
-    expect(game.getStats().introPlaying).toBe(false);
+    expect(game.getStats().introPlaying).toBe(true);
     expect(world.query(COMPONENT.NEST)).toHaveLength(0);
     expect(world.query(COMPONENT.QUEEN_ENTITY)).toHaveLength(0);
     expect(world.query(COMPONENT.ANT)).toHaveLength(0);

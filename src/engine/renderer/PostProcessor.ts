@@ -51,8 +51,8 @@ const DAY_STEPS: Array<{ until: number; step: SkyStep }> = [
 ];
 
 // Red-violet night: the Swarm's hour, not a navy sky
-const NIGHT_EDGE: SkyStep = { color: PAL.skyNightEdge, alpha: 0.28 };
-const NIGHT_DEEP: SkyStep = { color: PAL.skyNightDeep, alpha: 0.5 };
+const NIGHT_EDGE: SkyStep = { color: PAL.skyNightEdge, alpha: 0.22 };
+const NIGHT_DEEP: SkyStep = { color: PAL.skyNightDeep, alpha: 0.38 }; // lighter than 0.5: the night fights stayed hard to follow
 
 /** First and last 15% of the night are the dusk/dawn edge step. */
 function nightStep(progress: number): SkyStep {

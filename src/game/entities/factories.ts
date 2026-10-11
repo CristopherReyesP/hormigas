@@ -47,6 +47,7 @@ import {
   CRICKET_DEN_STATS,
   ANT_SPEED,
   QUEEN_MAX_HEALTH,
+  QUEEN_BITE,
   QUEEN_MAX_HUNGER,
   QUEEN_HUNGER_DECAY,
   MAX_EGGS_PER_TYPE,
@@ -436,6 +437,14 @@ export function createQueen(world: World, x: number, y: number, faction: Faction
     queue: [],
     maxPerType: MAX_EGGS_PER_TYPE,
     currentlyLaying: false,
+  });
+  // She bites invaders in reach (UndergroundInvasionSystem aims her); she never chases
+  world.addComponent<CombatComponent>(entity, COMPONENT.COMBAT, {
+    attackDamage: QUEEN_BITE.damage,
+    attackRange: QUEEN_BITE.range,
+    attackCooldown: QUEEN_BITE.cooldown,
+    attackTimer: 0,
+    targetEntityId: null,
   });
   world.addComponent<RenderComponent>(entity, COMPONENT.RENDER, { color: '#ffd700', radius: 0.7, shape: 'queen' });
   world.addComponent<SelectableComponent>(entity, COMPONENT.SELECTABLE, { selected: false });

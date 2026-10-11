@@ -43,6 +43,7 @@ import { HUMAN_BUILDING_STATS } from '../../rival/humanBase';
 import { HUMAN_COMPONENT, type HumanBuildingComponent } from '../../rival/humanComponents';
 import { HUMAN_PLAYER_COMPONENT } from './humanPlayerComponents';
 import { playerBuildings, playerUnits, positionOf } from './humanPlayerQueries';
+import { humanWaveBeetles } from './humanPlayerRules';
 
 /** What the run's wave director offers GameManager, whichever race the player is. */
 export interface WaveDirector extends System {
@@ -202,7 +203,18 @@ export class HumanWaveSystem implements WaveDirector {
       boss = null;
       total--;
     }
-    return { ...base, drones, elites, boss, beetles: base.beetles + (base.drones - drones), total };
+    // The beetles are thinned against an expedition (HUMAN_WAVE_BEETLE_SHARE); elites stay within each kind
+    const young = humanWaveBeetles(base.youngBeetles);
+    const beetles = humanWaveBeetles(base.beetles + (base.drones - drones));
+    const kept: Record<WaveUnitKind, number> = { young: 0, beetle: 0, drone: 0 };
+    const limit: Record<WaveUnitKind, number> = { young, beetle: beetles, drone: drones };
+    const thinned = elites.filter((e) => {
+      if (kept[e.unit] >= limit[e.unit]) return false;
+      kept[e.unit]++;
+      return true;
+    });
+    total -= base.youngBeetles - young + (base.beetles + (base.drones - drones)) - beetles;
+    return { ...base, drones, elites: thinned, boss, youngBeetles: young, beetles, total };
   }
 
   private coreTile(): Vector2 {

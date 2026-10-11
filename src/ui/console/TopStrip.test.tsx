@@ -70,6 +70,18 @@ describe('top strip', () => {
     expect(roomy).not.toContain('Despensa llena');
   });
 
+  it('counts the workers waiting with their loads in the full-pantry callout', () => {
+    const full = { ...STATS, pantryStored: 450, foodStored: 450, pantryFull: true, foodInTransit: 120, entranceFoodStored: 0, antsWaitingForPantry: 6 } as GameStats;
+    const html = renderToStaticMarkup(<TopStrip stats={full} />);
+    expect(html).toMatch(/<span class="strip-pantry-full"[^>]*>.*\+120 en camino.*6 obreras esperando.*Despensa llena: marca más casillas de Almacén/);
+    expect(html).toContain('6 obreras esperan con la comida');
+
+    const one = renderToStaticMarkup(<TopStrip stats={{ ...full, antsWaitingForPantry: 1 }} />);
+    expect(one).toContain('1 obrera esperando');
+    const none = renderToStaticMarkup(<TopStrip stats={{ ...full, antsWaitingForPantry: 0 }} />);
+    expect(none).not.toContain('esperando');
+  });
+
   it('keeps counting down to the attack once the wave is telegraphed', () => {
     const armed = { ...STATS, invasion: { waveNumber: 0, nextWaveIn: 45, active: false, invadersAlive: 0, armed: true } } as GameStats;
     const html = renderToStaticMarkup(<TopStrip stats={armed} />);

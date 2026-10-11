@@ -8,7 +8,7 @@ import { SoundToggle } from '../../audio/ui/SoundToggle';
 import { CrystalResources } from '../races/crystal/CrystalResources';
 import '../races/crystal/crystal.css';
 import { HumanResources } from '../races/human/HumanResources';
-import { pantryFullText, pantryWaitingText } from './pantryNote';
+import { pantryFullText, pantryWaitersText, pantryWaitingText } from './pantryNote';
 import { STRIP_FOLDS, foldClassNames, planStripFolds, type StripFoldId } from './stripFold';
 
 type FoodType = 'leaf' | 'mushroom' | 'meat';
@@ -65,12 +65,14 @@ function FoodResource({ icon, value, label, active, onSelect }: {
  * jaws) shows apart as "+N en camino": it buys no egg until it is down.
  * A full pantry says so, with the tool that makes room.
  */
-function PantryStock({ stored, capacity, inTransit, atEntrance, full }: {
+function PantryStock({ stored, capacity, inTransit, atEntrance, full, waiting }: {
   stored: number;
   capacity: number;
   inTransit: number;
   atEntrance: number;
   full: boolean;
+  /** Workers below holding a load until a pile has room */
+  waiting: number;
 }) {
   const flash = useFlashOnChange(stored);
   const fullText = pantryFullText();
@@ -79,13 +81,20 @@ function PantryStock({ stored, capacity, inTransit, atEntrance, full }: {
   if (inTransit > 0) {
     title += ` Hay ${inTransit} en camino: ${atEntrance} en la entrada y ${carried} en la boca de las obreras.`;
   }
-  if (full) title += ` ${fullText} en el nido; mientras tanto la comida espera en la entrada y se pudre.`;
+  if (full) {
+    title += ` ${fullText} en el nido.`;
+    if (waiting > 0) {
+      title += ` ${waiting} ${waiting === 1 ? 'obrera espera' : 'obreras esperan'} con la comida hasta que haya espacio; si tienen hambre, se la comen.`;
+    }
+    title += ' Mientras tanto no salen a buscar más comida.';
+  }
   return (
     <span className={full ? 'strip-item strip-pantry strip-pantry--full' : 'strip-item strip-pantry'} title={title} data-hud="pantry">
       {full && (
         // Shown in the open drawer; the banner column (PantryFullNote) says it the rest of the time
         <span className="strip-pantry-full">
           {inTransit > 0 && <span className="strip-pantry-waiting">{pantryWaitingText(inTransit)}</span>}
+          {waiting > 0 && <span className="strip-pantry-waiting">{pantryWaitersText(waiting)}</span>}
           <span>{fullText}</span>
         </span>
       )}
@@ -261,6 +270,7 @@ export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
           inTransit={stats.foodInTransit ?? 0}
           atEntrance={stats.entranceFoodStored ?? 0}
           full={stats.pantryFull ?? false}
+          waiting={stats.antsWaitingForPantry ?? 0}
         />
         <MineralStock stored={stats.mineralsStored ?? 0} miners={stats.miners?.count ?? 0} />
         <span className="strip-sep" aria-hidden="true" />

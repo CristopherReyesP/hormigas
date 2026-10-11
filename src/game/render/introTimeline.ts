@@ -1,5 +1,5 @@
 import { hash2 } from '../../engine/renderer/pixelart/palette';
-import type { RivalId } from '../run/RunSetup';
+import type { RaceId, RivalId } from '../run/RunSetup';
 
 /**
  * Pure timing and motion for the run's opening cinematic. Letterbox bars
@@ -16,6 +16,13 @@ import type { RivalId } from '../run/RunSetup';
  * the wildlife the meteor's impact wakes the beetles and leapers instead of
  * deploying anything. Their choreography lives in introArrival.ts; the
  * timing, the slow motion, the skip and the camera work are shared.
+ *
+ * A Crystal or Human player opens on their OWN arrival instead (the
+ * 'crystal-player' and 'human-player' variants): a crystal meteor strikes
+ * the map center and the player's Hive crystallizes out of the crater, or
+ * the expedition's dropship lands on the center and raises the Command
+ * Center and the Cuartel. The camera chases the arrival home, glances
+ * toward the rival's base, and comes back for the title card.
  *
  * Everything here is a function of INTRO time, so pausing holds the intro
  * and tests can sample any moment. IntroClock maps real frame time to intro
@@ -74,7 +81,7 @@ export const INTRO_TIMELINE = {
 const T = INTRO_TIMELINE;
 
 /** Which opening plays: the arrival of the rival picked before the run. */
-export type IntroVariant = 'crystal' | 'human' | 'wildlife';
+export type IntroVariant = 'crystal' | 'human' | 'wildlife' | 'crystal-player' | 'human-player';
 
 export interface IntroVariantTraits {
   /** What comes down at the target: the meteorite, or the Humans' dropship */
@@ -85,17 +92,44 @@ export interface IntroVariantTraits {
   wildlifeWake: boolean;
   /** The Human base unfolds at the landing site and troops march out */
   humanDeploy: boolean;
+  /** Whose arrival this is: the Swarm watches its rival come down; a Crystal or Human player watches their own base arrive */
+  player: RaceId;
 }
 
 export const INTRO_VARIANTS: Readonly<Record<IntroVariant, IntroVariantTraits>> = {
-  crystal: { arrival: 'meteor', crystalDeploy: true, wildlifeWake: false, humanDeploy: false },
-  human: { arrival: 'dropship', crystalDeploy: false, wildlifeWake: false, humanDeploy: true },
-  wildlife: { arrival: 'meteor', crystalDeploy: false, wildlifeWake: true, humanDeploy: false },
+  crystal: { arrival: 'meteor', crystalDeploy: true, wildlifeWake: false, humanDeploy: false, player: 'swarm' },
+  human: { arrival: 'dropship', crystalDeploy: false, wildlifeWake: false, humanDeploy: true, player: 'swarm' },
+  wildlife: { arrival: 'meteor', crystalDeploy: false, wildlifeWake: true, humanDeploy: false, player: 'swarm' },
+  'crystal-player': { arrival: 'meteor', crystalDeploy: true, wildlifeWake: false, humanDeploy: false, player: 'crystal' },
+  'human-player': { arrival: 'dropship', crystalDeploy: false, wildlifeWake: false, humanDeploy: true, player: 'human' },
 };
 
-/** The opening for `rival`. A rival with no alien base to bring in (wildlife, a mirror match) gets the plain impact. */
-export function introVariantFor(rival: RivalId): IntroVariant {
+/**
+ * The opening for a run. A Crystal or Human player watches their own base
+ * arrive at the map center, whoever the rival. The Swarm watches the rival
+ * come down; a rival with no alien base to bring in (wildlife, a mirror
+ * match) gets the plain impact.
+ */
+export function introVariantFor(rival: RivalId, player: RaceId = 'swarm'): IntroVariant {
+  if (player === 'crystal') return 'crystal-player';
+  if (player === 'human') return 'human-player';
   return rival === 'crystal' || rival === 'human' ? rival : 'wildlife';
+}
+
+/** A player race's own arrival (not the Swarm watching its rival land). */
+export function isPlayerArrival(variant: IntroVariant): boolean {
+  return INTRO_VARIANTS[variant].player !== 'swarm';
+}
+
+/** The title card of each race's opening, one line per row of the big pixel font. */
+const RACE_TITLE_LINES: Readonly<Record<RaceId, readonly string[]>> = {
+  swarm: INTRO_TITLE_LINES,
+  crystal: ['LA COLMENA', 'DESPIERTA'],
+  human: ['LA EXPEDICIÓN', 'ATERRIZA'],
+};
+
+export function introTitleLines(variant: IntroVariant): readonly string[] {
+  return RACE_TITLE_LINES[INTRO_VARIANTS[variant].player];
 }
 
 /** The rival's name as the pixel font spells it (capitals only). */
@@ -249,6 +283,51 @@ export function introCameraFocus(t: number, nest: Vec2, impact: Vec2, variant: I
   return { x: nest.x, y: nest.y };
 }
 
+/** Intro seconds of a player race's opening that differ from the Swarm's: the drones out of the Hive and the glance at the rival. */
+export const PLAYER_INTRO = {
+  /** The starting drones push up out of the Hive's crater once its crown has grown */
+  droneStart: 4.35,
+  droneStagger: 0.22,
+  droneGlide: 1.1,
+  /** The camera glides a way toward the rival's base, holds, and comes home under the title */
+  peekStart: 5.9,
+  peekOut: 1.0,
+  peekHold: 0.4,
+  peekBack: 1.2,
+  /** The glance covers this share of the way to the rival, at most `peekMax` world px */
+  peekShare: 0.6,
+  peekMax: 520,
+} as const;
+
+/** Where the glance toward the rival stops (world px). */
+export function rivalPeekPoint(home: Vec2, rival: Vec2): Vec2 {
+  const dx = rival.x - home.x;
+  const dy = rival.y - home.y;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return { x: home.x, y: home.y };
+  const reach = Math.min(len * PLAYER_INTRO.peekShare, PLAYER_INTRO.peekMax);
+  return { x: home.x + (dx / len) * reach, y: home.y + (dy / len) * reach };
+}
+
+/**
+ * The camera on a player race's own opening: it chases the meteor (or the
+ * dropship) from `from` home, settles on the landing, holds there while
+ * the base rises, then glances toward the rival's base and comes back home
+ * under the title card. With no rival base (the wildlife) it holds on home.
+ */
+export function playerIntroCameraFocus(t: number, from: Vec2, home: Vec2, rival: Vec2 | null, variant: IntroVariant): Vec2 {
+  const P = PLAYER_INTRO;
+  if (t < P.peekStart) return introCameraFocus(t, from, home, variant);
+  if (!rival) return { x: home.x, y: home.y };
+  const peek = rivalPeekPoint(home, rival);
+  const out = (t - P.peekStart) / P.peekOut;
+  if (out < 1) return lerp(home, peek, easeInOutCubic(out));
+  const back = (t - P.peekStart - P.peekOut - P.peekHold) / P.peekBack;
+  if (back < 0) return peek;
+  if (back < 1) return lerp(peek, home, easeInOutCubic(back));
+  return { x: home.x, y: home.y };
+}
+
 /** The camera punches in one zoom step under the impact flash and pulls back out for the trip home. */
 export function introCameraZoom(t: number, baseZoom: number): number {
   return t >= T.impact && t < T.returnStart ? baseZoom + 0.5 : baseZoom;
@@ -260,7 +339,7 @@ export interface LitArea extends Vec2 {
 }
 
 /** Tiles lit around the target once it lands: the crater, or the wider Human base. */
-const TARGET_LIGHT: Readonly<Record<IntroVariant, number>> = { crystal: 8, wildlife: 8, human: 11 };
+const TARGET_LIGHT: Readonly<Record<IntroVariant, number>> = { crystal: 8, wildlife: 8, human: 11, 'crystal-player': 8, 'human-player': 11 };
 
 /**
  * Ground the fireball (or the dropship's engines) lights this frame: a spot
@@ -272,6 +351,18 @@ export function introLitAreas(t: number, nest: Vec2, impact: Vec2, variant: Intr
   if (ground) return [{ ...ground, r: 3 + Math.round(3 * (meteorProgress(t, variant) ?? 0)) }];
   if (t >= T.impact && t < T.returnStart + 0.6) return [{ x: impact.x, y: impact.y, r: TARGET_LIGHT[variant] }];
   return [];
+}
+
+/**
+ * Ground a player race's opening lights: the flight from `from` and the
+ * landing, as for the Swarm, then a patch where the camera glances toward
+ * the rival so it does not look into black fog.
+ */
+export function playerIntroLitAreas(t: number, from: Vec2, home: Vec2, rival: Vec2 | null, variant: IntroVariant): LitArea[] {
+  const P = PLAYER_INTRO;
+  const out = introLitAreas(t, from, home, variant);
+  if (rival && t >= P.peekStart && t < P.peekStart + P.peekOut + P.peekHold) out.push({ ...rivalPeekPoint(home, rival), r: 7 });
+  return out;
 }
 
 /** Peak shake in screen px, and how many discrete jolts per second. */
@@ -366,9 +457,9 @@ export function crystalPulseProgress(t: number): number | null {
   return (t - T.pulseStart) / T.pulseDuration;
 }
 
-/** Spire `i`'s growth in this variant's opening: only the Crystal Hive grows any. */
+/** Spire `i`'s growth in this variant's opening: only the rival Crystal Hive grows any on the crater rim (a Crystal player's Hive grows its own crown). */
 export function introSpireGrowth(variant: IntroVariant, i: number, t: number): number {
-  return INTRO_VARIANTS[variant].crystalDeploy ? spireGrowth(i, t) : 0;
+  return INTRO_VARIANTS[variant].crystalDeploy && !isPlayerArrival(variant) ? spireGrowth(i, t) : 0;
 }
 
 /** The cyan pulse in this variant's opening: only the Crystal Hive sends one. */
@@ -427,8 +518,13 @@ const droneHoverTime = (i: number): number => droneStartTime(i) + T.droneEmerge 
  * out of step.
  */
 export function droneBob(i: number, t: number): number {
+  return bobAfter(t - droneHoverTime(i));
+}
+
+/** The stepped hover bob `s` seconds after reaching hover height, in world px. */
+function bobAfter(s: number): number {
   const n = BOB_STEPS.length;
-  const step = Math.floor(((t - droneHoverTime(i)) / DRONE_HOVER.bobPeriod) * n);
+  const step = Math.floor((s / DRONE_HOVER.bobPeriod) * n);
   return BOB_STEPS[((step % n) + n) % n] * 2;
 }
 
@@ -452,13 +548,21 @@ export function droneState(i: number, t: number, impact: Vec2, nest: Vec2): Dron
   };
   const reach = DRONE_GLIDE_REACH + hash2(i, 131) * 40;
   const to = { x: impact.x + Math.cos(toNest + fan) * reach, y: impact.y + Math.sin(toNest + fan) * reach };
+  return droneMotion(t, start, from, to, T.droneGlide);
+}
 
+/**
+ * A drone that started pushing up at `from` at intro time `start`: it
+ * emerges, lifts to hover height, unfolds, glides to `to` over `glide`
+ * seconds and hovers there.
+ */
+function droneMotion(t: number, start: number, from: Vec2, to: Vec2, glide: number): DroneState {
   const s = t - start;
   const up = T.droneEmerge + T.droneRise;
   const open = up + T.droneUnfold;
   const state: DroneState = {
     ...from,
-    lift: DRONE_HOVER.lift + droneBob(i, t),
+    lift: DRONE_HOVER.lift + bobAfter(s - up),
     emerge: 1,
     frame: Math.floor(t * 2.5) % 2 === 0 ? 2 : 3,
     spread: 1,
@@ -478,16 +582,44 @@ export function droneState(i: number, t: number, impact: Vec2, nest: Vec2): Dron
     // The shards swing out in quarter steps while the core wakes
     return { ...state, frame: Math.min(2, Math.floor(f * 3)) as DroneFrame, spread: Math.floor(easeOutCubic(f) * 4) / 4 };
   }
-  if (s < open + T.droneGlide) {
-    return { ...state, ...lerp(from, to, easeOutQuad((s - open) / T.droneGlide)), gliding: true };
+  if (s < open + glide) {
+    return { ...state, ...lerp(from, to, easeOutQuad((s - open) / glide)), gliding: true };
   }
   return { ...state, ...to };
+}
+
+/** World px from the Hive's core to where a Crystal player's drone pushes up: just in front of the crown, either side. */
+const PLAYER_DRONE_RISE = { dx: 18, dy: 22 } as const;
+
+/**
+ * A Crystal player's starting drone `i` at intro time `t`: it pushes up out
+ * of the crater at the Hive's foot, unfolds its shards and hovers out to
+ * `post`, where the real drone stands when the run starts, and stays there
+ * until the intro ends. Null before it starts and once the intro is over.
+ */
+export function playerDroneState(i: number, t: number, hive: Vec2, post: Vec2): DroneState | null {
+  const start = PLAYER_INTRO.droneStart + i * PLAYER_INTRO.droneStagger;
+  if (t < start || t >= T.end) return null;
+  const side = post.x < hive.x ? -1 : 1;
+  const from = { x: hive.x + side * PLAYER_DRONE_RISE.dx, y: hive.y + PLAYER_DRONE_RISE.dy };
+  return droneMotion(t, start, from, post, PLAYER_INTRO.droneGlide);
+}
+
+/** The trail of a Crystal player's drone, like droneTrail. */
+export function playerDroneTrail(i: number, t: number, hive: Vec2, post: Vec2): TrailPoint[] {
+  const out: TrailPoint[] = [];
+  if (!playerDroneState(i, t, hive, post)) return out;
+  for (let k = 1; k <= TRAIL_POINTS; k++) {
+    const d = playerDroneState(i, t - k * TRAIL_GAP, hive, post);
+    if (d?.gliding) out.push({ x: d.x, y: d.y, lift: d.lift, age: k / TRAIL_POINTS });
+  }
+  return out;
 }
 
 /** The Crystal drones up at time `t` in this variant's opening, by index; none unless the Hive arrives. */
 export function introDrones(variant: IntroVariant, t: number, impact: Vec2, nest: Vec2): Array<[number, DroneState]> {
   const out: Array<[number, DroneState]> = [];
-  if (!INTRO_VARIANTS[variant].crystalDeploy) return out;
+  if (!INTRO_VARIANTS[variant].crystalDeploy || isPlayerArrival(variant)) return out;
   for (let i = 0; i < DRONE_COUNT; i++) {
     const d = droneState(i, t, impact, nest);
     if (d) out.push([i, d]);

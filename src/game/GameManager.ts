@@ -92,13 +92,14 @@ import { FungusFarmSystem } from './systems/FungusFarmSystem';
 import { farmGrowthProgress, farmTileStatusLabel, isFarmTileReady } from './render/fungusGrowth';
 import { UndergroundHealingSystem } from './systems/UndergroundHealingSystem';
 import { resolveRunOutcome, type RunOutcome } from './run/RunOutcome';
+import { CoreDamageLedger, coreKindOf, type DeathCause } from './run/deathCause';
 import { nightMilestone } from './run/nightMilestones';
 import { loadBestNight, recordNight } from './run/nightRecord';
 import { DayNightSystem } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
 import { IntroDirector } from './render/IntroDirector';
-import { IntroClock, introRivalLine, introVariantFor } from './render/introTimeline';
-import type { IntroArrival } from './render/introArrival';
+import { IntroClock, introRivalLine, introVariantFor, isPlayerArrival } from './render/introTimeline';
+import { playerLaunchTile, type IntroArrival } from './render/introArrival';
 import { audioIntroFrame, audioRunEnded, audioRunStarted, emitAudio } from '../audio';
 import { selectionAudio } from '../audio/gameHooks';
 import { createAnt, createFood, createMineral, createNest, createBeetleDen, createQueen, createCrystalHive } from './entities/factories';
@@ -167,6 +168,7 @@ import {
 } from './components/components';
 import {
   INITIAL_ANTS,
+  QUEEN_STARVATION_DAMAGE,
   INITIAL_FOOD_CLUSTERS,
   FOOD_PER_CLUSTER_MIN,
   FOOD_PER_CLUSTER_MAX,
@@ -309,6 +311,12 @@ export interface ControlGroupInfo {
 
 /** Wireframe cells the group panel shows (StarCraft shows 24 too). */
 const GROUP_GRID_MAX = 24;
+/** Pantry share that counts as "plenty" for the idle-queen hint */
+const IDLE_QUEEN_PANTRY_RATIO = 0.75;
+/** Seconds of plenty with no egg ordered before the idle-queen hint */
+const IDLE_QUEEN_HINT_SECONDS = 25;
+/** Extra seconds before the idle-queen hint repeats */
+const IDLE_QUEEN_REPEAT_SECONDS = 60;
 
 /** A build tool a finger stroke paints with */
 type PaintTool = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense';
@@ -350,6 +358,10 @@ export interface GameOverStats {
   rivalCoreDestroyed?: 'crystal' | 'human';
   /** The race the player played, when it is not the Swarm (the end screen speaks for it) */
   playerRace?: RaceId;
+  /** A defeat: what took the core (the queen, the command center, the Hive) down */
+  cause?: DeathCause;
+  /** A defeat: the day and the phase it happened in ("Noche 4") */
+  diedOn?: { day: number; phase: 'day' | 'night' };
   /** A Crystal player's run: units crystallized and structures raised */
   crystal?: { unitsMade: number; structuresBuilt: number };
   /** Nights the colony lived through (the night on now does not count) */
@@ -428,6 +440,8 @@ export interface GameStats {
   foodInTransit: number;
   /** No pantry tile can take the food on its way (or any food at all): more Almacén tiles are needed */
   pantryFull: boolean;
+  /** Workers below ground holding a load the full pantry cannot take yet ("N obreras esperando") */
+  antsWaitingForPantry: number;
   /** The minerals bank: what miners delivered, the currency for structures */
   mineralsStored: number;
   /** Workers on the mineral fields and the colony's miner target (Mineras: N) */
@@ -577,7 +591,11 @@ export class GameManager {
   private invasionSystem!: UndergroundInvasionSystem;
   /** Watches the nest for invaders and raises the alerts the player must not miss on the surface */
   private readonly nestAlert = new NestAlertTracker();
+  /** What is taking the core's health away (hunger, which enemies), for the end screen */
+  private coreLedger: CoreDamageLedger | null = null;
   private nestAlertClock = 0;
+  /** Seconds the pantry has been plentiful with no egg ordered */
+  private idleQueenSeconds = 0;
   /** The tutorial holds the calm: no wave, no defenses firing, no nest alarm */
   private tutorialCalm = false;
   /** A Humans run (setup.playerRace 'human'): the player's base, its systems and its clicks; null for the Swarm */
@@ -850,8 +868,10 @@ export class GameManager {
       edgeMargin: CRATER_EDGE_MARGIN,
       farFraction: CRATER_FAR_FRACTION,
     });
-    // The opening brings in the rival picked before the run (see introArrival.ts)
-    const introVariant = introVariantFor(this.rivalRace);
+    // The Swarm's opening brings in the rival picked before the run; a Crystal
+    // or Human player's brings in their own base at home (see introArrival.ts)
+    const introVariant = introVariantFor(this.rivalRace, setup.playerRace);
+    let rivalSite: TilePos | null = null;
     let arrival: IntroArrival = { variant: introVariant, target: { ...this.craterSite }, rivalLine: introRivalLine(this.rivalRace) };
     if (this.rivalRace === 'human') {
       // The Humans camp on another far clearing, away from the crater: the
@@ -870,17 +890,33 @@ export class GameManager {
       });
       const base = createHumanBase(this.world, this.grid, site, { x: nestX, y: nestY });
       this.rivalCoreId = base.coreId;
+      rivalSite = { x: site.x, y: site.y };
       // Their dropship lands on the command center and the real base unfolds there
       arrival = { ...arrival, target: { x: site.x, y: site.y }, base: this.introHumanBase(base.buildings, [...base.garrison, base.builderId]) };
     } else if (this.rivalRace === 'crystal') {
       // The Crystal Hive rises from the crater: the rival's base, and its core.
       // Against Fauna salvaje the crater stays bare.
       this.rivalCoreId = createCrystalHive(this.world, this.craterSite.x, this.craterSite.y);
+      rivalSite = { ...this.craterSite };
     }
     const rival = this.world.factions.get(FactionId.RIVAL);
     if (rival && this.rivalCoreId !== null) rival.coreId = this.rivalCoreId;
-    // The meteor intro (and the rival's arrival) is the Swarm's; the Crystal Hive opens on its Hive (a title card in the HUD)
-    if (!this.crystal) this.renderSystem.startMeteorIntro(this.craterSite, { x: nestX, y: nestY }, this.introClock, arrival);
+    const home = { x: nestX, y: nestY };
+    if (isPlayerArrival(introVariant)) {
+      // A Crystal or Human player's own base arrives at home, coming in from the
+      // far side of the map from the rival; the shot ends glancing at the rival
+      arrival = {
+        variant: introVariant,
+        target: home,
+        rivalLine: arrival.rivalLine,
+        from: playerLaunchTile(home, rivalSite, { width: WORLD_WIDTH, height: WORLD_HEIGHT }),
+        rival: this.rivalRace,
+        rivalBase: rivalSite,
+        ...(this.crystal ? { drones: this.playerCrystalDrones() } : { base: this.playerHumanBase() }),
+      };
+    }
+    // The crater art goes where the meteor strikes: the crater, or (a Crystal player) home under the Hive
+    this.renderSystem.startMeteorIntro(isPlayerArrival(introVariant) ? home : this.craterSite, home, this.introClock, arrival);
     this.spawnMineralFields({ x: nestX, y: nestY });
     const tileCenter = (tile: TilePos) => ({ x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2 });
     // The fireball (or the dropship) lights the ground it flies over and its
@@ -893,13 +929,30 @@ export class GameManager {
       tileCenter(arrival.target),
       (x, y, r) => this.visibilityGrid.revealCircle(x, y, r),
       introVariant,
+      arrival.from ? { from: tileCenter(arrival.from), rival: rivalSite ? tileCenter(rivalSite) : null } : null,
     );
     window.addEventListener('keydown', this.skipIntro);
     canvas.addEventListener('pointerdown', this.skipIntro);
-    // The meteor cinematic is the Swarm's awakening: a Human expedition lands
-    // straight into the run, under its own banner (HumanPlayerStats.intro); the Crystal Hive wakes under its title
-    if (this.humanPlayer || this.crystal) this.endIntroNow();
     audioRunStarted(() => ({ layer: this.activeLayerValue(), view: this.activeCamera().getViewRectTiles() }), introVariant);
+  }
+
+  /** A Crystal player's starting drones, where they stand (tiles): their opening flies them out there. */
+  private playerCrystalDrones(): Array<{ x: number; y: number }> {
+    return this.world.query(COMPONENT.CRYSTAL_UNIT, COMPONENT.POSITION)
+      .filter((id) => ownerOf(this.world, id) === FactionId.PLAYER)
+      .map((id) => {
+        const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+        return { x: pos.x, y: pos.y };
+      });
+  }
+
+  /** A Human player's starting base as their opening raises it: the Command Center first, then the Cuartel; builders and soldiers. */
+  private playerHumanBase(): NonNullable<IntroArrival['base']> {
+    const mine = (id: EntityId) => ownerOf(this.world, id) === FactionId.PLAYER;
+    const kindOf = (id: EntityId) => this.world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)!.kind;
+    const buildings = this.world.query(HUMAN_COMPONENT.BUILDING, COMPONENT.POSITION).filter(mine)
+      .sort((a, b) => Number(kindOf(b) === 'command_center') - Number(kindOf(a) === 'command_center') || a - b);
+    return this.introHumanBase(buildings, this.world.query(HUMAN_COMPONENT.UNIT, COMPONENT.POSITION).filter(mine));
   }
 
   /** The Human base as the opening raises it: building kinds and tiles (command center first), troop posts. */
@@ -1470,14 +1523,6 @@ export class GameManager {
     this.publishStats(); // the HUD fades in now, not at the next stats tick
   };
 
-  /** Jump the opening cinematic to its end state (a race without the meteor intro) */
-  private endIntroNow(): void {
-    this.introClock.advance(Number.POSITIVE_INFINITY);
-    this.renderSystem.skipIntro();
-    this.introDirector.finish();
-    this.detachIntroSkip();
-  }
-
   private detachIntroSkip(): void {
     window.removeEventListener('keydown', this.skipIntro);
     this.canvas.removeEventListener('pointerdown', this.skipIntro);
@@ -1725,6 +1770,8 @@ export class GameManager {
     // them, so the surface came back empty
     if (this.introClock.isPlaying()) return;
     const previousPhase = this.dayNightSystem.getPhase();
+    const ledger = this.coreLedgerNow();
+    ledger?.begin(this.world, this.coreEntity(), this.queenStarving());
     try {
       // Managers stubbed without the stream (tests) tick on the plain Math.random
       if (this.simRandom) this.simRandom.run(() => this.world.update(dt));
@@ -1733,7 +1780,9 @@ export class GameManager {
       console.error('[GameManager] System update error:', e);
     }
 
+    ledger?.end(this.world, dt, this.queenStarving(), QUEEN_STARVATION_DAMAGE);
     this.updateNestAlert(dt);
+    this.updateIdleQueenHint(dt);
     this.checkGameOver();
     const dayPhase = this.dayNightSystem.getPhase();
     if (this.milestone && (this.milestone.remaining -= dt) <= 0) this.milestone = null;
@@ -1805,6 +1854,28 @@ export class GameManager {
     return true;
   }
 
+  /** The ledger of the run's core; managers built without fields (tests) get one on first use */
+  private coreLedgerNow(): CoreDamageLedger | null {
+    if (!this.world) return null;
+    this.coreLedger ??= new CoreDamageLedger(coreKindOf(this.runSetup?.playerRace ?? 'swarm'));
+    return this.coreLedger;
+  }
+
+  /** The run's life: the queen, the command center or the Hive (null once gone) */
+  private coreEntity(): EntityId | null {
+    if (this.humanPlayer) return this.humanPlayer.coreId;
+    if (this.crystal) return this.crystal.system.hive();
+    return this.world.query(COMPONENT.QUEEN_ENTITY)[0] ?? null;
+  }
+
+  /** The Swarm queen's hunger is at 0: she is losing health to it */
+  private queenStarving(): boolean {
+    if (this.humanPlayer || this.crystal) return false;
+    const id = this.world.query(COMPONENT.QUEEN_ENTITY)[0];
+    const queen = id !== undefined ? this.world.getComponent<QueenEntityComponent>(id, COMPONENT.QUEEN_ENTITY) : undefined;
+    return queen !== undefined && queen.hunger <= 0;
+  }
+
   /** Queen death takes precedence over the rival core falling on the same tick. */
   private checkGameOver(): void {
     if (this.gameOver) return;
@@ -1834,6 +1905,12 @@ export class GameManager {
       build: summarizeMutationBuild(this.runModifiers.getAppliedMutations()),
       ...(this.humanPlayer ? { playerRace: 'human' as const } : {}),
       ...(this.crystal ? { playerRace: 'crystal' as const, crystal: this.crystal.system.stats() } : {}),
+      ...(outcome === 'defeat'
+        ? {
+          cause: this.coreLedgerNow()?.cause() ?? { kind: 'unknown' as const, core: coreKindOf(this.runSetup?.playerRace ?? 'swarm') },
+          diedOn: { day: this.dayNightSystem.getDayNumber(), phase: this.dayNightSystem.getPhase() },
+        }
+        : {}),
       ...(outcome === 'victory' && coreDestroyed
         ? { rivalCoreDestroyed: this.rivalRace === 'human' ? 'human' as const : 'crystal' as const, ...(this.rivalRace === 'crystal' ? { hiveDestroyed: true as const } : {}) }
         : {}),
@@ -3164,6 +3241,27 @@ export class GameManager {
   }
 
   /** Feed the nest alert; a new alert sounds the alarm and flashes the screen edge */
+  /**
+   * The queen lays only what the player orders: with food piling up and no egg
+   * ordered for a while, say so (player report: a full pantry, no brood all day).
+   */
+  private updateIdleQueenHint(dt: number): void {
+    if (this.humanPlayer || this.crystal || this.tutorialCalm || !this.undergroundGrid) return;
+    const queens = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.EGG_QUEUE);
+    const queue = queens.length > 0 ? this.world.getComponent<EggQueueComponent>(queens[0], COMPONENT.EGG_QUEUE) : undefined;
+    const capacity = this.undergroundGrid.getPantryCapacity();
+    const plenty = capacity > 0 && this.undergroundGrid.getPantryStored().total >= capacity * IDLE_QUEEN_PANTRY_RATIO;
+    if (!queue || queue.queue.length > 0 || !plenty) {
+      this.idleQueenSeconds = 0;
+      return;
+    }
+    this.idleQueenSeconds += dt;
+    if (this.idleQueenSeconds < IDLE_QUEEN_HINT_SECONDS) return;
+    // Game-time throttle (saved with the run), not the wall-clock notification cooldown
+    this.idleQueenSeconds = -IDLE_QUEEN_REPEAT_SECONDS;
+    this.world.pushNotification('warning', '🥚 La despensa rebosa y la reina no tiene huevos encargados: encarga crías en el panel CRÍA');
+  }
+
   private updateNestAlert(dt: number): void {
     // Harnesses that build a bare manager have no invasion system to watch
     if (!this.invasionSystem || !this.nestAlert || this.humanPlayer || this.crystal || this.tutorialCalm) return; // no nest to alert about, or the tutorial's calm
@@ -3652,10 +3750,12 @@ export class GameManager {
     let scoutCount = 0;
     let nurseCount = 0;
     let defenderCount = 0;
+    let antsWaitingForPantry = 0;
 
     for (const id of ants) {
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT);
       if (ant) {
+        if (ant.state === AntState.WaitingForPantry) antsWaitingForPantry++;
         switch (ant.role) {
           case AntRole.Worker:
             workerCount++;
@@ -3697,6 +3797,7 @@ export class GameManager {
       entranceFoodStored: Math.floor(transit.entrance),
       foodInTransit: Math.floor(transit.entrance + transit.carried),
       pantryFull: !this.undergroundGrid.hasDepositSpace() || transit.types.some((type) => !this.undergroundGrid.hasDepositSpace([type])),
+      antsWaitingForPantry,
       pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
       mineralsStored: Math.floor(this.world.minerals.stored),
       miners: this.minerStats(),

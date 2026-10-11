@@ -1,15 +1,17 @@
-import { pantryFullText, pantryWaitingText } from './pantryNote';
+import { pantryFullText, pantryWaitersText, pantryWaitingText } from './pantryNote';
 
 /**
  * The full-pantry message as a note in the banner column under the top strip
- * (the strip itself only says LLENA): the food still on its way and the tool
- * that makes room.
+ * (the strip itself only says LLENA): the food still on its way, the workers
+ * waiting below with their loads and the tool that makes room.
  */
-export function PantryFullNote({ inTransit }: { inTransit: number }) {
-  const waiting = pantryWaitingText(inTransit);
+export function PantryFullNote({ inTransit, waiting = 0 }: { inTransit: number; waiting?: number }) {
+  const onWay = pantryWaitingText(inTransit);
+  const waiters = pantryWaitersText(waiting);
   return (
     <div className="pantry-full-note" role="status">
-      {waiting && <span className="pantry-full-note-waiting">{waiting}</span>}
+      {onWay && <span className="pantry-full-note-waiting">{onWay}</span>}
+      {waiters && <span className="pantry-full-note-waiting">{waiters}</span>}
       <span>{pantryFullText()}</span>
     </div>
   );

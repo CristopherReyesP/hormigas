@@ -88,17 +88,23 @@ export interface HumanBuildingStats {
 }
 
 export const HUMAN_BUILDING_STATS: Readonly<Record<HumanBuildingKind, HumanBuildingStats>> = {
+  // Balance pass: the command center defends itself like the Crystal Hive does
+  // (its bolt is 20 every 1.5 s); without a gun, the night-1 raid (two troops
+  // and a beetle) razed an unbuilt expedition before its first bunker.
   command_center: {
     cost: 400, buildTime: 0, health: 1600, armor: 1, floors: 3, supply: 6,
-    damage: 0, attackCooldown: 1, attackRange: 0, halfWidth: 1.6, height: 3.4,
+    damage: 12, attackCooldown: 1.2, attackRange: 6, halfWidth: 1.6, height: 3.4,
   },
   barracks: {
     cost: 150, buildTime: 30, health: 700, armor: 1, floors: 2, supply: 0,
     damage: 0, attackCooldown: 1, attackRange: 0, halfWidth: 1.2, height: 2.4,
   },
+  // Balance pass: was 500 health and 8 damage; six bunkers and a full supply
+  // of troops fell to the night-9 wave, short of the night 12-25 the endless
+  // run aims for
   bunker: {
-    cost: 100, buildTime: 22, health: 500, armor: 2, floors: 1, supply: 0,
-    damage: 8, attackCooldown: 1, attackRange: 6, halfWidth: 1, height: 1.4,
+    cost: 100, buildTime: 22, health: 650, armor: 2, floors: 1, supply: 0,
+    damage: 11, attackCooldown: 1, attackRange: 6, halfWidth: 1, height: 1.4,
   },
   supply_depot: {
     cost: 100, buildTime: 18, health: 350, armor: 1, floors: 1, supply: 8,

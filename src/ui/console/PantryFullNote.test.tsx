@@ -10,6 +10,12 @@ describe('PantryFullNote', () => {
     expect(html).toMatch(/Despensa llena: marca más casillas de Almacén \([A-Z]\)/);
   });
 
+  it('counts the workers waiting below with their loads', () => {
+    expect(renderToStaticMarkup(<PantryFullNote inTransit={0} waiting={6} />)).toContain('6 obreras esperando · ');
+    expect(renderToStaticMarkup(<PantryFullNote inTransit={0} waiting={1} />)).toContain('1 obrera esperando · ');
+    expect(renderToStaticMarkup(<PantryFullNote inTransit={0} waiting={0} />)).not.toContain('esperando');
+  });
+
   it('leaves out the food on its way when there is none', () => {
     expect(renderToStaticMarkup(<PantryFullNote inTransit={0} />)).not.toContain('en camino');
   });

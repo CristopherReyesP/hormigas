@@ -59,10 +59,21 @@ export interface WaveComposition {
 
 const EMPTY: Omit<WaveComposition, 'wave'> = { total: 0, youngBeetles: 0, beetles: 0, drones: 0, statScale: 1, elites: [], boss: null };
 
-/** The uncapped size: 3 on wave 1, then a linear plus quadratic rise (5, 8, 12, 17, 23, 30, ...) */
+/**
+ * The size curve: `base` units on wave 1, then a linear plus quadratic rise.
+ * Past WAVE_MAX_UNITS the overflow turns into health and damage: every unit
+ * gets `overflowScale` times the overflow ratio on top (see waveComposition).
+ * Balance pass (headless runs, src/balance): the quadratic term was 0.5 and
+ * the overflow 0.5. The waves outgrew a sensible Human or Crystal base by
+ * nights 7-9 while a sensible Swarm still stood untouched at night 25, so the
+ * middle of the curve is gentler and the endless part past the cap steeper.
+ */
+export const WAVE_CURVE = { base: 3, linear: 1.5, quadratic: 0.4, overflowScale: 1 } as const;
+
+/** The uncapped size: 3 on wave 1, then a linear plus quadratic rise (5, 8, 11, 15, 21, 26, 33, 41, 49, ...) */
 function rawSize(wave: number): number {
   const k = wave - 1;
-  return Math.round(3 + 1.5 * k + 0.5 * k * k);
+  return Math.round(WAVE_CURVE.base + WAVE_CURVE.linear * k + WAVE_CURVE.quadratic * k * k);
 }
 
 /**
@@ -79,15 +90,33 @@ export function miniBossFor(wave: number, rival: WaveRival): MiniBossKind | null
   return Math.floor(wave) % MINI_BOSS_EVERY === 0 ? BOSS_OF[rival] : null;
 }
 
-/** The share of wave `wave` that comes as elites: none before wave 3, then 10% rising 5 points a wave to 35% */
+/**
+ * The elite share: none before wave `from`, then `start` rising `step` a wave
+ * up to `max`. Balance pass: the step was 0.05 (35% by wave 8); elites piled
+ * onto the fast middle of the curve and decided most Human and Crystal runs
+ * by night 9-11. Now the share tops out around wave 11.
+ */
+export const ELITE_SHARE = { from: 3, start: 0.1, step: 0.03, max: 0.35 } as const;
+
+/** The share of wave `wave` that comes as elites (ELITE_SHARE): none before wave 3, then 10% rising 3 points a wave to 35% */
 export function eliteShare(wave: number): number {
-  if (!Number.isFinite(wave) || wave < 3) return 0;
-  return Math.min(0.35, 0.1 + 0.05 * (Math.floor(wave) - 3));
+  if (!Number.isFinite(wave) || wave < ELITE_SHARE.from) return 0;
+  return Math.min(ELITE_SHARE.max, ELITE_SHARE.start + ELITE_SHARE.step * (Math.floor(wave) - ELITE_SHARE.from));
 }
 
-/** Human troops in wave `n` out of `total`: at least 2, then a quarter rising to 40% of the wave */
+/**
+ * The Human base's share of a wave: `start` of it on wave 1, `step` more each
+ * wave, up to `max`, and never fewer than `min` troops. Balance pass: it was
+ * 25% rising 5 points a wave to 40%; troops with guns outrange the Crystal
+ * Hive's drones and come in full (only beetles are halved against it), so the
+ * Hive fell by night 6-7 to the raid alone.
+ */
+export const HUMAN_RAID_SHARE = { start: 0.2, step: 0.03, max: 0.3, min: 2 } as const;
+
+/** Human troops in wave `n` out of `total` (HUMAN_RAID_SHARE) */
 function humanRaiders(n: number, total: number): number {
-  return Math.min(total, Math.max(2, Math.floor(total * Math.min(0.4, 0.25 + 0.05 * (n - 1)))));
+  const share = Math.min(HUMAN_RAID_SHARE.max, HUMAN_RAID_SHARE.start + HUMAN_RAID_SHARE.step * (n - 1));
+  return Math.min(total, Math.max(HUMAN_RAID_SHARE.min, Math.floor(total * share)));
 }
 
 /**
@@ -114,16 +143,17 @@ function pickElites(n: number, count: number, parts: { young: number; beetles: n
 
 /**
  * What wave `wave` (1-based) sends.
- * - Size: the old curve 3, 5, 8, 12, 17, 23, 30, 38, 47, then capped at
+ * - Size: the curve 3, 5, 8, 11, 15, 21, 26, 33, 41, 49 (WAVE_CURVE), then capped at
  *   WAVE_MAX_UNITS, minus the plain units elites and the boss replace (every
  *   third elite stands for one, the mini-boss for three). So the totals, the
- *   boss counted in, are 3, 5, 6, 12, 16, 20, 27, 34, 40, 45.
- * - Past the cap, every unit gets +50% of the overflow ratio in health and damage
- *   (wave 10: x1.07, wave 11: x1.18), so the waves keep rising without more units.
+ *   boss counted in, are 3, 5, 6, 11, 15, 18, 25, 31, 36, 44.
+ * - Past the cap, every unit gets the overflow ratio in health and damage
+ *   (WAVE_CURVE.overflowScale; wave 11: x1.16, wave 15: x2.04, wave 20: x3.52),
+ *   so the waves keep rising without more units.
  * - Mix: young beetles fade out by wave 6 (100%, 80%, 60%, ... of the wave);
  *   crystal drones join on wave 3 and grow to 30% of the wave; full beetles are the rest.
  * - Against the Humans (`rival` 'human') the base's troops join from wave 1
- *   (at least 2, a quarter rising to 40%) and the young beetles make room for them.
+ *   (HUMAN_RAID_SHARE: at least 2, a fifth rising to 30%) and the young beetles make room for them.
  * - Against the wildlife there are no raiders: beetles fill the drones' share.
  * - Elites from wave 3 (eliteShare), a mini-boss every third wave (miniBossFor).
  */
@@ -132,7 +162,7 @@ export function waveComposition(wave: number, rival: WaveRival = 'crystal'): Wav
   const n = Math.floor(wave);
   const raw = rawSize(n);
   const base = Math.min(raw, WAVE_MAX_UNITS);
-  const statScale = raw > WAVE_MAX_UNITS ? Math.round((1 + (0.5 * (raw - WAVE_MAX_UNITS)) / WAVE_MAX_UNITS) * 100) / 100 : 1;
+  const statScale = raw > WAVE_MAX_UNITS ? Math.round((1 + (WAVE_CURVE.overflowScale * (raw - WAVE_MAX_UNITS)) / WAVE_MAX_UNITS) * 100) / 100 : 1;
   const boss = miniBossFor(n, rival);
   const eliteCount = n >= 3 ? Math.max(1, Math.floor(base * eliteShare(n))) : 0;
   const units = Math.max(1, base - Math.floor(eliteCount / ELITE_TRIM_RATIO) - (boss ? BOSS_UNIT_WEIGHT : 0));

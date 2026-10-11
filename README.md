@@ -42,7 +42,8 @@ Random events shake things up: rain, drought, disease, raids, leaf fall, resourc
 | Right or middle drag | Pan |
 | Mouse wheel | Zoom (0.5×–4×) towards the pointer |
 | `Space` | Pause |
-| `1` `2` `3` | Game speed |
+| `+` / `-` (or the speed button, `X`) | Game speed (×1, ×2, ×3) |
+| `1`–`9` | Recall a control group (`Ctrl` + digit binds, `Shift` + digit adds) |
 | `R` / `Home` | Reset the surface camera |
 | `M` | Toggle the underground minimap |
 

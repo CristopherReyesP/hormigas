@@ -1,8 +1,8 @@
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
-import { COMPONENT, isOreLoad, type HungerComponent, type PositionComponent, type AntComponent, type QueenEntityComponent, type HealthComponent, type CarryingComponent } from '../components/components';
-import { QUEEN_STARVATION_DAMAGE, HUNGER_EAT_RATE, HUNGER_PER_FOOD, HEAL_HP_PER_FOOD, HURT_EAT_HEALTH_RATIO } from '../../shared/constants';
+import { AntState, COMPONENT, isOreLoad, type HungerComponent, type PositionComponent, type AntComponent, type QueenEntityComponent, type HealthComponent, type CarryingComponent } from '../components/components';
+import { QUEEN_STARVATION_DAMAGE, HUNGER_EAT_RATE, HUNGER_EAT_THRESHOLD, HUNGER_PER_FOOD, HEAL_HP_PER_FOOD, HURT_EAT_HEALTH_RATIO } from '../../shared/constants';
 import { tallyDeath } from '../upgrades/applyUpgrades';
 
 /**
@@ -56,6 +56,11 @@ const ROLE_NAMES: Record<string, string> = {
   defender: 'defensora',
 };
 
+/** Below this share of her hunger the queen asks for food (the warning) */
+export const QUEEN_HUNGRY_SHARE = 0.3;
+/** She asks again only after eating back past this share */
+export const QUEEN_FED_SHARE = 0.45;
+
 export class HungerSystem implements System {
   readonly name = 'HungerSystem';
   readonly priority = 30;
@@ -76,11 +81,11 @@ export class HungerSystem implements System {
       const queen = this.world.getComponent<QueenEntityComponent>(id, COMPONENT.QUEEN_ENTITY)!;
       queen.hunger = Math.max(0, queen.hunger - queen.hungerDecay * this.modifiers.hungerDecayMultiplier * this.world.runModifiers.hungerDecayMult * dt);
 
-      // Global alert with hysteresis: warn once below 25%, re-arm after recovering past 40%
-      if (!this.queenHungerAlerted && queen.hunger < queen.maxHunger * 0.25) {
-        this.world.pushNotification('warning', '👑 ¡La reina tiene hambre! Las nodrizas necesitan comida en la despensa');
+      // Global alert with hysteresis: warn once below QUEEN_HUNGRY_SHARE, re-arm after recovering past QUEEN_FED_SHARE
+      if (!this.queenHungerAlerted && queen.hunger < queen.maxHunger * QUEEN_HUNGRY_SHARE) {
+        this.world.pushNotification('warning', '👑 La reina tiene hambre: las nodrizas necesitan comida en la despensa');
         this.queenHungerAlerted = true;
-      } else if (this.queenHungerAlerted && queen.hunger > queen.maxHunger * 0.4) {
+      } else if (this.queenHungerAlerted && queen.hunger > queen.maxHunger * QUEEN_FED_SHARE) {
         this.queenHungerAlerted = false;
       }
 
@@ -89,7 +94,7 @@ export class HungerSystem implements System {
         const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
         if (health && health.current > 0) {
           health.current = Math.max(0, health.current - QUEEN_STARVATION_DAMAGE * dt);
-          this.world.pushNotification('danger', '💀 ¡LA REINA SE ESTÁ MURIENDO DE HAMBRE!', 'queen-dying', 8000);
+          this.world.pushNotification('danger', '💀 ¡La reina se muere de hambre! Pierde vida cada segundo: lleva comida a la despensa', 'queen-dying', 8000);
         }
       }
     }
@@ -101,9 +106,12 @@ export class HungerSystem implements System {
       hunger.current -= hunger.decayRate * this.modifiers.hungerDecayMultiplier * this.world.runModifiers.hungerDecayMult * dt;
 
       // SURVIVAL LOGIC: a hungry ant carrying food EATS FROM ITS OWN MOUTH
-      // before ever starving — no ant dies while holding a meal. This also
-      // covers haulers waiting out a full pantry with the load in their jaws.
-      if (hunger.current < hunger.max * 0.3) {
+      // before ever starving — no ant dies while holding a meal. A worker
+      // waiting out a full pantry ("si tienen hambre, se comen la comida que
+      // tienen cargando") eats as soon as it is hungry, like any ant would go
+      // eat: it has nowhere else to go, and its load is its meal.
+      const waiting = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)?.state === AntState.WaitingForPantry;
+      if (hunger.current < hunger.max * (waiting ? HUNGER_EAT_THRESHOLD : 0.3)) {
         const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING);
         // Ore is not food: a miner never eats its load
         if (carrying && carrying.amount > 0 && !isOreLoad(carrying.resourceType)) {

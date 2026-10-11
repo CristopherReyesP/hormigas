@@ -1,44 +1,3 @@
-/* A Human player's landing banner: over the map, out of the way of clicks */
-.human-intro {
-  position: absolute;
-  top: 18%;
-  left: 50%;
-  width: min(720px, calc(100vw - 32px));
-  transform: translateX(-50%);
-  z-index: 30;
-  pointer-events: none;
-  text-align: center;
-  animation: human-intro-out 5s steps(10) both;
-}
-
-.human-intro-banner {
-  margin-bottom: 8px;
-  color: var(--race-human, #c8a050);
-  border-color: var(--race-human, #c8a050);
-  text-shadow: 3px 3px 0 #3a4128, 6px 6px 0 #000;
-}
-
-.human-intro-sub {
-  display: inline-block;
-  padding: 6px 12px;
-  font-family: var(--font-pixel);
-  font-size: 10px;
-  line-height: 1.6;
-  color: var(--chrome-text);
-  background: var(--chrome-panel);
-  border: 2px solid var(--chrome-border);
-}
-
-@keyframes human-intro-out {
-  0%,
-  80% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
 /* The selected building's production queue */
 .human-queue {
   display: flex;
@@ -58,10 +17,4 @@
 
 .human-queue-slot:first-child {
   border-color: var(--chrome-accent);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .human-intro {
-    animation: none;
-  }
 }

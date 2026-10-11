@@ -1121,6 +1121,10 @@ export class UndergroundInvasionSystem implements System {
       'warning',
       `🪲 Movimiento en el túnel: la oleada ${this.waveNumber + 1} (${wave.total} enemigos${this.extrasLabel(wave)}) atacará al anochecer`
     );
+    // A soldier egg still hatches before nightfall if ordered now (player report: night 1 cost a third of the workers)
+    if (!this.hasSoldiers()) {
+      this.world.pushNotification('danger', '🗡️ No tienes soldados: las obreras defenderán solas. Encarga soldados en el panel CRÍA');
+    }
   }
 
   /** Half a minute out: the big banner goes up, and the breach point and the hive get marked */
@@ -1137,6 +1141,13 @@ export class UndergroundInvasionSystem implements System {
       'danger',
       `⚠️ ¡Oleada ${this.waveNumber + 1} en ${WAVE_WARNING_LEAD} s! ${wave.total} enemigos${this.extrasLabel(wave)}${this.whereLabel()}${intel.wildlife ? ` · los acorazados llegan desde el ${intel.wildlife.direction}` : ''}`
     );
+  }
+
+  private hasSoldiers(): boolean {
+    for (const id of this.world.query(COMPONENT.ANT)) {
+      if (this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!.role === AntRole.Soldier) return true;
+    }
+    return false;
   }
 
   private launchWave(): void {
@@ -1375,12 +1386,15 @@ export class UndergroundInvasionSystem implements System {
     }
     ugSoldiers.sort((a, b) => a - b);
 
-    this.driveCivilians(ugCivilians);
+    // Only invaders inside the nest call the nest to arms: a wave still on the surface leaves it at work
+    const nestBreached = this.nestInvaderCount() > 0;
+    this.driveCivilians(ugCivilians, nestBreached);
 
     const queens = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.POSITION);
     const queenPos = queens.length > 0
       ? this.world.getComponent<PositionComponent>(queens[0], COMPONENT.POSITION)!
       : null;
+    if (queenPos) this.aimQueen(queens[0], queenPos);
 
     for (let i = 0; i < ugSoldiers.length; i++) {
       const id = ugSoldiers[i];
@@ -1388,7 +1402,7 @@ export class UndergroundInvasionSystem implements System {
       const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
       const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH);
 
-      if (this.invaders.size === 0) {
+      if (!nestBreached) {
         if (combat) combat.targetEntityId = null;
 
         if (i < this.garrisonTarget) {
@@ -1441,10 +1455,44 @@ export class UndergroundInvasionSystem implements System {
     }
   }
 
-  /** Nearest living invader to a given position */
+  /** The queen bites the nearest invader in her reach; she never leaves her chamber for it */
+  private aimQueen(queenId: EntityId, at: PositionComponent): void {
+    const combat = this.world.getComponent<CombatComponent>(queenId, COMPONENT.COMBAT);
+    if (!combat) return;
+    let best: EntityId | null = null;
+    let bestDist = combat.attackRange;
+    for (const id of this.invaders) {
+      if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer !== Layer.Underground) continue;
+      const p = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+      if (!p) continue;
+      const d = Math.hypot(p.x - at.x, p.y - at.y);
+      if (d <= bestDist) {
+        best = id;
+        bestDist = d;
+      }
+    }
+    combat.targetEntityId = best;
+  }
+
+  /** Wave units inside the nest right now */
+  private nestInvaderCount(): number {
+    let n = 0;
+    for (const id of this.invaders) {
+      if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground) n++;
+    }
+    return n;
+  }
+
+  /**
+   * Nearest living invader INSIDE the nest to a given position (underground
+   * tiles). Units still marching, besieging or raiding on the surface share
+   * the coordinates of another layer: chasing them from below sent the whole
+   * nest after phantoms.
+   */
   private findNearestInvader(pos: PositionComponent): { id: EntityId; pos: PositionComponent; dist: number } | null {
     let nearest: { id: EntityId; pos: PositionComponent; dist: number } | null = null;
     for (const invaderId of this.invaders) {
+      if (this.world.getComponent<LayerComponent>(invaderId, COMPONENT.LAYER)?.layer !== Layer.Underground) continue;
       const ipos = this.world.getComponent<PositionComponent>(invaderId, COMPONENT.POSITION);
       if (!ipos) continue;
       const d = Math.hypot(ipos.x - pos.x, ipos.y - pos.y);
@@ -1460,8 +1508,8 @@ export class UndergroundInvasionSystem implements System {
    * down here fights back — there is no fleeing inside the nest. Draftees are
    * re-targeted each tick like soldiers and restored when the wave is over.
    */
-  private driveCivilians(ugCivilians: EntityId[]): void {
-    if (this.invaders.size === 0) {
+  private driveCivilians(ugCivilians: EntityId[], nestBreached: boolean): void {
+    if (!nestBreached) {
       // Mid-wave lull (staged spawns) or wave just ended — release the draft;
       // the wave-cleared branch also restores, this covers the gaps between spawns
       if (this.drafted.size > 0) this.restoreDrafted();
@@ -1511,6 +1559,8 @@ export class UndergroundInvasionSystem implements System {
       const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
       if (combat) {
         combat.targetEntityId = prey.id;
+        // A forager's surface bite is weaker than a draftee's: in the nest it bites as hard as a draftee
+        combat.attackDamage = Math.max(combat.attackDamage, INVASION_CIVILIAN_ATTACK_DAMAGE);
       } else {
         // Civilians bite weaker than soldiers but a swarm still matters
         const health = this.world.getComponent<{ damage: number }>(id, COMPONENT.HEALTH);
@@ -1543,7 +1593,12 @@ export class UndergroundInvasionSystem implements System {
       if (!ant || ant.state !== AntState.AttackingEnemy) continue;
 
       const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
-      if (combat) combat.targetEntityId = null;
+      if (combat) {
+        combat.targetEntityId = null;
+        // Back to its own bite (the draft raised it)
+        const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+        if (health) combat.attackDamage = health.damage;
+      }
 
       const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING);
       if (ant.role === AntRole.Worker && carrying && carrying.amount > 0) {

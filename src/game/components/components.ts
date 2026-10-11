@@ -56,6 +56,12 @@ export const AntState = {
   Mining: 'mining',
   /** A nurse picking ripe mushrooms off a farm tile and carrying them to the pantry (FarmHarvestJob) */
   FarmHarvesting: 'farm_harvesting',
+  /**
+   * A worker below ground holding food the full pantry cannot take: it waits
+   * in the storage area with the load and deposits it the moment a pile of
+   * that type has room (PorterSystem). If it gets hungry it eats the load.
+   */
+  WaitingForPantry: 'waiting_for_pantry',
 } as const;
 
 export type AntState = typeof AntState[keyof typeof AntState];

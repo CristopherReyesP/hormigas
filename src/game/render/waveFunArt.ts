@@ -521,34 +521,6 @@ export function drawGhost(ctx: CanvasRenderingContext2D, overlay: WaveOverlay, t
   }
 }
 
-/** A throbbing amber diamond with a "BRECHA" tag: where the wave breaks in */
-function drawBreachMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, pulse: number): void {
-  const amber = PAL.glowAmber;
-  ctx.strokeStyle = withAlpha(amber, 0.6 + 0.4 * pulse);
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - size);
-  ctx.lineTo(cx + size, cy);
-  ctx.lineTo(cx, cy + size);
-  ctx.lineTo(cx - size, cy);
-  ctx.closePath();
-  ctx.stroke();
-  ctx.fillStyle = withAlpha(amber, 0.15 + 0.15 * pulse);
-  ctx.fill();
-  ctx.fillStyle = amber;
-  ctx.font = 'bold 10px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('!', cx, cy + 1);
-  ctx.font = 'bold 8px system-ui, sans-serif';
-  const label = 'BRECHA';
-  const w = ctx.measureText(label).width + 6;
-  ctx.fillStyle = 'rgba(14, 8, 11, 0.85)';
-  ctx.fillRect(Math.round(cx - w / 2), Math.round(cy + size + T * 0.15), Math.round(w), 10);
-  ctx.fillStyle = amber;
-  ctx.fillText(label, cx, cy + size + T * 0.15 + 5);
-}
-
 /** A dashed amber trail from `home` toward `origin`, its arrow head pointing home: they come this way */
 function drawComingTrail(ctx: CanvasRenderingContext2D, home: { x: number; y: number }, origin: { x: number; y: number }, pulse: number, time: number): void {
   const amber = PAL.glowAmber;
@@ -581,19 +553,15 @@ function drawComingTrail(ctx: CanvasRenderingContext2D, home: { x: number; y: nu
 }
 
 /**
- * The scouted wave: a throbbing amber marker on the breach entrance below; on
- * the surface, the same marker on the mound hole the beetles march on and
- * trails toward where they (and the rival's raiders) come from.
+ * The scouted wave: on the surface, trails from the mound toward where the
+ * beetles (and the rival's raiders) come from. The breach entrance itself is
+ * not marked: the entrance art already shows where it is.
  */
 export function drawScoutMarks(ctx: CanvasRenderingContext2D, overlay: WaveOverlay, layer: LayerValue, time: number): void {
   const scout = overlay.scout;
   if (!scout) return;
   const pulse = 0.5 + 0.5 * Math.sin(time * 4);
-  if (layer === Layer.Underground && scout.breach) {
-    drawBreachMark(ctx, px(scout.breach.x), px(scout.breach.y), T * 1.1, pulse);
-  }
   if (layer !== Layer.Surface) return;
   if (scout.wildlife) drawComingTrail(ctx, scout.hole ?? scout.nest, scout.wildlife, pulse, time);
   if (scout.origin) drawComingTrail(ctx, scout.nest, scout.origin, pulse, time);
-  if (scout.hole) drawBreachMark(ctx, px(scout.hole.x), px(scout.hole.y), T * 0.8, pulse);
 }

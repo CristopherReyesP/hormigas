@@ -49,8 +49,6 @@ const SWARM_ONLY_SYSTEMS = [
 ];
 
 /** The landing banner's line, and how long it stays up (ms) */
-export const HUMAN_INTRO_TITLE = 'LA EXPEDICIÓN ATERRIZA';
-const INTRO_MS = 5000;
 /** A right-click this close to a mineral node is a mining order */
 const NODE_PICK = 0.9;
 
@@ -123,8 +121,6 @@ export interface HumanPlayerStats {
   placing: HumanPlacement | null;
   selected: HumanSelectedBuilding | null;
   group: HumanGroupInfo | null;
-  /** The landing banner, while it shows */
-  intro: string | null;
 }
 
 /** Units the command center's card also offers, queued at the nearest building that trains them */
@@ -166,7 +162,6 @@ export class HumanPlayerRun {
   private selection: SelectionReader;
   private placing: PlayerBuildable | null = null;
   private ghost: Vector2 | null = null;
-  private introAt = Date.now();
 
   constructor(world: World, grid: PathGrid & { width: number; height: number }, clock: WaveClock, selection: SelectionReader) {
     this.world = world;
@@ -480,7 +475,6 @@ export class HumanPlayerRun {
       placing: this.placementInfo(),
       selected: this.selectedInfo(),
       group: this.groupInfo(),
-      intro: Date.now() - this.introAt < INTRO_MS ? HUMAN_INTRO_TITLE : null,
     };
   }
 
