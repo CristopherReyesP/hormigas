@@ -56,6 +56,19 @@ Objetivo: dos jugadores, cada uno con su colonia de hormigas en zonas distintas 
   - GitHub Pages no sirve como servidor; harían falta Fly.io, Render o similar.
 - **Extra:** como la simulación ya corre en Node, más adelante se podría montar un servidor que valide la partida.
 
+### ¿Estático o con servidor?
+
+El juego puede seguir alojado de forma estática en GitHub Pages, pero no es 100% sin servidor: hace falta un punto de encuentro para que los dos navegadores se conecten la primera vez. Como cada PC simula la partida completa y solo se mandan órdenes, no se necesita un servidor de juego.
+
+1. **WebRTC con un intermediario gratuito ya existente** (sin servidor propio):
+   - **PeerJS** usa su servidor público gratuito solo para conectar a los dos jugadores; después el tráfico va directo entre navegadores.
+   - **Trystero** conecta usando servicios públicos (trackers de BitTorrent, Nostr o MQTT), así que no hay que alojar nada.
+   - El juego sigue en GitHub Pages y es la opción más barata.
+2. **Limitación de WebRTC:** en algunas redes (móvil, empresas, routers estrictos) la conexión directa falla. Ahí se necesita un servidor TURN que reenvíe el tráfico: hay planes gratuitos limitados (Metered, Cloudflare) o se puede montar uno propio.
+3. **Servidor propio con WebSocket** (Node en Fly.io o Render, con plan gratis o barato): es más fiable y simple de depurar, y luego permite salas públicas, ranking o validar partidas.
+
+**Recomendación:** empezar con PeerJS o Trystero desde GitHub Pages, añadir TURN gratuito para los casos que fallen, y pasar a un servidor propio solo si se quiere emparejamiento con desconocidos o ranking.
+
 ### 5. Interfaz
 
 Sala de espera (crear o unirse con código), elegir color, pantalla de carga sincronizada, mensajes de victoria o derrota y aviso de desconexión.
