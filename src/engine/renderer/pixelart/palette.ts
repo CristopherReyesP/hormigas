@@ -80,6 +80,10 @@ export const PAL = {
   mantis: ['#1c2a12', '#30481c', '#4e6e2a', '#7a9a40'], // stalker: blighted green
   mantisEye: '#f2ffc4',
   web: '#c8c0d8',
+  // The alien tarantula: deep-space fur, teal crystal bristles, a crown of glowing eyes
+  tarantula: ['#0c0a18', '#1c1830', '#2e2850', '#4a3f78'],
+  tarantulaBristle: '#3fe0c8',
+  tarantulaEye: '#c6ff3d',
 
   // ── Combat VFX (src/game/vfx) ─────────────────────────────
   // Swarm acid and goo, dark rim → vein → glow → hot core: the vein ramp

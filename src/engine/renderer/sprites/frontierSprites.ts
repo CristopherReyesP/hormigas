@@ -168,6 +168,105 @@ export function paintMantis({ frame, direction, shadow = true }: WildlifeSpriteS
   return grid;
 }
 
+/**
+ * 88×88 alien tarantula, twice any other wildlife: a shaggy deep-violet body
+ * bristling with fur and teal crystal spines, eight thick hairy legs and a
+ * crown of eight glowing green eyes over two heavy fangs.
+ */
+export function paintTarantula({ frame, direction, shadow = true }: WildlifeSpriteSpec): ArtGrid {
+  const grid = new ArtGrid(SPRITE_GRID.tarantula);
+  const p = new ArtPen(grid, directionAngle(direction));
+  const T = PAL.tarantula;
+  const O = PAL.outline;
+  const A = Math.floor(SPRITE_GRID.tarantula / 2);
+  const k = 2; // authored on the old 44-px plan, drawn twice as big
+  const X = (v: number) => Math.round(v * k);
+  const Y = (v: number) => A + Math.round(v * k);
+  const swing = GAIT[frame % GAIT.length] * k;
+  const hash = (a: number, b: number) => {
+    let h = (a * 374761393 + b * 668265263) >>> 0;
+    h = ((h ^ (h >> 13)) * 1274126177) >>> 0;
+    return (h & 0xffff) / 0xffff;
+  };
+
+  // Eight thick hairy legs: three strands each, bristles sticking out every few pixels
+  for (let side = -1; side <= 1; side += 2) {
+    for (let i = 0; i < 4; i++) {
+      const s = (i + (side === 1 ? 1 : 0)) % 2 === 0 ? swing : -swing;
+      const hip: [number, number] = [X(22 + i * 2), Y(side * 3)];
+      const knee: [number, number] = [X(15 + i * 6) + s, Y(side * 12)];
+      const foot: [number, number] = [X(10 + i * 9) + s * 2, Y(side * 18)];
+      // Five strands thick (thinner toward the foot), lit along the middle
+      for (const off of [-2, -1, 0, 1, 2]) {
+        const color = off === 0 ? T[3] : Math.abs(off) === 1 ? T[2] : T[1];
+        p.polyline([[hip[0] + off, hip[1]], [knee[0] + off, knee[1]]], color);
+        if (Math.abs(off) < 2) p.polyline([[knee[0] + off, knee[1]], [foot[0] + off, foot[1]]], color);
+      }
+      // Bristles all along both segments, on both sides
+      for (const [a, b] of [[hip, knee], [knee, foot]] as const) {
+        for (let t = 0.1; t < 1; t += 0.12) {
+          const x = Math.round(a[0] + (b[0] - a[0]) * t);
+          const y = Math.round(a[1] + (b[1] - a[1]) * t);
+          const lean = hash(x, y) < 0.5 ? -1 : 1;
+          p.line(x - 2, y, x - 4, y + lean * 2, T[3]);
+          p.line(x + 2, y, x + 4, y - lean * 2, T[2]);
+        }
+      }
+      p.disc(knee[0], knee[1], 1.5, T[2]);
+      p.px(knee[0], knee[1], PAL.tarantulaBristle);
+    }
+  }
+
+  // The body: a big shaggy abdomen and the cephalothorax, with fangs
+  p.outlined(pen => {
+    pen.ellipse(X(13), A, 10 * k, 8.5 * k, T[1]);
+    pen.disc(X(27), A, 6 * k, T[2]);
+    pen.capsule(X(33), Y(-2), X(35.5), Y(-3), 1.3 * k, T[1]);
+    pen.capsule(X(33), Y(2), X(35.5), Y(3), 1.3 * k, T[1]);
+  }, O);
+  p.ellipse(X(13), A, 8.5 * k, 7 * k, T[2]);
+  p.disc(X(27), A, 4.6 * k, T[3]);
+
+  // Fur: a fringe of hairs all around the abdomen and the thorax, and tufts across the back
+  const fringe = (cx: number, rx: number, ry: number, hairs: number) => {
+    for (let i = 0; i < hairs; i++) {
+      const ang = (i / hairs) * Math.PI * 2 + hash(i, cx) * 0.2;
+      const len = 2 + Math.round(hash(cx, i) * 3);
+      const x0 = Math.round(cx + Math.cos(ang) * (rx - 1));
+      const y0 = Math.round(A + Math.sin(ang) * (ry - 1));
+      const x1 = Math.round(cx + Math.cos(ang) * (rx + len));
+      const y1 = Math.round(A + Math.sin(ang) * (ry + len));
+      p.line(x0, y0, x1, y1, i % 3 === 0 ? T[3] : T[2]);
+    }
+  };
+  fringe(X(13), 10 * k, 8.5 * k, 56);
+  fringe(X(27), 6 * k, 6 * k, 30);
+  for (let i = 0; i < 70; i++) {
+    const x = X(13) + Math.round((hash(i, 7) - 0.5) * 30);
+    const y = A + Math.round((hash(7, i) - 0.5) * 24);
+    const dx = x - X(13);
+    const dy = y - A;
+    if ((dx * dx) / (17 * 17) + (dy * dy) / (14 * 14) > 1) continue;
+    p.line(x, y, x - 1, y + (hash(i, i) < 0.5 ? 2 : -2), i % 4 === 0 ? T[3] : T[1]);
+  }
+
+  // Crystal bristles: a ridge of teal spines down the back
+  for (const [x, y] of [[7, -1], [10, -3], [10, 3], [13, -4], [13, 4], [16, -3], [16, 3], [19, 0], [5, 2], [8, 5], [8, -5]] as const) {
+    p.line(X(x), Y(y), X(x) - 1, Y(y) + (y < 0 ? -2 : 2), PAL.tarantulaBristle);
+  }
+  // The eye crown: eight glowing points, two big ones in front
+  for (const [x, y] of [[29, -2], [29, 2], [30, -1], [30, 1], [31, -3], [31, 3], [28, 0], [31, 0]] as const) {
+    p.rect(X(x), Y(y), 2, 2, PAL.tarantulaEye);
+  }
+  p.rect(X(31) + 1, Y(-1), 3, 3, PAL.tarantulaEye);
+  p.rect(X(31) + 1, Y(1) - 1, 3, 3, PAL.tarantulaEye);
+
+  p.shade([T]);
+  p.sheen(X(13), A, 6, T[3]);
+  if (shadow) p.castShadow(O, 2, 3);
+  return grid;
+}
+
 /** The Legionary nest (40×40 art px): a crimson mound riddled with holes, bones of prey around it */
 export function paintLegionNest(p: PixelPainter): void {
   const L = PAL.legion;

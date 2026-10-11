@@ -91,6 +91,8 @@ import { PorterSystem } from './systems/PorterSystem';
 import { ObjectiveSystem, type ObjectiveState } from './systems/ObjectiveSystem';
 import { UndergroundInvasionSystem, type InvasionInfo, type RaidSource, type WaveThreat } from './systems/UndergroundInvasionSystem';
 import { FrontierSystem } from './phase/FrontierSystem';
+import { TarantulaSystem } from './phase/TarantulaSystem';
+import { RivalFortifySystem } from './rival/fortify';
 import type { MeteorKind } from './render/meteorShower';
 import { DOMINION_MEASURE_SECONDS, DOMINION_TARGET, densInside, dominionScore, frontierHint, frontierReady, measureTerritory, type FrontierProgress } from './phase/frontierProgress';
 import { SpoilageSystem } from './systems/SpoilageSystem';
@@ -231,10 +233,11 @@ const HUMAN_SITE_SALT = 0xc2b2ae35;
 /** Seeds Phase 2's meteor shower and the new ground's content */
 const FRONTIER_SEED_SALT = 0x5bd1e995;
 /** Phase 2's meteor shower: bases the picked rival brings; every other rival race brings one */
-const PHASE2_PICKED_RIVAL_BASES = 2;
+const PHASE2_PICKED_RIVAL_BASES = 3;
 const PHASE2_OTHER_RIVAL_BASES = 1;
-/** Phase 2: each new rival base still standing sends this share more raiders with every wave */
-const PHASE2_RAID_BONUS_PER_BASE = 0.5;
+/** Phase 2's raids: this many times the wave's raiders, plus this share more per new rival base still standing */
+const PHASE2_RAID_BASE_MULT = 1.5;
+const PHASE2_RAID_BONUS_PER_BASE = 0.6;
 /** Game seconds Phase 2's banner stays up */
 const FRONTIER_BANNER_SECONDS = 10;
 /** The Human base keeps this far from the crater (tiles) */
@@ -643,6 +646,8 @@ export class GameManager {
   private milestone: { info: MilestoneInfo; remaining: number } | null = null;
   /** Phase 2's wildlife and the legionary columns */
   private frontierSystem!: FrontierSystem;
+  /** The alien tarantulas that hunt the colony's ants (from day 3; more in Phase 2) */
+  private tarantulaSystem!: TarantulaSystem;
   /** 1 inside the thorn wall; 2 once the frontier opened */
   private frontierPhase: 1 | 2 = 1;
   /** The rival core fell (the first condition of Phase 2) */
@@ -789,6 +794,10 @@ export class GameManager {
     // Phase 2's wildlife beyond the wall (idle until the frontier opens); raiders march on the base at the center
     this.frontierSystem = new FrontierSystem(this.world, this.grid, () => ({ x: Math.floor(WORLD_WIDTH / 2), y: Math.floor(WORLD_HEIGHT / 2) }));
     this.world.addSystem(this.frontierSystem);
+    this.tarantulaSystem = new TarantulaSystem(this.world, this.grid, this.dayNightSystem, () => ({ x: Math.floor(WORLD_WIDTH / 2), y: Math.floor(WORLD_HEIGHT / 2) }));
+    this.world.addSystem(this.tarantulaSystem);
+    // Rival bases dig in as time goes by: tougher cores and more defenses
+    this.world.addSystem(new RivalFortifySystem(this.world, this.grid));
     this.world.addSystem(cricketSpawnSystem);
     this.world.addSystem(movementSystem);
     this.world.addSystem(pheromoneSystem);
@@ -1958,7 +1967,7 @@ export class GameManager {
         if (live.length === 0) return [];
         // More raiders for every base still standing
         const bases = this.phase2Cores.filter((id) => this.world.hasEntity(id)).length;
-        const total = Math.ceil(count * (1 + PHASE2_RAID_BONUS_PER_BASE * bases));
+        const total = Math.ceil(count * (PHASE2_RAID_BASE_MULT + PHASE2_RAID_BONUS_PER_BASE * bases));
         const sent: EntityId[] = [];
         for (let i = 0; i < total; i++) {
           const src = live[(this.raidTurn + i) % live.length];
@@ -2090,6 +2099,7 @@ export class GameManager {
       this.visibilityGrid.revealCircle(site.x, site.y, 4);
     });
     this.frontierSystem.populate(oldZone, home, rng, impacts);
+    this.tarantulaSystem.setPhase2();
     // The Legionary nest came down too: a crimson meteor of its own
     const legion = this.frontierSystem.raidOrigin();
     if (legion) {

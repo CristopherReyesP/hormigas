@@ -35,6 +35,8 @@ import {
 
 /** How far a den's creatures stray from it before they turn back (tiles); mantises roam free */
 const LEASH = { legionary: 9, legion_queen: 5, spider: 8 } as const;
+/** Dens grow the longer they stand */
+const DEN_GROWTH = { every: 90, maxKeepScale: 2, healthStep: 0.15, maxHealthScale: 2.5 } as const;
 /** A raider looks for prey this far around itself (tiles) */
 const RAIDER_SIGHT = 6;
 /** Seconds between two re-aims of a raider's route */
@@ -46,8 +48,8 @@ const LEASH_CHECK_SECONDS = 1;
 
 /** What the outer ring gets when the frontier opens */
 export const FRONTIER_CONTENT = {
-  spiderLairs: 3,
-  mantises: 2,
+  spiderLairs: 4,
+  mantises: 3,
   /** Rich food clusters across the new ground */
   foodClusters: 12,
   giantMushrooms: 3,
@@ -252,6 +254,19 @@ export class FrontierSystem implements System {
 
   /** Keep the den's creatures alive: one more leaves it every spawnCooldown s while it is short */
   private tendDen(id: EntityId, den: FrontierDenComponent, dt: number): void {
+    // The den grows with time: one more creature kept, and a tougher hull, every DEN_GROWTH.every s
+    const before = Math.floor((den.age ?? 0) / DEN_GROWTH.every);
+    den.age = (den.age ?? 0) + dt;
+    if (Math.floor(den.age / DEN_GROWTH.every) > before) {
+      const base = FRONTIER_DEN_STATS[den.kind];
+      den.keep = Math.min(base.keep * DEN_GROWTH.maxKeepScale, den.keep + 1);
+      const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+      if (health && health.max < base.health * DEN_GROWTH.maxHealthScale) {
+        const add = Math.round(base.health * DEN_GROWTH.healthStep);
+        health.max += add;
+        health.current += add;
+      }
+    }
     den.members = den.members.filter((m) => this.world.hasEntity(m));
     if (den.members.length >= den.keep) return;
     den.spawnTimer -= dt;
@@ -280,7 +295,8 @@ export class FrontierSystem implements System {
 
   /** A den's creature that strayed too far while roaming walks back to it */
   private leashHome(id: EntityId, creature: FrontierCreatureComponent): void {
-    if (creature.kind === 'mantis') return;
+    // Mantises roam free; the tarantula hunts on its own (TarantulaSystem)
+    if (creature.kind === 'mantis' || creature.kind === 'tarantula') return;
     const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE);
     if (!beetle || beetle.state !== BeetleState.Roaming || beetle.denEntityId === null) return;
     const home = this.world.getComponent<PositionComponent>(beetle.denEntityId, COMPONENT.POSITION);

@@ -31,6 +31,8 @@ npm run dev   # http://localhost:5173/hormigas/
 - **Survive the night.** A day lasts 150 s and a night 60 s. Invasion waves arm on a timer and strike at nightfall, growing from 1 to 4 beetles.
 - **Steer, don't micromanage.** The Gather, Explore and Defend priorities reweight how every ant scores its options.
 - **Break out in Phase 2.** Destroy the rival core and dominate 75% of the walled zone (explore it, wipe out the dens): the thorn wall falls, the map grows, and a meteor shower brings more rivals (new Crystal Hives and Human bases), plus the Legionary ants and their Queen, weaver spiders and stalker mantises.
+- **Beware the tarantula.** From day 3 a huge, hairy alien tarantula hunts the colony: it eats nothing but ants and pounces on stragglers.
+- **Strike early.** Rival bases dig in over time: their cores toughen, they raise bunkers or crystal obelisks, and their guard army keeps growing.
 - **Follow the objectives.** Eight goals guide the early game, from hatching your first ant to destroying three enemy dens.
 
 Random events shake things up: rain, drought, disease, raids, leaf fall, resource blooms, panic, and a dead bird that drops a meat feast far from the nest.

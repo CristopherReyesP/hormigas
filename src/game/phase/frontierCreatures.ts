@@ -20,7 +20,7 @@ import {
 import { createBeetle, createBeetleDen } from '../entities/factories';
 import { ANT_SPEED } from '../../shared/constants';
 
-export type FrontierCreatureKind = 'legionary' | 'legion_queen' | 'spider' | 'mantis';
+export type FrontierCreatureKind = 'legionary' | 'legion_queen' | 'spider' | 'mantis' | 'tarantula';
 export type FrontierDenKind = 'legion_nest' | 'spider_lair';
 
 export const FRONTIER_CREATURE_COMPONENT = 'frontier_creature';
@@ -32,8 +32,10 @@ export interface FrontierCreatureComponent {
   raider: boolean;
   /** Repath countdown while raiding */
   repath: number;
-  /** The Queen: seconds until she may call her guard again */
+  /** The Queen: seconds until she may call her guard again; the tarantula: until its next pounce */
   abilityTimer: number;
+  /** The tarantula: seconds left in its pounce (it lunges at triple speed) */
+  pounce?: number;
 }
 
 export interface FrontierDenComponent {
@@ -44,6 +46,8 @@ export interface FrontierDenComponent {
   keep: number;
   /** The ones alive now */
   members: EntityId[];
+  /** Seconds it has stood: it keeps more creatures, and grows tougher, the longer it stands */
+  age?: number;
 }
 
 export interface FrontierCreatureStats {
@@ -59,12 +63,14 @@ export interface FrontierCreatureStats {
   size: number;
 }
 
-/** Starting points for playtests: each is a step up from the Phase 1 beetle (240 HP, 12 dmg, 0.9 t/s) */
+/** Each is a step up from the Phase 1 beetle (240 HP, 12 dmg, 0.9 t/s); raised in the difficulty pass */
 export const FRONTIER_CREATURE_STATS: Readonly<Record<FrontierCreatureKind, FrontierCreatureStats>> = {
-  legionary: { name: 'Hormiga legionaria', health: 110, damage: 9, speed: 1.7, attackRange: 1.1, attackCooldown: 1.0, visionRange: 7, size: 0.4 },
-  legion_queen: { name: 'Reina Legionaria', health: 3200, damage: 34, speed: 0.7, attackRange: 1.6, attackCooldown: 1.4, visionRange: 8, size: 1.1 },
-  spider: { name: 'Araña tejedora', health: 420, damage: 22, speed: 1.4, attackRange: 1.3, attackCooldown: 1.3, visionRange: 7, size: 0.65 },
-  mantis: { name: 'Mantis acechadora', health: 1100, damage: 42, speed: 1.1, attackRange: 1.8, attackCooldown: 2.0, visionRange: 9, size: 0.9 },
+  legionary: { name: 'Hormiga legionaria', health: 140, damage: 11, speed: 1.7, attackRange: 1.1, attackCooldown: 1.0, visionRange: 7, size: 0.4 },
+  legion_queen: { name: 'Reina Legionaria', health: 4500, damage: 40, speed: 0.7, attackRange: 1.6, attackCooldown: 1.4, visionRange: 8, size: 1.1 },
+  spider: { name: 'Araña tejedora', health: 520, damage: 26, speed: 1.4, attackRange: 1.3, attackCooldown: 1.3, visionRange: 7, size: 0.65 },
+  mantis: { name: 'Mantis acechadora', health: 1400, damage: 48, speed: 1.1, attackRange: 1.8, attackCooldown: 2.0, visionRange: 9, size: 0.9 },
+  // Hunts only ants: senses them from far, stalks, then pounces (TarantulaSystem)
+  tarantula: { name: 'Tarántula alienígena', health: 1300, damage: 34, speed: 1.25, attackRange: 2.4, attackCooldown: 1.2, visionRange: 14, size: 2.0 },
 };
 
 export interface FrontierDenStats {
@@ -78,8 +84,8 @@ export interface FrontierDenStats {
 }
 
 export const FRONTIER_DEN_STATS: Readonly<Record<FrontierDenKind, FrontierDenStats>> = {
-  legion_nest: { name: 'Hormiguero Legionario', health: 4000, keep: 8, spawnCooldown: 12, creature: 'legionary' },
-  spider_lair: { name: 'Guarida de araña', health: 1400, keep: 2, spawnCooldown: 45, creature: 'spider' },
+  legion_nest: { name: 'Hormiguero Legionario', health: 5000, keep: 10, spawnCooldown: 9, creature: 'legionary' },
+  spider_lair: { name: 'Guarida de araña', health: 1800, keep: 3, spawnCooldown: 35, creature: 'spider' },
 };
 
 /** The Queen's guard call: every `cooldown` s in a fight she summons `count` legionaries */

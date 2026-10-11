@@ -108,8 +108,9 @@ export class BeetleAISystem implements System {
       if (this.world.getComponent(id, CRYSTAL_PLAYER_COMPONENT.SURFACE_RAIDER) !== undefined) continue;
       // Night-wave beetles at a Human player's base are steered by HumanWaveSystem
       if (this.world.getComponent(id, HUMAN_PLAYER_COMPONENT.WAVE_INVADER)) continue;
-      // Phase 2's legionary columns are steered by FrontierSystem
-      if (frontierCreatureOf(this.world, id)?.raider) continue;
+      // Phase 2's legionary columns are steered by FrontierSystem, the tarantula by TarantulaSystem
+      const frontier = frontierCreatureOf(this.world, id);
+      if (frontier && (frontier.raider || frontier.kind === 'tarantula')) continue;
 
       const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE)!;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;

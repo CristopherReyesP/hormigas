@@ -132,7 +132,7 @@ describe('elites and bosses in a wave', () => {
       .filter(Boolean)
       .sort();
     expect(affixes).toEqual(waveComposition(5, 'wildlife').elites.map((e) => e.affix).sort());
-    expect(affixes).toEqual(['furious', 'healer']);
+    expect(affixes).toEqual(['armored', 'explosive', 'furious', 'healer']);
   });
 
   it('wildlife wave 3: the Acorazado Colosal marches on the nest, has a health bar and pays out when killed', () => {

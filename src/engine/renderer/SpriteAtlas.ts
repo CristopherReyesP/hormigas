@@ -8,10 +8,10 @@ import { paintAnt, paintQueen } from './sprites/swarmSprites';
 import { LEAPER_FRAMES, type LeaperPose, leaperFrameIndex, paintBeetle, paintCricket } from './sprites/wildlifeSprites';
 import { FOOD_SIZE_LEVELS, FOOD_VARIANTS, paintDen, paintFood, paintGiantMushroom } from './sprites/propSprites';
 import { NO_MARKS, antSheetKey, type AntMarks } from './sprites/antMarks';
-import { paintLegionNest, paintLegionQueen, paintLegionary, paintMantis, paintSpider, paintSpiderLair } from './sprites/frontierSprites';
+import { paintLegionNest, paintLegionQueen, paintLegionary, paintMantis, paintSpider, paintSpiderLair, paintTarantula } from './sprites/frontierSprites';
 
 /** Phase 2's creatures beyond the wall, by sprite */
-export type FrontierSpriteKind = 'legionary' | 'legion_queen' | 'spider' | 'mantis';
+export type FrontierSpriteKind = 'legionary' | 'legion_queen' | 'spider' | 'mantis' | 'tarantula';
 /** Phase 2's dens */
 export type FrontierDenSpriteKind = 'legion_nest' | 'spider_lair';
 
@@ -364,6 +364,7 @@ export class SpriteAtlas {
         legion_queen: { grid: SPRITE_GRID.legionQueen, paint: paintLegionQueen },
         spider: { grid: SPRITE_GRID.spider, paint: paintSpider },
         mantis: { grid: SPRITE_GRID.mantis, paint: paintMantis },
+        tarantula: { grid: SPRITE_GRID.tarantula, paint: paintTarantula },
       }[kind];
       sheet = new DirectionalSheet(recipe.grid, WALK_FRAMES, 1, (_row, frame, direction) => recipe.paint({ frame, direction }));
       this.frontierSheets.set(kind, sheet);
