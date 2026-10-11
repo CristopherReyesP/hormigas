@@ -46,17 +46,17 @@ export class TerrainDecorator {
     }
 
     // Blade clumps: 2-3 short blades, dark root to lit tip, leaning apart
-    if (this.h(hash, 30) < 0.3) {
+    if (this.h(hash, 30) < 0.4) {
       const bx = this.artPos(hash, 31, 2, ART - 3);
       const by = this.artPos(hash, 32, 4, ART - 1);
       const tall = 2 + Math.floor(this.h(hash, 33) * 2);
-      p.vline(bx, by - tall, tall, PAL.grass[2]);
-      p.px(bx, by - tall - 1, PAL.grass[3]);
-      p.px(bx - 1, by - 2, PAL.grass[2]);
-      p.px(bx - 1, by - 3, PAL.grass[3]);
+      p.vline(bx, by - tall, tall, PAL.grass[3]);
+      p.px(bx, by - tall - 1, PAL.leaf[1]);
+      p.px(bx - 1, by - 2, PAL.grass[3]);
+      p.px(bx - 1, by - 3, PAL.leaf[1]);
       if (this.h(hash, 34) < 0.5) {
-        p.px(bx + 1, by - 1, PAL.grass[2]);
-        p.px(bx + 2, by - 2, PAL.grass[3]);
+        p.px(bx + 1, by - 1, PAL.grass[3]);
+        p.px(bx + 2, by - 2, PAL.leaf[1]);
       }
       p.px(bx, by, PAL.grass[0]); // root shade
     }
@@ -101,7 +101,7 @@ export class TerrainDecorator {
     }
 
     // Pebbles with a lit top and a shadow side
-    if (this.h(hash, 30) < 0.22) {
+    if (this.h(hash, 30) < 0.32) {
       const px = this.artPos(hash, 31, 1, ART - 4);
       const py = this.artPos(hash, 32, 1, ART - 4);
       this.pebble(p, px, py, this.h(hash, 33) < 0.5, PAL.stone);

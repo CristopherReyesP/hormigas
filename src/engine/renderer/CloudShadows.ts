@@ -15,7 +15,7 @@ const SHAPES = 3;
 /** Clouds in flight over the whole world. */
 const CLOUDS = 9;
 /** Shadow strength: subtle enough to never hide a unit. */
-const SHADOW_ALPHA = 0.13;
+const SHADOW_ALPHA = 0.2;
 /** Drift in world px per second (the same way the wind blows the particles). */
 const DRIFT_X = 9;
 const DRIFT_Y = 2.5;
