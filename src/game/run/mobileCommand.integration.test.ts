@@ -136,6 +136,11 @@ describe('finger taps', () => {
   it('with nothing selected, a tap near a small ant picks the nearest one, with a reach that grows as the camera zooms out', () => {
     const { game, world, grid, camera, selection, screenOf } = setup();
     const lone = snapToWalkable(grid, { x: NX - 22, y: NY + 14 }, 6)!;
+    // The random map can drop a mineral node or a food pile right where this taps: clear them
+    for (const id of [...world.query(COMPONENT.MINERAL, COMPONENT.POSITION), ...world.query(COMPONENT.FOOD_SOURCE, COMPONENT.POSITION)]) {
+      const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      if (Math.hypot(pos.x - lone.x, pos.y - lone.y) < 6) world.destroyEntity(id);
+    }
     const scout = createAnt(world, lone.x, lone.y, AntRole.Scout);
     const second = createAnt(world, lone.x + 1.5, lone.y, AntRole.Scout);
     camera.setZoom(0.5); // zoomed all the way out: an ant is a few px on screen

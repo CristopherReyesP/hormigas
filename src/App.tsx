@@ -317,6 +317,7 @@ export default function App() {
         lastPick={stats.lastMutationPick}
         onSelect={handleSelectMutation}
         onConfirm={handleConfirmMutation}
+        owned={stats.mutations}
       />
     </div>
   );

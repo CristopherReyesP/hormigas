@@ -61,6 +61,48 @@
   bottom: calc(var(--deck-h) + 6px);
 }
 
+/* MUTACIONES: stacked over MEJORAS (its 30 px and a 6 px gap), smaller */
+.upg-mut-launch {
+  position: absolute;
+  right: 10px;
+  bottom: calc(176px + 8px + 6px + 30px + 6px);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 6px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--chrome-text);
+  background: var(--chrome-panel-light);
+  border: 2px solid var(--chrome-border-light);
+  box-shadow: inset -2px -2px 0 var(--chrome-bg), 3px 3px 0 #000;
+  cursor: pointer;
+  pointer-events: auto;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.upg-mut-launch:hover {
+  border-color: var(--chrome-accent);
+}
+
+.upg-mut-launch-count {
+  color: var(--chrome-accent);
+}
+
+.hud-layer--phone .upg-mut-launch {
+  right: calc(8px + var(--safe-r));
+  bottom: calc(var(--deck-h) + 8px + 34px + 6px);
+}
+
+.hud-layer--phone .upg-mut-launch-label {
+  display: none;
+}
+
+.hud-layer--phone-landscape .upg-mut-launch {
+  bottom: calc(var(--deck-h) + 6px + 34px + 6px);
+}
+
 /* ── The panel ──────────────────────────────────────────────── */
 .upg-backdrop {
   position: absolute;
@@ -617,4 +659,59 @@
 .hud-layer--phone .hive-console:has(.upg-launch) ~ .notif-feed,
 .hud-layer--phone:has(.upg-launch) .notif-feed {
   bottom: calc(var(--deck-h) + 50px);
+}
+
+/* And above MUTACIONES too once the swarm has mutated (its 22 px and a gap) */
+.hud-layer--phone .hive-console:has(.upg-mut-launch) ~ .notif-feed,
+.hud-layer--phone:has(.upg-mut-launch) .notif-feed {
+  bottom: calc(var(--deck-h) + 78px);
+}
+
+/* Mutaciones tab: what the dawn picks gave the swarm */
+.upg-mutations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.upg-mut-summary {
+  margin: 0;
+  color: var(--chrome-dim);
+}
+
+.upg-card--static {
+  cursor: default;
+}
+
+.upg-card--static:hover {
+  border-color: var(--chrome-border);
+}
+
+.upg-mut-count {
+  font-size: 9px;
+  color: var(--chrome-accent);
+}
+
+.upg-mut-line {
+  line-height: 1.5;
+}
+
+.upg-mut-line--good {
+  color: var(--chrome-accent);
+}
+
+.upg-mut-line--cost {
+  color: var(--chrome-danger);
+}
+
+.upg-mut-note {
+  margin-top: 4px;
+  line-height: 1.5;
+  color: var(--chrome-dim);
+}
+
+.upg-tab-count {
+  padding: 0 3px;
+  color: var(--chrome-dim);
+  border: 1px solid var(--chrome-border);
 }

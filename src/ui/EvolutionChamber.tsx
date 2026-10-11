@@ -4,7 +4,8 @@ import { crispPlacement } from './console/portraitScale';
 import { AntRole } from '../game/components/components';
 import { SPRITE_GRID } from '../engine/renderer/sprites/spriteScale';
 import { ANT_MARK_IDS, MAX_MARK_STACKS, NO_MARKS, marksForRole, type AntMarkId, type AntMarks } from '../engine/renderer/sprites/antMarks';
-import type { MutationOffer, MutationOfferOption } from '../game/run/DawnPick';
+import type { MutationBuildEntry, MutationOffer, MutationOfferOption } from '../game/run/DawnPick';
+import { mutationLines } from '../game/run/mutationSummary';
 import type { MutationId, MutationTag } from '../game/run/MutationDefinitions';
 import { chamberKeyAction, runChamberAction, tapCardAction, type ChamberAction } from './evolutionPick';
 
@@ -17,6 +18,8 @@ interface EvolutionChamberProps {
   onSelect: (id: MutationId | null) => void;
   /** Apply the selected card. */
   onConfirm: () => void;
+  /** The mutations the swarm already carries, with their stacks */
+  owned?: readonly MutationBuildEntry[];
 }
 
 /** How long the chosen card flashes before the chamber closes. */
@@ -42,7 +45,7 @@ const TAG_LABELS: Record<MutationTag, string> = {
  * is no timer: the run stays paused until the player confirms. The last offer
  * stays on screen briefly so the chosen card can flash.
  */
-export function EvolutionChamber({ offer, selected, lastPick, onSelect, onConfirm }: EvolutionChamberProps) {
+export function EvolutionChamber({ offer, selected, lastPick, onSelect, onConfirm, owned = [] }: EvolutionChamberProps) {
   const [shownOffer, setShownOffer] = useState(offer);
   const [closing, setClosing] = useState<{ offer: MutationOffer; chosenId: MutationId } | null>(null);
   if (offer !== shownOffer) {
@@ -117,6 +120,7 @@ export function EvolutionChamber({ offer, selected, lastPick, onSelect, onConfir
                 />
               ))}
             </div>
+            <OwnedRow owned={owned} />
             <p className="evo-hint">
               Toca una mutación para verla y luego confírmala · Teclado: 1, 2 y 3 eligen, Enter confirma, Esc cancela
             </p>
@@ -173,6 +177,7 @@ function MutationCard({ option, slot, state, onTap }: MutationCardProps) {
             {option.costText
               ? <span className="evo-card-cost">▼ {option.costText}</span>
               : <span className="evo-card-cost evo-card-cost--none">Sin costo</span>}
+            <StackTotal option={option} />
             <span className="evo-tags">
               {option.tags.map(tag => (
                 <span key={tag} className={`evo-tag evo-tag--${tag.toLowerCase()}`}>{TAG_LABELS[tag]}</span>
@@ -181,6 +186,38 @@ function MutationCard({ option, slot, state, onTap }: MutationCardProps) {
           </span>
         </span>
       </button>
+    </div>
+  );
+}
+
+/**
+ * A card for a mutation the swarm already has: what all its stacks add up to
+ * once this one joins (the percentages multiply, so the total is not obvious).
+ */
+function StackTotal({ option }: { option: MutationOfferOption }) {
+  if (option.stacks <= 0) return null;
+  const next = option.stacks + 1;
+  return (
+    <span className="evo-card-total">
+      <span className="evo-card-total-title">Total con esta · nivel {next}/{option.maxStacks}</span>
+      {mutationLines(option.id, next).map((line) => (
+        <span key={line.stat} className={line.good ? 'evo-card-total-line' : 'evo-card-total-line evo-card-total-line--cost'}>
+          {line.text}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** "Tu enjambre": the mutations already carried, so a pick can build on them */
+function OwnedRow({ owned }: { owned: readonly MutationBuildEntry[] }) {
+  if (owned.length === 0) return null;
+  return (
+    <div className="evo-owned" aria-label="Mutaciones de tu enjambre">
+      <span className="evo-owned-title">TU ENJAMBRE</span>
+      {owned.map((m) => (
+        <span key={m.id} className="evo-owned-chip">{m.name} <strong>×{m.stacks}</strong></span>
+      ))}
     </div>
   );
 }

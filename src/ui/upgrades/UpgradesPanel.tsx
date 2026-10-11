@@ -6,7 +6,9 @@ import type { UpgradeFunds } from '../../game/upgrades/purchase';
 import { PixelIcon } from '../console/PixelIcon';
 import { ROLE_ICON, ROLE_PLURAL } from '../console/format';
 import { confirmSelected, doubleClickLine, guarded, openFlow, selectLine, type PurchaseFlow } from './purchaseFlow';
-import { UPGRADE_ICON, UPGRADE_TABS, affordableIn, effectText, missingText, type UpgradeTab } from './upgradeUi';
+import { UPGRADE_ICON, UPGRADE_TABS, affordableIn, effectText, isInfoTab, missingText, type UpgradeTab } from './upgradeUi';
+import type { MutationId } from '../../game/run/MutationDefinitions';
+import { mutationCapacity, mutationTotals, ownedMutations, type StatLine } from '../../game/run/mutationSummary';
 import './upgrades.css';
 
 export interface UpgradesPanelProps {
@@ -14,6 +16,8 @@ export interface UpgradesPanelProps {
   report: ColonyStatsReport | null;
   funds: UpgradeFunds;
   initialTab: UpgradeTab;
+  /** The run's mutation picks, in order (the Mutaciones tab) */
+  mutations?: readonly MutationId[];
   touch: boolean;
   /** Buy the line's next level; false when the colony could not pay */
   onBuy: (id: UpgradeId) => boolean;
@@ -175,12 +179,68 @@ export function StatsView({ report }: { report: ColonyStatsReport | null }) {
   );
 }
 
+function EffectLines({ lines }: { lines: readonly StatLine[] }) {
+  return (
+    <>
+      {lines.map((l) => (
+        <span key={l.stat} className={l.good ? 'upg-mut-line upg-mut-line--good' : 'upg-mut-line upg-mut-line--cost'}>
+          {l.good ? '▲' : '▼'} {l.text}
+        </span>
+      ))}
+    </>
+  );
+}
+
+/** Mutaciones: what the dawn picks gave the swarm, how many times each, and what it all adds up to */
+export function MutationsView({ mutations }: { mutations: readonly MutationId[] }) {
+  const owned = ownedMutations(mutations);
+  const capacity = mutationCapacity();
+  if (owned.length === 0) {
+    return (
+      <p className="upg-hint">
+        Aún no hay mutaciones. Cada amanecer, desde el día 2, la Cámara de Evolución ofrece tres: elegir otra vez la misma
+        la acumula (hasta 3 veces).
+      </p>
+    );
+  }
+  const totals = mutationTotals(mutations);
+  return (
+    <div className="upg-mutations">
+      <p className="upg-mut-summary">
+        {owned.length} de {capacity.kinds} mutaciones · {mutations.length} de {capacity.stacks} niveles
+      </p>
+      <div className="upg-list">
+        {owned.map((m) => (
+          <div key={m.id} className={m.stacks >= m.maxStacks ? 'upg-card upg-card--static upg-card--max' : 'upg-card upg-card--static'} data-mutation={m.id}>
+            <span className="upg-card-icon upg-mut-count" aria-label={`${m.stacks} veces`}>×{m.stacks}</span>
+            <span className="upg-card-main">
+              <span className="upg-card-title">
+                <span className="upg-card-name">{m.name}</span>
+                <LevelPips level={m.stacks} max={m.maxStacks} />
+              </span>
+              <EffectLines lines={m.lines} />
+              {m.stacks >= m.maxStacks && <span className="upg-maxed">NIVEL MÁXIMO</span>}
+            </span>
+          </div>
+        ))}
+      </div>
+      <section className="upg-stats-block">
+        <h3 className="upg-stats-title">TOTAL DE LA COLONIA</h3>
+        {totals.length > 0 ? <EffectLines lines={totals} /> : <span className="upg-stat-label">Los efectos se anulan entre sí.</span>}
+        <span className="upg-mut-note">
+          Cada nivel multiplica: tres veces +40% es ×2.7, no +120%. Las mutaciones afectan también a las hormigas que ya viven.
+        </span>
+      </section>
+    </div>
+  );
+}
+
 /**
  * Mejoras: the Swarm's upgrade screen, by tabs (Reina, Incubación, Castas,
  * Colonia) plus Estadísticas. Buying takes two steps (purchaseFlow): a tap
  * selects a line, Mejorar buys it; a desktop double click also buys.
  */
-export function UpgradesPanel({ upgrades, report, funds, initialTab, touch, onBuy, onClose, now = defaultNow }: UpgradesPanelProps) {
+export function UpgradesPanel({ upgrades, report, funds, initialTab, mutations = [], touch, onBuy, onClose, now = defaultNow }: UpgradesPanelProps) {
   const [tab, setTab] = useState<UpgradeTab>(initialTab);
   const [flow, setFlow] = useState<PurchaseFlow>(() => openFlow(now()));
   const [levelUp, setLevelUp] = useState<{ id: UpgradeId; n: number } | null>(null);
@@ -222,7 +282,7 @@ export function UpgradesPanel({ upgrades, report, funds, initialTab, touch, onBu
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const lines = tab === 'stats' ? [] : upgrades.filter((u) => u.group === tab);
+  const lines = isInfoTab(tab) ? [] : upgrades.filter((u) => u.group === tab);
   const how = touch
     ? 'Toca una mejora para ver su efecto y su costo; luego pulsa Mejorar.'
     : 'Haz clic en una mejora para ver su efecto y su costo; luego pulsa Mejorar (o haz doble clic).';
@@ -269,6 +329,7 @@ export function UpgradesPanel({ upgrades, report, funds, initialTab, touch, onBu
                     <PixelIcon name={icon} size={8} />
                     <span className="upg-tab-label">{label}</span>
                     {ready > 0 && <span className="upg-tab-badge">{ready}</span>}
+                    {id === 'mutations' && mutations.length > 0 && <span className="upg-tab-count">{mutations.length}</span>}
                   </button>
                 );
               })}
@@ -276,6 +337,8 @@ export function UpgradesPanel({ upgrades, report, funds, initialTab, touch, onBu
             <div className="upg-body">
               {tab === 'stats' ? (
                 <StatsView report={report} />
+              ) : tab === 'mutations' ? (
+                <MutationsView mutations={mutations} />
               ) : (
                 <div className="upg-list">
                   {lines.map((info) => (
@@ -300,7 +363,7 @@ export function UpgradesPanel({ upgrades, report, funds, initialTab, touch, onBu
                 </div>
               )}
             </div>
-            {tab !== 'stats' && (
+            {!isInfoTab(tab) && (
               <footer className="upg-confirm">
                 {selected ? (
                   <>
