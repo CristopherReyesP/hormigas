@@ -64,6 +64,10 @@ export const MUSHROOM_AMOUNT_MAX = 80;
 export const MUSHROOM_MIN_NEST_DISTANCE = 15;
 export const MUSHROOM_NUTRITION_MULTIPLIER = 2.0;
 export const MUSHROOM_PREFERENCE_MULTIPLIER = 0.5;
+/** Meat from a kill: the colony knows where its enemies fell, so workers find it from this far (tiles) */
+export const MEAT_SCENT_RANGE = 30;
+/** ...and go for it first: it is rich and it rots (perceived this much closer) */
+export const MEAT_PREFERENCE_MULTIPLIER = 0.4;
 
 // Beetle stats
 export const BEETLE_STATS = {
@@ -207,7 +211,7 @@ export const ENTRANCE_ROW = 1;
 export const PORTER_MAX_COUNT = 4;          // base cap on concurrent porters
 export const PORTER_PILE_PER_EXTRA = 60;    // one more porter allowed per this much food on the entrance pile
 export const PORTER_ASSIGN_COOLDOWN = 2;    // seconds between porter assignments (prevents recruitment floods)
-export const SCAVENGER_MAX_COUNT = 2;       // hard cap on workers hauling invader meat drops to the pantry
+export const SCAVENGER_MAX_COUNT = 4;       // hard cap on ants hauling invader meat drops to the pantry
 
 // Spatial pantry — food lives as physical piles on FoodStorage chamber tiles
 export const PANTRY_TILE_CAPACITY = 50;            // food per pantry tile (9 starting tiles ≈ old 500 cap)
