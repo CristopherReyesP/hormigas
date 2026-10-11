@@ -58,6 +58,8 @@ import type { CrystalOverlay } from '../races/crystal/CrystalPlayerController';
 import { drawCrystalOverlay, drawGrowingSpire, drawHiveCrown } from '../races/crystal/crystalPlayerArt';
 import { CRYSTAL_PLAYER_COMPONENT, type ConstructionComponent } from '../races/crystal/crystalPlayerComponents';
 import { FungusFarmArt } from '../render/fungusFarmArt';
+import { CreepArt } from '../render/creepArt';
+import type { CreepGrid } from '../../simulation/world/CreepGrid';
 import { carriedFoodSprite } from '../render/fungusGrowth';
 import type { ShieldComponent } from '../rival/crystalShield';
 import { combatVfxFor } from '../vfx/CombatVfx';
@@ -209,6 +211,8 @@ export class RenderSystem {
   private postProcessor: PostProcessor;
   private spriteAtlas: SpriteAtlas;
   private fogRenderer: FogRenderer;
+  private creepArt = new CreepArt();
+  private creep: CreepGrid | null = null;
   private visibilityGrid: VisibilityGrid;
   private animationTime: number = 0;
   /** Real time of the frame being drawn (0 while paused) */
@@ -1052,6 +1056,7 @@ export class RenderSystem {
     // The spires are the Crystal Hive's: once it falls, only the bare crater stays
     this.intro?.setSpiresStanding(this.hiveStandsOnCrater());
     this.intro?.drawCrater(ctx, this.animationTime);
+    this.renderCreep();
     this.renderPheromones();
     this.renderParticles();
     this.renderOrderLines(ctx, interpolation);
@@ -1809,6 +1814,21 @@ export class RenderSystem {
     // Draw pre-rendered terrain (ONE blit operation for all terrain)
     const ctx = this.renderer.getContext();
     this.terrainRenderer.draw(ctx);
+  }
+
+  /** The Swarm's mycelium carpet, set by GameManager on a Swarm run */
+  setCreep(creep: CreepGrid): void {
+    this.creep = creep;
+  }
+
+  private renderCreep(): void {
+    if (!this.creep || !this.camera) return;
+    const { w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
+    const startX = Math.max(0, Math.floor(this.camera.x / TILE_SIZE));
+    const startY = Math.max(0, Math.floor(this.camera.y / TILE_SIZE));
+    const endX = Math.min(this.grid.width, Math.ceil((this.camera.x + viewW) / TILE_SIZE) + 1);
+    const endY = Math.min(this.grid.height, Math.ceil((this.camera.y + viewH) / TILE_SIZE) + 1);
+    this.creepArt.draw(this.renderer.getContext(), this.creep, startX, startY, endX, endY, (x, y) => this.visibilityGrid.isExplored(x, y));
   }
 
   private renderPheromones(): void {

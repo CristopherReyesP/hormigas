@@ -38,6 +38,8 @@ import { BeetleSpawnSystem } from './systems/BeetleSpawnSystem';
 import { CricketSpawnSystem } from './systems/CricketSpawnSystem';
 import { HungerSystem } from './systems/HungerSystem';
 import { RegenerationSystem } from './systems/RegenerationSystem';
+import { CreepSystem } from './systems/CreepSystem';
+import { CreepGrid } from '../simulation/world/CreepGrid';
 import { BreedingSystem } from './systems/BreedingSystem';
 import { SelectionSystem, type SelectionBox } from './systems/SelectionSystem';
 import { ControlGroups } from './systems/ControlGroups';
@@ -732,6 +734,13 @@ export class GameManager {
     this.world.addSystem(pheromoneSystem);
     this.world.addSystem(hungerSystem);
     this.world.addSystem(regenerationSystem);
+    if (setup.playerRace !== 'human' && setup.playerRace !== 'crystal') {
+      // The Swarm's mycelium creep: spreads from the nest, speeds and heals the colony on it
+      const creep = new CreepGrid(this.grid.width, this.grid.height);
+      this.world.addSystem(new CreepSystem(this.world, this.grid, creep));
+      movementSystem.setCreep(creep);
+      this.renderSystem.setCreep(creep);
+    }
     this.world.addSystem(upgradeSystem);
     this.world.addSystem(breedingSystem);
     const transitSystem = new TransitSystem(this.world, this.undergroundGrid);

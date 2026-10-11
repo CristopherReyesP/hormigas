@@ -1,9 +1,10 @@
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { WalkableGrid } from '../../simulation/world/WalkableGrid';
+import type { CreepGrid } from '../../simulation/world/CreepGrid';
 import type { GlobalModifiers } from '../events/GlobalModifiers';
 import { AntRole, COMPONENT, Layer, type AntComponent, type PositionComponent, type PathComponent, type RoleStatsComponent, type CarryingComponent, type FacingComponent, type LayerComponent } from '../components/components';
-import { ANT_SPEED, MAX_ANTS_PER_TILE_UNDERGROUND, UNDERGROUND_WIDTH, CROWD_SQUEEZE_SECONDS } from '../../shared/constants';
+import { ANT_SPEED, CREEP_SPEED_MULT, MAX_ANTS_PER_TILE_UNDERGROUND, UNDERGROUND_WIDTH, CROWD_SQUEEZE_SECONDS } from '../../shared/constants';
 
 export class MovementSystem implements System {
   readonly name = 'MovementSystem';
@@ -16,12 +17,18 @@ export class MovementSystem implements System {
   // anyway (ants physically squeeze past each other; a cap must throttle flow,
   // never freeze it — two-way single-file traffic deadlocks without this valve)
   private blockedTime: Map<number, number> = new Map();
+  // The Swarm's mycelium carpet: colony ants run faster on it (surface only)
+  private creep: CreepGrid | null = null;
 
   constructor(world: World, surfaceGrid: WalkableGrid, modifiers: GlobalModifiers, undergroundGrid?: WalkableGrid) {
     this.world = world;
     this.surfaceGrid = surfaceGrid;
     this.undergroundGrid = undergroundGrid ?? surfaceGrid;
     this.modifiers = modifiers;
+  }
+
+  setCreep(creep: CreepGrid): void {
+    this.creep = creep;
   }
 
   /**
@@ -100,6 +107,7 @@ export class MovementSystem implements System {
           mutationSpeed = run.movementSpeedMult;
           if (ant?.role === AntRole.Soldier) mutationSpeed *= run.soldierSpeedMult;
           if (ant && carrying && carrying.amount > 0) mutationSpeed *= run.carryingSpeedMult;
+          if (!underground && this.creep?.isCreepAt(pos.x, pos.y)) mutationSpeed *= CREEP_SPEED_MULT;
         }
         const speed = ANT_SPEED * mutationSpeed * speedMultiplier * this.modifiers.movementSpeedMultiplier * dt;
         const moveX = (dx / distance) * Math.min(speed, distance);

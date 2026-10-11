@@ -26,6 +26,7 @@ npm run dev   # http://localhost:5173/hormigas/
 
 - **Keep the queen alive.** If she dies, from starvation or from invaders, the colony falls and the game ends.
 - **Feed the colony.** Workers gather leaves, mushrooms and meat from fallen beetles and crickets.
+- **Spread the mycelium.** A living carpet grows from the nest and reaches farther as the colony grows. On it your ants run 30% faster and slowly heal; it recedes if the nest falls.
 - **Grow the nest.** Underground, you mark tiles to excavate and assign incubation, fungus farm, food storage and defense post zones.
 - **Survive the night.** A day lasts 150 s and a night 60 s. Invasion waves arm on a timer and strike at nightfall, growing from 1 to 4 beetles.
 - **Steer, don't micromanage.** The Gather, Explore and Defend priorities reweight how every ant scores its options.

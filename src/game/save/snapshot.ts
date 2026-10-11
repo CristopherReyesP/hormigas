@@ -45,6 +45,8 @@ const DENY_FIELDS: Record<string, readonly string[]> = {
   SelectionSystem: ['selected', 'selectionLayer'],
   ControlGroups: ['lastTap'],
   PorterSystem: ['lastPantryFullNotify'],
+  // Scratch copy of the carpet, rewritten every spread
+  CreepSystem: ['prev'],
   RunModifiers: ['marks'],
 };
 

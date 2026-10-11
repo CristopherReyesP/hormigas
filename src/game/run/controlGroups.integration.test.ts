@@ -15,7 +15,7 @@ vi.mock('../../engine/input/InputManager', () => ({ InputManager: class {
   onKeyAction(key: string, handler: (press: KeyPress) => void) { keyHandlers.set(key, handler); }
 } }));
 vi.mock('../systems/RenderSystem', () => ({ RenderSystem: class {
-  setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {}
+  setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {} setCreep() {}
   setFarmStatusProvider() {} setFarmFocusProvider() {} queueFarmHarvest() {} setWaveOverlayProvider() {} setDigOverlayProvider() {} invalidateTerrain() {} startMeteorIntro() {} skipIntro() {}
 } }));
 vi.stubGlobal('window', new EventTarget());
