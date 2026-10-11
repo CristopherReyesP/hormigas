@@ -1951,19 +1951,22 @@ export class GameManager {
     if (this.frontierPhase !== 2 || this.phase2Won) return;
     this.ensurePhase2Rivals();
     // Every rival still standing sends its share: the Hives, the Human bases, the Legionary nest
-    const sources: Array<{ alive: () => boolean; launch: (n: number) => EntityId[]; origin: () => { x: number; y: number } | null }> = [];
-    const standing = (race: 'crystal' | 'human') => this.phase2Cores.some((id) => this.world.hasEntity(id) && this.coreRace(id) === race);
+    // Each source sends a share weighted by how many of its bases stand, so the
+    // picked rival (the most bases) makes up most of every raid
+    const sources: Array<{ weight: () => number; launch: (n: number) => EntityId[]; origin: () => { x: number; y: number } | null }> = [];
+    const standing = (race: 'crystal' | 'human') => this.phase2Cores.filter((id) => this.world.hasEntity(id) && this.coreRace(id) === race).length;
     const crystal = this.crystalHiveSys;
-    if (crystal) sources.push({ alive: () => standing('crystal'), launch: (n) => crystal.launchRaid(n), origin: () => crystal.raidOrigin() });
+    if (crystal) sources.push({ weight: () => standing('crystal'), launch: (n) => crystal.launchRaid(n), origin: () => crystal.raidOrigin() });
     const human = this.humanBaseSys;
-    if (human) sources.push({ alive: () => standing('human'), launch: (n) => human.launchRaid(n), origin: () => human.raidOrigin() });
-    sources.push({ alive: () => this.frontierSystem.legionNestAlive(), launch: (n) => this.frontierSystem.launchRaid(n), origin: () => this.frontierSystem.raidOrigin() });
+    if (human) sources.push({ weight: () => standing('human'), launch: (n) => human.launchRaid(n), origin: () => human.raidOrigin() });
+    sources.push({ weight: () => (this.frontierSystem.legionNestAlive() ? 1 : 0), launch: (n) => this.frontierSystem.launchRaid(n), origin: () => this.frontierSystem.raidOrigin() });
     const picked: 'crystal' | 'human' | 'legion' = this.rivalRace === 'crystal' || this.rivalRace === 'human' ? this.rivalRace : 'legion';
     this.waves().setRaidSource({
       rival: picked,
       unitLabel: () => 'rivales',
       launch: (count) => {
-        const live = sources.filter((src) => src.alive());
+        // One slot per standing base: 3 Hives and the Legion nest send 3 drones for every legionary
+        const live = sources.flatMap((src) => Array.from({ length: src.weight() }, () => src));
         if (live.length === 0) return [];
         // More raiders for every base still standing
         const bases = this.phase2Cores.filter((id) => this.world.hasEntity(id)).length;
@@ -1976,15 +1979,18 @@ export class GameManager {
         this.raidTurn = (this.raidTurn + 1) % Math.max(1, live.length);
         return sent;
       },
-      origin: () => sources.find((src) => src.alive())?.origin() ?? null,
+      origin: () => sources.find((src) => src.weight() > 0)?.origin() ?? null,
     });
   }
 
   /** Phase 2's bases, one meteor each: the picked rival brings more, every other rival race one */
   private phase2BasePlan(): Array<'crystal' | 'human'> {
     const plan: Array<'crystal' | 'human'> = [];
+    // A picked base rival (Crystal or Human) is the only base race that lands;
+    // against Fauna salvaje one base of each comes along with the Legionaries
+    const picked = this.rivalRace === 'crystal' || this.rivalRace === 'human';
     for (const race of ['crystal', 'human'] as const) {
-      const n = race === this.rivalRace ? PHASE2_PICKED_RIVAL_BASES : PHASE2_OTHER_RIVAL_BASES;
+      const n = race === this.rivalRace ? PHASE2_PICKED_RIVAL_BASES : picked ? 0 : PHASE2_OTHER_RIVAL_BASES;
       for (let i = 0; i < n; i++) plan.push(race);
     }
     // The picked rival's meteors fall first
@@ -2112,12 +2118,18 @@ export class GameManager {
 
     this.wirePhase2Raid();
 
-    const hives = plan.filter((k) => k === 'crystal').length;
-    const camps = plan.length - hives;
-    const rivalLine = `☄️ ¡Lluvia de meteoritos! Llegan más rivales: ${hives} Colmena${hives === 1 ? '' : 's'} de Cristal, ${camps} base${camps === 1 ? '' : 's'} humana${camps === 1 ? '' : 's'} y el Hormiguero Legionario`;
+    const landed = shower.filter((m) => m.kind !== 'legion');
+    const hives = landed.filter((m) => m.kind === 'crystal').length;
+    const camps = landed.length - hives;
+    const parts = [
+      hives > 0 ? `${hives} Colmena${hives === 1 ? '' : 's'} de Cristal` : null,
+      camps > 0 ? `${camps} base${camps === 1 ? '' : 's'} humana${camps === 1 ? '' : 's'}` : null,
+      'el Hormiguero Legionario',
+    ].filter(Boolean);
+    const rivalLine = `☄️ ¡Lluvia de meteoritos! Llegan más rivales: ${parts.slice(0, -1).join(', ')}${parts.length > 1 ? ' y ' : ''}${parts[parts.length - 1]}`;
     this.frontierBanner = {
       title: 'FASE 2 · LA FRONTERA SALVAJE',
-      subtitle: `Cae el muro de espinas. Destruye las ${plan.length} bases rivales y el Hormiguero Legionario con su Reina.`,
+      subtitle: `Cae el muro de espinas. Destruye las ${landed.length} bases rivales y el Hormiguero Legionario con su Reina.`,
       remaining: FRONTIER_BANNER_SECONDS,
     };
     this.world.pushNotification('success', '🌿 ¡El muro de espinas cae! El mapa se expande');

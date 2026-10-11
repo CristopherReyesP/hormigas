@@ -81,6 +81,8 @@ export class PorterSystem implements System {
   private lastPantryFullNotify = 0;
   /** Non-workers on porter duty (soldiers, scouts, nurses at the shaft) */
   private standIns = new Set<number>();
+  /** Nurses fetching loose meat inside the nest because no worker was free to (they never leave the nest) */
+  private nurseScavengers = new Set<number>();
   /** Whether stand-ins are wanted this tick: no workers, or a pile too big for them */
   private standInsWanted = false;
   /** Game seconds the entrance pile has waited with nobody carrying it down */
@@ -130,10 +132,23 @@ export class PorterSystem implements System {
     const idleUndergroundWorkers: number[] = [];
     const idleSurfaceHelpers: number[] = [];
     const idleNurses: number[] = [];
+    const idleUndergroundNurses: number[] = [];
 
     for (const id of ants) {
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
       if (ant.role === AntRole.Nurse) nurses++;
+      if (this.nurseScavengers.has(id)) {
+        if (ant.state === AntState.Scavenging) {
+          activeScavengers++;
+          this.handleScavenging(id, ant, nest, dt);
+        } else if (ant.state === AntState.Hauling) {
+          this.handleHauling(id, ant, nest, nestPos, dt);
+        } else {
+          this.nurseScavengers.delete(id); // hunger, a fight or the nursery took it back
+        }
+        continue;
+      }
+      if (ant.role === AntRole.Nurse && this.isIdleBelow(id, ant)) idleUndergroundNurses.push(id);
       if (ant.role !== AntRole.Worker) {
         if (this.standIns.has(id)) {
           if (this.driveStandIn(id, ant, nest, nestPos, dt)) {
@@ -202,6 +217,7 @@ export class PorterSystem implements System {
 
     // Forget stand-ins that died
     for (const id of this.standIns) if (!this.world.getComponent(id, COMPONENT.ANT)) this.standIns.delete(id);
+    for (const id of this.nurseScavengers) if (!this.world.getComponent(id, COMPONENT.ANT)) this.nurseScavengers.delete(id);
     this.warnUnattendedPile(haulable && nest.foodStored >= 1 && activePorters === 0, dt);
 
     // Assign at most ONE recruit per cooldown window — requesting in a loop here
@@ -212,8 +228,10 @@ export class PorterSystem implements System {
     // attention — underground idlers first (they're already down there)
     const looseFood = this.countLooseUndergroundFood();
     if (looseFood > 0 && this.grid.hasDepositSpace() && activeScavengers < Math.min(SCAVENGER_MAX_COUNT, looseFood)) {
-      const recruitId = idleUndergroundWorkers[0] ?? idleSurfaceWorkers[0];
+      // No worker free (or none left at all): a nurse already down there picks it up
+      const recruitId = idleUndergroundWorkers[0] ?? idleSurfaceWorkers[0] ?? idleUndergroundNurses[0];
       if (recruitId !== undefined) {
+        if (idleUndergroundWorkers[0] === undefined && idleSurfaceWorkers[0] === undefined) this.nurseScavengers.add(recruitId);
         const recruit = this.world.getComponent<AntComponent>(recruitId, COMPONENT.ANT)!;
         recruit.state = AntState.Scavenging;
         recruit.stateTimer = 0;
@@ -277,6 +295,14 @@ export class PorterSystem implements System {
     } else if (ant.role === AntRole.Nurse && layer === Layer.Underground) {
       if (ant.state === AntState.Idle || ant.state === AntState.Searching) nurses.push(id);
     }
+  }
+
+  /** An unloaded idle ant below ground, free for a quick errand */
+  private isIdleBelow(id: number, ant: AntComponent): boolean {
+    if (ant.state !== AntState.Idle && ant.state !== AntState.Searching) return false;
+    if (hasPlayerOrder(this.world, id) || this.transitSystem.isInTransit(id)) return false;
+    if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!.layer !== Layer.Underground) return false;
+    return this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!.amount === 0;
   }
 
   /** Run one stand-in's porter job; false (and released) once another system took the ant. */
@@ -606,6 +632,11 @@ export class PorterSystem implements System {
   /** Load delivered — loop for more if there's work, otherwise back to the surface to forage */
   private finishTrip(id: number, ant: AntComponent, nest: NestComponent, layer: LayerComponent): void {
     ant.stateTimer = 0;
+    // A nurse that fetched loose meat goes back to the brood, below
+    if (this.nurseScavengers.delete(id)) {
+      ant.state = AntState.Idle;
+      return;
+    }
     // A stand-in loops only while the colony still needs it
     const loop = this.standIns.has(id) ? this.standInsWanted : true;
     if (!loop) this.standIns.delete(id);
