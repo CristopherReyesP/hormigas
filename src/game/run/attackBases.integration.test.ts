@@ -59,6 +59,8 @@ function setup(kind: BaseKind) {
   finishIntro(game);
   const world = game['world'] as World;
   const camera = game['camera'] as Camera;
+  // These test the controls on a bare base: no fortifications, no guard army
+  world.removeSystem('RivalFortifySystem');
   const grid = game['grid'] as PathGrid;
   const fog = game['visibilityGrid'] as VisibilityGrid;
   const selection = game['selectionSystem'] as SelectionSystem;

@@ -4,7 +4,9 @@
 // - grows its hull (up to FORTIFY.maxCoreScale times what it started with);
 // - raises one more defense on a ring around it, up to FORTIFY.maxDefenses:
 //   a bunker for the Humans, a shielded crystal obelisk that fires for the Hive;
-// - toughens the defenses it already has.
+// - toughens the defenses it already has;
+// - adds to the army guarding it (drones and sentinels, soldiers and marksmen).
+// A base starts already dug in (FORTIFY.startSteps steps), and its ring widens as it grows.
 
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
@@ -20,14 +22,20 @@ import {
 } from '../components/components';
 import { FactionId, ownerOf, relation } from '../factions/factions';
 import { HUMAN_COMPONENT, type HumanBuildingComponent } from './humanComponents';
-import { createHumanBuilding } from './humanFactories';
-import { createCrystalSpire } from './crystalFactories';
+import { createHumanBuilding, createHumanUnit } from './humanFactories';
+import { createCrystalSpire, createCrystalUnit } from './crystalFactories';
 
 export const FORTIFY = {
   /** Game seconds between two fortification steps of a base */
-  interval: 80,
+  interval: 60,
+  /** Steps a base has taken when it is first seen: it starts dug in */
+  startSteps: 3,
   /** Defenses a base raises at most */
-  maxDefenses: 12,
+  maxDefenses: 20,
+  /** Guards it keeps around itself: start + perStep for every step, up to max */
+  guards: { start: 3, perStep: 1, max: 24 },
+  /** Every this many steps a guard is the heavy kind (a sentinel, a marksman) */
+  heavyEvery: 3,
   /** Each step the core's max health grows by this share of what it started with */
   coreGrowth: 0.1,
   maxCoreScale: 3,
@@ -35,7 +43,7 @@ export const FORTIFY = {
   defenseGrowth: 0.06,
   /** The ring the defenses stand on (tiles from the core) */
   ringMin: 4,
-  ringMax: 8,
+  ringMax: 11,
   /** The Hive's obelisk: a spire that fires at the player's units */
   obelisk: { damage: 16, range: 5, cooldown: 1.5 },
 } as const;
@@ -52,6 +60,8 @@ export interface FortifyCoreComponent {
   steps: number;
   /** The defenses it raised */
   defenses: EntityId[];
+  /** The guards it called in */
+  guards?: EntityId[];
 }
 
 export interface FortifyDefenseComponent {
@@ -86,8 +96,10 @@ export class RivalFortifySystem implements System {
       let state = this.world.getComponent<FortifyCoreComponent>(core, FORTIFY_CORE_COMPONENT);
       if (!state) {
         const health = this.world.getComponent<HealthComponent>(core, COMPONENT.HEALTH);
-        state = { timer: FORTIFY.interval, baseHealth: health?.max ?? 1, steps: 0, defenses: [] };
+        state = { timer: FORTIFY.interval, baseHealth: health?.max ?? 1, steps: 0, defenses: [], guards: [] };
         this.world.addComponent<FortifyCoreComponent>(core, FORTIFY_CORE_COMPONENT, state);
+        // It starts dug in: a few steps at once, quietly
+        for (let i = 0; i < FORTIFY.startSteps; i++) this.step(core, state, false);
       }
       state.timer -= dt;
       if (state.timer > 0) continue;
@@ -98,8 +110,9 @@ export class RivalFortifySystem implements System {
   }
 
   /** One fortification step of `core` */
-  step(core: EntityId, state: FortifyCoreComponent): void {
+  step(core: EntityId, state: FortifyCoreComponent, announce = true): void {
     state.steps++;
+    this.callGuards(core, state);
     // The core's hull grows
     const health = this.world.getComponent<HealthComponent>(core, COMPONENT.HEALTH);
     if (health) {
@@ -124,7 +137,36 @@ export class RivalFortifySystem implements System {
     if (id === null) return;
     state.defenses.push(id);
     this.world.addComponent<FortifyDefenseComponent>(id, FORTIFY_DEFENSE_COMPONENT, { coreId: core });
-    this.world.pushNotification('warning', '🛡️ Una base rival se fortifica: levanta otra defensa', 'rival-fortify', 20_000);
+    if (announce) this.world.pushNotification('warning', '🛡️ Una base rival se fortifica: más defensas y más tropas', 'rival-fortify', 20_000);
+  }
+
+  /** Bring the base's guard up to its size for this step: a few more troops each time */
+  private callGuards(core: EntityId, state: FortifyCoreComponent): void {
+    state.guards = (state.guards ?? []).filter((id) => this.world.hasEntity(id));
+    const want = Math.min(FORTIFY.guards.max, FORTIFY.guards.start + FORTIFY.guards.perStep * state.steps);
+    const pos = this.world.getComponent<PositionComponent>(core, COMPONENT.POSITION)!;
+    const owner = ownerOf(this.world, core) ?? FactionId.RIVAL;
+    const hive = this.world.getComponent(core, COMPONENT.CRYSTAL_HIVE) !== undefined;
+    for (let i = state.guards.length; i < want; i++) {
+      const heavy = (i + 1) % FORTIFY.heavyEvery === 0;
+      const at = this.freeTileNear(pos, 3);
+      if (!at) break;
+      const id = hive
+        ? createCrystalUnit(this.world, heavy ? 'sentinel' : 'drone', at.x, at.y, core, owner)
+        : createHumanUnit(this.world, heavy ? 'marksman' : 'soldier', at.x, at.y, core, owner);
+      state.guards.push(id);
+    }
+  }
+
+  private freeTileNear(center: { x: number; y: number }, radius: number): { x: number; y: number } | null {
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 1.5 + Math.random() * radius;
+      const x = Math.round(center.x + Math.cos(a) * d);
+      const y = Math.round(center.y + Math.sin(a) * d);
+      if (this.grid.isWalkable(x, y)) return { x, y };
+    }
+    return null;
   }
 
   /** A bunker by a Human core, a firing obelisk by a Hive */
@@ -151,8 +193,10 @@ export class RivalFortifySystem implements System {
       .filter((id) => ownerOf(this.world, id) === ownerOf(this.world, core))
       .map((id) => this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!);
     for (let attempt = 0; attempt < 24; attempt++) {
+      // The ring widens as the base grows
       const a = (step + attempt) * GOLDEN_ANGLE;
-      const r = FORTIFY.ringMin + ((step + attempt * 3) % (FORTIFY.ringMax - FORTIFY.ringMin + 1));
+      const reach = Math.min(FORTIFY.ringMax, FORTIFY.ringMin + 1 + Math.floor(step / 3));
+      const r = FORTIFY.ringMin + ((step + attempt * 3) % (reach - FORTIFY.ringMin + 1));
       const x = Math.round(pos.x + Math.cos(a) * r);
       const y = Math.round(pos.y + Math.sin(a) * r);
       if (!this.grid.isWalkable(x, y)) continue;

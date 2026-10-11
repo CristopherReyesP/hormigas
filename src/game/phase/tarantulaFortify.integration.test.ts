@@ -77,17 +77,22 @@ describe('the alien tarantula', () => {
 });
 
 describe('rival bases dig in as time goes by', () => {
-  it('the Crystal Hive grows its hull and raises firing obelisks, step after step', () => {
+  it('the Crystal Hive starts dug in, then grows its hull, its obelisks and its guard, step after step', () => {
     const { game, world, tickFor } = setup();
     const hive = world.query(COMPONENT.CRYSTAL_HIVE)[0];
     const startMax = world.getComponent<HealthComponent>(hive, COMPONENT.HEALTH)!.max;
     // Two steps before the first dawn (its mutation pick pauses the run)
     tickFor(FORTIFY.interval * 2 + 1);
     const state = world.getComponent<FortifyCoreComponent>(hive, FORTIFY_CORE_COMPONENT)!;
-    expect(state.steps).toBe(2);
+    // It started dug in, then took two more steps
+    expect(state.steps).toBe(FORTIFY.startSteps + 2);
+    // Its guard grew with it: drones and sentinels
+    const guards = (state.guards ?? []).filter((id) => world.hasEntity(id));
+    expect(guards.length).toBeGreaterThanOrEqual(FORTIFY.guards.start + state.steps - 2);
+    expect(guards.some((id) => world.getComponent<{ kind: string }>(id, COMPONENT.CRYSTAL_UNIT)?.kind === 'sentinel')).toBe(true);
     expect(world.getComponent<HealthComponent>(hive, COMPONENT.HEALTH)!.max).toBeGreaterThan(startMax);
     const obelisks = world.query(FORTIFY_DEFENSE_COMPONENT);
-    expect(obelisks.length).toBeGreaterThanOrEqual(1);
+    expect(obelisks.length).toBeGreaterThanOrEqual(FORTIFY.startSteps);
     for (const id of obelisks) {
       expect(world.getComponent(id, COMPONENT.CRYSTAL_SPIRE)).toBeDefined();
       expect(world.getComponent(id, COMPONENT.COMBAT)).toBeDefined();
@@ -95,11 +100,11 @@ describe('rival bases dig in as time goes by', () => {
     game.stop();
   });
 
-  it('a Human base raises bunkers', () => {
+  it('a Human base raises bunkers and calls in soldiers', () => {
     const { game, world, tickFor } = setup({ playerRace: 'swarm', rivalRace: 'human' });
     tickFor(FORTIFY.interval * 2 + 1);
     const defenses = world.query(FORTIFY_DEFENSE_COMPONENT);
-    expect(defenses.length).toBeGreaterThanOrEqual(1);
+    expect(defenses.length).toBeGreaterThanOrEqual(FORTIFY.startSteps);
     for (const id of defenses) {
       expect(world.getComponent<HumanBuildingComponent>(id, HUMAN_COMPONENT.BUILDING)?.kind).toBe('bunker');
     }

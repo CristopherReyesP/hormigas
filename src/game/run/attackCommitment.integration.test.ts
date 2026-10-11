@@ -48,6 +48,8 @@ describe('soldiers sent to attack commit to it', () => {
     finishIntro(game);
     const world = game['world'] as World;
     const update = (dt: number) => game['update'](dt);
+    // These test the controls on a bare base: no fortifications, no guard army
+    world.removeSystem('RivalFortifySystem');
     const nest = world.getComponent<PositionComponent>(world.query(COMPONENT.NEST, COMPONENT.POSITION)[0], COMPONENT.POSITION)!;
     const hive = world.query(COMPONENT.CRYSTAL_HIVE)[0];
     const hivePos = world.getComponent<PositionComponent>(hive, COMPONENT.POSITION)!;

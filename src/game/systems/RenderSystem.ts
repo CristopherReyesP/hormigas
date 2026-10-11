@@ -2566,7 +2566,7 @@ export class RenderSystem {
     const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
     if (health) {
       const big = frontier?.kind === 'legion_queen' || frontier?.kind === 'mantis' || frontier?.kind === 'tarantula';
-      if (big) this.drawHealthBar(ctx, px, py, health.current, health.max, true, 1.8, -TILE_SIZE * 1.1);
+      if (big) this.drawHealthBar(ctx, px, py, health.current, health.max, true, frontier?.kind === 'tarantula' ? 2.6 : 1.8, frontier?.kind === 'tarantula' ? -TILE_SIZE * 1.9 : -TILE_SIZE * 1.1);
       else this.drawHealthBar(ctx, px, py, health.current, health.max);
     }
   }
