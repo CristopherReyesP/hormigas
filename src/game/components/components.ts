@@ -20,6 +20,7 @@ export const AntRole = {
   Scout: 'scout',
   Nurse: 'nurse',
   Defender: 'defender',
+  Bomber: 'bomber',
 } as const;
 
 export type AntRole = typeof AntRole[keyof typeof AntRole];

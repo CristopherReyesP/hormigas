@@ -99,7 +99,12 @@ const BREED_ORDER: ReadonlyArray<{ role: AntRole; icon: IconName }> = [
   { role: AntRole.Scout, icon: 'eye' },
   { role: AntRole.Nurse, icon: 'nurse' },
   { role: AntRole.Defender, icon: 'shield' },
+  // The breed rows of the cards are full: this one sits on the Colonia page
+  { role: AntRole.Bomber, icon: 'bomb' },
 ];
+
+/** The castes bred from the surface and nest cards (the rest from the Colonia page) */
+const NEST_BREED_ROLES: readonly AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse, AntRole.Defender];
 
 interface BuildToolDef {
   mode: BuildMode;
@@ -209,8 +214,8 @@ function priority(ctx: CommandContext, value: ColonyPriority, id: string, label:
   };
 }
 
-function breedCommands(ctx: CommandContext): CommandDef[] {
-  return BREED_ORDER.map(({ role, icon }) => {
+function breedCommands(ctx: CommandContext, roles: readonly AntRole[] = NEST_BREED_ROLES): CommandDef[] {
+  return BREED_ORDER.filter(({ role }) => roles.includes(role)).map(({ role, icon }) => {
     const state = breedButtonState(role, ctx.details.brood);
     const name = ROLE_LABEL[role].toLowerCase();
     const max = ctx.details.brood.maxQueuedPerRole;
@@ -707,7 +712,7 @@ function upgradesButton(ctx: CommandContext): CommandDef {
 /** Reading order of the nest root card; nestRoot() fills it and the brood hints quote its keys. */
 const NEST_ROOT_ORDER: readonly string[] = [
   'dig', 'incubation', 'farm', 'storage', 'ascend',
-  ...BREED_ORDER.map(({ role }) => `breed-${role}`),
+  ...NEST_BREED_ROLES.map((role) => `breed-${role}`),
   'pause', 'speed', 'defense', 'throne', 'colony-page',
 ];
 
@@ -748,7 +753,7 @@ function nestKey(id: string): string {
 /** Keys the brood readout quotes: the breed row and the nest tools that unblock breeding. */
 export function broodKeys(): BroodKeys {
   return {
-    breed: BREED_ORDER.map(({ role }) => nestKey(`breed-${role}`)),
+    breed: NEST_BREED_ROLES.map((role) => nestKey(`breed-${role}`)),
     incubation: nestKey('incubation'),
     storage: nestKey('storage'),
   };
@@ -787,7 +792,7 @@ function colonyPage(ctx: CommandContext): Slot[] {
     diet('mushroom', 'hongos', 'fungus'),
     diet('meat', 'carne', 'meat'),
     upgradesButton(ctx),
-    null,
+    breedCommands(ctx, [AntRole.Bomber])[0],
     null,
     null,
     null,

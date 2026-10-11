@@ -1489,6 +1489,7 @@ export class UndergroundInvasionSystem implements System {
       if (layer.layer !== Layer.Underground) continue;
       if (this.transitSystem.isInTransit(id)) continue;
       if (ant.role === AntRole.Defender) continue; // DefenderAISystem drives them — area-bound sentinels
+      if (ant.role === AntRole.Bomber) continue; // BomberAISystem sends them at the invaders
       if (hasPlayerOrder(this.world, id)) continue; // under the player's orders: never drafted
       if (ant.role === AntRole.Soldier) ugSoldiers.push(id);
       else ugCivilians.push(id);

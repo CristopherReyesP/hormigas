@@ -1757,6 +1757,7 @@ export class RenderSystem {
             [AntRole.Scout]: PAL.scout,
             [AntRole.Nurse]: PAL.nurse,
             [AntRole.Defender]: PAL.defender,
+            [AntRole.Bomber]: PAL.bomber,
           };
           ep.px(ecx, ecy - 1, roleAccent[egg.role] ?? PAL.worker);
 

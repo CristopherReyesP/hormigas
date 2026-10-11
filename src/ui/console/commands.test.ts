@@ -38,6 +38,7 @@ const details: ColonyDetails = {
       [AntRole.Scout]: 20,
       [AntRole.Nurse]: 20,
       [AntRole.Defender]: 20,
+      [AntRole.Bomber]: 25,
     },
   },
   farm: { tiles: 2, rate: 0, status: 'sin-hojas', stored: 0, capacity: 0 },
@@ -298,13 +299,13 @@ describe('nest command card', () => {
     expect(ctx.setPage).toHaveBeenCalledWith('colony');
   });
 
-  it('keeps garrison, diet and the Mejoras button on the colony page, without the tools now on the root card', () => {
+  it('keeps garrison, diet, the Mejoras button and the bomber breeding on the colony page, without the tools now on the root card', () => {
     const { gm, ctx } = nest('colony');
     const commands = buildCommands(ctx);
     expect(commands).toHaveLength(CARD_SLOTS);
     expect(commands.map((c) => c?.id ?? null)).toEqual([
       'garrison-down', 'garrison-up', 'diet-leaf', 'diet-mushroom', 'diet-meat',
-      'upgrades', null, null, null, null,
+      'upgrades', 'breed-bomber', null, null, null,
       null, 'defenses-page', 'miners-down', 'miners-up', 'back',
     ]);
     commands[1]!.run();

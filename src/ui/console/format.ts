@@ -22,6 +22,7 @@ export const ROLE_LABEL: Record<AntRole, string> = {
   [AntRole.Scout]: 'Exploradora',
   [AntRole.Nurse]: 'Nodriza',
   [AntRole.Defender]: 'Defensora',
+  [AntRole.Bomber]: 'Explosiva',
 };
 
 /** Pixel icon of each caste: breed buttons, rosters and egg chips. */
@@ -31,6 +32,7 @@ export const ROLE_ICON: Record<AntRole, IconName> = {
   [AntRole.Scout]: 'eye',
   [AntRole.Nurse]: 'nurse',
   [AntRole.Defender]: 'shield',
+  [AntRole.Bomber]: 'bomb',
 };
 
 /** What each caste does — selection panel and breeding tooltips. */
@@ -40,6 +42,7 @@ export const ROLE_BLURB: Record<AntRole, string> = {
   [AntRole.Scout]: 'Explora lejos y despeja la niebla.',
   [AntRole.Nurse]: 'Cuida y alimenta los huevos.',
   [AntRole.Defender]: 'Monta guardia en las áreas de defensa del nido.',
+  [AntRole.Bomber]: 'Corre hacia el enemigo y revienta: daña a todos a su alrededor.',
 };
 
 export const ROLE_PLURAL: Record<AntRole, string> = {
@@ -48,6 +51,7 @@ export const ROLE_PLURAL: Record<AntRole, string> = {
   [AntRole.Scout]: 'Exploradoras',
   [AntRole.Nurse]: 'Nodrizas',
   [AntRole.Defender]: 'Defensoras',
+  [AntRole.Bomber]: 'Explosivas',
 };
 
 /** Every AntState value must appear here — a missing key leaks the raw enum. */

@@ -53,6 +53,8 @@ export const ROLE_STATS = {
   nurse:    { health: 40,  damage: 0,  hungerMax: 600,  hungerDecay: 0.8, carryCapacity: 10, speedMultiplier: 0.7,  visionRange: 6,  carrySpeedPenalty: 0.9  },
   // Defenders: underground sentinels — tankier than soldiers, slower, bound to defense areas
   defender: { health: 200, damage: 10, hungerMax: 1000, hungerDecay: 0.9, carryCapacity: 4,  speedMultiplier: 0.75, visionRange: 7,  carrySpeedPenalty: 1.0  },
+  // Exploding ants: fragile and quick, their weapon is their own body (BOMBER_BURST)
+  bomber:   { health: 45,  damage: 2,  hungerMax: 900,  hungerDecay: 0.7, carryCapacity: 0,  speedMultiplier: 1.1,  visionRange: 9,  carrySpeedPenalty: 1.0  },
 } as const;
 
 // Mushroom food type constants
@@ -228,6 +230,11 @@ export const FARM_MULCH_CAPACITY = 36;          // leaf mulch a farm tile holds:
 // ── Defenders & underground design ─────────────────────────────────
 export const BREED_COST_DEFENDER = 30;
 export const EGG_INCUBATION_DEFENDER = 35; // seconds
+// Exploding ants (Colobopsis explodens): cheap, fragile, they burst on the enemy
+export const BREED_COST_BOMBER = 25;
+export const EGG_INCUBATION_BOMBER = 22; // seconds
+/** The burst: every enemy within `radius` tiles takes `damage`; it goes off within `trigger` tiles of one */
+export const BOMBER_BURST = { radius: 2.5, damage: 90, trigger: 1.1 } as const;
 export const DEFENDER_DETECT_RANGE = 8;    // tiles from the defender's POST (bigger than the area itself)
 export const MAX_ANTS_PER_TILE_UNDERGROUND = 3; // crowding cap — corridor width becomes strategy
 export const CROWD_SQUEEZE_SECONDS = 1.5;       // blocked longer than this → squeeze past (no deadlocks, ever)
@@ -285,6 +292,8 @@ export const ROLE_BASE_WEIGHTS = {
   nurse:   { food: 0.3, danger: 0.1, explore: 0.0, patrol: 0.0 },
   // Defenders never run the surface AI (underground sentinels) — typed for completeness
   defender: { food: 0.1, danger: 1.0, explore: 0.0, patrol: 1.0 },
+  // Bombers never run the scoring AI (BomberAISystem) — typed for completeness
+  bomber:   { food: 0.0, danger: 1.0, explore: 0.0, patrol: 1.0 },
 } as const;
 
 // Scoring Decision System — Colony priority multipliers (extreme to feel impactful)

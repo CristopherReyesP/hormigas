@@ -42,6 +42,7 @@ const DEFAULT_STATS: GameStats = {
   scoutCount: 0,
   nurseCount: 0,
   defenderCount: 0,
+  bomberCount: 0,
   foodStored: 0,
   mushroomStored: 0,
   meatStored: 0,

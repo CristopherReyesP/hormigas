@@ -11,6 +11,7 @@ const COSTS: Record<AntRole, number> = {
   [AntRole.Scout]: 25,
   [AntRole.Nurse]: 15,
   [AntRole.Defender]: 30,
+  [AntRole.Bomber]: 25,
 };
 
 function snapshot(overrides: Partial<BroodSnapshot> = {}): BroodSnapshot {

@@ -282,6 +282,7 @@ export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
         <Resource icon="eye" value={stats.scoutCount} label="Exploradoras" />
         {stats.nurseCount > 0 && <Resource icon="nurse" value={stats.nurseCount} label="Nodrizas" />}
         {stats.defenderCount > 0 && <Resource icon="shield" value={stats.defenderCount} label="Defensoras" />}
+        {stats.bomberCount > 0 && <Resource icon="bomb" value={stats.bomberCount} label="Explosivas" />}
         </span>
         </>)}
       </div>

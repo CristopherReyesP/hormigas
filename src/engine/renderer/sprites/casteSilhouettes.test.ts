@@ -10,7 +10,7 @@ import { PAL } from '../pixelart/palette';
 import { WALK_FRAMES, rotationSafeRadius, spritePivot } from './spriteScale';
 import { paintAnt } from './swarmSprites';
 
-const ROLES = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse, AntRole.Defender];
+const ROLES = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse, AntRole.Defender, AntRole.Bomber];
 
 function forEachFrame(role: AntRole, visit: (grid: ArtGrid, direction: number) => void): void {
   for (let direction = 0; direction < DIRECTIONS; direction++) {

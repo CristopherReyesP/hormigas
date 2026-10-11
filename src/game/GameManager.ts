@@ -108,6 +108,7 @@ import { nightMilestone } from './run/nightMilestones';
 import { loadBestNight, recordNight } from './run/nightRecord';
 import { DayNightSystem } from './systems/DayNightSystem';
 import { DefenderAISystem } from './systems/DefenderAISystem';
+import { BomberAISystem } from './systems/BomberAISystem';
 import { IntroDirector } from './render/IntroDirector';
 import { IntroClock, introRivalLine, introVariantFor, isPlayerArrival } from './render/introTimeline';
 import { playerLaunchTile, type IntroArrival } from './render/introArrival';
@@ -460,6 +461,7 @@ export interface GameStats {
   scoutCount: number;
   nurseCount: number;
   defenderCount: number;
+  bomberCount: number;
   /**
    * Food in the pantry (pantry and farm piles): what pays for eggs. The type
    * totals split it; leaves are the remainder. Food at the entrance or in the
@@ -835,6 +837,7 @@ export class GameManager {
     this.antAISystem.setUndergroundAccess(this.undergroundGrid, transitSystem);
     this.world.addSystem(new UndergroundHealingSystem(this.world, this.undergroundGrid, transitSystem));
     this.world.addSystem(new DefenderAISystem(this.world, this.undergroundGrid));
+    this.world.addSystem(new BomberAISystem(this.world, this.grid, this.undergroundGrid, transitSystem));
     const eggIncubationSystem = new EggIncubationSystem(this.world, transitSystem, this.undergroundGrid);
     this.world.addSystem(eggIncubationSystem);
     const nurseAISystem = new NurseAISystem(this.world, this.undergroundGrid);
@@ -3819,6 +3822,7 @@ export class GameManager {
         [AntRole.Scout]: this.getBreedCost(AntRole.Scout),
         [AntRole.Nurse]: this.getBreedCost(AntRole.Nurse),
         [AntRole.Defender]: this.getBreedCost(AntRole.Defender),
+        [AntRole.Bomber]: this.getBreedCost(AntRole.Bomber),
       },
     };
   }
@@ -4083,6 +4087,7 @@ export class GameManager {
     let scoutCount = 0;
     let nurseCount = 0;
     let defenderCount = 0;
+    let bomberCount = 0;
     let antsWaitingForPantry = 0;
 
     for (const id of ants) {
@@ -4105,6 +4110,9 @@ export class GameManager {
           case AntRole.Defender:
             defenderCount++;
             break;
+          case AntRole.Bomber:
+            bomberCount++;
+            break;
         }
       }
     }
@@ -4122,6 +4130,7 @@ export class GameManager {
       scoutCount,
       nurseCount,
       defenderCount,
+      bomberCount,
       // The food totals are the pantry: the only food that pays for eggs
       foodStored: Math.floor(pantryStored.total),
       mushroomStored: Math.floor(pantryStored.mushroom),

@@ -23,6 +23,7 @@ const BASE: BroodSnapshot = {
     [AntRole.Scout]: 25,
     [AntRole.Nurse]: 15,
     [AntRole.Defender]: 30,
+    [AntRole.Bomber]: 25,
   },
 };
 
