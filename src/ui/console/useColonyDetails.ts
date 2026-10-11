@@ -35,6 +35,7 @@ const EMPTY: ColonyDetails = {
       [AntRole.Scout]: 0,
       [AntRole.Nurse]: 0,
       [AntRole.Defender]: 0,
+      [AntRole.Bomber]: 0,
     },
   },
   farm: { tiles: 0, rate: 0, status: 'sin-tiles', stored: 0, capacity: 0 },

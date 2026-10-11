@@ -110,6 +110,7 @@ export const PAL = {
   scout: '#4e9ad1',
   nurse: '#d9a0c0',
   defender: '#8a5fc8',
+  bomber: '#ff7a1a',
   queen: '#e0b347',
 
   // ── Flora & food ──────────────────────────────────────────

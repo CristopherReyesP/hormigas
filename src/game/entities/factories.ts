@@ -113,6 +113,7 @@ export function createAnt(
     [AntRole.Scout]: '#4ad',
     [AntRole.Nurse]: '#a7e84d',
     [AntRole.Defender]: '#8a5fc8',
+    [AntRole.Bomber]: '#ff7a1a',
   };
   const sizes: Record<AntRole, number> = {
     [AntRole.Worker]: 0.35,
@@ -120,6 +121,7 @@ export function createAnt(
     [AntRole.Scout]: 0.3,
     [AntRole.Nurse]: 0.32,
     [AntRole.Defender]: 0.48,
+    [AntRole.Bomber]: 0.36,
   };
 
   world.addComponent<RenderComponent>(entity, COMPONENT.RENDER, {

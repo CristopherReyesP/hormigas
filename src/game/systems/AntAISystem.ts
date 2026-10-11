@@ -250,6 +250,8 @@ export class AntAISystem implements System {
         }
         endPlayerOrder(this.world, id);
       }
+      // Exploding ants run their own AI (BomberAISystem); only an order moves them here
+      if (ant.role === AntRole.Bomber) continue;
 
       // Bug 3: position-stall detection — catches stale non-empty paths.
       // Lazy-init last-known position; accumulate stuckTimer when displacement

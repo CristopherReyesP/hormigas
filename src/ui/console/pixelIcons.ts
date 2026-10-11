@@ -40,6 +40,16 @@ const COLORS: Record<string, string> = {
 };
 
 const ICON_ART = {
+  bomb: [
+    '......Y.',
+    '.....y..',
+    '...kkk..',
+    '..kxxxk.',
+    '.kxyxxxk',
+    '.kxxxxxk',
+    '..kxxxk.',
+    '...kkk..',
+  ],
   leaf: [
     '.....Gg.',
     '...Gglg.',

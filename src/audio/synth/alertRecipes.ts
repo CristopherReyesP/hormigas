@@ -9,6 +9,7 @@ export const HATCH_NOTES: Record<AntRole, number> = {
   scout: 1975.5, // B6
   nurse: 784, // G5
   defender: 587.3, // D5
+  bomber: 659.3, // E5
 };
 
 /**

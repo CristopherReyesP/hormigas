@@ -199,6 +199,7 @@ const UNDERGROUND_DOT: Record<MinimapEntity['kind'], string> = {
   scout: PAL.scout,
   nurse: PAL.nurse,
   defender: PAL.defender,
+  bomber: PAL.bomber,
   queen: PAL.queen,
   invader: DANGER,
 };

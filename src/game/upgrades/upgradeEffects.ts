@@ -2,12 +2,14 @@ import { AntRole } from '../components/components';
 import {
   ANT_SPEED,
   BREED_COST_DEFENDER,
+  BREED_COST_BOMBER,
   BREED_COST_NURSE,
   BREED_COST_SCOUT,
   BREED_COST_SOLDIER,
   BREED_COST_WORKER,
   EGG_FOOD_REQUIRED,
   EGG_INCUBATION_DEFENDER,
+  EGG_INCUBATION_BOMBER,
   EGG_INCUBATION_NURSE,
   EGG_INCUBATION_SCOUT,
   EGG_INCUBATION_SOLDIER,
@@ -102,6 +104,7 @@ export const BASE_INCUBATION: Record<AntRole, number> = {
   [AntRole.Scout]: EGG_INCUBATION_SCOUT,
   [AntRole.Nurse]: EGG_INCUBATION_NURSE,
   [AntRole.Defender]: EGG_INCUBATION_DEFENDER,
+  [AntRole.Bomber]: EGG_INCUBATION_BOMBER,
 };
 
 /** Larva growth per second on an incubation tile */
@@ -132,6 +135,7 @@ const BASE_BREED_COST: Record<AntRole, number> = {
   [AntRole.Scout]: BREED_COST_SCOUT,
   [AntRole.Nurse]: BREED_COST_NURSE,
   [AntRole.Defender]: BREED_COST_DEFENDER,
+  [AntRole.Bomber]: BREED_COST_BOMBER,
 };
 
 /** An egg's price after Nutrición de larvas; `extra` is any run surcharge on top of the base */

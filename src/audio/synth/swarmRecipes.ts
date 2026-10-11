@@ -23,6 +23,8 @@ export const CHITTER_VOICES: Record<AntRole, ChitterVoice> = {
   scout: { band: 5200, q: 5, clicks: 6, gap: 0.02, chirp: [2600, 3700], chirpPeak: 0.12 },
   nurse: { band: 2500, q: 3, clicks: 3, gap: 0.055, chirp: [880, 1260], chirpPeak: 0.2 },
   defender: { band: 1250, q: 2.5, clicks: 3, gap: 0.048, chirp: [470, 390], chirpPeak: 0.14, body: 68 },
+  // A fizzing fuse: quick bright clicks over a rising hiss
+  bomber: { band: 4400, q: 2, clicks: 7, gap: 0.018, chirp: [900, 2400], chirpPeak: 0.16 },
 };
 
 /** The Swarm talking back: wet clicks, chirps and hisses, never a voice. */

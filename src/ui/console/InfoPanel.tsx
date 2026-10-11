@@ -94,6 +94,7 @@ function ColonySummary({ stats, details, onOpenUpgrades }: { stats: GameStats; d
     [AntRole.Scout]: stats.scoutCount,
     [AntRole.Nurse]: stats.nurseCount,
     [AntRole.Defender]: stats.defenderCount,
+    [AntRole.Bomber]: stats.bomberCount,
   };
   const threats = stats.beetleCount + stats.cricketCount;
   return (

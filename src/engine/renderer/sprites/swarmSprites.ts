@@ -39,6 +39,7 @@ interface SwarmCaste {
   hips: readonly [number, number, number]; reach: number; splay: number;
   stout?: boolean;                           // 2-px thick legs
   droplet?: boolean;                         // nectar droplet held between the jaws
+  volatile?: boolean;                        // a swollen gaster lit by the toxic glands that burst
   antenna: readonly [ArtPoint, ArtPoint, ArtPoint]; // root → elbow → tip (tip flicks)
   spines: readonly ArtPoint[];               // 1-px bone bumps just outside the outline
   jaws: readonly JawStroke[];                // scythe mandibles (unoutlined, stay sharp)
@@ -98,6 +99,17 @@ const SWARM_CASTES: Record<AntRole, SwarmCaste> = {
     antenna: [[18, 8], [19, 6], [21, 6]], spines: [[4, 7], [6, 7], [8, 7]],
     jaws: [{ points: [[20, 10]], tone: 3 }],
     eye: [18, 9], mouth: 20,
+  },
+  // Exploder: a tiny body under a huge, taut gaster where the toxic glands
+  // glow through the stretched skin in the vein's light (Colobopsis
+  // explodens), quick legs, small jaws: its weapon is the burst
+  [AntRole.Bomber]: {
+    gx: 6, grx: 4.4, gry: 3.6, skin: 'flesh', petiole: [11],
+    thCx: 13, thRx: 1.3, thRy: 1.0, neck: 15, hX: 17, hR: 1.6,
+    hips: [12, 13, 14], reach: 6, splay: 4, volatile: true,
+    antenna: [[18, 10], [19, 8], [21, 7]], spines: [],
+    jaws: [{ points: [[19, 11], [20, 11]], tone: 4 }],
+    eye: [17, 10], mouth: 20,
   },
 };
 
@@ -256,6 +268,15 @@ export function paintAnt({ role, frame, direction, carrying = false, shadow = tr
   }
   p.px(c.thCx, AXIS, V[1]);
   p.px(c.thCx - 1, AXIS, V[0]);
+
+  // Toxic glands: blotches of vein light through the taut gaster, a hot core in each
+  if (c.volatile) {
+    for (const [gx, gy] of [[c.gx - 2, AXIS - 2], [c.gx + 1, AXIS - 2], [c.gx - 1, AXIS + 1], [c.gx + 2, AXIS + 1]] as const) {
+      p.rect(gx, gy, 2, 2, V[0]);
+      p.px(gx, gy, V[V.length - 1]);
+    }
+    p.px(c.gx, AXIS, V[V.length - 1]);
+  }
 
   // Hyper metabolism: the vein floods the whole axis, widens, then branches
   const surge = stacks('pulsing_vein');

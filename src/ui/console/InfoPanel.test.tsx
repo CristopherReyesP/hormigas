@@ -22,6 +22,7 @@ const BROOD: BroodSnapshot = {
     [AntRole.Scout]: 25,
     [AntRole.Nurse]: 15,
     [AntRole.Defender]: 30,
+    [AntRole.Bomber]: 25,
   },
 };
 
@@ -44,6 +45,7 @@ const STATS = {
   scoutCount: 0,
   nurseCount: 3,
   defenderCount: 0,
+  bomberCount: 0,
   foodStored: 34,
   mushroomStored: 0,
   meatStored: 0,
