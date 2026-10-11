@@ -153,3 +153,34 @@ describe('CombatSystem — combat VFX', () => {
     expect(vfx.countAlive()).toBe(0);
   });
 });
+
+describe('CombatSystem — meat piles', () => {
+  function slay(world: World, system: CombatSystem, arm: (id: number, target: number, damage?: number) => void, x: number, y: number) {
+    const soldier = createAnt(world, x - 1, y, AntRole.Soldier);
+    const beetle = createBeetle(world, x, y);
+    world.getComponent<HealthComponent>(beetle, COMPONENT.HEALTH)!.current = 1;
+    arm(soldier, beetle, 50);
+    system.update(1 / 60);
+    world.destroyEntity(soldier);
+  }
+
+  it('kills on the same spot pile their meat together', () => {
+    const { world, system, arm } = setup();
+    slay(world, system, arm, 10, 10);
+    const pile = world.query(COMPONENT.FOOD_SOURCE)[0];
+    const one = world.getComponent<FoodSourceComponent>(pile, COMPONENT.FOOD_SOURCE)!.amount;
+    slay(world, system, arm, 10.5, 10);
+
+    expect(meatOf(world, FoodType.BeetleMeat)).toBe(1);
+    const food = world.getComponent<FoodSourceComponent>(pile, COMPONENT.FOOD_SOURCE)!;
+    expect(food.amount).toBe(one * 2);
+    expect(food.maxAmount).toBe(one * 2);
+  });
+
+  it('a kill farther away leaves a pile of its own', () => {
+    const { world, system, arm } = setup();
+    slay(world, system, arm, 10, 10);
+    slay(world, system, arm, 20, 10);
+    expect(meatOf(world, FoodType.BeetleMeat)).toBe(2);
+  });
+});

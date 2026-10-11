@@ -202,6 +202,14 @@ function rasterize(frame: UnitFrame, mirror: boolean): OffscreenCanvas {
 }
 
 /** A spire's place on the crater rim: base offset from the impact (world px) and its art. */
+/** A world-px rectangle (the camera's view) */
+export interface ViewRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 interface PlacedSpire {
   dx: number;
   dy: number;
@@ -387,17 +395,37 @@ export class MeteorIntro {
   }
 
   /** World space, right after the terrain: the decal with its pulsing cracks and the Hive's spires. */
-  drawCrater(ctx: CanvasRenderingContext2D, time: number): void {
+  /**
+   * The crater, its shards and spires. With `view` (world px), layers wholly
+   * outside it are skipped: the crater is far from the nest, and blitting its
+   * big layers every frame while it is off screen costs about a millisecond.
+   */
+  drawCrater(ctx: CanvasRenderingContext2D, time: number, view?: ViewRect): void {
     if (!this.hasCrater()) return;
     this.ensureCraterArt();
+    const seen = (x: number, y: number, w: number, h: number) =>
+      !view || (x < view.x + view.w && x + w > view.x && y < view.y + view.h && y + h > view.y);
+    const base = this.craterBase!;
     const x = Math.round(this.crater.x) - CR_CX * ART;
     const y = Math.round(this.crater.y) - CR_CY * ART;
-    ctx.drawImage(this.craterBase!, x, y);
-    // The cracks flare white-hot cyan while the pulse rings out
-    const step = introPulse(this.variant, this.t) !== null ? 2 : crackPulseStep(time);
-    ctx.drawImage(this.crackLayers[step], x, y);
-    if (this.shardLayer) ctx.drawImage(this.shardLayer, this.shardOrigin().x, this.shardOrigin().y);
-    if (this.spiresStanding) this.spires.forEach((s, i) => this.drawSpire(ctx, s, this.spireHeight(i), s.art.body));
+    if (seen(x, y, base.width, base.height)) {
+      ctx.drawImage(base, x, y);
+      // The cracks flare white-hot cyan while the pulse rings out
+      const step = introPulse(this.variant, this.t) !== null ? 2 : crackPulseStep(time);
+      ctx.drawImage(this.crackLayers[step], x, y);
+    }
+    if (this.shardLayer) {
+      const o = this.shardOrigin();
+      if (seen(o.x, o.y, this.shardLayer.width, this.shardLayer.height)) ctx.drawImage(this.shardLayer, o.x, o.y);
+    }
+    if (this.spiresStanding) {
+      this.spires.forEach((s, i) => {
+        const layer = s.art.body;
+        const bx = Math.round(this.crater.x + s.dx) - s.art.baseX;
+        const by = Math.round(this.crater.y + s.dy) + s.art.baseBelow;
+        if (seen(bx, by - layer.height, layer.width, layer.height)) this.drawSpire(ctx, s, this.spireHeight(i), layer);
+      });
+    }
   }
 
   /** Spire `i`'s growth: grown in this opening (the Hive's), or standing once the intro is over. */

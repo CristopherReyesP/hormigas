@@ -40,6 +40,8 @@ export class CreepSystem implements System {
   private creep: CreepGrid;
   private timer = 0;
   private prev: Uint8Array;
+  /** Box holding every tile with coverage (inclusive), null until the first spread scans the grid */
+  private live: { x0: number; y0: number; x1: number; y1: number } | null = null;
 
   constructor(world: World, grid: TileGrid, creep: CreepGrid) {
     this.world = world;
@@ -73,8 +75,20 @@ export class CreepSystem implements System {
     // Spread reads last update's carpet, so it advances one ring per update in every direction
     this.prev.set(coverage);
     const prev = this.prev;
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
+    // Only the nests' reach and the tiles still holding creep can change: the rest of the map is skipped
+    const reachBox = Math.ceil(radius * 1.2) + 1;
+    let x0 = width, y0 = height, x1 = -1, y1 = -1;
+    const grow = (ax: number, ay: number, bx: number, by: number) => {
+      x0 = Math.min(x0, ax); y0 = Math.min(y0, ay); x1 = Math.max(x1, bx); y1 = Math.max(y1, by);
+    };
+    for (const nest of nests) grow(nest.x - reachBox, nest.y - reachBox, nest.x + reachBox, nest.y + reachBox);
+    if (!this.live) grow(0, 0, width - 1, height - 1);
+    else if (this.live.x1 >= 0) grow(this.live.x0, this.live.y0, this.live.x1, this.live.y1);
+    x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(width - 1, x1); y1 = Math.min(height - 1, y1);
+
+    let lx0 = width, ly0 = height, lx1 = -1, ly1 = -1;
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
         const idx = y * width + x;
         const tile = this.grid.getTile(x, y);
         let reach = false;
@@ -99,8 +113,15 @@ export class CreepSystem implements System {
         } else if (current > 0) {
           coverage[idx] = Math.max(0, current - CREEP_DECAY_STEP);
         }
+        if (coverage[idx] > 0) {
+          if (x < lx0) lx0 = x;
+          if (x > lx1) lx1 = x;
+          if (y < ly0) ly0 = y;
+          if (y > ly1) ly1 = y;
+        }
       }
     }
+    this.live = lx1 < 0 ? { x0: 0, y0: 0, x1: -1, y1: -1 } : { x0: lx0, y0: ly0, x1: lx1, y1: ly1 };
   }
 
   /** Colony ants (and the queen) standing on surface creep mend their wounds */

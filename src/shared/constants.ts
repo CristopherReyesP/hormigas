@@ -385,3 +385,4 @@ export const CREEP_DECAY_STEP = 12;          // coverage a tile loses per update
 export const CREEP_SOLID = 128;              // coverage from which a tile counts as creep and spreads further
 export const CREEP_SPEED_MULT = 1.3;         // colony ants run this much faster on creep
 export const CREEP_HEAL_PER_SECOND = 1.5;    // HP a colony ant on creep regains per second
+export const MEAT_MERGE_RADIUS = 1.5;        // a kill this close to a pile of the same meat adds to it instead of a new pile
