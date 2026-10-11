@@ -35,7 +35,10 @@ import {
   BEETLE_SWARM_RADIUS,
   BEETLE_SWARM_AVOIDANCE,
   BEETLE_SOLDIER_AVOIDANCE,
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
 } from '../../shared/constants';
+import { SpatialGrid } from './helpers/spatialGrid';
 
 /** Surface ants visible to predators this tick — one snapshot shared by every beetle */
 interface PreySnapshot {
@@ -43,6 +46,17 @@ interface PreySnapshot {
   x: number;
   y: number;
   isSoldier: boolean;
+  index: number;
+  /** Sisters within BEETLE_SWARM_RADIUS, counted on first use this tick (-1 = not yet) */
+  escorts: number;
+}
+
+/** Surface food a beetle may eat (no beetle meat), snapshotted once per tick */
+interface FoodSnapshot {
+  id: EntityId;
+  x: number;
+  y: number;
+  index: number;
 }
 
 export class BeetleAISystem implements System {
@@ -55,6 +69,14 @@ export class BeetleAISystem implements System {
 
   /** Rebuilt once per tick — beetles used to run a full world.query EACH, EVERY frame */
   private prey: PreySnapshot[] = [];
+  /** prey and food bucketed by position: a beetle only looks at what is near it */
+  private preyGrid = new SpatialGrid<PreySnapshot>(WORLD_WIDTH, WORLD_HEIGHT, 6);
+  private foodGrid = new SpatialGrid<FoodSnapshot>(WORLD_WIDTH, WORLD_HEIGHT, 8);
+  private preyNearby: PreySnapshot[] = [];
+  private escortsNearby: PreySnapshot[] = [];
+  private foodNearby: FoodSnapshot[] = [];
+  private preyBuilt = false;
+  private foodBuilt = false;
 
   constructor(world: World, grid: TileGrid, modifiers: GlobalModifiers) {
     this.world = world;
@@ -68,8 +90,12 @@ export class BeetleAISystem implements System {
   }
 
   update(dt: number): void {
-    this.buildPreySnapshot();
     const beetles = this.world.query(COMPONENT.BEETLE, COMPONENT.POSITION, COMPONENT.PATH);
+    // No beetle, nobody to feed the snapshots to (their cost grows with the colony)
+    if (beetles.length === 0) return;
+    // Built on first use this tick: most beetles are mid-chase or eating and never look
+    this.preyBuilt = false;
+    this.foodBuilt = false;
 
     for (const id of beetles) {
       // Night-wave invaders are driven by UndergroundInvasionSystem, not surface AI:
@@ -466,17 +492,13 @@ export class BeetleAISystem implements System {
    */
   private buildPreySnapshot(): void {
     this.prey.length = 0;
+    this.preyGrid.clear();
     for (const antId of this.world.query(COMPONENT.ANT, COMPONENT.POSITION)) {
       const layer = this.world.getComponent<LayerComponent>(antId, COMPONENT.LAYER);
       if (layer && layer.layer !== Layer.Surface) continue;
       const antPos = this.world.getComponent<PositionComponent>(antId, COMPONENT.POSITION)!;
       const ant = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT);
-      this.prey.push({
-        id: antId,
-        x: antPos.x,
-        y: antPos.y,
-        isSoldier: ant !== undefined && ant.role === AntRole.Soldier,
-      });
+      this.addPrey(antId, antPos.x, antPos.y, ant !== undefined && ant.role === AntRole.Soldier);
     }
     // A Human player's units are prey too (the rival's Human troops keep to their base)
     for (const id of this.world.query(HUMAN_COMPONENT.UNIT, COMPONENT.POSITION)) {
@@ -484,8 +506,41 @@ export class BeetleAISystem implements System {
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
       if (layer && layer.layer !== Layer.Surface) continue;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-      this.prey.push({ id, x: pos.x, y: pos.y, isSoldier: false });
+      this.addPrey(id, pos.x, pos.y, false);
     }
+  }
+
+  private addPrey(id: EntityId, x: number, y: number, isSoldier: boolean): void {
+    const entry: PreySnapshot = { id, x, y, isSoldier, index: this.prey.length, escorts: -1 };
+    this.prey.push(entry);
+    this.preyGrid.insert(entry);
+  }
+
+  private buildFoodSnapshot(): void {
+    this.foodGrid.clear();
+    let index = 0;
+    for (const foodId of this.world.query(COMPONENT.FOOD_SOURCE, COMPONENT.POSITION)) {
+      const food = this.world.getComponent<FoodSourceComponent>(foodId, COMPONENT.FOOD_SOURCE)!;
+      // No cannibalism — skip beetle meat
+      if (food.resourceType === FoodType.BeetleMeat) continue;
+      // Surface beetles must not smell underground drops (layers share coordinates)
+      const foodLayer = this.world.getComponent<LayerComponent>(foodId, COMPONENT.LAYER);
+      if (foodLayer && foodLayer.layer !== Layer.Surface) continue;
+      const foodPos = this.world.getComponent<PositionComponent>(foodId, COMPONENT.POSITION)!;
+      this.foodGrid.insert({ id: foodId, x: foodPos.x, y: foodPos.y, index: index++ });
+    }
+  }
+
+  /** How much backup this ant has within biting distance */
+  private escortsOf(candidate: PreySnapshot): number {
+    if (candidate.escorts >= 0) return candidate.escorts;
+    let escorts = 0;
+    for (const other of this.preyGrid.queryCircle(candidate.x, candidate.y, BEETLE_SWARM_RADIUS, this.escortsNearby)) {
+      if (other.id === candidate.id) continue;
+      if (Math.hypot(other.x - candidate.x, other.y - candidate.y) < BEETLE_SWARM_RADIUS) escorts++;
+    }
+    candidate.escorts = escorts;
+    return escorts;
   }
 
   /**
@@ -494,20 +549,20 @@ export class BeetleAISystem implements System {
    * so a lone forager two tiles further away is the smarter meal.
    */
   private findNearestAnt(pos: PositionComponent, visionRange: number): { id: EntityId; pos: PositionComponent } | null {
+    if (!this.preyBuilt) {
+      this.preyBuilt = true;
+      this.buildPreySnapshot();
+    }
     let bestId: EntityId | null = null;
     let bestPos: { x: number; y: number } | null = null;
     let bestScore = Infinity;
 
-    for (const candidate of this.prey) {
+    for (const candidate of this.preyGrid.queryCircle(pos.x, pos.y, visionRange, this.preyNearby)) {
       const dist = Math.hypot(candidate.x - pos.x, candidate.y - pos.y);
       if (dist >= visionRange) continue;
 
       // How much backup does this ant have within biting distance?
-      let escorts = 0;
-      for (const other of this.prey) {
-        if (other.id === candidate.id) continue;
-        if (Math.hypot(other.x - candidate.x, other.y - candidate.y) < BEETLE_SWARM_RADIUS) escorts++;
-      }
+      const escorts = this.escortsOf(candidate);
 
       const score =
         dist *
@@ -527,21 +582,17 @@ export class BeetleAISystem implements System {
   }
 
   private findNearestFood(pos: PositionComponent, visionRange: number): { id: EntityId; pos: PositionComponent } | null {
-    const foods = this.world.query(COMPONENT.FOOD_SOURCE, COMPONENT.POSITION);
+    if (!this.foodBuilt) {
+      this.foodBuilt = true;
+      this.buildFoodSnapshot();
+    }
     let nearest: { id: EntityId; pos: PositionComponent } | null = null;
     let nearestDist = Infinity;
 
-    for (const foodId of foods) {
-      const food = this.world.getComponent<FoodSourceComponent>(foodId, COMPONENT.FOOD_SOURCE);
-      if (!food) continue;
-
-      // No cannibalism — skip beetle meat
-      if (food.resourceType === FoodType.BeetleMeat) continue;
-
-      // Surface beetles must not smell underground drops (layers share coordinates)
-      const foodLayer = this.world.getComponent<LayerComponent>(foodId, COMPONENT.LAYER);
-      if (foodLayer && foodLayer.layer !== Layer.Surface) continue;
-
+    for (const entry of this.foodGrid.queryCircle(pos.x, pos.y, visionRange, this.foodNearby)) {
+      const foodId = entry.id;
+      // Eaten up earlier this tick
+      if (!this.world.getComponent<FoodSourceComponent>(foodId, COMPONENT.FOOD_SOURCE)) continue;
       const foodPos = this.world.getComponent<PositionComponent>(foodId, COMPONENT.POSITION)!;
       const dist = this.distance(pos, foodPos);
 

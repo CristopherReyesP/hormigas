@@ -19,6 +19,8 @@ export class FogOfWarSystem implements System {
   private world: World;
   private visibilityGrid: VisibilityGrid;
   private tickCounter = 0;
+  /** Circles already revealed this sweep (tile + radius keys) */
+  private revealed = new Set<number>();
 
   constructor(world: World, visibilityGrid: VisibilityGrid) {
     this.world = world;
@@ -34,6 +36,9 @@ export class FogOfWarSystem implements System {
     this.visibilityGrid.resetBrightness();
 
     const ants = this.world.query(COMPONENT.ANT, COMPONENT.POSITION);
+    // A reveal only raises tiles to a max, so a second identical circle (ants
+    // crowding the same tile with the same sight) changes nothing: skip it
+    this.revealed.clear();
 
     for (const id of ants) {
       // Skip underground entities — they don't reveal surface fog
@@ -49,11 +54,12 @@ export class FogOfWarSystem implements System {
       // Fog reveal uses a fraction of combat vision — ants detect enemies far but map terrain slower
       const revealRange = Math.ceil(visionRange * FOG_REVEAL_MULTIPLIER);
 
-      this.visibilityGrid.revealCircle(
-        Math.round(pos.x),
-        Math.round(pos.y),
-        revealRange
-      );
+      const tx = Math.round(pos.x);
+      const ty = Math.round(pos.y);
+      const key = (ty * 4096 + tx) * 256 + revealRange;
+      if (this.revealed.has(key)) continue;
+      this.revealed.add(key);
+      this.visibilityGrid.revealCircle(tx, ty, revealRange);
     }
 
     // A Human player sees through their own units and buildings

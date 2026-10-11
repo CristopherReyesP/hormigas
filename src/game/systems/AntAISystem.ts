@@ -81,9 +81,14 @@ import {
   MINER_ALLOCATE_SECONDS,
   MINER_FIELD_REACH,
   SURFACE_GLUT_PILE,
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
 } from '../../shared/constants';
 import { autoMinerTarget, clampMinerTarget, type MinerStatus } from '../economy/minerAllocation';
 import { clearResourceOrder } from './helpers/resourceOrders';
+import { SpatialGrid } from './helpers/spatialGrid';
+
+type FoodEntry = { id: EntityId; x: number; y: number; type?: FoodType; index: number };
 
 /** A miner that has not reached its node in this long gives up and looks for other work */
 const MINING_GIVE_UP_SECONDS = 40;
@@ -118,7 +123,11 @@ export class AntAISystem implements System {
   // pattern cost ~4 full queries PER ANT per frame; with 400 ants the game choked).
   private attackerByTarget: Map<EntityId, EntityId> = new Map();
   private enemySnapshot: Array<{ id: EntityId; x: number; y: number }> = [];
-  private foodSnapshot: Array<{ id: EntityId; x: number; y: number; type?: FoodType }> = [];
+  private foodSnapshot: FoodEntry[] = [];
+  /** foodSnapshot bucketed by position: harvest and sight checks look at nearby piles only */
+  private foodGrid = new SpatialGrid<FoodEntry>(WORLD_WIDTH, WORLD_HEIGHT, 8);
+  /** Scratch list for foodGrid lookups (reused, no per-ant allocation) */
+  private foodNearby: FoodEntry[] = [];
   /** Surface mineral nodes that still hold ore */
   private mineralSnapshot: Array<{ id: EntityId; x: number; y: number }> = [];
   /**
@@ -715,13 +724,20 @@ export class AntAISystem implements System {
     }
 
     this.foodSnapshot.length = 0;
-    for (const id of this.world.query(COMPONENT.FOOD_SOURCE, COMPONENT.POSITION)) {
+    this.foodGrid.clear();
+    // Late runs carry hundreds of piles: read the stores directly (one lookup per component)
+    const layers = this.world.getStore<LayerComponent>(COMPONENT.LAYER);
+    const positions = this.world.getStore<PositionComponent>(COMPONENT.POSITION);
+    const sources = this.world.getStore<FoodSourceComponent>(COMPONENT.FOOD_SOURCE);
+    for (const [id, source] of sources) {
+      const pos = positions.get(id);
+      if (!pos) continue;
       // Surface ants must not "see" underground drops (layers share coordinates)
-      const foodLayer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+      const foodLayer = layers.get(id);
       if (foodLayer && foodLayer.layer !== Layer.Surface) continue;
-      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-      const source = this.world.getComponent<FoodSourceComponent>(id, COMPONENT.FOOD_SOURCE);
-      this.foodSnapshot.push({ id, x: pos.x, y: pos.y, type: source?.resourceType as FoodType | undefined });
+      const entry: FoodEntry = { id, x: pos.x, y: pos.y, type: source?.resourceType as FoodType | undefined, index: this.foodSnapshot.length };
+      this.foodSnapshot.push(entry);
+      this.foodGrid.insert(entry);
     }
 
     this.mineralSnapshot.length = 0;
@@ -1154,7 +1170,8 @@ export class AntAISystem implements System {
     // Check if we're near any food source (snapshot is surface-only already).
     // A worker on a Recolectar order takes from its own source first.
     const ordered = ant.resourceOrder === 'gather' ? ant.foodTargetId ?? null : null;
-    const sources = ordered === null ? this.foodSnapshot : [...this.foodSnapshot].sort((a, b) => Number(b.id === ordered) - Number(a.id === ordered));
+    const nearby = this.foodGrid.queryCircle(pos.x, pos.y, ANT_HARVEST_RANGE, this.foodNearby);
+    const sources = ordered === null ? nearby : [...nearby].sort((a, b) => Number(b.id === ordered) - Number(a.id === ordered));
     for (const f of sources) {
       const dx = f.x - pos.x;
       const dy = f.y - pos.y;
@@ -1679,7 +1696,7 @@ export class AntAISystem implements System {
     const desperate = hunger !== undefined && hunger.current < hunger.max * HUNGER_EAT_THRESHOLD;
     const avoidGuarded = ant.role !== AntRole.Soldier && !desperate && this.enemySnapshot.length > 0;
 
-    for (const f of this.foodSnapshot) {
+    for (const f of this.foodGrid.queryCircle(pos.x, pos.y, visionRange, this.foodNearby)) {
       const dx = f.x - pos.x;
       const dy = f.y - pos.y;
       const dist = Math.sqrt(dx * dx + dy * dy);

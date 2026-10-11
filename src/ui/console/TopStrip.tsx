@@ -20,10 +20,10 @@ interface TopStripProps {
   onHelp?: () => void;
 }
 
-function Resource({ icon, value, label, tone }: { icon: IconName; value: number; label: string; tone?: string }) {
+function Resource({ icon, value, label, tone, className }: { icon: IconName; value: number; label: string; tone?: string; className?: string }) {
   const flash = useFlashOnChange(value);
   return (
-    <span className="strip-item" title={label}>
+    <span className={className ? `strip-item ${className}` : 'strip-item'} title={label}>
       <PixelIcon name={icon} />
       <span className={`strip-value ${flash}`} style={tone ? { color: tone } : undefined}>{value}</span>
     </span>
@@ -273,9 +273,10 @@ export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
           waiting={stats.antsWaitingForPantry ?? 0}
         />
         <MineralStock stored={stats.mineralsStored ?? 0} miners={stats.miners?.count ?? 0} />
+        {/* The total stays on the strip; the castes after the separator fold first */}
+        <Resource icon="ant" value={stats.antCount} label="Población total" tone="var(--chrome-text)" className="strip-ant-total" />
         <span className="strip-sep" aria-hidden="true" />
         <span className="strip-pop">
-        <Resource icon="ant" value={stats.antCount} label="Población total" tone="var(--chrome-text)" />
         <Resource icon="worker" value={stats.workerCount} label="Obreras" />
         <Resource icon="sword" value={stats.soldierCount} label="Soldados" />
         <Resource icon="eye" value={stats.scoutCount} label="Exploradoras" />

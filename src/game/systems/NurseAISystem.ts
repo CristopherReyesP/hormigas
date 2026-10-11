@@ -50,12 +50,34 @@ export class NurseAISystem implements System {
     };
   }
 
+  /**
+   * Every nurse (any layer), rebuilt once per tick. The per-nurse scans below
+   * (claimed eggs, fetcher counts, attended larvae) walk this list and read
+   * each nurse's live state, instead of scanning every ant in the colony per
+   * idle nurse per tick (that was O(nurses x ants) and choked big colonies).
+   */
+  private nurses: Array<{ id: number; ant: AntComponent; layer: LayerComponent | undefined }> = [];
+  /** The queen, found once per tick */
+  private queenId: number | null = null;
+  /** Ticks seen; keys the per-tick incubation tile list */
+  private tick = 0;
+  private incubationTilesTick = -1;
+  private incubationTileCache: Array<{ x: number; y: number }> = [];
+
   update(dt: number): void {
     const ants = this.world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.LAYER);
-
+    this.tick++;
+    this.nurses.length = 0;
     for (const id of ants) {
       const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
       if (ant.role !== AntRole.Nurse) continue;
+      this.nurses.push({ id, ant, layer: this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER) });
+    }
+    const queens = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.POSITION);
+    this.queenId = queens.length > 0 ? queens[0] : null;
+
+    for (let i = 0; i < this.nurses.length; i++) {
+      const { id, ant } = this.nurses[i];
 
       const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
       if (layer.layer !== Layer.Underground) continue;
@@ -121,14 +143,10 @@ export class NurseAISystem implements System {
 
   /** How many OTHER underground nurses are in any of these states */
   private countNursesInStates(excludeId: number, ...states: AntState[]): number {
-    const ants = this.world.query(COMPONENT.ANT, COMPONENT.LAYER);
     let count = 0;
-    for (const id of ants) {
+    for (const { id, ant, layer } of this.nurses) {
       if (id === excludeId) continue;
-      const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
-      if (ant.role !== AntRole.Nurse) continue;
-      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!;
-      if (layer.layer !== Layer.Underground) continue;
+      if (!layer || layer.layer !== Layer.Underground) continue;
       if ((states as string[]).includes(ant.state)) count++;
     }
     return count;
@@ -161,7 +179,7 @@ export class NurseAISystem implements System {
     const fetchers = this.countNursesInStates(id, AntState.FetchingFood);
 
     // Priority 1: Queen CRITICAL — she's dying-hungry, she outranks everything
-    const queens = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.POSITION);
+    const queens = this.queenId !== null && this.world.hasEntity(this.queenId) ? [this.queenId] : [];
     if (queens.length > 0) {
       const queen = this.world.getComponent<QueenEntityComponent>(queens[0], COMPONENT.QUEEN_ENTITY)!;
       if (queen.hunger < queen.maxHunger * 0.25) {
@@ -274,10 +292,9 @@ export class NurseAISystem implements System {
   }
 
   private handleFeedingQueen(id: number, ant: AntComponent, pos: PositionComponent, dt: number): void {
-    const queens = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.POSITION);
-    if (queens.length === 0) { ant.state = AntState.Idle; return; }
+    if (this.queenId === null || !this.world.hasEntity(this.queenId)) { ant.state = AntState.Idle; return; }
 
-    const queenId = queens[0];
+    const queenId = this.queenId;
     const queenPos = this.world.getComponent<PositionComponent>(queenId, COMPONENT.POSITION)!;
     const queen = this.world.getComponent<QueenEntityComponent>(queenId, COMPONENT.QUEEN_ENTITY)!;
 
@@ -525,9 +542,8 @@ export class NurseAISystem implements System {
   /** Nearest growing larva no other nurse is attending */
   private findLarvaToGroom(nurseId: number, pos: PositionComponent): number | null {
     const attended = new Set<number>();
-    for (const antId of this.world.query(COMPONENT.ANT)) {
+    for (const { id: antId, ant: other } of this.nurses) {
       if (antId === nurseId) continue;
-      const other = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT)!;
       if (other.state === AntState.GroomingBrood && other.commandTargetId !== null) attended.add(other.commandTargetId);
     }
 
@@ -559,11 +575,8 @@ export class NurseAISystem implements System {
   /** Eggs already claimed by another nurse (being moved or fed) */
   private getClaimedEggs(excludeNurseId: number | null = null): Set<number> {
     const claimed = new Set<number>();
-    const allAnts = this.world.query(COMPONENT.ANT, COMPONENT.LAYER);
-    for (const antId of allAnts) {
+    for (const { id: antId, ant } of this.nurses) {
       if (antId === excludeNurseId) continue;
-      const ant = this.world.getComponent<AntComponent>(antId, COMPONENT.ANT)!;
-      if (ant.role !== AntRole.Nurse) continue;
       if (
         (ant.state === AntState.MovingEgg || ant.state === AntState.TendingEgg) &&
         ant.commandTargetId !== null
@@ -615,24 +628,28 @@ export class NurseAISystem implements System {
   }
 
   private findEggNeedingRelocation(): number | null {
-    // Don't send nurses to grab eggs when there's nowhere to put them —
-    // otherwise they pick up, abort, and another nurse repeats the dance forever
-    if (this.findAvailableIncubationTile(null) === null) return null;
-
     const eggs = this.world.query(COMPONENT.EGG, COMPONENT.POSITION);
+    if (eggs.length === 0) return null;
     const claimedEggs = this.getClaimedEggs();
 
+    let found: number | null = null;
     for (const eggId of eggs) {
       if (claimedEggs.has(eggId)) continue;
 
       const eggPos = this.world.getComponent<PositionComponent>(eggId, COMPONENT.POSITION)!;
       const tile = this.grid.getTile(Math.floor(eggPos.x), Math.floor(eggPos.y));
       if (!tile || tile.chamberType !== ChamberType.Incubation) {
-        return eggId;
+        found = eggId;
+        break;
       }
     }
+    if (found === null) return null;
 
-    return null;
+    // Don't send nurses to grab eggs when there's nowhere to put them —
+    // otherwise they pick up, abort, and another nurse repeats the dance forever
+    // (checked last: it scans the whole grid)
+    if (this.findAvailableIncubationTile(null) === null) return null;
+    return found;
   }
 
   private countEggsOnTile(x: number, y: number, excludeEggId: number | null): number {
@@ -653,29 +670,45 @@ export class NurseAISystem implements System {
   }
 
   private findAvailableIncubationTile(excludeEggId: number | null): { x: number; y: number } | null {
+    const tiles = this.incubationTiles();
+    if (tiles.length === 0) return null;
+
     // Count eggs per tile (excluding the egg being carried — it counts itself otherwise)
-    const eggCounts = new Map<string, number>();
+    const eggCounts = new Map<number, number>();
     const eggs = this.world.query(COMPONENT.EGG, COMPONENT.POSITION);
+    const width = this.grid.width;
 
     for (const eggId of eggs) {
       if (eggId === excludeEggId) continue;
       const eggPos = this.world.getComponent<PositionComponent>(eggId, COMPONENT.POSITION)!;
-      const key = `${Math.floor(eggPos.x)},${Math.floor(eggPos.y)}`;
+      const key = Math.floor(eggPos.y) * width + Math.floor(eggPos.x);
       eggCounts.set(key, (eggCounts.get(key) ?? 0) + 1);
     }
 
-    for (let y = 0; y < this.grid.height; y++) {
-      for (let x = 0; x < this.grid.width; x++) {
-        const tile = this.grid.getTile(x, y);
-        if (tile && tile.walkable && tile.chamberType === ChamberType.Incubation) {
-          const count = eggCounts.get(`${x},${y}`) ?? 0;
-          if (count < eggsPerIncubationTile(this.world.upgradeLevels)) {
-            return { x, y };
-          }
-        }
-      }
+    const perTile = eggsPerIncubationTile(this.world.upgradeLevels);
+    for (const tile of tiles) {
+      if ((eggCounts.get(tile.y * width + tile.x) ?? 0) < perTile) return { x: tile.x, y: tile.y };
     }
 
     return null;
+  }
+
+  /**
+   * Walkable incubation tiles in row-major order (the order the old full-grid
+   * scan visited them), listed once per tick instead of once per nurse: the
+   * nest does not change shape while the nurses think.
+   */
+  private incubationTiles(): Array<{ x: number; y: number }> {
+    if (this.incubationTilesTick === this.tick) return this.incubationTileCache;
+    this.incubationTilesTick = this.tick;
+    const tiles = this.incubationTileCache;
+    tiles.length = 0;
+    for (let y = 0; y < this.grid.height; y++) {
+      for (let x = 0; x < this.grid.width; x++) {
+        const tile = this.grid.getTile(x, y);
+        if (tile && tile.walkable && tile.chamberType === ChamberType.Incubation) tiles.push({ x, y });
+      }
+    }
+    return tiles;
   }
 }

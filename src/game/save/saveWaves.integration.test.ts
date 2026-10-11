@@ -53,7 +53,7 @@ function expectSameState(actual: GameManager, expected: GameManager): void {
 }
 
 /** Entities carrying `component`, as a sorted id list */
-const idsOf = (game: GameManager, component: string) => (game['world'] as World).query(component).sort((a, b) => a - b);
+const idsOf = (game: GameManager, component: string) => [...(game['world'] as World).query(component)].sort((a, b) => a - b);
 
 describe.each<RivalId>(['crystal', 'human'])('saving mid-wave: Swarm vs %s, with elites, a boss and an Espina', (rival) => {
   it('round-trips and continues in lockstep', () => {

@@ -28,7 +28,7 @@ import type { StatefulRng } from './rng';
 const DENY_FIELDS: Record<string, readonly string[]> = {
   GameManager: [
     'canvas', 'introClock', 'introDirector', 'renderer', 'input', 'camera', 'undergroundCamera',
-    'renderSystem', 'gameLoop', 'statsCallback', 'statsTicks', 'tickListeners', 'runSetup',
+    'renderSystem', 'gameLoop', 'statsCallback', 'statsTicks', 'statsSpeed', 'tickListeners', 'runSetup',
     'activeLayer', 'farmMode', 'throneMode', 'defenseMode', 'digMode', 'incubationMode', 'storageMode',
     'viewportConfigured', 'areaSelect', 'paintStroke', 'armedCommand', 'orderPings',
     'defenseBuild', 'ghostTile', 'touchInput', 'feedbackListeners', 'farmFocus',
@@ -40,13 +40,18 @@ const DENY_FIELDS: Record<string, readonly string[]> = {
   ],
   // A building being placed and its ghost are a tool in the player's hand, not run state
   HumanPlayerRun: ['placing', 'ghost'],
-  World: ['systems', 'systemsSorted', 'deathEffects', 'hitEffects', 'notifications', 'notificationCooldowns'],
+  World: ['systems', 'systemsSorted', 'storeVersions', 'queryCache', 'deathEffects', 'hitEffects', 'notifications', 'notificationCooldowns'],
   UndergroundGrid: ['entranceCache', 'entranceCacheVersion', 'chamberRegions', 'chamberCoords', 'layoutVersion'],
   SelectionSystem: ['selected', 'selectionLayer'],
   ControlGroups: ['lastTap'],
   PorterSystem: ['lastPantryFullNotify'],
   // Scratch copy of the carpet, rewritten every spread
   CreepSystem: ['prev'],
+  // Per-tick lookup caches, rebuilt by the systems every tick
+  AntAISystem: ['foodGrid', 'foodNearby'],
+  BeetleAISystem: ['preyGrid', 'foodGrid', 'preyNearby', 'escortsNearby', 'foodNearby', 'preyBuilt', 'foodBuilt'],
+  NurseAISystem: ['nurses', 'queenId', 'tick', 'incubationTilesTick', 'incubationTileCache'],
+  FogOfWarSystem: ['revealed'],
   RunModifiers: ['marks'],
 };
 
@@ -203,6 +208,7 @@ function applyState(gm: GameManager, state: SaveState): void {
     store.clear();
     stores.set(name, store);
   }
+  m.world.invalidateQueries();
   decoder.decodeRoot(m.grid, state.grid);
   decoder.decodeRoot(m.undergroundGrid, state.underground);
   decoder.decodeRoot(m.visibilityGrid, state.visibility);
@@ -217,7 +223,7 @@ function applyState(gm: GameManager, state: SaveState): void {
 
   const loop = m.gameLoop as unknown as { tickCount: number };
   loop.tickCount = Number(state.loop?.tickCount) || 0;
-  m.gameLoop.setSpeed(Number(state.loop?.speed) || 1);
+  gm.setSpeed(Number(state.loop?.speed) || 1);
   m.offerRng.setState(Number(state.offerRng) >>> 0);
 }
 
