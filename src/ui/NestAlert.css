@@ -1,5 +1,6 @@
-/* Invaders inside the nest (NestAlert.tsx): a banner under the wave counter.
-   Fixed over the screen like the wave alert; only its button takes input. */
+/* Invaders inside the nest (NestAlert.tsx): a banner under the wave counter,
+   in the column under the top strip (alertStack.css drops the positions
+   below, which only apply outside it); only its button takes input. */
 
 .nest-alert-layer {
   position: fixed;

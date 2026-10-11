@@ -1,5 +1,7 @@
-/* Night-wave alerts (WaveAlert.tsx). Self-contained: fixed over the whole
-   screen, never takes input, sized with clamp() so it reads on phones too. */
+/* Night-wave alerts (WaveAlert.tsx), sized with clamp() so they read on
+   phones too. The edge pulse and the arrows are fixed over the whole screen;
+   the banners flow in the column under the top strip (alertStack.css drops
+   the absolute positions below, which only apply outside it). */
 
 .wave-alert {
   position: fixed;

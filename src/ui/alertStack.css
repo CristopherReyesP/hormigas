@@ -1,0 +1,197 @@
+/* The banner column under the top strip (AlertStack.tsx, alertStack.ts):
+   every banner flows in it, so they stack instead of covering each other.
+   The component sets top, left and right; the banners' own files keep their
+   look, and only lose their absolute positions here. */
+
+.alert-stack {
+  position: fixed;
+  z-index: 40; /* over the HUD, under the dawn pick (50) and the game-over screen */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  font-family: var(--font-pixel, monospace);
+  color: var(--chrome-text, #e8d8dc);
+  text-align: center;
+}
+
+/* The open Más datos drawer hangs over the column's spot: the banners wait until it closes */
+body:has(.top-strip--open) .alert-stack {
+  visibility: hidden;
+}
+
+.alert-stack:empty,
+.alert-stack .wave-alert-banners:empty {
+  display: none;
+}
+
+.alert-stack .wave-alert-banners,
+.alert-stack .nest-alert-layer {
+  position: static;
+  inset: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.alert-stack :is(.wave-banner, .wave-counter, .boss-bar, .wave-announce, .nest-alert, .nest-cleared, .milestone-banner, .pantry-full-note) {
+  position: static;
+  inset: auto;
+  top: auto;
+  left: auto;
+  right: auto;
+  transform: none;
+  margin: 0;
+  max-width: 100%;
+}
+
+/* Long titles wrap inside the column instead of running over its sides */
+.alert-stack :is(.wave-banner-title, .nest-alert-title, .wave-announce-title, .wave-counter) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.alert-stack .boss-bar {
+  width: min(560px, 100%);
+}
+
+.alert-stack .milestone-banner {
+  width: min(560px, 100%);
+}
+
+.alert-stack .milestone-banner .run-banner {
+  font-size: clamp(14px, 2.6vw, 26px);
+  padding: 12px 12px;
+}
+
+/* The big announcement: still the loudest line, but in its place in the column */
+.alert-stack .wave-announce {
+  width: 100%;
+  gap: 6px;
+  animation-name: wave-announce-stacked;
+}
+
+.alert-stack .wave-announce-title,
+.alert-stack .wave-announce--boss .wave-announce-title,
+.alert-stack .wave-announce--miniboss .wave-announce-title,
+.alert-stack .wave-announce--cleared .wave-announce-title,
+.alert-stack .wave-announce--perfect .wave-announce-title {
+  font-size: clamp(16px, 4.4vw, 44px);
+}
+
+.alert-stack .wave-announce-sub {
+  font-size: clamp(9px, 1.6vw, 16px);
+}
+
+@keyframes wave-announce-stacked {
+  0% { opacity: 0; transform: scale(1.4); }
+  10% { opacity: 1; transform: none; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* The full pantry, said once under the strip (the strip itself says LLENA) */
+.pantry-full-note {
+  padding: 2px 8px;
+  font-size: 8px;
+  line-height: 1.6;
+  color: var(--chrome-warn, #f0b541);
+  background: var(--chrome-bg, #0e080b);
+  border: 1px solid var(--chrome-warn, #f0b541);
+}
+
+.pantry-full-note-waiting {
+  color: var(--chrome-dim, #9a8088);
+}
+
+/* Phones keep it in the drawer (Más datos): the map is small enough */
+.alert-stack--phone-portrait .pantry-full-note,
+.alert-stack--phone-landscape .pantry-full-note {
+  display: none;
+}
+
+/* Phones and short windows (alertStackCompact): tighter banners, so the column stays clear of the bottom controls */
+.alert-stack--compact {
+  gap: 4px;
+}
+
+.alert-stack--compact :is(.wave-alert-banners, .nest-alert-layer) {
+  gap: 4px;
+}
+
+.alert-stack--compact .milestone-banner .run-banner {
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.alert-stack--compact .milestone-reward {
+  margin-top: 4px;
+  padding: 3px 8px;
+  font-size: 9px;
+}
+
+.alert-stack--compact .wave-banner {
+  gap: 4px;
+  padding: 5px 10px;
+}
+
+.alert-stack--compact .wave-banner-title {
+  font-size: 13px;
+}
+
+.alert-stack--compact .wave-banner-sub,
+.alert-stack--compact .wave-counter,
+.alert-stack--compact .boss-bar-name {
+  font-size: 9px;
+}
+
+.alert-stack--compact .boss-bar {
+  padding: 3px 8px 4px;
+}
+
+.alert-stack--compact .wave-announce {
+  gap: 2px;
+}
+
+.alert-stack--compact .wave-announce .wave-announce-title {
+  font-size: 16px;
+}
+
+.alert-stack--compact .wave-announce-sub {
+  font-size: 9px;
+}
+
+/* The nest alert in one wrapped row, as on short screens (NestAlert.css) */
+.alert-stack--compact .nest-alert {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 10px;
+  padding: 4px 10px;
+}
+
+.alert-stack--compact .nest-alert-title {
+  font-size: 11px;
+}
+
+.alert-stack--compact .nest-alert-sub {
+  display: none;
+}
+
+.alert-stack--compact .nest-alert-queen-track {
+  width: 60px;
+}
+
+.alert-stack--compact .nest-alert-go {
+  min-height: 28px;
+  padding: 2px 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alert-stack .wave-announce {
+    animation-name: none;
+  }
+}
