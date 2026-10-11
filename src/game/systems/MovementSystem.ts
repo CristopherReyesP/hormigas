@@ -30,8 +30,7 @@ export class MovementSystem implements System {
    * - Underground: tile (x,y) spans [x, x+1) and centers are x+0.5 → Math.floor maps position to tile.
    * Using round underground put entities "inside the wall" whenever they stood at a tile center.
    */
-  private resolveLayer(id: number): { grid: WalkableGrid; underground: boolean } {
-    const layerComp = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+  private resolveLayer(layerComp: LayerComponent | undefined): { grid: WalkableGrid; underground: boolean } {
     if (layerComp && layerComp.layer === Layer.Underground) {
       return { grid: this.undergroundGrid, underground: true };
     }
@@ -56,9 +55,20 @@ export class MovementSystem implements System {
       occupancy.set(key, (occupancy.get(key) ?? 0) + 1);
     }
 
+    // Every moving unit, every tick: look components up in their stores once
+    // per tick instead of by name per unit (the name lookup dominated here)
+    const positions = this.world.getStore<PositionComponent>(COMPONENT.POSITION);
+    const paths = this.world.getStore<PathComponent>(COMPONENT.PATH);
+    const layers = this.world.getStore<LayerComponent>(COMPONENT.LAYER);
+    const antStore = this.world.getStore<AntComponent>(COMPONENT.ANT);
+    const roleStatsStore = this.world.getStore<RoleStatsComponent>(COMPONENT.ROLE_STATS);
+    const carryingStore = this.world.getStore<CarryingComponent>(COMPONENT.CARRYING);
+    const queenStore = this.world.getStore(COMPONENT.QUEEN_ENTITY);
+    const facingStore = this.world.getStore<FacingComponent>(COMPONENT.FACING);
+
     for (const id of entities) {
-      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
-      const path = this.world.getComponent<PathComponent>(id, COMPONENT.PATH)!;
+      const pos = positions.get(id)!;
+      const path = paths.get(id)!;
 
       // Save previous position for interpolation
       pos.prevX = pos.x;
@@ -68,8 +78,9 @@ export class MovementSystem implements System {
         continue;
       }
 
-      const { grid, underground } = this.resolveLayer(id);
-      const undergroundAnt = underground && !!this.world.getComponent(id, COMPONENT.ANT);
+      const { grid, underground } = this.resolveLayer(layers.get(id));
+      const ant = antStore.get(id);
+      const undergroundAnt = underground && !!ant;
       const fromKey = undergroundAnt
         ? Math.floor(pos.y) * UNDERGROUND_WIDTH + Math.floor(pos.x)
         : undefined;
@@ -85,18 +96,17 @@ export class MovementSystem implements System {
         path.currentIndex++;
       } else {
         // Apply role-based speed multiplier and carry penalty
-        const roleStats = this.world.getComponent<RoleStatsComponent>(id, COMPONENT.ROLE_STATS);
+        const roleStats = roleStatsStore.get(id);
         let speedMultiplier = roleStats ? roleStats.speedMultiplier : 1.0;
-        const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING);
+        const carrying = carryingStore.get(id);
         if (carrying && carrying.amount > 0 && roleStats) {
           speedMultiplier *= roleStats.carrySpeedPenalty;
         }
 
         // Run mutations move the colony only (ants and the queen), never wildlife
         const run = this.world.runModifiers;
-        const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT);
         let mutationSpeed = 1;
-        if (ant || this.world.getComponent(id, COMPONENT.QUEEN_ENTITY)) {
+        if (ant || queenStore.has(id)) {
           mutationSpeed = run.movementSpeedMult;
           if (ant?.role === AntRole.Soldier) mutationSpeed *= run.soldierSpeedMult;
           if (ant && carrying && carrying.amount > 0) mutationSpeed *= run.carryingSpeedMult;
@@ -171,7 +181,7 @@ export class MovementSystem implements System {
           const actualDx = pos.x - pos.prevX;
           const actualDy = pos.y - pos.prevY;
           if (Math.abs(actualDx) > 0.001 || Math.abs(actualDy) > 0.001) {
-            const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
+            const facing = facingStore.get(id);
             if (facing) {
               facing.angle = Math.atan2(actualDy, actualDx);
               facing.legPhase += dt * 15;

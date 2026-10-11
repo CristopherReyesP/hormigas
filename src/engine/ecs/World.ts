@@ -11,6 +11,14 @@ export class World {
   private componentStores: Map<string, ComponentMap<unknown>> = new Map();
   private systems: System[] = [];
   private systemsSorted = false;
+  /**
+   * Membership version per component store: bumped whenever an entity joins
+   * or leaves it (not when a component's data changes). query() results are
+   * cached against these, so the many systems asking for the same component
+   * set in one tick share one scan until a matching store changes.
+   */
+  private storeVersions: WeakMap<ComponentMap<unknown>, number> = new WeakMap();
+  private queryCache: Map<string, { stores: ComponentMap<unknown>[]; versions: number[]; result: readonly EntityId[] }> = new Map();
 
   deathEffects: Array<{
     x: number;
@@ -104,8 +112,17 @@ export class World {
   destroyEntity(id: EntityId): void {
     this.entities.delete(id);
     for (const store of this.componentStores.values()) {
-      store.delete(id);
+      if (store.delete(id)) this.bumpStore(store);
     }
+  }
+
+  private bumpStore(store: ComponentMap<unknown>): void {
+    this.storeVersions.set(store, (this.storeVersions.get(store) ?? 0) + 1);
+  }
+
+  /** Forget every cached query (after component stores were rewritten in place, e.g. loading a save) */
+  invalidateQueries(): void {
+    this.queryCache.clear();
   }
 
   addComponent<T>(entity: EntityId, componentName: string, data: T): void {
@@ -114,12 +131,13 @@ export class World {
       store = new Map();
       this.componentStores.set(componentName, store as ComponentMap<unknown>);
     }
+    if (!store.has(entity)) this.bumpStore(store as ComponentMap<unknown>);
     store.set(entity, data);
   }
 
   removeComponent(entity: EntityId, componentName: string): void {
     const store = this.componentStores.get(componentName);
-    if (store) store.delete(entity);
+    if (store && store.delete(entity)) this.bumpStore(store);
   }
 
   getComponent<T>(entity: EntityId, componentName: string): T | undefined {
@@ -136,22 +154,71 @@ export class World {
     return store;
   }
 
-  // Query entities that have ALL specified components
-  query(...componentNames: string[]): EntityId[] {
-    const result: EntityId[] = [];
-    const stores = componentNames.map(name => this.componentStores.get(name));
+  // Query entities that have ALL specified components.
+  // Hot path (dozens of calls per tick over every entity): answered from the
+  // cache while none of the stores involved gained or lost an entity. The
+  // result is shared and frozen: callers copy it before sorting or editing.
+  query(...componentNames: string[]): readonly EntityId[] {
+    const count = componentNames.length;
+    if (count === 0) return [];
+    const key = count === 1 ? componentNames[0] : componentNames.join('|');
+    const cached = this.queryCache.get(key);
+    if (cached && this.cacheValid(cached, componentNames)) return cached.result;
 
-    if (stores.some(s => !s)) return result;
+    const result = this.scan(componentNames);
+    const stores: ComponentMap<unknown>[] = [];
+    const versions: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const store = this.componentStores.get(componentNames[i]);
+      // A store that does not exist yet: nothing to cache against
+      if (!store) return result;
+      stores.push(store);
+      versions.push(this.storeVersions.get(store) ?? 0);
+    }
+    const frozen = Object.freeze(result);
+    this.queryCache.set(key, { stores, versions, result: frozen });
+    return frozen;
+  }
+
+  private cacheValid(entry: { stores: ComponentMap<unknown>[]; versions: number[] }, componentNames: string[]): boolean {
+    for (let i = 0; i < componentNames.length; i++) {
+      const store = this.componentStores.get(componentNames[i]);
+      if (store !== entry.stores[i] || (this.storeVersions.get(store) ?? 0) !== entry.versions[i]) return false;
+    }
+    return true;
+  }
+
+  private scan(componentNames: string[]): EntityId[] {
+    const result: EntityId[] = [];
+    const count = componentNames.length;
 
     // Iterate over the smallest store for efficiency
-    const smallestStore = stores.reduce((smallest, current) =>
-      (current!.size < smallest!.size ? current : smallest)
-    )!;
+    let smallest: ComponentMap<unknown> | undefined;
+    for (let i = 0; i < count; i++) {
+      const store = this.componentStores.get(componentNames[i]);
+      if (!store) return result;
+      if (!smallest || store.size < smallest.size) smallest = store;
+    }
+    if (count === 1) {
+      for (const entityId of smallest!.keys()) result.push(entityId);
+      return result;
+    }
 
-    for (const entityId of smallestStore.keys()) {
-      if (stores.every(s => s!.has(entityId))) {
-        result.push(entityId);
+    const others: ComponentMap<unknown>[] = [];
+    for (let i = 0; i < count; i++) {
+      const store = this.componentStores.get(componentNames[i])!;
+      if (store !== smallest) others.push(store);
+    }
+    const otherCount = others.length;
+    for (const entityId of smallest!.keys()) {
+      let all = true;
+      for (let i = 0; i < otherCount; i++) {
+        if (!others[i].has(entityId)) {
+          all = false;
+          break;
+        }
       }
+      if (all) result.push(entityId);
     }
     return result;
   }

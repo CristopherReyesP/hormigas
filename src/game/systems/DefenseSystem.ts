@@ -243,7 +243,7 @@ export class DefenseSystem implements System {
    * chase a wall (its tile cannot be walked to), so this points them at the
    * ones they bump into. Runs after the AIs and before CombatSystem.
    */
-  private pressWalls(structures: EntityId[], victims: Record<DefenseLayer, Victim[]>): void {
+  private pressWalls(structures: readonly EntityId[], victims: Record<DefenseLayer, Victim[]>): void {
     const walls = structures
       .map((id) => ({ id, s: this.world.getComponent<StructureComponent>(id, STRUCTURE_COMPONENT)! }))
       .filter((w) => w.s.kind === 'wall');

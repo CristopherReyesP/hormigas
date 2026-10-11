@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { iconRuns, type IconName } from './pixelIcons';
 
 interface PixelIconProps {
@@ -7,8 +8,12 @@ interface PixelIconProps {
   title?: string;
 }
 
-/** Crisp 8×8 pixel icon. Decorative unless a title is given. */
-export function PixelIcon({ name, size = 16, title }: PixelIconProps) {
+/**
+ * Crisp 8×8 pixel icon. Decorative unless a title is given.
+ * Memoized: an icon is dozens of <rect>s and the HUD re-renders on every stats
+ * update, while the icon's props (all primitives) almost never change.
+ */
+export const PixelIcon = memo(function PixelIcon({ name, size = 16, title }: PixelIconProps) {
   return (
     <svg
       className="pixel-icon"
@@ -26,4 +31,4 @@ export function PixelIcon({ name, size = 16, title }: PixelIconProps) {
       ))}
     </svg>
   );
-}
+});
