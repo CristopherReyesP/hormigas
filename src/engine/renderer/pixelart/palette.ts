@@ -180,11 +180,15 @@ export function withAlpha(hex: string, alpha: number): string {
 }
 
 // Deterministic 2D hash — stable per tile/entity, no Math.random in render code.
+// Integer math throughout (Math.imul): a plain float multiply here loses the
+// low bits, which left every value in [0, 0.5) and clustered nearby inputs,
+// so tile decorations all landed in the same corner and the map read as a grid.
 export function hash2(x: number, y: number): number {
-  let h = (x * 374761393 + y * 668265263) | 0;
-  h = (h ^ (h >> 13)) * 1274126177;
-  h = h ^ (h >> 16);
-  return (h >>> 0) / 4294967295; // [0, 1)
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h ^= h >>> 13;
+  return (h >>> 0) / 4294967296; // [0, 1)
 }
 
 export function pick<T>(arr: readonly T[], h: number): T {

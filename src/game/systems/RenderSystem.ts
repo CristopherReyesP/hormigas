@@ -383,38 +383,31 @@ export class RenderSystem {
     hp.rect(1, 1, 23, 2, PAL.uiBg);
     this.fxHealthFrame = hb;
 
-    // --- Pheromone stamps: dithered diamond blobs, 3 intensity levels per type ---
-    const makeStamp = (color: string, level: number): OffscreenCanvas => {
+    // --- Pheromone stamps: a scatter of scent droplets, 3 intensity levels per type.
+    // Droplets sit at hashed spots (not a centered diamond), so a trail reads as
+    // a loose smear instead of a grid of tiles.
+    const makeStamp = (color: string, level: number, salt: number): OffscreenCanvas => {
       const c = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
       const sctx = c.getContext('2d')!;
       const p = new PixelPainter(sctx, 2);
-      const C = 8; // art-px center of a 16×16 art tile
-      const r = level === 0 ? 3 : level === 1 ? 5 : 7;
-      sctx.globalAlpha = 0.25;
-      for (let iy = -r; iy <= r; iy++) {
-        for (let ix = -r; ix <= r; ix++) {
-          if (Math.abs(ix) + Math.abs(iy) > r) continue;
-          const on = level === 0
-            ? (ix & 1) === 0 && (iy & 1) === 0 // sparse: 1 of 4
-            : ((ix + iy) & 1) === 0; // checker
-          if (on) p.px(C + ix, C + iy, color);
-        }
-      }
-      if (level === 2) {
-        // solid core at a second quantized alpha level
-        sctx.globalAlpha = 0.5;
-        for (let iy = -3; iy <= 3; iy++) {
-          for (let ix = -3; ix <= 3; ix++) {
-            if (Math.abs(ix) + Math.abs(iy) <= 3) p.px(C + ix, C + iy, color);
-          }
-        }
+      const drops = level === 0 ? 3 : level === 1 ? 6 : 10;
+      for (let i = 0; i < drops; i++) {
+        const dx = 1 + Math.floor(hash2(salt * 13 + i, level * 7 + 1) * 14);
+        const dy = 1 + Math.floor(hash2(salt * 17 + i, level * 5 + 3) * 14);
+        sctx.globalAlpha = 0.15;
+        p.px(dx - 1, dy, color);
+        p.px(dx + 1, dy, color);
+        p.px(dx, dy - 1, color);
+        p.px(dx, dy + 1, color);
+        sctx.globalAlpha = level === 2 ? 0.55 : 0.4;
+        p.px(dx, dy, color);
       }
       return c;
     };
     this.fxPheroStamps = {
-      home: [0, 1, 2].map((l) => makeStamp(PAL.pheroHome, l)),
-      food: [0, 1, 2].map((l) => makeStamp(PAL.pheroFood, l)),
-      danger: [0, 1, 2].map((l) => makeStamp(PAL.pheroDanger, l)),
+      home: [0, 1, 2].flatMap((l) => [0, 1, 2, 3].map((v) => makeStamp(PAL.pheroHome, l, 10 + v))),
+      food: [0, 1, 2].flatMap((l) => [0, 1, 2, 3].map((v) => makeStamp(PAL.pheroFood, l, 20 + v))),
+      danger: [0, 1, 2].flatMap((l) => [0, 1, 2, 3].map((v) => makeStamp(PAL.pheroDanger, l, 30 + v))),
     };
 
     // --- Dithered glow stamps (replace every radial-gradient glow) ---
@@ -1095,7 +1088,6 @@ export class RenderSystem {
     // A Crystal or Human player's opening holds back the base's markers (breach, path) until the base shows
     const overlay = this.intro?.hidesPlayerBase() ? null : (this.getWaveOverlay?.() ?? null);
     if (overlay) {
-      drawScoutMarks(ctx, overlay, Layer.Surface, this.animationTime);
       drawGhost(ctx, overlay, this.animationTime);
     }
     // A Crystal player's build ghost and rally line, over the fog too

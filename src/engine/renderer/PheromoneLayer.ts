@@ -17,7 +17,11 @@ export interface ExploredGrid {
   isExplored(x: number, y: number): boolean;
 }
 
-/** Stamps per type, 3 intensity levels each (weak, medium, strong) */
+/**
+ * Stamps per type: 3 intensity levels (weak, medium, strong), each optionally
+ * in several variants laid out level by level ([w0, w1, …, m0, m1, …, s0, …]).
+ * Tiles pick a variant by position, so neighbouring tiles never repeat.
+ */
 export type PheromoneStamps = Record<'home' | 'food' | 'danger', CanvasImageSource[]>;
 
 /** Tiles per chunk side */
@@ -30,6 +34,12 @@ function level(value: number): number {
   if (value <= 1) return 0;
   const s = value / PHEROMONE_MAX;
   return s > 0.6 ? 3 : s > 0.25 ? 2 : 1;
+}
+
+/** The stamp for intensity `lvl` (1-3), variant chosen by the tile hash `v` */
+function pickStamp(stamps: CanvasImageSource[], lvl: number, v: number): CanvasImageSource {
+  const variants = Math.max(1, Math.floor(stamps.length / 3));
+  return stamps[(lvl - 1) * variants + (v % variants)];
 }
 
 /**
@@ -147,9 +157,10 @@ export class PheromoneLayer {
         const home = code & 3;
         const food = (code >> 2) & 3;
         const danger = (code >> 4) & 3;
-        if (home) g.drawImage(this.stamps.home[home - 1], px, py);
-        if (food) g.drawImage(this.stamps.food[food - 1], px, py);
-        if (danger) g.drawImage(this.stamps.danger[danger - 1], px, py);
+        const v = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+        if (home) g.drawImage(pickStamp(this.stamps.home, home, v), px, py);
+        if (food) g.drawImage(pickStamp(this.stamps.food, food, v), px, py);
+        if (danger) g.drawImage(pickStamp(this.stamps.danger, danger, v), px, py);
       }
     }
     g.globalCompositeOperation = 'source-over';

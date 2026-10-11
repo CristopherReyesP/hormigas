@@ -212,16 +212,31 @@ export class FoliageOverlay {
     p.line(sx + dx1, sy + dy1, sx + dx1 + dx2, sy + dy1 + dy2, PAL.flora.stalk[1]);
   }
 
-  /** Outcrop rock: 3-6 px disc (boulders: 5-8 px) with 1px outline, top-left highlight and a vein px. */
+  /**
+   * Outcrop stone: a flattened, lumpy body lit from the upper-left — pale
+   * crown, mid flank, dark underside — sitting on a soft cast shadow that
+   * falls to the lower-right. No outline ring, so it reads as a rock and not
+   * as a hole.
+   */
   private drawRock(p: PixelPainter, x: number, y: number, boulder = false): void {
     const cx = 8 + Math.floor(hash2(x * 173, y * 179) * 9) - 4;
     const cy = 8 + Math.floor(hash2(x * 181, y * 191) * 9) - 4;
-    const r = (hash2(x * 193, y * 197) < 0.5 ? 1 : 1.5) + (boulder ? 1.5 : 0);
+    const rx = (hash2(x * 193, y * 197) < 0.5 ? 2 : 3) + (boulder ? 2 : 0);
+    const ry = Math.max(1, rx - 1 - (hash2(x * 199, y * 211) < 0.5 ? 1 : 0));
+    const lean = hash2(x * 223, y * 227) < 0.5 ? 0 : 1; // lumpy, not a perfect oval
 
-    p.disc(cx, cy, r + 1, PAL.outline); // 1px outline halo
-    p.disc(cx, cy, r, PAL.stone[1]);
-    p.px(cx - 1, cy - 1, PAL.stone[3]); // top-left highlight
-    p.px(cx, cy, PAL.outcropVein);
+    // Cast shadow: offset down-right, dithered so the ground reads through
+    for (let dy = 0; dy <= ry; dy++) {
+      for (let dx = -rx; dx <= rx + 1; dx++) {
+        if ((dx * dx) / ((rx + 1) * (rx + 1)) + (dy * dy) / ((ry + 0.5) * (ry + 0.5)) > 1) continue;
+        if ((dx + dy) % 2 === 0) p.px(cx + dx + 1, cy + dy + 1, PAL.outline);
+      }
+    }
+    p.ellipse(cx, cy, rx, ry, PAL.stone[1]); // body
+    p.hline(cx - rx + 1, cy + ry, 2 * rx - 1, PAL.stone[0]); // dark underside
+    p.ellipse(cx - 1 + lean, cy - 1, Math.max(1, rx - 1), Math.max(1, ry - 1), PAL.stone[2]); // lit flank
+    p.hline(cx - rx + 1 + lean, cy - ry, Math.max(1, rx - 1), PAL.stone[3]); // crown highlight
+    if (boulder) p.px(cx + 1, cy, PAL.outcropVein); // a vein glint on the big ones
   }
 
   /**

@@ -16,7 +16,7 @@ type Ctx = CanvasRenderingContext2D;
 
 const ART = 2;
 const N = TILE_SIZE / ART; // art px per tile side
-const VARIANTS = 4;
+const VARIANTS = 12;
 /** Art px over which the mat thins out towards a bare side */
 const FRAY = 9;
 /** One stepped opacity for the whole carpet: the regolith still reads through it */
@@ -60,7 +60,7 @@ function bakeStamp(tile: CreepTile, variant: number): OffscreenCanvas {
   }
 
   // Hyphae threads: short random walks in the lighter flesh
-  const threads = threadsOnly ? 2 : 3;
+  const threads = threadsOnly ? 2 : Math.floor(r(7, 707) * 4); // 0-3: some tiles are bare mat
   for (let t = 0; t < threads; t++) {
     let x = Math.floor(r(t, 101) * N);
     let y = Math.floor(r(t, 202) * N);
@@ -78,7 +78,7 @@ function bakeStamp(tile: CreepTile, variant: number): OffscreenCanvas {
   if (!threadsOnly) {
     const nx = 2 + Math.floor(r(9, 505) * (N - 5));
     const ny = 2 + Math.floor(r(9, 606) * (N - 5));
-    if (distToBare(bare, nx, ny) >= FRAY / 2) {
+    if (r(8, 808) < 0.35 && distToBare(bare, nx, ny) >= FRAY / 2) {
       p.px(nx, ny, VEIN[0]);
       p.px(nx + 1, ny, VEIN[0]);
       if (bare === 0) p.px(nx, ny - 1, VEIN[1]);
