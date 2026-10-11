@@ -42,6 +42,8 @@ function setup(runSetup: RunSetup) {
   const game = new GameManager(fakeCanvas(), runSetup);
   finishIntro(game);
   const world = game['world'] as World;
+  // These check the waves' own numbers: no threat scaling on top
+  world.removeSystem('ThreatSystem');
   const dayNight = game['dayNightSystem'] as unknown as { phaseTimer: number; dayNumber: number };
   const run = (seconds: number) => {
     for (let i = 0; i < Math.round(seconds / DT); i++) game['update'](DT);

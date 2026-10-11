@@ -15,6 +15,8 @@ export interface WildlifeSpriteSpec {
   direction: number;
   /** Dithered ground shadow under the silhouette. */
   shadow?: boolean;
+  /** The bite pose (creatures that have one): frame 0 jaws wide open, frame 1 snapped shut */
+  bite?: boolean;
 }
 
 /**

@@ -2591,9 +2591,18 @@ export class RenderSystem {
     let px = tileX * TILE_SIZE + TILE_SIZE / 2;
     let py = tileY * TILE_SIZE + TILE_SIZE / 2;
 
+    // Creatures steered by their own systems (the hunters, the raiders) fight
+    // without the beetle AI's Attacking state: a target in reach is a fight
+    const frontierKind = frontierCreatureOf(this.world, entityId)?.kind;
+    if (!isAttacking && frontierKind) {
+      const combat = this.world.getComponent<CombatComponent>(entityId, COMPONENT.COMBAT);
+      isAttacking = combat !== undefined && combat.targetEntityId !== null;
+    }
+
     // Attack lunge — forward jabs along facing while attacking (sine of time, no randomness)
     if (isAttacking) {
-      const lunge = Math.max(0, Math.sin(this.animationTime * 12)) * 2.5;
+      // The big tarantula lunges farther, in time with its jaws snapping
+      const lunge = Math.max(0, Math.sin(this.animationTime * 12)) * (frontierKind === 'tarantula' ? 7 : 2.5);
       px += Math.cos(facing) * lunge;
       py += Math.sin(facing) * lunge;
     }
@@ -2616,7 +2625,8 @@ export class RenderSystem {
     // Drop shadow — slightly larger than ant shadow (pre-rendered dither stamp)
     this.drawShadow(ctx, px + 2.5, py + 4, TILE_SIZE * 0.32, TILE_SIZE * 0.16);
 
-    if (frontier) this.spriteAtlas.drawFrontierCreature(ctx, frontier.kind, px, py, facing, legPhase);
+    // Biting, it snaps its jaws: open and shut a few times a second
+    if (frontier) this.spriteAtlas.drawFrontierCreature(ctx, frontier.kind, px, py, facing, legPhase, isAttacking ? Math.floor(this.animationTime * 6) : null);
     else this.spriteAtlas.drawBeetle(ctx, px, py, facing, legPhase);
 
     // Health bar (wider, higher and always shown over the big ones)

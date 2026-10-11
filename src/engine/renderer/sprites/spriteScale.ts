@@ -24,6 +24,9 @@ export const SPRITE_GRID = {
   spider: 32,
   mantis: 40,
   tarantula: 88,
+  centipede: 40,
+  sporeJelly: 32,
+  acidSpitter: 32,
 } as const;
 
 export const WALK_FRAMES = 4;

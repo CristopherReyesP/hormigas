@@ -295,8 +295,8 @@ export class FrontierSystem implements System {
 
   /** A den's creature that strayed too far while roaming walks back to it */
   private leashHome(id: EntityId, creature: FrontierCreatureComponent): void {
-    // Mantises roam free; the tarantula hunts on its own (TarantulaSystem)
-    if (creature.kind === 'mantis' || creature.kind === 'tarantula') return;
+    // Only den creatures are leashed: mantises roam free, the hunters hunt on their own
+    if (creature.kind !== 'legionary' && creature.kind !== 'legion_queen' && creature.kind !== 'spider') return;
     const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE);
     if (!beetle || beetle.state !== BeetleState.Roaming || beetle.denEntityId === null) return;
     const home = this.world.getComponent<PositionComponent>(beetle.denEntityId, COMPONENT.POSITION);

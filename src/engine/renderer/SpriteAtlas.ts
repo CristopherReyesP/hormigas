@@ -8,10 +8,11 @@ import { paintAnt, paintQueen } from './sprites/swarmSprites';
 import { LEAPER_FRAMES, type LeaperPose, leaperFrameIndex, paintBeetle, paintCricket } from './sprites/wildlifeSprites';
 import { FOOD_SIZE_LEVELS, FOOD_VARIANTS, paintDen, paintFood, paintGiantMushroom } from './sprites/propSprites';
 import { NO_MARKS, antSheetKey, type AntMarks } from './sprites/antMarks';
-import { paintLegionNest, paintLegionQueen, paintLegionary, paintMantis, paintSpider, paintSpiderLair, paintTarantula } from './sprites/frontierSprites';
+import { paintLegionNest, paintLegionQueen, paintLegionary, paintMantis, paintSpider, paintSpiderLair, paintTarantula, paintCentipede, paintSporeJelly, paintAcidSpitter } from './sprites/frontierSprites';
 
 /** Phase 2's creatures beyond the wall, by sprite */
-export type FrontierSpriteKind = 'legionary' | 'legion_queen' | 'spider' | 'mantis' | 'tarantula';
+export type FrontierSpriteKind = 'legionary' | 'legion_queen' | 'spider' | 'mantis' | 'tarantula'
+  | 'centipede' | 'spore_jelly' | 'acid_spitter';
 /** Phase 2's dens */
 export type FrontierDenSpriteKind = 'legion_nest' | 'spider_lair';
 
@@ -355,8 +356,8 @@ export class SpriteAtlas {
     this.beetleSheet.draw(ctx, worldX, worldY, angle, walkFrame(legPhase));
   }
 
-  /** A Phase 2 creature, facing `angle` */
-  drawFrontierCreature(ctx: CanvasRenderingContext2D, kind: FrontierSpriteKind, worldX: number, worldY: number, angle: number, legPhase: number): void {
+  /** A Phase 2 creature, facing `angle`; `biteFrame` (0 or 1) draws its bite pose instead of the walk */
+  drawFrontierCreature(ctx: CanvasRenderingContext2D, kind: FrontierSpriteKind, worldX: number, worldY: number, angle: number, legPhase: number, biteFrame: number | null = null): void {
     let sheet = this.frontierSheets.get(kind);
     if (!sheet) {
       const recipe = {
@@ -365,11 +366,16 @@ export class SpriteAtlas {
         spider: { grid: SPRITE_GRID.spider, paint: paintSpider },
         mantis: { grid: SPRITE_GRID.mantis, paint: paintMantis },
         tarantula: { grid: SPRITE_GRID.tarantula, paint: paintTarantula },
+        centipede: { grid: SPRITE_GRID.centipede, paint: paintCentipede },
+        spore_jelly: { grid: SPRITE_GRID.sporeJelly, paint: paintSporeJelly },
+        acid_spitter: { grid: SPRITE_GRID.acidSpitter, paint: paintAcidSpitter },
       }[kind];
-      sheet = new DirectionalSheet(recipe.grid, WALK_FRAMES, 1, (_row, frame, direction) => recipe.paint({ frame, direction }));
+      // Row 0 walks; row 1 is the bite pose (creatures without one draw the walk again)
+      sheet = new DirectionalSheet(recipe.grid, WALK_FRAMES, 2, (row, frame, direction) => recipe.paint({ frame, direction, bite: row === 1 }));
       this.frontierSheets.set(kind, sheet);
     }
-    sheet.draw(ctx, worldX, worldY, angle, walkFrame(legPhase));
+    if (biteFrame !== null) sheet.draw(ctx, worldX, worldY, angle, biteFrame % 2, 1);
+    else sheet.draw(ctx, worldX, worldY, angle, walkFrame(legPhase));
   }
 
   /** A Phase 2 den: the Legionary nest or a spider lair */

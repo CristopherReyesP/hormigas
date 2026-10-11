@@ -20,7 +20,8 @@ import {
 import { createBeetle, createBeetleDen } from '../entities/factories';
 import { ANT_SPEED } from '../../shared/constants';
 
-export type FrontierCreatureKind = 'legionary' | 'legion_queen' | 'spider' | 'mantis' | 'tarantula';
+export type FrontierCreatureKind = 'legionary' | 'legion_queen' | 'spider' | 'mantis' | 'tarantula'
+  | 'centipede' | 'spore_jelly' | 'acid_spitter';
 export type FrontierDenKind = 'legion_nest' | 'spider_lair';
 
 export const FRONTIER_CREATURE_COMPONENT = 'frontier_creature';
@@ -71,6 +72,10 @@ export const FRONTIER_CREATURE_STATS: Readonly<Record<FrontierCreatureKind, Fron
   mantis: { name: 'Mantis acechadora', health: 1400, damage: 48, speed: 1.1, attackRange: 1.8, attackCooldown: 2.0, visionRange: 9, size: 0.9 },
   // Hunts only ants: senses them from far, stalks, then pounces (TarantulaSystem)
   tarantula: { name: 'Tarántula alienígena', health: 2600, damage: 34, speed: 1.8, attackRange: 2.4, attackCooldown: 1.2, visionRange: 14, size: 2.0 },
+  // The alien hunters (AlienHunterSystem): each comes from its own day on
+  centipede: { name: 'Ciempiés de plasma', health: 420, damage: 16, speed: 2.4, attackRange: 1.3, attackCooldown: 0.7, visionRange: 12, size: 0.9 },
+  spore_jelly: { name: 'Medusa de esporas', health: 260, damage: 6, speed: 0.9, attackRange: 1.2, attackCooldown: 1.5, visionRange: 10, size: 0.8 },
+  acid_spitter: { name: 'Escupidor ácido', health: 300, damage: 14, speed: 1.3, attackRange: 5, attackCooldown: 1.8, visionRange: 12, size: 0.75 },
 };
 
 export interface FrontierDenStats {
