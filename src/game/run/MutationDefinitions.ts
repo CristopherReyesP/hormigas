@@ -3,6 +3,7 @@ import type { AntMarkId } from '../../engine/renderer/sprites/antMarks';
 export const MUTATION_IDS = [
   'acid_mandibles', 'hyper_metabolism', 'cargo_sacs', 'bone_spurs', 'regenerative_tissue',
   'carrion_gut', 'spore_bloom', 'titan_brood', 'wing_stubs', 'hive_mind',
+  'chitin_carapace', 'venom_glands', 'brood_frenzy', 'night_eyes', 'royal_shell', 'sentinel_spines',
 ] as const;
 export type MutationId = typeof MUTATION_IDS[number];
 
@@ -13,6 +14,8 @@ export const MULTIPLIER_STATS = [
   'soldierDamageMult', 'soldierSpeedMult', 'soldierMaxHealthMult', 'movementSpeedMult', 'carryingSpeedMult',
   'workerCarryMult', 'hungerDecayMult', 'maxHungerMult', 'digSpeedMult', 'undergroundDamageMult',
   'meatDropMult', 'foodSpawnMult', 'scoutVisionMult', 'flankingBonusMult',
+  'antMaxHealthMult', 'antDamageMult', 'incubationSpeedMult', 'antVisionMult', 'queenDamageTakenMult',
+  'defenderDamageMult', 'defenderMaxHealthMult',
 ] as const;
 /** Run stats that compose by addition (neutral 0). */
 export const ADDITIVE_STATS = ['regenHpPerSecond', 'extraInvadersPerWave', 'soldierCostBonus'] as const;
@@ -114,5 +117,47 @@ export const MUTATION_DEFINITIONS: Readonly<Record<MutationId, MutationDefinitio
     upsideText: 'Bonificación de flanqueo ×2', costText: null,
     effects: [up('flankingBonusMult', 2)],
     tags: ['Capstone'], mark: 'glowing_antenna_tips', maxStacks: 3,
+  },
+  chitin_carapace: {
+    id: 'chitin_carapace', name: 'Caparazón quitinoso',
+    description: 'Placas de quitina alienígena endurecen el tórax de toda la colonia.',
+    upsideText: '+25% de vida máxima de todas las hormigas', costText: '−8% de velocidad de movimiento',
+    effects: [up('antMaxHealthMult', 1.25), cost('movementSpeedMult', 0.92)],
+    tags: ['Defense'], mark: 'chitin_plates', maxStacks: 3,
+  },
+  venom_glands: {
+    id: 'venom_glands', name: 'Glándulas venenosas',
+    description: 'Un saco de veneno verde late en la punta del gáster de cada hormiga.',
+    upsideText: '+30% de daño de todas las hormigas', costText: '+10% de consumo de hambre',
+    effects: [up('antDamageMult', 1.3), cost('hungerDecayMult', 1.1)],
+    tags: ['Assault'], mark: 'venom_sac', maxStacks: 3,
+  },
+  brood_frenzy: {
+    id: 'brood_frenzy', name: 'Frenesí de cría',
+    description: 'Nódulos brillantes en las niñeras aceleran la eclosión de los huevos.',
+    upsideText: '+35% de velocidad de incubación', costText: '−10% de hambre máxima',
+    effects: [up('incubationSpeedMult', 1.35), cost('maxHungerMult', 0.9)],
+    tags: ['Economy', 'Tempo'], mark: 'brood_nodes', maxStacks: 3,
+  },
+  night_eyes: {
+    id: 'night_eyes', name: 'Ojos nocturnos',
+    description: 'Ojos compuestos de un verde fosforescente ven en la oscuridad alienígena.',
+    upsideText: '+30% de visión de todas las hormigas', costText: null,
+    effects: [up('antVisionMult', 1.3)],
+    tags: ['Info'], mark: 'compound_eyes', maxStacks: 3,
+  },
+  royal_shell: {
+    id: 'royal_shell', name: 'Reina acorazada',
+    description: 'Las niñeras recubren a la reina con una costra de resina dorada.',
+    upsideText: '−40% de daño recibido por la reina', costText: '+5 de costo por soldado',
+    effects: [up('queenDamageTakenMult', 0.6), costAdd('soldierCostBonus', 5)],
+    tags: ['Defense', 'Sustain'], mark: 'royal_sigil', maxStacks: 3,
+  },
+  sentinel_spines: {
+    id: 'sentinel_spines', name: 'Púas centinela',
+    description: 'Una cresta de púas dorsales convierte a las defensoras en muros vivos.',
+    upsideText: '+50% de daño y +30% de vida de las defensoras', costText: '−10% de velocidad de excavación',
+    effects: [up('defenderDamageMult', 1.5), up('defenderMaxHealthMult', 1.3), cost('digSpeedMult', 0.9)],
+    tags: ['Defense', 'Combat'], mark: 'dorsal_spines', maxStacks: 3,
   },
 };

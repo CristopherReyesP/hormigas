@@ -16,16 +16,16 @@ const waves = (from: number, to: number, rival: WaveRival = 'crystal') =>
 /** Every unit the wave sends, the mini-boss included */
 const parts = (w: WaveComposition) => w.youngBeetles + w.beetles + w.drones + (w.boss ? 1 : 0);
 /** The raw size curve (WAVE_CURVE) before elites and bosses trim it: these waves must stay close to it */
-const RAW_TOTALS = [4, 6, 10, 14, 19, 26, 33, 41, 50, 61];
+const RAW_TOTALS = [3, 5, 9, 13, 18, 25, 32, 40, 49, 60];
 
 describe('waveComposition', () => {
-  it('opens with a small, survivable wave: 4 young beetles, no drones, no elites, no boss', () => {
-    expect(waveComposition(1)).toEqual({ wave: 1, total: 4, youngBeetles: 4, beetles: 0, drones: 0, statScale: 1, elites: [], boss: null });
+  it('opens with a small, survivable wave: 3 young beetles, no drones, no elites, no boss', () => {
+    expect(waveComposition(1)).toEqual({ wave: 1, total: 3, youngBeetles: 3, beetles: 0, drones: 0, statScale: 1, elites: [], boss: null });
   });
 
   it('follows the documented curve for waves 1-10, the same for every rival', () => {
     for (const rival of RIVALS) {
-      expect(waves(1, 10, rival).map((w) => w.total)).toEqual([4, 6, 8, 14, 18, 22, 30, 37, 42, 43]);
+      expect(waves(1, 10, rival).map((w) => w.total)).toEqual([3, 5, 7, 13, 17, 21, 29, 36, 41, 43]);
     }
   });
 
@@ -74,7 +74,7 @@ describe('waveComposition', () => {
     const counts = waves(3, 10).map((w) => w.elites.length);
     expect(counts[0]).toBeGreaterThanOrEqual(1);
     for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeGreaterThanOrEqual(counts[i - 1]);
-    expect(counts).toEqual([1, 2, 4, 7, 10, 14, 19, 21]);
+    expect(counts).toEqual([1, 2, 4, 6, 9, 14, 19, 21]);
   });
 
   it('only turns units the wave really sends into elites', () => {

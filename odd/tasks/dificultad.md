@@ -8,7 +8,7 @@
 - Follow-up: the base must be bigger, with more defenses and a bigger enemy army; the tarantula hairier and twice the size.
 
 ## Changes
-- Waves (`waveComposition.ts`): curve `{4, 1.8, 0.5}` (was `{3, 1.5, 0.4}`). Elites 15% rising 4 points to 45% (was 10%, 3, 35%). Young beetles fade by wave 5 (was 6). The Hive's raid share tops at 35% (was 30%); the Humans' raid starts at 25% and tops at 35% (was 20% and 30%).
+- Waves (`waveComposition.ts`): curve `{3, 1.8, 0.5}` (the first wave stays at 3: an idle colony must live through night 2) (was `{3, 1.5, 0.4}`). Elites 15% rising 4 points to 45% (was 10%, 3, 35%). Young beetles fade by wave 5 (was 6). The Hive's raid share tops at 35% (was 30%); the Humans' raid starts at 25% and tops at 35% (was 20% and 30%).
 - Wildlife: 3 starting dens (was 2), a den breeds every 35 s (was 45), edge spawns every 45 s at 65% (was 60 s at 50%), up to 11 beetles (was 8), beetle bite 14 (was 12).
 - Economy: new food every 36 s (was 30).
 - Crystal Hive: a drone every 36 s (was 45), a garrison of 5 (was 4).

@@ -69,7 +69,7 @@ const EMPTY: Omit<WaveComposition, 'wave'> = { total: 0, youngBeetles: 0, beetle
  * middle of the curve is gentler and the endless part past the cap steeper.
  */
 // Difficulty pass: was { base: 3, linear: 1.5, quadratic: 0.4 }
-export const WAVE_CURVE = { base: 4, linear: 1.8, quadratic: 0.5, overflowScale: 1 } as const;
+export const WAVE_CURVE = { base: 3, linear: 1.8, quadratic: 0.5, overflowScale: 1 } as const;
 
 /** The uncapped size: 3 on wave 1, then a linear plus quadratic rise (5, 8, 11, 15, 21, 26, 33, 41, 49, ...) */
 function rawSize(wave: number): number {

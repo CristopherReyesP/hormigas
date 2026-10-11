@@ -25,6 +25,13 @@ export class RunModifiers implements Record<RunStat, number> {
   extraInvadersPerWave = 0;
   scoutVisionMult = 1;
   flankingBonusMult = 1;
+  antMaxHealthMult = 1;
+  antDamageMult = 1;
+  incubationSpeedMult = 1;
+  antVisionMult = 1;
+  queenDamageTakenMult = 1;
+  defenderDamageMult = 1;
+  defenderMaxHealthMult = 1;
   private readonly appliedMutations: MutationId[] = [];
   private marks: AntMarks | null = null;
 

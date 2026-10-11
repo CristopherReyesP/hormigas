@@ -94,7 +94,9 @@ describe('mutation marks on the Swarm sprites (pixel probes, facing right)', () 
   it('draws more of a mark at higher stacks', () => {
     for (const id of ANT_MARK_IDS) {
       const role = id === 'chartreuse_jaws' || id === 'thick_head_plate' ? AntRole.Soldier
-        : id === 'wing_stubs' ? AntRole.Scout : AntRole.Worker;
+        : id === 'wing_stubs' ? AntRole.Scout
+        : id === 'brood_nodes' ? AntRole.Nurse
+        : id === 'royal_sigil' || id === 'dorsal_spines' ? AntRole.Defender : AntRole.Worker;
       expect(same(ant(role, [[id, 1]]), ant(role, [[id, 3]])), id).toBe(false);
     }
   });
