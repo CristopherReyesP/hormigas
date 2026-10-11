@@ -248,6 +248,8 @@ export class RenderSystem {
   private craterTile: TilePos | null = null;
   /** Phase 2's meteor shower (visual only) */
   private meteorShower = new MeteorShower();
+  /** Where the view was before the meteor shower's camera tour took it (null when no tour) */
+  private showerHome: { x: number; y: number } | null = null;
   /** Reused per frame: ants on screen, for the post-tint vein glow */
   private glowAnts: GlowAnt[] = [];
   private glowAntCount = 0;
@@ -765,6 +767,30 @@ export class RenderSystem {
   }
 
   /** Phase 2 opens: meteors strike the new bases' sites, and a volley falls across the view */
+  /**
+   * The meteor shower's camera tour: fly to each real impact as it lands (a
+   * new rival base arriving), then back to where the player was looking.
+   */
+  private followMeteorShower(dt: number): void {
+    const cam = this.camera;
+    if (!cam || dt <= 0) return;
+    const v = cam.getViewport();
+    const here = cam.screenToWorld(v.x + v.w / 2, v.y + v.h / 2);
+    const focus = this.meteorShower.focus();
+    if (!focus && !this.showerHome) return;
+    if (focus && !this.showerHome) this.showerHome = here;
+    const target = focus ?? this.showerHome!;
+    const k = Math.min(1, dt * 4);
+    const x = here.x + (target.x - here.x) * k;
+    const y = here.y + (target.y - here.y) * k;
+    if (!focus && Math.hypot(target.x - x, target.y - y) < TILE_SIZE) {
+      cam.release({ x: target.x, y: target.y, zoom: cam.zoom });
+      this.showerHome = null;
+      return;
+    }
+    cam.direct({ x, y, zoom: cam.zoom });
+  }
+
   startMeteorShower(impacts: ReadonlyArray<TilePos & { kind: MeteorKind }>): void {
     this.meteorShower.start(impacts);
   }
@@ -1037,6 +1063,7 @@ export class RenderSystem {
     this.intro?.frame(); // GameManager already advanced the shared intro clock
     // The impact shakes whichever layer the player is watching
     this.meteorShower.advance(dt);
+    this.followMeteorShower(dt);
     const introShake = this.intro?.getShake() ?? NO_SHAKE;
     const showerShake = this.meteorShower.shake();
     const shake = showerShake.x === 0 && showerShake.y === 0 ? introShake : { x: introShake.x + showerShake.x, y: introShake.y + showerShake.y };

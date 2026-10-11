@@ -34,8 +34,13 @@ const BLAST = 0.7;
 const SCORCH = 45;
 /** Decorative fireballs across the view */
 const VOLLEY = 16;
-/** Seconds the shower lasts */
+/** Seconds the shower lasts at least (it stretches to cover the camera tour) */
 const SPAN = 6;
+/** Seconds between two real impacts: long enough for the camera to fly to each */
+const REAL_GAP = 2.4;
+/** The camera arrives this long before a real strike lands, and stays this long after */
+const LEAD = 1.0;
+const HOLD = 1.1;
 /** Where a fireball comes from, relative to its impact (world px): high up and to the left */
 const FROM = { x: -7 * TILE_SIZE, y: -12 * TILE_SIZE };
 
@@ -51,16 +56,35 @@ export class MeteorShower {
       kind: t.kind,
       x: t.x * TILE_SIZE + TILE_SIZE / 2,
       y: t.y * TILE_SIZE + TILE_SIZE / 2,
-      at: 0.8 + i * 1.3,
+      at: 1.2 + i * REAL_GAP,
       real: true,
     }));
     this.pendingVolley = true;
   }
 
+  /** How long the shower runs: the decorative minimum or the end of the camera tour */
+  private span(): number {
+    let last = 0;
+    for (const m of this.meteors) if (m.real) last = Math.max(last, m.at + FALL + HOLD);
+    return Math.max(SPAN, last);
+  }
+
   advance(dt: number): void {
     if (this.meteors.length === 0) return;
     this.time += dt;
-    if (this.time > SPAN + SCORCH) this.meteors = [];
+    if (this.time > this.span() + SCORCH) this.meteors = [];
+  }
+
+  /**
+   * Where the camera should look right now: the real impact about to land (a
+   * new rival base arriving), or null once the tour is over.
+   */
+  focus(): { x: number; y: number } | null {
+    for (const m of this.meteors) {
+      if (!m.real) continue;
+      if (this.time >= m.at - LEAD && this.time < m.at + FALL + HOLD) return { x: m.x, y: m.y };
+    }
+    return null;
   }
 
   /** The view shake (px) from the strikes landing now */
@@ -68,7 +92,7 @@ export class MeteorShower {
     let power = 0;
     for (const m of this.meteors) {
       const since = this.time - m.at - FALL;
-      if (since >= 0 && since < 0.4) power = Math.max(power, (m.real ? 7 : 3) * (1 - since / 0.4));
+      if (since >= 0 && since < 0.4) power = Math.max(power, (m.real ? 10 : 3) * (1 - since / 0.4));
     }
     if (power === 0) return { x: 0, y: 0 };
     return { x: Math.round(Math.sin(this.time * 91) * power), y: Math.round(Math.cos(this.time * 77) * power) };
@@ -85,7 +109,7 @@ export class MeteorShower {
           kind: kinds[i % Math.max(1, kinds.length)] ?? 'crystal',
           x: view.x + view.w * (0.1 + 0.8 * Math.random()),
           y: view.y + view.h * (0.15 + 0.8 * Math.random()),
-          at: Math.random() * (SPAN - FALL),
+          at: Math.random() * (this.span() - FALL),
           real: false,
         });
       }
@@ -100,14 +124,14 @@ export class MeteorShower {
         const hx = m.x + FROM.x * (1 - k);
         const hy = m.y + FROM.y * (1 - k);
         // A dense trail: overlapping squares shrinking and cooling away from the head
-        const steps = 16;
+        const steps = m.real ? 22 : 16;
         for (let i = steps; i >= 0; i--) {
           const back = i * 0.02;
           const tx = hx - FROM.x * back;
           const ty = hy - FROM.y * back;
           const [head, body, tail] = METEOR_COLORS[m.kind];
           const color = i < 2 ? head : i < 7 ? body : tail;
-          const s = Math.max(pixel, Math.round(((m.real ? 22 : 14) * (1 - i / (steps + 2))) / pixel) * pixel);
+          const s = Math.max(pixel, Math.round(((m.real ? 40 : 14) * (1 - i / (steps + 2))) / pixel) * pixel);
           ctx.globalAlpha = Math.max(0.15, 1 - i / steps);
           ctx.fillStyle = color;
           ctx.fillRect(Math.round(tx - s / 2), Math.round(ty - s / 2), s, s);
@@ -130,10 +154,10 @@ export class MeteorShower {
       if (since < BLAST) {
         // The flash and the shock ring
         const k = since / BLAST;
-        const r = (m.real ? 3.5 : 1.6) * TILE_SIZE * k;
+        const r = (m.real ? 5.5 : 1.6) * TILE_SIZE * k;
         ctx.globalAlpha = 1 - k;
         ctx.fillStyle = METEOR_COLORS[m.kind][0];
-        const core = Math.round((m.real ? 28 : 14) * (1 - k));
+        const core = Math.round((m.real ? 48 : 14) * (1 - k));
         ctx.fillRect(Math.round(m.x - core), Math.round(m.y - core), core * 2, core * 2);
         ctx.fillStyle = METEOR_COLORS[m.kind][1];
         for (let a = 0; a < 20; a++) {

@@ -2078,6 +2078,8 @@ export class GameManager {
   private openPhase2(): void {
     const oldZone = this.grid.frontier;
     if (!oldZone || this.frontierPhase !== 1) return;
+    // The meteor shower is the moment: bring the player up to watch it land
+    if (this.activeLayer === 'underground') this.exitUnderground();
     this.grid.openFrontier();
     this.frontierPhase = 2;
     this.renderSystem.invalidateTerrain();
