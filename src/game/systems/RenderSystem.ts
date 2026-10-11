@@ -44,7 +44,7 @@ import {
   type CrystalUnitComponent,
   type CrystalSpireComponent,
 } from '../components/components';
-import { TILE_SIZE, PHEROMONE_MAX, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
+import { FARM_MULCH_CAPACITY, TILE_SIZE, PHEROMONE_MAX, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
 import { UndergroundTerrainType, ChamberType, TerrainType } from '../../simulation/world/types';
 import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
@@ -1226,6 +1226,7 @@ export class RenderSystem {
         // (spores → sprouts → caps → mature → ripe); baked frames, see fungusFarmArt
         if (tile.chamberType === ChamberType.FungusFarm && tile.walkable) {
           const amount = tile.food?.type === 'mushroom' ? tile.food.amount : 0;
+          this.farmArt.drawMulch(ctx, x, y, tile.mulch ?? 0, FARM_MULCH_CAPACITY);
           this.farmArt.drawCrop(ctx, x, y, amount, farmCap, farmTime, farmProducing);
           const slot = this.farmTilesInView[this.farmTileCount];
           if (slot) {
@@ -1639,8 +1640,10 @@ export class RenderSystem {
         }
 
         // "Cosechando": the picking pose bobs the ant one art px over the farm tile
+        // "Cultivando" bobs the same way while she chews the leaves into the bed
         const picking = ant?.state === AntState.FarmHarvesting && ant.farmHarvest?.phase === 'picking';
-        const bob = picking && Math.floor(frameTime / 160) % 2 === 0 ? 2 : 0;
+        const planting = ant?.state === AntState.FarmTending && ant.farmTend?.phase === 'planting';
+        const bob = (picking || planting) && Math.floor(frameTime / 160) % 2 === 0 ? 2 : 0;
 
         // Carrying indicator (for any ant with food): a pale violet mushroom for
         // mushrooms (farm harvest), a square pixel chunk for anything else
@@ -1652,6 +1655,8 @@ export class RenderSystem {
 
         this.spriteAtlas.drawAnt(ctx, px, py + bob, angle, legPhase, role, isCarrying);
         if (carried === 'mushroom') this.farmArt.drawCarriedMushroom(ctx, px, py + bob);
+        else if (carried === 'leaf') this.farmArt.drawCarriedLeaf(ctx, px, py + bob);
+        if (planting) this.farmArt.drawTendCrumbs(ctx, px, py, frameTime / 1000);
 
         // "Esperando espacio en la despensa": three amber dots over the ant,
         // lit one after another, so a crowd waiting with loads reads at a glance

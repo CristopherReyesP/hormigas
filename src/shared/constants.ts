@@ -213,6 +213,7 @@ export const SURFACE_SPOILAGE_RATE = 0.0015; // fraction of surface nest food lo
 // Fungus farming — farm tiles convert stored leaves into mushrooms
 export const FUNGUS_CONVERSION_PER_TILE = 0.35; // leaves consumed per second per farm tile
 export const FUNGUS_YIELD = 1.4;                // mushrooms produced per leaf consumed
+export const FARM_MULCH_CAPACITY = 36;          // leaf mulch a farm tile holds: gardener ants lay it, the fungus eats it (≈ one ripe bed)
 
 // ── Defenders & underground design ─────────────────────────────────
 export const BREED_COST_DEFENDER = 30;
