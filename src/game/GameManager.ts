@@ -93,6 +93,8 @@ import { ObjectiveSystem, type ObjectiveState } from './systems/ObjectiveSystem'
 import { UndergroundInvasionSystem, type InvasionInfo, type RaidSource, type WaveThreat } from './systems/UndergroundInvasionSystem';
 import { FrontierSystem } from './phase/FrontierSystem';
 import { TarantulaSystem } from './phase/TarantulaSystem';
+import { AlienHunterSystem } from './phase/AlienHunterSystem';
+import { ThreatSystem } from './phase/threat';
 import { RivalFortifySystem } from './rival/fortify';
 import type { MeteorKind } from './render/meteorShower';
 import { DOMINION_MEASURE_SECONDS, DOMINION_TARGET, densInside, dominionScore, frontierHint, frontierReady, measureTerritory, type FrontierProgress } from './phase/frontierProgress';
@@ -653,6 +655,10 @@ export class GameManager {
   private frontierSystem!: FrontierSystem;
   /** The alien tarantulas that hunt the colony's ants (from day 3; more in Phase 2) */
   private tarantulaSystem!: TarantulaSystem;
+  /** The plasma centipedes, spore jellies and acid spitters */
+  private alienHunters!: AlienHunterSystem;
+  /** The enemies evolve with the days and with the colony's strength */
+  private threatSystem!: ThreatSystem;
   /** 1 inside the thorn wall; 2 once the frontier opened */
   private frontierPhase: 1 | 2 = 1;
   /** The rival core fell (the first condition of Phase 2) */
@@ -801,6 +807,11 @@ export class GameManager {
     this.world.addSystem(this.frontierSystem);
     this.tarantulaSystem = new TarantulaSystem(this.world, this.grid, this.dayNightSystem, () => ({ x: Math.floor(WORLD_WIDTH / 2), y: Math.floor(WORLD_HEIGHT / 2) }));
     this.world.addSystem(this.tarantulaSystem);
+    this.threatSystem = new ThreatSystem(this.world, this.dayNightSystem);
+    this.alienHunters = new AlienHunterSystem(this.world, this.grid, this.dayNightSystem, () => ({ x: Math.floor(WORLD_WIDTH / 2), y: Math.floor(WORLD_HEIGHT / 2) }), () => this.threatSystem.level);
+    this.world.addSystem(this.alienHunters);
+    // Last: it scales every enemy born this tick, the hunters' included
+    this.world.addSystem(this.threatSystem);
     // Rival bases dig in as time goes by: tougher cores and more defenses
     this.world.addSystem(new RivalFortifySystem(this.world, this.grid));
     this.world.addSystem(cricketSpawnSystem);
@@ -2116,6 +2127,7 @@ export class GameManager {
     });
     this.frontierSystem.populate(oldZone, home, rng, impacts);
     this.tarantulaSystem.setPhase2();
+    this.alienHunters.setPhase2();
     // The Legionary nest came down too: a crimson meteor of its own
     const legion = this.frontierSystem.raidOrigin();
     if (legion) {

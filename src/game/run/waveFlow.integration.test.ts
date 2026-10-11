@@ -28,6 +28,8 @@ function setup() {
   const game = new GameManager(fakeCanvas(), CRYSTAL_RIVAL_SETUP);
   finishIntro(game);
   const world = game['world'] as World;
+  // These check the waves' own numbers: no threat scaling on top
+  world.removeSystem('ThreatSystem');
   const dayNight = game['dayNightSystem'] as unknown as { phaseTimer: number; getPhase(): string };
   const run = (seconds: number) => {
     for (let i = 0; i < Math.round(seconds / DT); i++) game['update'](DT);

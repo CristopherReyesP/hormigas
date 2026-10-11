@@ -173,7 +173,7 @@ export function paintMantis({ frame, direction, shadow = true }: WildlifeSpriteS
  * bristling with fur and teal crystal spines, eight thick hairy legs and a
  * crown of eight glowing green eyes over two heavy fangs.
  */
-export function paintTarantula({ frame, direction, shadow = true }: WildlifeSpriteSpec): ArtGrid {
+export function paintTarantula({ frame, direction, shadow = true, bite = false }: WildlifeSpriteSpec): ArtGrid {
   const grid = new ArtGrid(SPRITE_GRID.tarantula);
   const p = new ArtPen(grid, directionAngle(direction));
   const T = PAL.tarantula;
@@ -182,7 +182,10 @@ export function paintTarantula({ frame, direction, shadow = true }: WildlifeSpri
   const k = 2; // authored on the old 44-px plan, drawn twice as big
   const X = (v: number) => Math.round(v * k);
   const Y = (v: number) => A + Math.round(v * k);
-  const swing = GAIT[frame % GAIT.length] * k;
+  // Biting, it stands still and rears: the front pair of legs lifts forward,
+  // and the fangs gape wide (frame 0) or snap shut (frame 1)
+  const swing = bite ? 0 : GAIT[frame % GAIT.length] * k;
+  const gape = bite ? (frame % 2 === 0 ? 2.5 : -1.2) : 0;
   const hash = (a: number, b: number) => {
     let h = (a * 374761393 + b * 668265263) >>> 0;
     h = ((h ^ (h >> 13)) * 1274126177) >>> 0;
@@ -194,8 +197,9 @@ export function paintTarantula({ frame, direction, shadow = true }: WildlifeSpri
     for (let i = 0; i < 4; i++) {
       const s = (i + (side === 1 ? 1 : 0)) % 2 === 0 ? swing : -swing;
       const hip: [number, number] = [X(22 + i * 2), Y(side * 3)];
-      const knee: [number, number] = [X(15 + i * 6) + s, Y(side * 12)];
-      const foot: [number, number] = [X(10 + i * 9) + s * 2, Y(side * 18)];
+      const rear = bite && i === 3; // the front pair rears up toward the prey
+      const knee: [number, number] = rear ? [X(36), Y(side * 9)] : [X(15 + i * 6) + s, Y(side * 12)];
+      const foot: [number, number] = rear ? [X(41), Y(side * 6)] : [X(10 + i * 9) + s * 2, Y(side * 18)];
       // Five strands thick (thinner toward the foot), lit along the middle
       for (const off of [-2, -1, 0, 1, 2]) {
         const color = off === 0 ? T[3] : Math.abs(off) === 1 ? T[2] : T[1];
@@ -221,8 +225,8 @@ export function paintTarantula({ frame, direction, shadow = true }: WildlifeSpri
   p.outlined(pen => {
     pen.ellipse(X(13), A, 10 * k, 8.5 * k, T[1]);
     pen.disc(X(27), A, 6 * k, T[2]);
-    pen.capsule(X(33), Y(-2), X(35.5), Y(-3), 1.3 * k, T[1]);
-    pen.capsule(X(33), Y(2), X(35.5), Y(3), 1.3 * k, T[1]);
+    pen.capsule(X(33), Y(-2), X(35.5 + Math.max(0, gape) * 0.6), Y(-3 - gape), 1.3 * k, T[1]);
+    pen.capsule(X(33), Y(2), X(35.5 + Math.max(0, gape) * 0.6), Y(3 + gape), 1.3 * k, T[1]);
   }, O);
   p.ellipse(X(13), A, 8.5 * k, 7 * k, T[2]);
   p.disc(X(27), A, 4.6 * k, T[3]);
@@ -261,9 +265,119 @@ export function paintTarantula({ frame, direction, shadow = true }: WildlifeSpri
   p.rect(X(31) + 1, Y(-1), 3, 3, PAL.tarantulaEye);
   p.rect(X(31) + 1, Y(1) - 1, 3, 3, PAL.tarantulaEye);
 
+  if (bite) {
+    // Venom beads on the fang tips while it bites
+    for (const side of [-1, 1]) p.rect(X(35.5 + Math.max(0, gape) * 0.6), Y(side * (3 + gape)) - 1, 2, 2, PAL.tarantulaBristle);
+  }
   p.shade([T]);
   p.sheen(X(13), A, 6, T[3]);
   if (shadow) p.castShadow(O, 2, 3);
+  return grid;
+}
+
+/**
+ * 40×40 plasma centipede: a long chain of violet plates seamed with cyan
+ * plasma, a pair of legs per segment rippling down the body, forcipules in front.
+ */
+export function paintCentipede({ frame, direction, shadow = true }: WildlifeSpriteSpec): ArtGrid {
+  const grid = new ArtGrid(SPRITE_GRID.centipede);
+  const p = new ArtPen(grid, directionAngle(direction));
+  const C = PAL.centipede;
+  const G = PAL.centipedeGlow;
+  const O = PAL.outline;
+  const A = Math.floor(SPRITE_GRID.centipede / 2);
+  const segments = 9;
+  // The body sways: each segment sits on a sine wave that travels with the frame
+  const at = (i: number) => ({ x: 6 + i * 3.2, y: A + Math.round(Math.sin((i + frame) * 0.9) * 1.5) });
+  // Legs: one pair per segment, the wave of steps running down the body
+  for (let i = 0; i < segments; i++) {
+    const { x, y } = at(i);
+    const step = (i + frame) % 2 === 0 ? 1 : -1;
+    for (const side of [-1, 1]) p.line(Math.round(x), y + side * 2, Math.round(x) + step, y + side * 5, C[3]);
+  }
+  p.outlined(pen => {
+    for (let i = 0; i < segments; i++) {
+      const { x, y } = at(i);
+      pen.ellipse(x, y, 1.9, 2.4, C[2]);
+    }
+    const head = at(segments);
+    pen.disc(head.x, head.y, 2.6, C[2]);
+  }, O);
+  // Plasma seams between the plates, and the glowing spine
+  for (let i = 0; i < segments; i++) {
+    const { x, y } = at(i);
+    p.px(Math.round(x), y, i % 2 === 0 ? G[0] : G[1]);
+    p.px(Math.round(x) + 1, y - 1, C[3]);
+  }
+  const head = at(segments);
+  // Forcipules (venom claws) and eyes
+  for (const side of [-1, 1]) {
+    p.line(Math.round(head.x) + 2, head.y + side * 2, Math.round(head.x) + 4, head.y + side, G[1]);
+    p.px(Math.round(head.x) + 1, head.y + side, G[0]);
+  }
+  p.shade([C]);
+  if (shadow) p.castShadow(O, 1, 2);
+  return grid;
+}
+
+/**
+ * 32×32 spore jelly: a floating translucent bell with a glowing spore core
+ * and drifting tentacles. Seen from above it reads as a round bell.
+ */
+export function paintSporeJelly({ frame, direction, shadow = true }: WildlifeSpriteSpec): ArtGrid {
+  const grid = new ArtGrid(SPRITE_GRID.sporeJelly);
+  const p = new ArtPen(grid, directionAngle(direction));
+  const J = PAL.jelly;
+  const O = PAL.outline;
+  const A = Math.floor(SPRITE_GRID.sporeJelly / 2);
+  const pulse = frame % 2;
+  // Tentacles trail behind (to the left), waving with the frame
+  for (let t = -2; t <= 2; t++) {
+    const y0 = A + t * 2;
+    p.polyline([[A - 3, y0], [A - 7, y0 + ((t + frame) % 2 === 0 ? 1 : -1)], [A - 11, y0]], J[2]);
+  }
+  p.outlined(pen => pen.disc(A + 1, A, 6 + pulse * 0.5, J[1]), O);
+  p.disc(A + 1, A, 5, J[2]);
+  p.disc(A + 2, A - 1, 3, J[3]);
+  // The spore core and specks
+  p.disc(A + 1, A, 1.6, PAL.jellySpore);
+  for (const [x, y] of [[-2, -3], [3, 2], [-3, 2], [2, -4]] as const) p.px(A + 1 + x, A + y, PAL.jellySpore);
+  p.shade([J]);
+  if (shadow) p.castShadow(O, 2, 3);
+  return grid;
+}
+
+/**
+ * 32×32 acid spitter: a squat swamp-green bug with a swollen glowing acid
+ * sac on its back and a long nozzle snout it spits from.
+ */
+export function paintAcidSpitter({ frame, direction, shadow = true }: WildlifeSpriteSpec): ArtGrid {
+  const grid = new ArtGrid(SPRITE_GRID.acidSpitter);
+  const p = new ArtPen(grid, directionAngle(direction));
+  const S = PAL.spitter;
+  const O = PAL.outline;
+  const A = Math.floor(SPRITE_GRID.acidSpitter / 2);
+  const swing = GAIT[frame % GAIT.length];
+  for (let side = -1; side <= 1; side += 2) {
+    for (let i = 0; i < 3; i++) {
+      const s = (i + (side === 1 ? 1 : 0)) % 2 === 0 ? swing : -swing;
+      const hip = 12 + i * 3;
+      p.polyline([[hip, A + side * 3], [hip - 1 + s, A + side * 7], [hip - 2 + i * 2 + s, A + side * 9]], S[3]);
+    }
+  }
+  p.outlined(pen => {
+    pen.ellipse(13, A, 7, 5.5, S[1]); // body
+    pen.disc(21, A, 3, S[2]); // head
+    pen.capsule(23, A, 27, A, 1, S[2]); // the nozzle snout
+  }, O);
+  // The acid sac: a big glowing bulb on the back
+  p.disc(12, A, 3.6, PAL.spitterSac[0]);
+  p.disc(11, A - 1, 2, PAL.spitterSac[1]);
+  p.px(27, A, PAL.spitterSac[1]); // a drop on the nozzle tip
+  p.px(20, A - 2, PAL.spitterSac[1]);
+  p.px(20, A + 2, PAL.spitterSac[1]);
+  p.shade([S]);
+  if (shadow) p.castShadow(O, 1, 2);
   return grid;
 }
 

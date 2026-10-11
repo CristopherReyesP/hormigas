@@ -17,3 +17,13 @@
 - Dens grow too: the Legionary nest and the spider lairs keep one more creature and gain hull every 90 s.
 - Phase 2 is harder: the creatures have about 25% more health and damage, there are 4 spider lairs and 3 mantises, the Legionary nest keeps 10 and breeds faster, the picked rival brings 3 bases, and its raids are 1.5× plus 60% per standing base.
 - The balance guards (`balance.regression.test.ts`) still pass: an idle colony lives through night 2, and one played sensibly reaches night 8 on 2 of 3 seeds.
+
+## The enemies evolve too (user, 2026-10-11)
+"Only the ants get better, and the game gets easy with more upgrades and more ants." Now:
+- Threat (`src/game/phase/threat.ts`): one level a day from day 3, one per 20 ants past 15, one per 2 evolutions and one per 3 upgrade levels. It never drops. Every enemy is born at the threat of its moment: +5% health and +3% damage per level (up to ×3 and ×2.5). A notice comes every 5 levels.
+- New alien hunters (`AlienHunterSystem`), more of them as the threat rises:
+  - plasma centipede (day 4): fast, it runs down the ants;
+  - spore jelly (day 5, in pairs): it drifts at the colony and bursts on contact (40 damage within 2.5 tiles);
+  - acid spitter (day 6): it spits from 5 tiles and backs off from ants that close in.
+- The tarantula gets a bite animation: it rears, its fangs gape and snap shut, and it lunges.
+- Balance: the guards still pass. In the simulation a sensible colony lives through night 8 on 3 of 3 seeds. Steeper steps (+6–7% health per level) left it falling on night 8–9, right at the guard's edge.

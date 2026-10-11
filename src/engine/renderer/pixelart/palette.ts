@@ -84,6 +84,13 @@ export const PAL = {
   tarantula: ['#0c0a18', '#1c1830', '#2e2850', '#4a3f78'],
   tarantulaBristle: '#3fe0c8',
   tarantulaEye: '#c6ff3d',
+  // The alien hunters
+  centipede: ['#140a1e', '#2c1240', '#4a1e66', '#7a2e9a'], // plasma centipede: deep violet plates
+  centipedeGlow: ['#3fd6ff', '#c8f6ff'], // its plasma seams
+  jelly: ['#1a2a3a', '#2a5a7a', '#4a9ac0', '#9ae0ff'], // spore jelly: a translucent bell
+  jellySpore: '#e8ff7a',
+  spitter: ['#1a1e0e', '#34401a', '#556a26', '#7f9a3a'], // acid spitter: swamp chitin
+  spitterSac: ['#5a8a1c', '#c6ff3d'],
 
   // ── Combat VFX (src/game/vfx) ─────────────────────────────
   // Swarm acid and goo, dark rim → vein → glow → hot core: the vein ramp
