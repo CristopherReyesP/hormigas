@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { TitleScreen } from './TitleScreen';
+import { GAME_VERSION } from '../shared/version';
 
 describe('title screen', () => {
   const html = renderToStaticMarkup(<TitleScreen onStart={() => {}} />);
@@ -9,6 +10,11 @@ describe('title screen', () => {
     expect(html).toContain('HORMIGAS');
     expect(html).toContain('LA COLONIA');
     expect(html).toContain('LOS CRISTALES');
+  });
+
+  it('shows the game version, small, at the bottom: the build date and its commit', () => {
+    expect(html).toMatch(/<p class="game-version game-version--title"[^>]*>v\d{4}-\d{2}-\d{2} \d{2}:\d{2} · [0-9a-z]+<\/p>/);
+    expect(html).toContain(GAME_VERSION);
   });
 
   it('opens with an INICIAR button over an animated scene', () => {

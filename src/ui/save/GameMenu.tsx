@@ -1,4 +1,5 @@
 import './save.css';
+import { GAME_VERSION } from '../../shared/version';
 import { useCallback, useState } from 'react';
 import type { GameManager } from '../../game/GameManager';
 import type { SaveFile } from '../../game/save/format';
@@ -33,6 +34,7 @@ export function GameMenuPanel({ onResume, onSave, onLoad, onExit }: GameMenuPane
         <button type="button" className="save-btn save-btn--wide save-btn--danger" data-menu-exit="" onClick={onExit}>
           Salir al menú
         </button>
+        <p className="game-version" data-game-version="">{GAME_VERSION}</p>
       </div>
     </div>
   );
