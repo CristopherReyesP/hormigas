@@ -9,6 +9,7 @@ import {
   type CombatComponent,
   type HealthComponent,
   type LayerComponent,
+  type PathComponent,
   type PositionComponent,
   type QueenEntityComponent,
 } from '../components/components';
@@ -57,6 +58,12 @@ function aim(world: World, ids: number[], target: number): void {
   for (const id of ids) {
     const combat = world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
     if (combat && world.hasEntity(target)) combat.targetEntityId = target;
+    // Rooted on the spot: their own AI would chase the units that come to defend it
+    const path = world.getComponent<PathComponent>(id, COMPONENT.PATH);
+    if (path) {
+      path.waypoints = [];
+      path.currentIndex = 0;
+    }
   }
 }
 

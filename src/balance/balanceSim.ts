@@ -52,6 +52,8 @@ export interface SimConfig {
   dt?: number;
   /** Called with each night's record at the dawn after it (progress output) */
   onNight?: (record: NightRecord) => void;
+  /** Called after every step (diagnostics, such as the AI audit) */
+  onTick?: (game: GameManager, world: World, time: number) => void;
 }
 
 /** One line per night, taken at nightfall (the wave's numbers at the next dawn) */
@@ -503,6 +505,7 @@ export function runBalanceSim(config: SimConfig): SimResult {
       if (state.mutationOffer) game.chooseMutation(state.mutationOffer.options[0].id);
       game['update'](dt);
       time += dt;
+      config.onTick?.(game, world, time);
 
       const now = dayNight.getPhase();
       if (now !== phase) {

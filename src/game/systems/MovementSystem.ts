@@ -92,6 +92,15 @@ export class MovementSystem implements System {
         ? Math.floor(pos.y) * UNDERGROUND_WIDTH + Math.floor(pos.x)
         : undefined;
       const toTile = underground ? Math.floor : Math.round;
+      // A fresh route starts on the tile the unit stands on. When the unit is
+      // already as close to the second waypoint as that first one is, walking
+      // back to the first first is a step backwards: units that re-aim often
+      // (chasers, hunters) ping-ponged on that tile forever. Skip it.
+      if (path.currentIndex === 0 && path.waypoints.length > 1) {
+        const a = path.waypoints[0];
+        const b = path.waypoints[1];
+        if (Math.hypot(b.x - pos.x, b.y - pos.y) <= Math.hypot(b.x - a.x, b.y - a.y) + 0.05) path.currentIndex = 1;
+      }
       const target = path.waypoints[path.currentIndex];
       const dx = target.x - pos.x;
       const dy = target.y - pos.y;
