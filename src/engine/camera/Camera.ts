@@ -81,6 +81,9 @@ export class Camera {
 
   private worldWidth: number;
   private worldHeight: number;
+  /** Top-left tile of the area the view stays on (the whole map, or Phase 1's zone) */
+  private areaX = 0;
+  private areaY = 0;
   /** Whole canvas in canvas px (the backing store); the defaults hold until the UI measures the window */
   private canvasW = CANVAS_WIDTH;
   private canvasH = CANVAS_HEIGHT;
@@ -96,6 +99,23 @@ export class Camera {
   constructor(worldWidth: number = WORLD_WIDTH, worldHeight: number = WORLD_HEIGHT) {
     this.worldWidth = worldWidth;
     this.worldHeight = worldHeight;
+  }
+
+  /**
+   * Keep the view on part of the map (tiles): Phase 1's walled zone, then the
+   * whole map once the frontier opens. The zoom-out limit follows the area.
+   */
+  setWorldArea(x: number, y: number, width: number, height: number): void {
+    this.areaX = x;
+    this.areaY = y;
+    this.worldWidth = Math.max(1, width);
+    this.worldHeight = Math.max(1, height);
+    this.setCanvasSize(this.canvasW, this.canvasH, this.pixelRatio);
+  }
+
+  /** The area the view stays on, in tiles */
+  getWorldArea(): { x: number; y: number; width: number; height: number } {
+    return { x: this.areaX, y: this.areaY, width: this.worldWidth, height: this.worldHeight };
   }
 
   applyTransform(ctx: CanvasRenderingContext2D): void {
@@ -283,8 +303,10 @@ export class Camera {
     const v = this.viewport;
     const viewW = v.w / this.zoom;
     const viewH = v.h / (this.zoom * PERSPECTIVE_Y_SCALE);
-    const left = Camera.clampAxis(this.x + v.x / this.zoom, viewW, this.worldWidth * TILE_SIZE);
-    const top = Camera.clampAxis(this.y + v.y / (this.zoom * PERSPECTIVE_Y_SCALE), viewH, this.worldHeight * TILE_SIZE);
+    const ox = this.areaX * TILE_SIZE;
+    const oy = this.areaY * TILE_SIZE;
+    const left = ox + Camera.clampAxis(this.x + v.x / this.zoom - ox, viewW, this.worldWidth * TILE_SIZE);
+    const top = oy + Camera.clampAxis(this.y + v.y / (this.zoom * PERSPECTIVE_Y_SCALE) - oy, viewH, this.worldHeight * TILE_SIZE);
     this.x = left - v.x / this.zoom;
     this.y = top - v.y / (this.zoom * PERSPECTIVE_Y_SCALE);
   }
@@ -322,13 +344,13 @@ export class Camera {
     return this.directed;
   }
 
-  /** Back to the default zoom with the world's top-left corner in view. */
+  /** Back to the default zoom with the area's top-left corner in view. */
   reset(): void {
     if (this.directed) return;
     this.zoom = this.defaultZoom;
     this.wheelAccum = 0;
-    this.x = -this.viewport.x / this.zoom;
-    this.y = -this.viewport.y / (this.zoom * PERSPECTIVE_Y_SCALE);
+    this.x = this.areaX * TILE_SIZE - this.viewport.x / this.zoom;
+    this.y = this.areaY * TILE_SIZE - this.viewport.y / (this.zoom * PERSPECTIVE_Y_SCALE);
     this.clamp();
   }
 }

@@ -1,5 +1,6 @@
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
+import { randomEdgeTile } from '../../simulation/world/frontier';
 import type { TileGrid } from '../../simulation/world/TileGrid';
 import {
   COMPONENT,
@@ -14,8 +15,6 @@ import {
   BEETLE_EDGE_SPAWN_INTERVAL,
   BEETLE_EDGE_SPAWN_CHANCE,
   MAX_TOTAL_BEETLES,
-  WORLD_WIDTH,
-  WORLD_HEIGHT,
 } from '../../shared/constants';
 
 export class BeetleSpawnSystem implements System {
@@ -93,27 +92,8 @@ export class BeetleSpawnSystem implements System {
   private getRandomEdgePosition(): { x: number; y: number } | null {
     // Try up to 20 times to find a walkable edge tile
     for (let attempt = 0; attempt < 20; attempt++) {
-      const side = Math.floor(Math.random() * 4);
-      let x: number, y: number;
-
-      switch (side) {
-        case 0: // top
-          x = Math.floor(Math.random() * WORLD_WIDTH);
-          y = 1;
-          break;
-        case 1: // bottom
-          x = Math.floor(Math.random() * WORLD_WIDTH);
-          y = WORLD_HEIGHT - 2;
-          break;
-        case 2: // left
-          x = 1;
-          y = Math.floor(Math.random() * WORLD_HEIGHT);
-          break;
-        default: // right
-          x = WORLD_WIDTH - 2;
-          y = Math.floor(Math.random() * WORLD_HEIGHT);
-          break;
-      }
+      // The edge of the area the run plays on (inside the thorn wall in Phase 1)
+      const { x, y } = randomEdgeTile(this.grid.bounds, Math.floor(Math.random() * 4), Math.random);
 
       if (this.grid.isWalkable(x, y)) {
         return { x, y };

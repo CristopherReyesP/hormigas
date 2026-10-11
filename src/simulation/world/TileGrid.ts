@@ -1,12 +1,17 @@
 import { WORLD_WIDTH, WORLD_HEIGHT } from '../../shared/constants';
 import { TerrainType, type Tile } from './types';
 import type { WalkableGrid } from './WalkableGrid';
+import { fullBounds, inBounds, insetBounds, onRing, type TileBounds } from './frontier';
 
 export class TileGrid implements WalkableGrid {
   private tiles: Tile[];
   readonly width = WORLD_WIDTH;
   readonly height = WORLD_HEIGHT;
   private seed: number;
+  /** Where the run plays now: Phase 1's zone inside the thorn wall, or the whole map */
+  bounds: TileBounds = fullBounds(WORLD_WIDTH, WORLD_HEIGHT);
+  /** Phase 1's zone, its wall included, while the frontier is sealed; null once it opens */
+  frontier: TileBounds | null = null;
 
   constructor() {
     this.seed = Math.floor(Math.random() * 2147483647);
@@ -116,6 +121,49 @@ export class TileGrid implements WalkableGrid {
 
   private lerp(a: number, b: number, t: number): number {
     return a + (b - a) * t;
+  }
+
+  /**
+   * Phase 1: everything outside `zone` is sealed and the zone's outer ring
+   * (`wall` tiles deep) becomes the thorn wall. The run then plays inside it.
+   */
+  sealFrontier(zone: TileBounds, wall: number): void {
+    for (let y = 0; y < this.height; y++) {
+      for (let x = 0; x < this.width; x++) {
+        const tile = this.tiles[y * this.width + x];
+        if (!inBounds(zone, x, y)) {
+          tile.sealed = true;
+          tile.walkable = false;
+        } else if (onRing(zone, x, y, wall)) {
+          tile.thorns = true;
+          tile.walkable = false;
+        }
+      }
+    }
+    this.frontier = { ...zone };
+    this.bounds = insetBounds(zone, wall);
+  }
+
+  /** Phase 2: the wall crumbles and the outer ring opens; returns the tiles that opened */
+  openFrontier(): number {
+    if (!this.frontier) return 0;
+    let opened = 0;
+    for (const tile of this.tiles) {
+      if (!tile.sealed && !tile.thorns) continue;
+      delete tile.sealed;
+      delete tile.thorns;
+      tile.walkable = tile.terrain !== TerrainType.Water && tile.terrain !== TerrainType.Stone;
+      opened++;
+    }
+    this.frontier = null;
+    this.bounds = fullBounds(this.width, this.height);
+    return opened;
+  }
+
+  /** The tile is beyond the wall or part of it (sealed until Phase 2) */
+  isSealed(x: number, y: number): boolean {
+    const tile = this.getTile(x, y);
+    return tile !== null && (tile.sealed === true || tile.thorns === true);
   }
 
   getTile(x: number, y: number): Tile | null {

@@ -105,9 +105,9 @@ describe('scouting the next wave', () => {
 
   it('names the surface direction the raiders come from', () => {
     const { world, invasion } = setup();
-    invasion.setRaidSource({ rival: 'human', launch: () => [], origin: () => ({ x: 100, y: 10 }) });
+    invasion.setRaidSource({ rival: 'human', launch: () => [], origin: () => ({ x: 124, y: 28 }) });
     expect(world).toBeDefined();
-    expect(invasion.getInfo().next!.surface).toMatchObject({ x: 100, y: 10, direction: 'noreste' });
+    expect(invasion.getInfo().next!.surface).toMatchObject({ x: 124, y: 28, direction: 'noreste' });
   });
 
   it('the warning banner carries the elites and the boss', () => {

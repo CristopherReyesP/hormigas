@@ -16,6 +16,10 @@ export interface Tile {
   foodPheromone: number;
   homePheromone: number;
   dangerPheromone: number;
+  /** Beyond Phase 1's thorn wall: blocked until the frontier opens */
+  sealed?: boolean;
+  /** Part of the thorn wall itself (drawn as thorns, blocked until the frontier opens) */
+  thorns?: boolean;
 }
 
 /**

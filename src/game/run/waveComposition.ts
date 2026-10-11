@@ -80,9 +80,17 @@ function rawSize(wave: number): number {
  * The rival of the run. Crystal and Human bases send the surface share of
  * each wave; against the wildlife (Fauna salvaje) every unit is a beetle.
  */
-export type WaveRival = 'wildlife' | 'crystal' | 'human';
+/** 'legion': Phase 2's Legionary nest, which sends its army ants with every wave */
+export type WaveRival = 'wildlife' | 'crystal' | 'human' | 'legion';
 
-const BOSS_OF: Record<WaveRival, MiniBossKind> = { wildlife: 'colossus', crystal: 'prism', human: 'colonel' };
+/** What the scouting card calls the rival's raiders */
+export function raiderGroupLabel(rival: WaveRival): string {
+  if (rival === 'human') return 'Tropas humanas';
+  if (rival === 'legion') return 'Hormigas legionarias';
+  return 'Drones de cristal';
+}
+
+const BOSS_OF: Record<WaveRival, MiniBossKind> = { wildlife: 'colossus', crystal: 'prism', human: 'colonel', legion: 'colossus' };
 
 /** The mini-boss of wave `wave` against `rival`: every third wave, themed by the rival */
 export function miniBossFor(wave: number, rival: WaveRival): MiniBossKind | null {
@@ -112,6 +120,9 @@ export function eliteShare(wave: number): number {
  * Hive fell by night 6-7 to the raid alone.
  */
 export const HUMAN_RAID_SHARE = { start: 0.2, step: 0.03, max: 0.3, min: 2 } as const;
+
+/** Phase 2: the Legionary nest's share of each wave (its army ants), and the fewest it sends */
+export const LEGION_RAID_SHARE = { share: 0.45, min: 4 } as const;
 
 /** Human troops in wave `n` out of `total` (HUMAN_RAID_SHARE) */
 function humanRaiders(n: number, total: number): number {
@@ -172,6 +183,10 @@ export function waveComposition(wave: number, rival: WaveRival = 'crystal'): Wav
   let drones: number;
   if (rival === 'human') {
     drones = humanRaiders(n, units);
+    young = Math.min(youngShare, units - drones);
+  } else if (rival === 'legion') {
+    // The army ants come in numbers: LEGION_RAID_SHARE of the wave, never fewer than its min
+    drones = Math.min(units, Math.max(LEGION_RAID_SHARE.min, Math.floor(units * LEGION_RAID_SHARE.share)));
     young = Math.min(youngShare, units - drones);
   } else {
     young = youngShare;

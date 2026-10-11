@@ -1,6 +1,11 @@
 export const TILE_SIZE = 32; // pixels per tile
-export const WORLD_WIDTH = 120; // tiles
-export const WORLD_HEIGHT = 90; // tiles
+export const WORLD_WIDTH = 168; // tiles: the whole map, the Phase 2 frontier included
+export const WORLD_HEIGHT = 126; // tiles
+// Phase 1 plays on the middle of the map; a thorn wall seals the outer ring
+// until Phase 2 (src/game/phase/). The wall stands on the zone's own edge
+export const PHASE1_ZONE_WIDTH = 120;  // tiles
+export const PHASE1_ZONE_HEIGHT = 90;  // tiles
+export const FRONTIER_WALL_THICKNESS = 2; // tiles of thorns on the zone's edge
 
 // Reference canvas size, NOT derived from world size. The real canvas follows the
 // window (GameCanvas); this is only its size before the first measure, a test
@@ -376,9 +381,9 @@ export const CONTROL_GROUP_DOUBLE_TAP_MS = 300; // the same digit twice this fas
 export const GAME_SPEED_MAX = 3;               // + and - step game speed between x1 and this
 
 // === Mycelium creep (the Swarm's living carpet around the nest) ===
-export const CREEP_BASE_RADIUS = 4;          // tiles of creep a newly founded nest holds
-export const CREEP_MAX_RADIUS = 13;          // the carpet never reaches farther from a nest
-export const CREEP_ANTS_PER_RADIUS = 4;      // every this many living ants push the edge one tile out
+export const CREEP_BASE_RADIUS = 5;          // tiles of creep a newly founded nest holds
+export const CREEP_MAX_RADIUS = 24;          // the carpet never reaches farther from a nest (13 felt cramped once the map grew)
+export const CREEP_ANTS_PER_RADIUS = 3;      // every this many living ants push the edge one tile out
 export const CREEP_UPDATE_SECONDS = 0.25;    // how often the carpet grows or recedes
 export const CREEP_GROW_STEP = 40;           // coverage a tile gains per update (0-255)
 export const CREEP_DECAY_STEP = 12;          // coverage a tile loses per update once outside the reach

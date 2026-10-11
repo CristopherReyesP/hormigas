@@ -5,6 +5,7 @@ import { TILE_SIZE, WORLD_WIDTH, WORLD_HEIGHT } from '../../shared/constants';
 import { PAL, hash2, pick } from './pixelart/palette';
 import { PixelPainter } from './pixelart/PixelPainter';
 import { DECOR_SEED, floraAt, type FloraProp } from './alienDecor';
+import { ChunkedCanvas } from './ChunkedCanvas';
 
 /** Art pixels per tile side. */
 const ART = 16;
@@ -42,7 +43,9 @@ const HUSK_COLORS: ReadonlyArray<readonly [string, string]> = [
  * blits only the world rect the camera's whole canvas covers.
  */
 export class FoliageOverlay {
-  private canvas: HTMLCanvasElement;
+  /** The pre-rendered foliage, in chunks (one world-sized canvas breaks iOS's canvas size limit) */
+  private chunks: ChunkedCanvas;
+  /** Paints in world px across the chunks */
   private ctx: CanvasRenderingContext2D;
   private grid: TileGrid;
   /** World-px centers of every glowing pod, flattened [x0, y0, x1, y1, …] */
@@ -52,17 +55,14 @@ export class FoliageOverlay {
     this.grid = grid;
 
     // Create offscreen canvas (same size as world)
-    this.canvas = document.createElement('canvas');
-    this.canvas.width = WORLD_WIDTH * TILE_SIZE;
-    this.canvas.height = WORLD_HEIGHT * TILE_SIZE;
-    this.ctx = this.canvas.getContext('2d')!;
-    this.ctx.imageSmoothingEnabled = false;
+    this.chunks = new ChunkedCanvas(WORLD_WIDTH * TILE_SIZE, WORLD_HEIGHT * TILE_SIZE);
+    this.ctx = this.chunks.painter();
 
     this.render();
   }
 
   private render(): void {
-    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.chunks.clear();
     this.pods = [];
 
     for (let y = 0; y < this.grid.height; y++) {
@@ -228,20 +228,7 @@ export class FoliageOverlay {
    * Draw the foliage overlay to the provided context
    */
   draw(ctx: CanvasRenderingContext2D, camera: Camera | null): void {
-    if (!camera) {
-      ctx.drawImage(this.canvas, 0, 0);
-      return;
-    }
-
-    const view = camera.getCanvasWorldRect();
-    const sx = Math.max(0, Math.floor(view.x));
-    const sy = Math.max(0, Math.floor(view.y));
-    const sw = Math.min(this.canvas.width - sx, Math.ceil(view.w) + 1);
-    const sh = Math.min(this.canvas.height - sy, Math.ceil(view.h) + 1);
-
-    if (sw > 0 && sh > 0) {
-      ctx.drawImage(this.canvas, sx, sy, sw, sh, sx, sy, sw, sh);
-    }
+    this.chunks.draw(ctx, camera ? camera.getCanvasWorldRect() : undefined);
   }
 
   /**

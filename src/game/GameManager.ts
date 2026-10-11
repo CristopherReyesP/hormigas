@@ -1,4 +1,5 @@
 import { RunModifiers } from './run/RunModifiers';
+import { centeredZone, inBounds, insetBounds, randomTileIn, boundsWidth, boundsHeight } from '../simulation/world/frontier';
 import type { MutationId } from './run/MutationDefinitions';
 import { retrofitAntStats } from './run/antStats';
 import { UpgradeSystem } from './upgrades/UpgradeSystem';
@@ -88,7 +89,10 @@ import { TransitSystem } from './systems/TransitSystem';
 import { ExcavationSystem } from './systems/ExcavationSystem';
 import { PorterSystem } from './systems/PorterSystem';
 import { ObjectiveSystem, type ObjectiveState } from './systems/ObjectiveSystem';
-import { UndergroundInvasionSystem, type InvasionInfo, type WaveThreat } from './systems/UndergroundInvasionSystem';
+import { UndergroundInvasionSystem, type InvasionInfo, type RaidSource, type WaveThreat } from './systems/UndergroundInvasionSystem';
+import { FrontierSystem } from './phase/FrontierSystem';
+import type { MeteorKind } from './render/meteorShower';
+import { DOMINION_MEASURE_SECONDS, DOMINION_TARGET, densInside, dominionScore, frontierHint, frontierReady, measureTerritory, type FrontierProgress } from './phase/frontierProgress';
 import { SpoilageSystem } from './systems/SpoilageSystem';
 import { FungusFarmSystem } from './systems/FungusFarmSystem';
 import { farmGrowthProgress, farmTileStatusLabel, isFarmTileReady } from './render/fungusGrowth';
@@ -178,6 +182,9 @@ import {
   FOOD_AMOUNT_MAX,
   WORLD_WIDTH,
   WORLD_HEIGHT,
+  PHASE1_ZONE_WIDTH,
+  PHASE1_ZONE_HEIGHT,
+  FRONTIER_WALL_THICKNESS,
   TILE_SIZE,
   BREED_TIME_WORKER,
   BREED_TIME_SOLDIER,
@@ -221,6 +228,15 @@ const SIM_RANDOM_SALT = 0x27d4eb2f;
 const MINERAL_SEED_SALT = 0x85ebca6b;
 /** Mixed into the run seed so the Human base site draws from its own stream. */
 const HUMAN_SITE_SALT = 0xc2b2ae35;
+/** Seeds Phase 2's meteor shower and the new ground's content */
+const FRONTIER_SEED_SALT = 0x5bd1e995;
+/** Phase 2's meteor shower: bases the picked rival brings; every other rival race brings one */
+const PHASE2_PICKED_RIVAL_BASES = 2;
+const PHASE2_OTHER_RIVAL_BASES = 1;
+/** Phase 2: each new rival base still standing sends this share more raiders with every wave */
+const PHASE2_RAID_BONUS_PER_BASE = 0.5;
+/** Game seconds Phase 2's banner stays up */
+const FRONTIER_BANNER_SECONDS = 10;
 /** The Human base keeps this far from the crater (tiles) */
 const HUMAN_SITE_CRATER_DISTANCE = 30;
 /** Tiles around the Human command center that must be walkable */
@@ -358,6 +374,8 @@ export interface GameOverStats {
   hiveDestroyed?: true;
   /** Set when the run was won by destroying the rival's core: whose it was */
   rivalCoreDestroyed?: 'crystal' | 'human';
+  /** Set when Phase 2 was won: every base of the meteor shower (or the Legionary nest and Queen) destroyed */
+  frontierConquered?: true;
   /** The race the player played, when it is not the Swarm (the end screen speaks for it) */
   playerRace?: RaceId;
   /** A defeat: what took the core (the queen, the command center, the Hive) down */
@@ -383,6 +401,16 @@ export interface MilestoneInfo {
   food: number;
   /** What the food share is called: the Swarm's pantry food, or a Human expedition's rations */
   foodUnit: 'comida' | 'raciones';
+}
+
+/** The frontier tracker in the HUD */
+export interface FrontierStats extends FrontierProgress {
+  /** What is still missing, in one line */
+  hint: string;
+  /** Phase 2: the meteor shower's rival bases still standing (0 against Fauna salvaje) */
+  basesLeft: number;
+  /** Phase 2: the Legionary Queen still lives */
+  legionQueenAlive: boolean;
 }
 
 /** Game seconds the milestone banner stays up */
@@ -487,6 +515,10 @@ export interface GameStats {
   gameOver: GameOverStats | null;
   /** The night milestone just reached (endless run), while its banner is up */
   milestone?: MilestoneInfo | null;
+  /** The way to Phase 2 (the dominion and the rival core), and Phase 2 itself */
+  frontier?: FrontierStats;
+  /** Phase 2's opening banner while it is up */
+  frontierBanner?: { title: string; subtitle: string } | null;
   activeEvents: Array<{ icon: string; name: string; remaining: number }>;
   dayPhase: 'day' | 'night';
   dayNumber: number;
@@ -609,6 +641,26 @@ export class GameManager {
   private gameOver: GameOverStats | null = null;
   /** The milestone banner up now and the game seconds it has left */
   private milestone: { info: MilestoneInfo; remaining: number } | null = null;
+  /** Phase 2's wildlife and the legionary columns */
+  private frontierSystem!: FrontierSystem;
+  /** 1 inside the thorn wall; 2 once the frontier opened */
+  private frontierPhase: 1 | 2 = 1;
+  /** The rival core fell (the first condition of Phase 2) */
+  private rivalCoreFallen = false;
+  /** The run started with a rival base (Crystal or Human): its core must fall before Phase 2 */
+  private hadRivalCore = false;
+  private frontierMeasureTimer = 0;
+  private frontierProgress: FrontierProgress | null = null;
+  /** The cores of the bases the meteor shower brought */
+  private phase2Cores: EntityId[] = [];
+  /** The rival races' base systems (the picked rival's from the start, the others from Phase 2) */
+  private crystalHiveSys: CrystalHiveSystem | null = null;
+  private humanBaseSys: HumanBaseSystem | null = null;
+  /** Phase 2's raids split across the rivals still standing: the next one to send */
+  private raidTurn = 0;
+  /** Phase 2 was won (and the run went on) */
+  private phase2Won = false;
+  private frontierBanner: { title: string; subtitle: string; remaining: number } | null = null;
   /** The local record when this run started, to tell a new record */
   private runStartBest = loadBestNight();
   private fungusFarmSystem!: FungusFarmSystem;
@@ -656,6 +708,7 @@ export class GameManager {
     // One setup path: the picked rival decides which base (if any) the run gets.
     // Fauna salvaje: wildlife only, no rival faction and no base.
     this.rivalRace = setup.rivalRace;
+    this.hadRivalCore = this.rivalRace === 'crystal' || this.rivalRace === 'human';
     const rivalBase = this.rivalRace === 'crystal' || this.rivalRace === 'human' ? this.rivalRace : null;
     this.world = new World(this.runModifiers, new FactionRegistry([
       ...defaultFactions().map((f) => (f.id === FactionId.PLAYER ? { ...f, race: setup.playerRace } : f)),
@@ -733,6 +786,9 @@ export class GameManager {
     this.world.addSystem(cricketAISystem);
     this.world.addSystem(combatSystem);
     this.world.addSystem(beetleSpawnSystem);
+    // Phase 2's wildlife beyond the wall (idle until the frontier opens); raiders march on the base at the center
+    this.frontierSystem = new FrontierSystem(this.world, this.grid, () => ({ x: Math.floor(WORLD_WIDTH / 2), y: Math.floor(WORLD_HEIGHT / 2) }));
+    this.world.addSystem(this.frontierSystem);
     this.world.addSystem(cricketSpawnSystem);
     this.world.addSystem(movementSystem);
     this.world.addSystem(pheromoneSystem);
@@ -795,8 +851,9 @@ export class GameManager {
     // The rival base's night raids are part of each invasion wave, not waves of their own
     if (this.rivalRace === 'human') {
       const humanBaseSystem = new HumanBaseSystem(this.world, this.grid, this.dayNightSystem, { autoRaids: false, faction: FactionId.RIVAL });
+      this.humanBaseSys = humanBaseSystem;
       this.world.addSystem(humanBaseSystem);
-      this.waves().setRaidSource({
+      this.setRivalRaid({
         rival: 'human',
         unitLabel: (count) => (count === 1 ? 'tropa humana' : 'tropas humanas'),
         launch: (count) => humanBaseSystem.launchRaid(count),
@@ -847,6 +904,10 @@ export class GameManager {
       this.input.onKeyAction('KeyE', () => {
         if (!this.gameOver && !this.mutationOffer) this.openMutationOffer();
       });
+      // KeyF (frontier): open Phase 2 now, skipping its conditions
+      this.input.onKeyAction('KeyF', () => {
+        if (!this.gameOver) this.openPhase2();
+      });
     }
     this.input.onKeyAction('Home', () => this.camera.reset());
     this.input.onKeyAction('KeyR', () => this.camera.reset());
@@ -875,7 +936,7 @@ export class GameManager {
       width: WORLD_WIDTH,
       height: WORLD_HEIGHT,
       nest: { x: nestX, y: nestY },
-      isWalkable: (x, y) => this.grid.isWalkable(x, y),
+      isWalkable: (x, y) => this.walkableInPlay(x, y, CRATER_EDGE_MARGIN),
       rng: createSeededRng(this.runSeed ^ CRATER_SEED_SALT),
       clearRadius: CRATER_CLEAR_RADIUS,
       edgeMargin: CRATER_EDGE_MARGIN,
@@ -893,7 +954,7 @@ export class GameManager {
         width: WORLD_WIDTH,
         height: WORLD_HEIGHT,
         nest: { x: nestX, y: nestY },
-        isWalkable: (x, y) => this.grid.isWalkable(x, y),
+        isWalkable: (x, y) => this.walkableInPlay(x, y, CRATER_EDGE_MARGIN),
         rng: createSeededRng(this.runSeed ^ HUMAN_SITE_SALT),
         clearRadius: HUMAN_SITE_CLEAR_RADIUS,
         edgeMargin: CRATER_EDGE_MARGIN,
@@ -985,13 +1046,19 @@ export class GameManager {
    * full rival (economy, build order, spires, raids, the Crystal Queen), unit
    * AI and shields. The hive's drones and the Queen join the invasion waves.
    */
+  /** The rival base's raids join the night waves */
+  private setRivalRaid(source: RaidSource): void {
+    this.waves().setRaidSource(source);
+  }
+
   private addCrystalRival(): void {
     const crystalHiveSystem = new CrystalHiveSystem(this.world, this.grid, this.dayNightSystem, { autoRaids: false });
+    this.crystalHiveSys = crystalHiveSystem;
     this.world.addSystem(crystalHiveSystem);
     this.crystalRival = new CrystalRivalSystem(this.world, this.grid, this.dayNightSystem);
     this.world.addSystem(this.crystalRival);
     const rival = this.crystalRival;
-    this.waves().setRaidSource({
+    this.setRivalRaid({
       rival: 'crystal',
       launch: (count) => crystalHiveSystem.launchRaid(count),
       origin: () => crystalHiveSystem.raidOrigin(),
@@ -1550,7 +1617,7 @@ export class GameManager {
       width: WORLD_WIDTH,
       height: WORLD_HEIGHT,
       nest,
-      isWalkable: (x, y) => this.grid.isWalkable(x, y),
+      isWalkable: (x, y) => this.walkableInPlay(x, y, 2),
       rng: createSeededRng(this.runSeed ^ MINERAL_SEED_SALT),
       crater: this.craterSite,
       craterRing: { inner: CRYSTAL_BOWL_RADIUS, outer: CRYSTAL_SHARD_RADIUS },
@@ -1610,6 +1677,22 @@ export class GameManager {
     }
   }
 
+  /** The surface area the run shows (tiles): Phase 1's walled zone, or the whole map once it opens */
+  getSurfaceArea(): { x: number; y: number; width: number; height: number } {
+    return this.camera.getWorldArea();
+  }
+
+  /** Walkable and at least `margin` tiles inside the area the run plays on now */
+  private walkableInPlay(x: number, y: number, margin = 0): boolean {
+    return inBounds(insetBounds(this.grid.bounds, margin), x, y) && this.grid.isWalkable(x, y);
+  }
+
+  /** The surface camera stays on the walled zone in Phase 1 (the wall in view), on the whole map after */
+  private fitCameraToFrontier(): void {
+    const area = this.grid.frontier ?? { x0: 0, y0: 0, x1: this.grid.width - 1, y1: this.grid.height - 1 };
+    this.camera.setWorldArea(area.x0, area.y0, boundsWidth(area), boundsHeight(area));
+  }
+
   private spawnInitialEntities(): void {
     // Spawn nest at center
     const nestX = Math.floor(WORLD_WIDTH / 2);
@@ -1635,6 +1718,10 @@ export class GameManager {
     this.clearCorridor(nestX, nestY, -1, 0);  // west
     this.clearCorridor(nestX, nestY, 0, 1);   // south
     this.clearCorridor(nestX, nestY, 0, -1);  // north
+
+    // Phase 1 plays inside the thorn wall; the outer ring opens in Phase 2
+    this.grid.sealFrontier(centeredZone(WORLD_WIDTH, WORLD_HEIGHT, PHASE1_ZONE_WIDTH, PHASE1_ZONE_HEIGHT), FRONTIER_WALL_THICKNESS);
+    this.fitCameraToFrontier();
 
     if (this.crystal) {
       // The Crystal Hive: its core, two drones and minerals; no nest, queen or cave
@@ -1670,8 +1757,7 @@ export class GameManager {
     // Spawn beetle dens
     for (let i = 0; i < INITIAL_BEETLE_DENS; i++) {
       for (let attempt = 0; attempt < 50; attempt++) {
-        const x = Math.floor(Math.random() * this.grid.width);
-        const y = Math.floor(Math.random() * this.grid.height);
+        const { x, y } = randomTileIn(this.grid.bounds, Math.random);
 
         if (!this.grid.isWalkable(x, y)) continue;
 
@@ -1746,8 +1832,7 @@ export class GameManager {
     // Random position, at least minNestDist tiles from nest
     let cx: number, cy: number;
     do {
-      cx = 5 + Math.floor(Math.random() * (WORLD_WIDTH - 10));
-      cy = 5 + Math.floor(Math.random() * (WORLD_HEIGHT - 10));
+      ({ x: cx, y: cy } = randomTileIn(this.grid.bounds, Math.random, 5));
     } while (
       Math.abs(cx - nestX) < minNestDist && Math.abs(cy - nestY) < minNestDist
     );
@@ -1797,6 +1882,7 @@ export class GameManager {
     this.updateNestAlert(dt);
     this.updateIdleQueenHint(dt);
     this.checkGameOver();
+    this.updateFrontier(dt);
     const dayPhase = this.dayNightSystem.getPhase();
     if (this.milestone && (this.milestone.remaining -= dt) <= 0) this.milestone = null;
     if (!this.gameOver && previousPhase === 'night' && dayPhase === 'day') this.celebrateDawn();
@@ -1848,6 +1934,188 @@ export class GameManager {
   }
 
   /**
+   * Phase 2's raids join the night waves: the meteor shower's rival bases
+   * (more raiders while they stand) or, against Fauna salvaje, the Legionary
+   * nest. Wired again after a load (the save keeps no functions).
+   */
+  private wirePhase2Raid(): void {
+    if (this.frontierPhase !== 2 || this.phase2Won) return;
+    this.ensurePhase2Rivals();
+    // Every rival still standing sends its share: the Hives, the Human bases, the Legionary nest
+    const sources: Array<{ alive: () => boolean; launch: (n: number) => EntityId[]; origin: () => { x: number; y: number } | null }> = [];
+    const standing = (race: 'crystal' | 'human') => this.phase2Cores.some((id) => this.world.hasEntity(id) && this.coreRace(id) === race);
+    const crystal = this.crystalHiveSys;
+    if (crystal) sources.push({ alive: () => standing('crystal'), launch: (n) => crystal.launchRaid(n), origin: () => crystal.raidOrigin() });
+    const human = this.humanBaseSys;
+    if (human) sources.push({ alive: () => standing('human'), launch: (n) => human.launchRaid(n), origin: () => human.raidOrigin() });
+    sources.push({ alive: () => this.frontierSystem.legionNestAlive(), launch: (n) => this.frontierSystem.launchRaid(n), origin: () => this.frontierSystem.raidOrigin() });
+    const picked: 'crystal' | 'human' | 'legion' = this.rivalRace === 'crystal' || this.rivalRace === 'human' ? this.rivalRace : 'legion';
+    this.waves().setRaidSource({
+      rival: picked,
+      unitLabel: () => 'rivales',
+      launch: (count) => {
+        const live = sources.filter((src) => src.alive());
+        if (live.length === 0) return [];
+        // More raiders for every base still standing
+        const bases = this.phase2Cores.filter((id) => this.world.hasEntity(id)).length;
+        const total = Math.ceil(count * (1 + PHASE2_RAID_BONUS_PER_BASE * bases));
+        const sent: EntityId[] = [];
+        for (let i = 0; i < total; i++) {
+          const src = live[(this.raidTurn + i) % live.length];
+          sent.push(...src.launch(1));
+        }
+        this.raidTurn = (this.raidTurn + 1) % Math.max(1, live.length);
+        return sent;
+      },
+      origin: () => sources.find((src) => src.alive())?.origin() ?? null,
+    });
+  }
+
+  /** Phase 2's bases, one meteor each: the picked rival brings more, every other rival race one */
+  private phase2BasePlan(): Array<'crystal' | 'human'> {
+    const plan: Array<'crystal' | 'human'> = [];
+    for (const race of ['crystal', 'human'] as const) {
+      const n = race === this.rivalRace ? PHASE2_PICKED_RIVAL_BASES : PHASE2_OTHER_RIVAL_BASES;
+      for (let i = 0; i < n; i++) plan.push(race);
+    }
+    // The picked rival's meteors fall first
+    return plan.sort((a, b) => Number(b === this.rivalRace) - Number(a === this.rivalRace));
+  }
+
+  /** Which race a Phase 2 base core is */
+  private coreRace(id: EntityId): 'crystal' | 'human' {
+    return this.world.getComponent(id, COMPONENT.CRYSTAL_HIVE) !== undefined ? 'crystal' : 'human';
+  }
+
+  private hasSystem(name: string): boolean {
+    return (this.world as unknown as { systems: Array<{ name: string }> }).systems.some((system) => system.name === name);
+  }
+
+  /**
+   * Phase 2 brings every rival race: the ones the run did not start with get
+   * their base and unit systems now (and again on a load, before the save's
+   * state is written over them).
+   */
+  ensurePhase2Rivals(): void {
+    if (!this.crystalHiveSys) {
+      this.crystalHiveSys = new CrystalHiveSystem(this.world, this.grid, this.dayNightSystem, { autoRaids: false });
+      this.world.addSystem(this.crystalHiveSys);
+      if (!this.hasSystem('CrystalUnitAISystem')) this.world.addSystem(new CrystalUnitAISystem(this.world, this.grid));
+      if (!this.hasSystem('CrystalShieldSystem')) this.world.addSystem(new CrystalShieldSystem(this.world));
+    }
+    if (!this.humanBaseSys) {
+      this.humanBaseSys = new HumanBaseSystem(this.world, this.grid, this.dayNightSystem, { autoRaids: false, faction: FactionId.RIVAL });
+      this.world.addSystem(this.humanBaseSys);
+      if (!this.hasSystem('HumanUnitAISystem')) this.world.addSystem(new HumanUnitAISystem(this.world, this.grid));
+    }
+  }
+
+  /** Phase 2 is won: every base of the meteor shower destroyed, or (no rival) the Legionary nest and Queen */
+  private frontierConquered(): boolean {
+    if (this.frontierPhase !== 2 || this.phase2Won) return false;
+    return this.phase2Cores.every((id) => !this.world.hasEntity(id)) && this.frontierSystem.legionDefeated();
+  }
+
+  /** Measure the dominion now and then; open the frontier once both conditions hold */
+  private updateFrontier(dt: number): void {
+    if (this.frontierBanner && (this.frontierBanner.remaining -= dt) <= 0) this.frontierBanner = null;
+    if (this.gameOver || this.frontierPhase !== 1) return;
+    this.frontierMeasureTimer -= dt;
+    if (this.frontierMeasureTimer > 0 && this.frontierProgress) return;
+    this.frontierMeasureTimer = DOMINION_MEASURE_SECONDS;
+    this.frontierProgress = this.measureFrontier();
+    if (frontierReady(this.frontierProgress)) this.openPhase2();
+  }
+
+  private measureFrontier(): FrontierProgress {
+    const bounds = this.grid.bounds;
+    const territory = measureTerritory(this.grid, bounds, (x, y) => this.visibilityGrid.isExplored(x, y));
+    const dens: Array<{ x: number; y: number }> = [];
+    for (const store of [COMPONENT.BEETLE_DEN, COMPONENT.CRICKET_DEN]) {
+      for (const id of this.world.query(store, COMPONENT.POSITION)) dens.push(this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!);
+    }
+    const densAlive = densInside(bounds, dens);
+    const densDestroyed = this.world.metrics.densDestroyed;
+    return {
+      phase: this.frontierPhase,
+      dominion: dominionScore(territory, densDestroyed, densAlive),
+      target: DOMINION_TARGET,
+      territory,
+      densDestroyed,
+      densAlive,
+      coreNeeded: this.hadRivalCore,
+      coreDestroyed: this.rivalCoreFallen,
+    };
+  }
+
+  private frontierStats(): FrontierStats {
+    const p = { ...(this.frontierProgress ?? this.measureFrontier()), phase: this.frontierPhase };
+    return {
+      ...p,
+      hint: frontierHint(p),
+      basesLeft: this.phase2Cores.filter((id) => this.world.hasEntity(id)).length,
+      legionQueenAlive: this.frontierSystem.legionQueenAlive(),
+    };
+  }
+
+  /**
+   * Phase 2, "La Frontera Salvaje": the thorn wall falls and the outer ring
+   * opens. A meteor shower strikes the new ground and each impact raises a new
+   * base of the picked rival, whose raiders join every wave again, more of
+   * them while its bases stand. The Legionary nest and its Queen, spiders and
+   * mantises hold the rest. Against Fauna salvaje the legionaries are the
+   * rival: their columns join the waves.
+   */
+  private openPhase2(): void {
+    const oldZone = this.grid.frontier;
+    if (!oldZone || this.frontierPhase !== 1) return;
+    this.grid.openFrontier();
+    this.frontierPhase = 2;
+    this.renderSystem.invalidateTerrain();
+    this.fitCameraToFrontier();
+    const home = { x: Math.floor(WORLD_WIDTH / 2), y: Math.floor(WORLD_HEIGHT / 2) };
+    const rng = createSeededRng(this.runSeed ^ FRONTIER_SEED_SALT);
+
+    // The meteor shower: one meteor per rival base, the picked rival's first; every rival race comes
+    const plan = this.phase2BasePlan();
+    const impacts = this.frontierSystem.impactSites(oldZone, home, plan.length, HUMAN_SITE_CLEAR_RADIUS, rng);
+    this.ensurePhase2Rivals();
+    const shower: Array<{ x: number; y: number; kind: MeteorKind }> = [];
+    impacts.forEach((site, i) => {
+      const kind = plan[i];
+      if (kind === 'crystal') this.phase2Cores.push(createCrystalHive(this.world, site.x, site.y));
+      else this.phase2Cores.push(createHumanBase(this.world, this.grid, site, home).coreId);
+      shower.push({ ...site, kind });
+      // The colony sees where each meteor struck
+      this.visibilityGrid.revealCircle(site.x, site.y, 4);
+    });
+    this.frontierSystem.populate(oldZone, home, rng, impacts);
+    // The Legionary nest came down too: a crimson meteor of its own
+    const legion = this.frontierSystem.raidOrigin();
+    if (legion) {
+      shower.push({ ...legion, kind: 'legion' });
+      this.visibilityGrid.revealCircle(legion.x, legion.y, 4);
+    }
+    this.renderSystem.startMeteorShower?.(shower);
+
+    this.wirePhase2Raid();
+
+    const hives = plan.filter((k) => k === 'crystal').length;
+    const camps = plan.length - hives;
+    const rivalLine = `☄️ ¡Lluvia de meteoritos! Llegan más rivales: ${hives} Colmena${hives === 1 ? '' : 's'} de Cristal, ${camps} base${camps === 1 ? '' : 's'} humana${camps === 1 ? '' : 's'} y el Hormiguero Legionario`;
+    this.frontierBanner = {
+      title: 'FASE 2 · LA FRONTERA SALVAJE',
+      subtitle: `Cae el muro de espinas. Destruye las ${plan.length} bases rivales y el Hormiguero Legionario con su Reina.`,
+      remaining: FRONTIER_BANNER_SECONDS,
+    };
+    this.world.pushNotification('success', '🌿 ¡El muro de espinas cae! El mapa se expande');
+    this.world.pushNotification('danger', rivalLine);
+    this.world.pushNotification('warning', '🕷️ Arañas tejedoras, mantis acechadoras y hormigas legionarias habitan la frontera');
+    emitAudio({ type: 'waveFx', kind: 'boss' });
+    this.publishStats();
+  }
+
+  /**
    * "Seguir jugando" after destroying the rival core: the run goes on, endless,
    * with no rival base. Its units cannot come without the base, so from now on
    * every wave is the wildlife's (beetles and the Acorazado Colosal).
@@ -1855,6 +2123,7 @@ export class GameManager {
    */
   continueAfterVictory(): boolean {
     if (this.gameOver?.outcome !== 'victory') return false;
+    if (this.gameOver.frontierConquered) this.phase2Won = true;
     this.gameOver = null;
     this.rivalCoreId = null; // the core is gone: no second victory
     this.waves().setRaidSource(null);
@@ -1902,11 +2171,13 @@ export class GameManager {
       if (health && health.current <= 0) queenDead = true;
     }
     const coreDestroyed = this.rivalCoreId != null && !this.world.hasEntity(this.rivalCoreId);
+    const frontierConquered = this.frontierConquered();
     // A Human player's life is the command center, a Crystal player's the Hive, not a queen.
     // Every run is endless: only losing that life or destroying the rival core ends it
     const alive = this.humanPlayer ? this.humanPlayer.isCoreAlive() : this.crystal ? this.crystal.hiveAlive() : !queenDead;
-    const outcome = resolveRunOutcome(null, alive, coreDestroyed);
+    const outcome = resolveRunOutcome(null, alive, coreDestroyed || frontierConquered);
     if (!outcome) return;
+    if (outcome === 'victory' && coreDestroyed) this.rivalCoreFallen = true;
 
     const nightsSurvived = this.nightsSurvived();
 
@@ -1929,6 +2200,7 @@ export class GameManager {
       ...(outcome === 'victory' && coreDestroyed
         ? { rivalCoreDestroyed: this.rivalRace === 'human' ? 'human' as const : 'crystal' as const, ...(this.rivalRace === 'crystal' ? { hiveDestroyed: true as const } : {}) }
         : {}),
+      ...(outcome === 'victory' && frontierConquered && !coreDestroyed ? { frontierConquered: true as const } : {}),
       nightsSurvived,
       bestNight: recordNight(nightsSurvived),
       newRecord: nightsSurvived > 0 && nightsSurvived > this.runStartBest,
@@ -3850,6 +4122,8 @@ export class GameManager {
       nestAlert: this.humanPlayer || this.crystal ? undefined : this.nestAlert.getState(),
       gameOver: this.gameOver,
       milestone: this.milestone?.info ?? null,
+      frontier: this.frontierStats(),
+      frontierBanner: this.frontierBanner ? { title: this.frontierBanner.title, subtitle: this.frontierBanner.subtitle } : null,
       activeEvents: this.eventSystem.active.map((e) => ({
         icon: e.definition.icon,
         name: e.definition.name,

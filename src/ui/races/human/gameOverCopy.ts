@@ -15,7 +15,9 @@ export interface GameOverCopy {
 export function humanGameOverCopy(stats: GameOverStats): GameOverCopy {
   const line = stats.outcome !== 'victory'
     ? 'Sin Centro de Mando no hay expedición.'
-    : stats.rivalCoreDestroyed === 'human'
+    : stats.frontierConquered
+      ? '¡Dominio total! La frontera salvaje es tuya.'
+      : stats.rivalCoreDestroyed === 'human'
       ? 'La expedición destruyó el Centro de Mando rival.'
       : 'La expedición destruyó la Colmena de Cristal.';
   // Human runs are endless: the only victory is the rival's core falling

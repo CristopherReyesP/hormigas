@@ -1,5 +1,7 @@
 import { PheromoneLayer } from '../../engine/renderer/PheromoneLayer';
 import type { World } from '../../engine/ecs/World';
+import { frontierCreatureOf, frontierDenOf } from '../phase/frontierCreatures';
+import { MeteorShower, type MeteorKind } from '../render/meteorShower';
 import type { CanvasRenderer } from '../../engine/renderer/CanvasRenderer';
 import type { TileGrid } from '../../simulation/world/TileGrid';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
@@ -242,6 +244,8 @@ export class RenderSystem {
   /** The run's opening (meteor, impact, crater); null until GameManager stages it */
   private intro: MeteorIntro | null = null;
   private craterTile: TilePos | null = null;
+  /** Phase 2's meteor shower (visual only) */
+  private meteorShower = new MeteorShower();
   /** Reused per frame: ants on screen, for the post-tint vein glow */
   private glowAnts: GlowAnt[] = [];
   private glowAntCount = 0;
@@ -765,6 +769,11 @@ export class RenderSystem {
     this.craterTile = { x: impactTile.x, y: impactTile.y };
   }
 
+  /** Phase 2 opens: meteors strike the new bases' sites, and a volley falls across the view */
+  startMeteorShower(impacts: ReadonlyArray<TilePos & { kind: MeteorKind }>): void {
+    this.meteorShower.start(impacts);
+  }
+
   /** A Crystal Hive stands on the crater: its rim spires are that Hive's. */
   private hiveStandsOnCrater(): boolean {
     const crater = this.craterTile;
@@ -1032,7 +1041,10 @@ export class RenderSystem {
     this.ambientParticles.update(dt);
     this.intro?.frame(); // GameManager already advanced the shared intro clock
     // The impact shakes whichever layer the player is watching
-    const shake = this.intro?.getShake() ?? NO_SHAKE;
+    this.meteorShower.advance(dt);
+    const introShake = this.intro?.getShake() ?? NO_SHAKE;
+    const showerShake = this.meteorShower.shake();
+    const shake = showerShake.x === 0 && showerShake.y === 0 ? introShake : { x: introShake.x + showerShake.x, y: introShake.y + showerShake.y };
 
     const ctx = this.renderer.getContext();
     this.renderer.clear();
@@ -1084,6 +1096,7 @@ export class RenderSystem {
     const crystalOverlay = this.intro?.hidesPlayerBase() ? null : (this.commandOverlay?.crystalOverlay?.() ?? null);
     if (crystalOverlay) drawCrystalOverlay(ctx, crystalOverlay, this.crystalArt, this.animationTime);
     if (this.camera) this.intro?.drawWorldFx(ctx, this.camera);
+    if (this.camera) this.meteorShower.draw(ctx, this.camera.getCanvasWorldRect());
     ctx.restore();
     this.postProcessor.setLights(dayPhase?.phase === 'night' ? this.collectSurfaceLights() : []);
     this.postProcessor.apply(ctx);
@@ -1815,7 +1828,7 @@ export class RenderSystem {
   private renderTerrain(): void {
     // Draw pre-rendered terrain (ONE blit operation for all terrain)
     const ctx = this.renderer.getContext();
-    this.terrainRenderer.draw(ctx);
+    this.terrainRenderer.draw(ctx, this.camera ? this.camera.getCanvasWorldRect() : undefined);
   }
 
   /** The Swarm's mycelium carpet, set by GameManager on a Swarm run */
@@ -2544,12 +2557,17 @@ export class RenderSystem {
     // Drop shadow — slightly larger than ant shadow (pre-rendered dither stamp)
     this.drawShadow(ctx, px + 2.5, py + 4, TILE_SIZE * 0.32, TILE_SIZE * 0.16);
 
-    this.spriteAtlas.drawBeetle(ctx, px, py, facing, legPhase);
+    // Phase 2's creatures share the beetle entity but not its look
+    const frontier = frontierCreatureOf(this.world, entityId);
+    if (frontier) this.spriteAtlas.drawFrontierCreature(ctx, frontier.kind, px, py, facing, legPhase);
+    else this.spriteAtlas.drawBeetle(ctx, px, py, facing, legPhase);
 
-    // Health bar
+    // Health bar (wider, higher and always shown over the big ones)
     const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
     if (health) {
-      this.drawHealthBar(ctx, px, py, health.current, health.max);
+      const big = frontier?.kind === 'legion_queen' || frontier?.kind === 'mantis';
+      if (big) this.drawHealthBar(ctx, px, py, health.current, health.max, true, 1.8, -TILE_SIZE * 1.1);
+      else this.drawHealthBar(ctx, px, py, health.current, health.max);
     }
   }
 
@@ -2565,7 +2583,9 @@ export class RenderSystem {
     // Drop shadow (pre-rendered dither stamp)
     this.drawShadow(ctx, px + 3, py + 5, TILE_SIZE * 0.5, TILE_SIZE * 0.25);
 
-    this.spriteAtlas.drawBeetleDen(ctx, px, py);
+    const frontierDen = frontierDenOf(this.world, entityId);
+    if (frontierDen) this.spriteAtlas.drawFrontierDen(ctx, frontierDen.kind, px, py);
+    else this.spriteAtlas.drawBeetleDen(ctx, px, py);
 
     // Health bar — always visible for dens (player needs to see HP)
     const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);

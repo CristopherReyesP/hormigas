@@ -1,3 +1,4 @@
+import { frontierCreatureOf } from '../phase/frontierCreatures';
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { TileGrid } from '../../simulation/world/TileGrid';
@@ -107,6 +108,8 @@ export class BeetleAISystem implements System {
       if (this.world.getComponent(id, CRYSTAL_PLAYER_COMPONENT.SURFACE_RAIDER) !== undefined) continue;
       // Night-wave beetles at a Human player's base are steered by HumanWaveSystem
       if (this.world.getComponent(id, HUMAN_PLAYER_COMPONENT.WAVE_INVADER)) continue;
+      // Phase 2's legionary columns are steered by FrontierSystem
+      if (frontierCreatureOf(this.world, id)?.raider) continue;
 
       const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE)!;
       const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;

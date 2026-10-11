@@ -1,4 +1,5 @@
 import type { WaveDirector } from '../human/HumanWaveSystem';
+import { areaOf } from '../../../simulation/world/frontier';
 import type { World } from '../../../engine/ecs/World';
 import type { EntityId, Vector2 } from '../../../shared/types';
 import { findPath, type PathGrid } from '../../../simulation/pathfinding/AStar';
@@ -21,6 +22,7 @@ import {
   type MiniBossKind,
   type WaveElite,
   type WaveRival,
+  raiderGroupLabel,
   type WaveUnitKind,
 } from '../../run/waveComposition';
 import { ELITE_AFFIXES, makeElite } from '../../run/eliteAffixes';
@@ -84,7 +86,7 @@ interface CrystalWave {
 const GROUP_LABELS: Record<WaveUnitKind, (rival: WaveRival) => string> = {
   young: () => 'Acorazados jóvenes',
   beetle: () => 'Acorazados',
-  drone: (rival) => (rival === 'human' ? 'Tropas humanas' : 'Drones de cristal'),
+  drone: (rival) => raiderGroupLabel(rival),
 };
 
 /**
@@ -443,13 +445,15 @@ export class CrystalSurfaceWaveSystem implements WaveDirector {
 
   /** The four map edges, by the corridors the map keeps open from the center */
   private edgeOf(wave: number): Vector2 {
+    // The edge of the area the run plays on (inside the thorn wall in Phase 1)
+    const area = areaOf(this.grid);
     const cx = Math.floor(this.grid.width / 2);
     const cy = Math.floor(this.grid.height / 2);
     const edges: Vector2[] = [
-      { x: this.grid.width - 2, y: cy },
-      { x: 1, y: cy },
-      { x: cx, y: this.grid.height - 2 },
-      { x: cx, y: 1 },
+      { x: area.x1 - 1, y: cy },
+      { x: area.x0 + 1, y: cy },
+      { x: cx, y: area.y1 - 1 },
+      { x: cx, y: area.y0 + 1 },
     ];
     const start = (((wave - 1) % edges.length) + edges.length) % edges.length;
     for (let i = 0; i < edges.length; i++) {

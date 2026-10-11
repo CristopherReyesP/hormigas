@@ -22,6 +22,8 @@ export interface MinimapCache {
   terrain: HTMLCanvasElement | null;
   overlay: HTMLCanvasElement | null;
   version: number;
+  /** The surface area the terrain was painted for: the thorn wall falls when it changes */
+  areaKey?: string;
 }
 
 export function createMinimapCache(): MinimapCache {
@@ -42,7 +44,7 @@ export function surfaceTileColor(terrain: TerrainType, x: number, y: number): st
 }
 
 function blit(ctx: CanvasRenderingContext2D, source: HTMLCanvasElement, layout: MinimapLayout): void {
-  ctx.drawImage(source, layout.offsetX, layout.offsetY, layout.width, layout.height);
+  ctx.drawImage(source, layout.originX, layout.originY, layout.mapW, layout.mapH, layout.offsetX, layout.offsetY, layout.width, layout.height);
 }
 
 function square(ctx: CanvasRenderingContext2D, layout: MinimapLayout, x: number, y: number, size: number, color: string, outline?: string): void {
@@ -124,7 +126,14 @@ export function drawSurfaceMinimap(
   blink: boolean,
 ): MinimapLayout {
   const { width, height } = ctx.canvas;
-  const layout = fitMinimap(WORLD_WIDTH, WORLD_HEIGHT, width, height);
+  // Phase 1 shows the walled zone; the whole map once the frontier opens
+  const area = gm.getSurfaceArea?.() ?? { x: 0, y: 0, width: WORLD_WIDTH, height: WORLD_HEIGHT };
+  const layout = fitMinimap(area.width, area.height, width, height, area.x, area.y);
+  const areaKey = `${area.x},${area.y},${area.width},${area.height}`;
+  if (cache.areaKey !== areaKey) {
+    cache.areaKey = areaKey;
+    cache.terrain = null;
+  }
 
   if (!cache.terrain) {
     cache.terrain = tileCanvas(WORLD_WIDTH, WORLD_HEIGHT);
@@ -134,7 +143,7 @@ export function drawSurfaceMinimap(
       for (let x = 0; x < WORLD_WIDTH; x++) {
         const tile = grid.getTile(x, y);
         if (!tile) continue;
-        tctx.fillStyle = surfaceTileColor(tile.terrain, x, y);
+        tctx.fillStyle = tile.thorns ? PAL.thorns[2] : surfaceTileColor(tile.terrain, x, y);
         tctx.fillRect(x, y, 1, 1);
       }
     }

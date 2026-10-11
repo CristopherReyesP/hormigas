@@ -68,6 +68,18 @@ export const PAL = {
   // ── Meteorite opening: fireball trail (head → tail) and the crater ──
   meteor: ['#fff4d0', '#ff7a2e', '#b0301e'],
   crater: ['#2a2320', '#3b3346'],
+  // The thorn wall around Phase 1's zone: meteor-blighted bramble, embers on the barbs
+  thorns: ['#0e0812', '#24122a', '#3e1e40', '#62305a'],
+  thornEmber: '#ff7a2e',
+  // Phase 2's wildlife beyond the wall
+  legion: ['#1a0a08', '#3e140e', '#6a2214', '#9a3a1e'], // army ants: dried-blood crimson
+  legionBone: '#d8c49a', // their sickle mandibles
+  legionCrown: '#e0b347', // the Legionary Queen's crest
+  spider: ['#120e16', '#262030', '#3e3450', '#5e5276'], // weaver: bruised violet
+  spiderMark: '#e23d28', // the hourglass and the eye cluster
+  mantis: ['#1c2a12', '#30481c', '#4e6e2a', '#7a9a40'], // stalker: blighted green
+  mantisEye: '#f2ffc4',
+  web: '#c8c0d8',
 
   // ── Combat VFX (src/game/vfx) ─────────────────────────────
   // Swarm acid and goo, dark rim → vein → glow → hot core: the vein ramp

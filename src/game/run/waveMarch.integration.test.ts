@@ -3,7 +3,7 @@ import { GameManager } from '../GameManager';
 import type { World } from '../../engine/ecs/World';
 import { COMPONENT, Layer, type CombatComponent, type LayerComponent, type PositionComponent } from '../components/components';
 import { fakeCanvas, finishIntro, CRYSTAL_RIVAL_SETUP } from '../../test/gameManagerMocks';
-import { WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
+import type { TileGrid } from '../../simulation/world/TileGrid';
 import { waveComposition } from './waveComposition';
 import { WAVE_MARCH_COMPONENT, type WaveMarchComponent } from './waveMarch';
 import { dealDamage } from './waveRuntime';
@@ -54,7 +54,9 @@ describe('a night wave from the map edge into the nest, in a real run', () => {
     expect(info().banner).toMatchObject({ kind: 'warning', wave: 1 });
     const next = info().next!;
     const edge = next.wildlife!;
-    const onEdge = edge.x <= 3 || edge.y <= 3 || edge.x >= WORLD_WIDTH - 4 || edge.y >= WORLD_HEIGHT - 4;
+    // The edge of the walled Phase 1 zone, just inside the thorns
+    const area = (game['grid'] as TileGrid).bounds;
+    const onEdge = edge.x <= area.x0 + 3 || edge.y <= area.y0 + 3 || edge.x >= area.x1 - 3 || edge.y >= area.y1 - 3;
     expect(onEdge).toBe(true);
     expect(info().threats).toContainEqual({ x: edge.x, y: edge.y, layer: 'surface' });
     expect(game.getScoutMarks('surface')).toContainEqual({ x: edge.x, y: edge.y });

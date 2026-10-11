@@ -106,6 +106,8 @@ export interface SurfaceMap {
   readonly width: number;
   readonly height: number;
   isWalkable(x: number, y: number): boolean;
+  /** The area the run plays on (inside Phase 1's thorn wall); the whole map without it */
+  readonly bounds?: { x0: number; y0: number; x1: number; y1: number };
 }
 
 /** The closest walkable tile to (x, y) within `radius` rings, or null */
@@ -143,17 +145,18 @@ export function edgePoint(map: SurfaceMap, from: TilePos, dir: TilePos): TilePos
   const len = Math.hypot(dir.x, dir.y) || 1;
   const ux = dir.x / len;
   const uy = dir.y / len;
-  const lo = 1;
-  const hiX = map.width - 2;
-  const hiY = map.height - 2;
+  const loX = (map.bounds?.x0 ?? 0) + 1;
+  const loY = (map.bounds?.y0 ?? 0) + 1;
+  const hiX = (map.bounds?.x1 ?? map.width - 1) - 1;
+  const hiY = (map.bounds?.y1 ?? map.height - 1) - 1;
   let t = Infinity;
   if (ux > 1e-9) t = Math.min(t, (hiX - from.x) / ux);
-  if (ux < -1e-9) t = Math.min(t, (lo - from.x) / ux);
+  if (ux < -1e-9) t = Math.min(t, (loX - from.x) / ux);
   if (uy > 1e-9) t = Math.min(t, (hiY - from.y) / uy);
-  if (uy < -1e-9) t = Math.min(t, (lo - from.y) / uy);
+  if (uy < -1e-9) t = Math.min(t, (loY - from.y) / uy);
   if (!Number.isFinite(t) || t < 0) t = 0;
-  const clampX = (v: number) => Math.max(lo, Math.min(hiX, Math.round(v)));
-  const clampY = (v: number) => Math.max(lo, Math.min(hiY, Math.round(v)));
+  const clampX = (v: number) => Math.max(loX, Math.min(hiX, Math.round(v)));
+  const clampY = (v: number) => Math.max(loY, Math.min(hiY, Math.round(v)));
   const edge = { x: clampX(from.x + ux * t), y: clampY(from.y + uy * t) };
   const near = nearestWalkable(map, edge.x, edge.y, 6);
   if (near) return near;

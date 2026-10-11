@@ -8,6 +8,12 @@ import { paintAnt, paintQueen } from './sprites/swarmSprites';
 import { LEAPER_FRAMES, type LeaperPose, leaperFrameIndex, paintBeetle, paintCricket } from './sprites/wildlifeSprites';
 import { FOOD_SIZE_LEVELS, FOOD_VARIANTS, paintDen, paintFood, paintGiantMushroom } from './sprites/propSprites';
 import { NO_MARKS, antSheetKey, type AntMarks } from './sprites/antMarks';
+import { paintLegionNest, paintLegionQueen, paintLegionary, paintMantis, paintSpider, paintSpiderLair } from './sprites/frontierSprites';
+
+/** Phase 2's creatures beyond the wall, by sprite */
+export type FrontierSpriteKind = 'legionary' | 'legion_queen' | 'spider' | 'mantis';
+/** Phase 2's dens */
+export type FrontierDenSpriteKind = 'legion_nest' | 'spider_lair';
 
 export { antGlowPoints, type AntGlowPoint } from './sprites/swarmSprites';
 
@@ -84,6 +90,8 @@ export class SpriteAtlas {
   private beetleSheet: DirectionalSheet | null = null;
   private cricketSheet: DirectionalSheet | null = null;
   private foodSheet: DirectionalSheet | null = null;
+  private frontierSheets = new Map<FrontierSpriteKind, DirectionalSheet>();
+  private frontierDenSprites = new Map<FrontierDenSpriteKind, HTMLCanvasElement>();
 
   // Static props, pre-scaled to world px (they never rotate)
   private nestSprite: HTMLCanvasElement;
@@ -345,6 +353,32 @@ export class SpriteAtlas {
     this.beetleSheet ??= new DirectionalSheet(SPRITE_GRID.beetle, WALK_FRAMES, 1, (_row, frame, direction) =>
       paintBeetle({ frame, direction }));
     this.beetleSheet.draw(ctx, worldX, worldY, angle, walkFrame(legPhase));
+  }
+
+  /** A Phase 2 creature, facing `angle` */
+  drawFrontierCreature(ctx: CanvasRenderingContext2D, kind: FrontierSpriteKind, worldX: number, worldY: number, angle: number, legPhase: number): void {
+    let sheet = this.frontierSheets.get(kind);
+    if (!sheet) {
+      const recipe = {
+        legionary: { grid: SPRITE_GRID.legionary, paint: paintLegionary },
+        legion_queen: { grid: SPRITE_GRID.legionQueen, paint: paintLegionQueen },
+        spider: { grid: SPRITE_GRID.spider, paint: paintSpider },
+        mantis: { grid: SPRITE_GRID.mantis, paint: paintMantis },
+      }[kind];
+      sheet = new DirectionalSheet(recipe.grid, WALK_FRAMES, 1, (_row, frame, direction) => recipe.paint({ frame, direction }));
+      this.frontierSheets.set(kind, sheet);
+    }
+    sheet.draw(ctx, worldX, worldY, angle, walkFrame(legPhase));
+  }
+
+  /** A Phase 2 den: the Legionary nest or a spider lair */
+  drawFrontierDen(ctx: CanvasRenderingContext2D, kind: FrontierDenSpriteKind, worldX: number, worldY: number): void {
+    let sprite = this.frontierDenSprites.get(kind);
+    if (!sprite) {
+      sprite = this.staticSprite(DEN_SPRITE_SIZE, ART_PX, kind === 'legion_nest' ? paintLegionNest : paintSpiderLair);
+      this.frontierDenSprites.set(kind, sprite);
+    }
+    this.drawStatic(ctx, sprite, worldX, worldY);
   }
 
   drawBeetleDen(

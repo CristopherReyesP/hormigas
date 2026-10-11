@@ -32,6 +32,7 @@ import {
   type MiniBossKind,
   type WaveComposition,
   type WaveRival,
+  raiderGroupLabel,
   type WaveUnitKind,
 } from '../run/waveComposition';
 import { ELITE_AFFIXES, makeElite } from '../run/eliteAffixes';
@@ -190,7 +191,7 @@ export function compassLabel(fx: number, fy: number, tx: number, ty: number): st
 const GROUP_LABELS: Record<WaveUnitKind, (rival: WaveRival) => string> = {
   young: () => 'Acorazados jóvenes',
   beetle: () => 'Acorazados',
-  drone: (rival) => (rival === 'human' ? 'Tropas humanas' : 'Drones de cristal'),
+  drone: (rival) => raiderGroupLabel(rival),
 };
 
 type InvaderKind = 'young' | 'adult' | 'boss';
@@ -470,7 +471,7 @@ export class UndergroundInvasionSystem implements System {
     // Walls do not close the road: the column breaks through them
     const walls = this.surfaceWalls();
     const reach = floodFromNest({ width, height, nest: hole, isWalkable: (x, y) => this.surface.isWalkable(x, y) || walls.has(y * width + x) });
-    const map: SurfaceMap = { width, height, isWalkable: (x, y) => x >= 0 && y >= 0 && x < width && y < height && reach[y * width + x] === 1 };
+    const map: SurfaceMap = { width, height, bounds: this.surface.bounds, isWalkable: (x, y) => x >= 0 && y >= 0 && x < width && y < height && reach[y * width + x] === 1 };
     const den = this.nearestDen(hole);
     const dir = den && Math.hypot(den.x - hole.x, den.y - hole.y) > 1 ? { x: den.x - hole.x, y: den.y - hole.y } : compassVector(scoutedCompass(wave));
     const origin = edgePoint(map, hole, dir);
