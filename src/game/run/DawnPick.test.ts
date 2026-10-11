@@ -1,29 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildMutationOffer, shouldOfferMutation, summarizeMutationBuild } from './DawnPick';
+import { buildMutationOffer, summarizeMutationBuild } from './DawnPick';
 import { MUTATION_DEFINITIONS } from './MutationDefinitions';
-
-describe('dawn pick rule', () => {
-  it.each([2, 3, 4, 5, 6, 7])('offers a mutation at the dawn of day %i', (dayNumber) => {
-    expect(shouldOfferMutation('night', 'day', dayNumber, false)).toBe(true);
-  });
-
-  it.each([8, 9, 12, 20, 30])('keeps offering past night 7 in the endless run (day %i)', (dayNumber) => {
-    expect(shouldOfferMutation('night', 'day', dayNumber, false)).toBe(true);
-  });
-
-  it.each([
-    ['day', 'day', 3],
-    ['day', 'night', 3],
-    ['night', 'night', 3],
-  ] as const)('does not offer outside a night-to-day transition (%s to %s)', (previousPhase, phase, dayNumber) => {
-    expect(shouldOfferMutation(previousPhase, phase, dayNumber, false)).toBe(false);
-  });
-
-  it('does not offer on the first day or once the run is over', () => {
-    expect(shouldOfferMutation('night', 'day', 1, false)).toBe(false);
-    expect(shouldOfferMutation('night', 'day', 4, true)).toBe(false);
-  });
-});
 
 describe('dawn offer snapshot', () => {
   it('flattens definitions and the current stacks into cards', () => {

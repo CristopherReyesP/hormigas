@@ -11,7 +11,8 @@ import { UPGRADE_GROUP_LABEL, upgradeDef, type UpgradeId } from './upgrades/upgr
 import { antStatLines, upgradeInfos, type AntStatLine, type UpgradeInfo } from './upgrades/upgradeView';
 import { buildColonyStats, type ColonyStatsReport } from './upgrades/colonyStats';
 import { emitUpgradeAudio } from './upgrades/upgradeAudio';
-import { buildMutationOffer, shouldOfferMutation, summarizeMutationBuild, type MutationBuildEntry, type MutationOffer } from './run/DawnPick';
+import { buildMutationOffer, summarizeMutationBuild, type MutationBuildEntry, type MutationOffer } from './run/DawnPick';
+import { evolutionDue, evolutionProgress, type EvolutionProgress } from './run/KillEvolution';
 import { createSeededRng, offerMutations } from './run/MutationOffers';
 import { createStatefulLcg, SimRandom } from './save/rng';
 import { pickCraterSite, type TilePos } from './run/craterSite';
@@ -528,6 +529,8 @@ export interface GameStats {
   phaseRemaining: number; // seconds left in the current phase
   /** Pending dawn pick; the simulation stays paused while it is set. */
   mutationOffer: MutationOffer | null;
+  /** The Swarm's kills toward its next evolution (null for the other races) */
+  evolution?: EvolutionProgress | null;
   /** The card the player has selected in the pending offer; only confirming it applies it. */
   mutationSelection: MutationId | null;
   lastMutationPick: MutationId | null;
@@ -582,6 +585,8 @@ export class GameManager {
   /** Called after every simulation tick with its dt (the autosave listens here) */
   private readonly tickListeners = new Set<(dt: number) => void>();
   private mutationOffer: MutationOffer | null = null;
+  /** Evolutions the kill tally has paid for so far (each one raises the next mark) */
+  private evolutionsEarned = 0;
   private mutationSelection: MutationId | null = null;
   private lastMutationPick: MutationId | null = null;
   /**
@@ -1895,8 +1900,11 @@ export class GameManager {
     const dayPhase = this.dayNightSystem.getPhase();
     if (this.milestone && (this.milestone.remaining -= dt) <= 0) this.milestone = null;
     if (!this.gameOver && previousPhase === 'night' && dayPhase === 'day') this.celebrateDawn();
-    // The dawn mutation pick is the Swarm's: a Human expedition and the Crystal Hive do not mutate
-    if (!this.humanPlayer && !this.crystal && shouldOfferMutation(previousPhase, dayPhase, this.dayNightSystem.getDayNumber(), this.gameOver !== null)) {
+    // The evolution chamber is the Swarm's, earned in battle: it opens each time the
+    // enemy kill tally crosses the next mark (a Human expedition and the Crystal Hive do not mutate)
+    if (!this.humanPlayer && !this.crystal && !this.gameOver && !this.mutationOffer
+      && evolutionDue(this.world.runTally.enemiesDefeated, this.evolutionsEarned)) {
+      this.evolutionsEarned++;
       this.openMutationOffer();
     }
 
@@ -4157,6 +4165,7 @@ export class GameManager {
       dayNumber: this.dayNightSystem.getDayNumber(),
       phaseRemaining: Math.ceil(this.dayNightSystem.getPhaseRemaining()),
       mutationOffer: this.mutationOffer,
+      evolution: this.humanPlayer || this.crystal ? null : evolutionProgress(this.world.runTally.enemiesDefeated, this.evolutionsEarned),
       mutationSelection: this.mutationSelection,
       lastMutationPick: this.lastMutationPick,
       mutations: summarizeMutationBuild(this.runModifiers.getAppliedMutations()),

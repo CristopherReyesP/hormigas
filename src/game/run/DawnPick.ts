@@ -1,4 +1,3 @@
-import type { DayPhase } from '../systems/DayNightSystem';
 import { MUTATION_DEFINITIONS, type MutationId, type MutationTag } from './MutationDefinitions';
 
 /** One card of the dawn pick, flattened for the UI snapshot. */
@@ -24,21 +23,6 @@ export interface MutationBuildEntry {
   id: MutationId;
   name: string;
   stacks: number;
-}
-
-/**
- * The evolution chamber opens at every dawn of a live run from day 2 on: the
- * run is endless. Once every mutation is at its max stacks the offer comes
- * back empty and GameManager skips it.
- */
-export function shouldOfferMutation(
-  previousPhase: DayPhase,
-  phase: DayPhase,
-  dayNumber: number,
-  runOver: boolean,
-): boolean {
-  if (runOver || previousPhase !== 'night' || phase !== 'day') return false;
-  return dayNumber >= 2;
 }
 
 export function buildMutationOffer(

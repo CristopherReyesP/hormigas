@@ -52,7 +52,7 @@ function setup() {
     mutationOffer: { options: Array<{ id: string }> } | null;
     update: (dt: number) => void;
   };
-  /** Dawns from day 2 on open the evolution chamber; take the first card to keep going. */
+  /** If the evolution chamber opened, take the first card to keep going. */
   const pickIfOffered = () => {
     if (state.mutationOffer) manager.chooseMutation(state.mutationOffer.options[0].id);
   };
@@ -68,7 +68,8 @@ describe('run outcome manager integration', () => {
       expect(state.gameOver).toBeNull();
       pickIfOffered();
     }
-    expect(manager.getAppliedMutations()).toHaveLength(9); // the dawns of days 2-10
+    // Evolutions come from kills, not dawns: nothing was killed here
+    expect(manager.getAppliedMutations()).toHaveLength(0);
     health.current = 0;
     statsCallback.mockClear();
     state.update(DAY_DURATION);

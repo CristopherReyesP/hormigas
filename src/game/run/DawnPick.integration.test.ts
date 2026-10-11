@@ -1,7 +1,7 @@
+import { killMarkForEvolution } from './KillEvolution';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GameManager, type GameStats } from '../GameManager';
 import { COMPONENT, type HealthComponent } from '../components/components';
-import type { DayNightSystem } from '../systems/DayNightSystem';
 import type { KeyPress } from '../../engine/input/InputManager';
 import { MUTATION_DEFINITIONS, MUTATION_IDS } from './MutationDefinitions';
 import { fakeCanvas, finishIntro } from '../../test/gameManagerMocks';
@@ -30,23 +30,38 @@ function press(code: string) {
   keyHandlers.get(code)?.({ shift: false, ctrl: false, repeat: false });
 }
 
-/** Skip to the last instant of the night, then run one real tick across dawn. */
-function reachNextDawn(game: GameManager) {
-  const dayNight = game['dayNightSystem'] as DayNightSystem;
-  if (dayNight.getPhase() === 'day') dayNight.update(dayNight.getPhaseRemaining());
-  dayNight.update(dayNight.getPhaseRemaining() - 0.001);
+/** Kill enough enemies for the next evolution, then run one real tick: the chamber opens. */
+function reachNextEvolution(game: GameManager) {
+  const world = game['world'];
+  world.runTally.enemiesDefeated = Math.max(world.runTally.enemiesDefeated, killMarkForEvolution(game['evolutionsEarned'] as number));
   game['update'](1 / 60);
 }
 
 afterEach(() => vi.restoreAllMocks());
 
-describe('dawn mutation pick', () => {
-  it('pauses at the dawn of day 2 and publishes an offer of 3 distinct valid mutations', () => {
+describe('evolution pick, earned by enemy kills', () => {
+  it('stays closed until the kill tally reaches the first mark, and counts the progress', () => {
+    const { game } = manager();
+    game['world'].runTally.enemiesDefeated = 3;
+    game['update'](1 / 60);
+    expect(game.getStats().mutationOffer).toBeNull();
+    expect(game.getStats().evolution).toEqual({ kills: 3, needed: 4 });
+    // Dawn alone opens nothing any more
+    const dayNight = game['dayNightSystem'];
+    dayNight.update(dayNight.getPhaseRemaining());
+    dayNight.update(dayNight.getPhaseRemaining() - 0.001);
+    game['update'](1 / 60);
+    expect(game.getStats().mutationOffer).toBeNull();
+  });
+
+  it('pauses at the kill mark and publishes an offer of 3 distinct valid mutations', () => {
     const { game, published } = manager();
-    reachNextDawn(game);
+    reachNextEvolution(game);
 
     const offer = game.getStats().mutationOffer;
-    expect(offer?.dayNumber).toBe(2);
+    expect(offer?.dayNumber).toBe(game.getStats().dayNumber);
+    // The next one needs 4 kills more
+    expect(game.getStats().evolution).toEqual({ kills: 0, needed: 8 });
     expect(offer?.options).toHaveLength(3);
     const ids = offer!.options.map(option => option.id);
     expect(new Set(ids).size).toBe(3);
@@ -60,7 +75,7 @@ describe('dawn mutation pick', () => {
 
   it('keeps the simulation frozen and ignores pause toggling until a card is chosen', () => {
     const { game } = manager();
-    reachNextDawn(game);
+    reachNextEvolution(game);
     const update = vi.spyOn(game['world'], 'update');
     press('Space');
     game.togglePause();
@@ -73,7 +88,7 @@ describe('dawn mutation pick', () => {
 
   it('applies the chosen card, clears the offer, resumes and publishes', () => {
     const { game, published } = manager();
-    reachNextDawn(game);
+    reachNextEvolution(game);
     const chosen = game.getStats().mutationOffer!.options[0].id;
 
     expect(game.chooseMutation(chosen)).toBe(true);
@@ -85,7 +100,7 @@ describe('dawn mutation pick', () => {
   it('rejects an id outside the offer and a pick with no offer pending', () => {
     const { game } = manager();
     expect(game.chooseMutation('acid_mandibles')).toBe(false);
-    reachNextDawn(game);
+    reachNextEvolution(game);
     const offered = game.getStats().mutationOffer!.options.map(option => option.id);
     const outsider = MUTATION_IDS.find(id => !offered.includes(id))!;
 
@@ -100,7 +115,7 @@ describe('dawn mutation pick', () => {
     const { game } = manager();
     press('Digit3');
     expect(game.getStats().speed).toBe(1);
-    reachNextDawn(game);
+    reachNextEvolution(game);
     const second = game.getStats().mutationOffer!.options[1].id;
 
     press('Digit2');
@@ -111,12 +126,12 @@ describe('dawn mutation pick', () => {
     expect(game.getStats()).toMatchObject({ mutationOffer: null, paused: false, speed: 1 });
   });
 
-  it('offers on every dawn past day 7 too: the endless run never stops at day 8', () => {
+  it('keeps offering at every mark: the endless run never runs out of evolutions', () => {
     const { game } = manager();
-    for (let day = 2; day <= 10; day++) {
-      reachNextDawn(game);
+    for (let pick = 1; pick <= 9; pick++) {
+      reachNextEvolution(game);
       expect(game.getStats().gameOver).toBeNull();
-      expect(game.getStats().mutationOffer?.dayNumber).toBe(day);
+      expect(game.getStats().mutationOffer).not.toBeNull();
       press('Digit1');
       game.confirmMutation();
       expect(game.getStats().mutationOffer).toBeNull();
@@ -129,14 +144,14 @@ describe('dawn mutation pick', () => {
     const world = game['world'];
     const queen = world.query(COMPONENT.QUEEN_ENTITY)[0];
     world.getComponent<HealthComponent>(queen, COMPONENT.HEALTH)!.current = 0;
-    reachNextDawn(game);
+    reachNextEvolution(game);
     expect(game.getStats().gameOver?.outcome).toBe('defeat');
     expect(game.getStats().mutationOffer).toBeNull();
   });
 
   it('starts every new run without an offer or picks', () => {
     const { game } = manager();
-    reachNextDawn(game);
+    reachNextEvolution(game);
     const fresh = manager().game;
     expect(fresh.getStats()).toMatchObject({ mutationOffer: null, lastMutationPick: null, paused: false });
     expect(fresh.getAppliedMutations()).toEqual([]);

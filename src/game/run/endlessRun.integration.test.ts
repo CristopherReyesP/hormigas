@@ -32,17 +32,25 @@ function setup() {
   const world = game['world'] as World;
   const dayNight = game['dayNightSystem'] as DayNightSystem;
   const invasion = game['invasionSystem'] as UndergroundInvasionSystem;
-  const tick = () => game['update'](TICK);
   const pickIfOffered = () => {
     const offer = game.getStats().mutationOffer;
     if (offer) game.chooseMutation(offer.options[0].id);
     return offer !== null;
   };
+  // An evolution can open on any tick (a kill mark), and it pauses the run: take it first
+  let picks = 0;
+  const tick = () => {
+    if (pickIfOffered()) picks++;
+    game['update'](TICK);
+  };
   /** Wipe out the wave on now, as a perfect defense would, so the next night sends the next wave */
   const clearWave = () => {
+    const killed = (invasion['pendingSpawns'] as unknown[]).length + (invasion['invaders'] as Set<number>).size;
     (invasion['pendingSpawns'] as unknown[]).length = 0;
     for (const id of [...(invasion['invaders'] as Set<number>)]) world.destroyEntity(id);
     tick();
+    // Every invader killed counts toward the next evolution (the chamber opens on the dawn tick)
+    world.runTally.enemiesDefeated += killed;
   };
   /** From the day: one real tick at nightfall (the wave strikes), then one across dawn */
   const passNight = () => {
@@ -59,13 +67,13 @@ function setup() {
       world.getComponent<HealthComponent>(queen, COMPONENT.HEALTH)!.current = 0;
     }
   };
-  return { game, world, dayNight, invasion, tick, pickIfOffered, passNight, killQueen };
+  return { game, world, dayNight, invasion, tick, pickIfOffered, passNight, killQueen, picksMidNight: () => picks };
 }
 
 describe('the endless run, with the real GameManager', () => {
   it('survives to night 20: no victory at 7, a milestone at 7, 12 and 17, waves and offers keep coming', () => {
     vi.stubGlobal('localStorage', memoryStorage());
-    const { game, world, dayNight, invasion, pickIfOffered, passNight } = setup();
+    const { game, world, dayNight, invasion, pickIfOffered, passNight, picksMidNight } = setup();
     const celebrated: number[] = [];
     let offers = 0;
     for (let night = 1; night <= 20; night++) {
@@ -86,9 +94,9 @@ describe('the endless run, with the real GameManager', () => {
       expect(game.getStats().paused).toBe(false);
     }
     expect(celebrated).toEqual([7, 12, 17]);
-    // The evolution chamber kept opening after night 7
-    expect(offers).toBeGreaterThan(6);
-    expect(game.getAppliedMutations().length).toBe(offers);
+    // The evolution chamber kept opening as the kills piled up
+    expect(offers + picksMidNight()).toBeGreaterThan(6);
+    expect(game.getAppliedMutations().length).toBe(offers + picksMidNight());
     // The wave after night 20 is still a real, capped wave
     expect(invasion.getInfo().waveSize).toBeGreaterThan(0);
     game.stop();

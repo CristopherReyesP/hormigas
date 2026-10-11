@@ -1,8 +1,8 @@
+import { killMarkForEvolution } from './KillEvolution';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GameManager } from '../GameManager';
 import { AntRole, COMPONENT } from '../components/components';
 import { createAnt } from '../entities/factories';
-import type { DayNightSystem } from '../systems/DayNightSystem';
 import type { KeyPress } from '../../engine/input/InputManager';
 import { TILE_SIZE, WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
 import { finishIntro } from '../../test/gameManagerMocks';
@@ -45,10 +45,10 @@ function squad(game: GameManager) {
 
 const selected = (game: GameManager) => [...game['selectionSystem'].getSelectedIds()];
 
-function reachNextDawn(game: GameManager) {
-  const dayNight = game['dayNightSystem'] as DayNightSystem;
-  if (dayNight.getPhase() === 'day') dayNight.update(dayNight.getPhaseRemaining());
-  dayNight.update(dayNight.getPhaseRemaining() - 0.001);
+/** Kill enough enemies for the next evolution, then run one real tick: the chamber opens. */
+function reachNextEvolution(game: GameManager) {
+  const world = game['world'];
+  world.runTally.enemiesDefeated = Math.max(world.runTally.enemiesDefeated, killMarkForEvolution(game['evolutionsEarned'] as number));
   game['update'](1 / 60);
 }
 
@@ -130,7 +130,7 @@ describe('control groups on the digit keys', () => {
     const { worker } = squad(game);
     press('Digit2', { ctrl: true });
     game['selectionSystem'].selectAnts([worker], 'surface');
-    reachNextDawn(game);
+    reachNextEvolution(game);
     const second = game.getStats().mutationOffer!.options[1].id;
 
     press('Digit1', { ctrl: true });

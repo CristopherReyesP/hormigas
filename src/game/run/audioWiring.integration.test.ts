@@ -108,14 +108,11 @@ describe('audio wiring', () => {
     expect(heard).toContainEqual({ type: 'wave' });
   });
 
-  it('swells when the evolution chamber opens at dawn, and chimes on the pick', () => {
+  it('swells when the evolution chamber opens at the kill mark, and chimes on the pick', () => {
     const { game } = setup();
     finishIntro(game);
-    const dayNight = game['dayNightSystem'] as DayNightSystem;
-    dayNight.update(dayNight.getPhaseRemaining());
-    dayNight.update(dayNight.getPhaseRemaining() - 0.001);
+    game['world'].runTally.enemiesDefeated = 4;
     game['update'](FRAME);
-    expect(heard).toContainEqual({ type: 'phase', phase: 'day' });
     expect(heard).toContainEqual({ type: 'dawnOffer' });
     const option = game.getStats().mutationOffer!.options[0];
     expect(game.chooseMutation(option.id)).toBe(true);

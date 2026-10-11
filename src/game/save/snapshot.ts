@@ -72,6 +72,7 @@ interface ManagerInternals {
   offerRng: StatefulRng;
   craterSite: { x: number; y: number };
   mutationOffer: unknown;
+  evolutionsEarned: number;
   gameOver: unknown;
   introClock: { advance(dt: number): void };
   introDirector: { finish(): void };
@@ -256,7 +257,10 @@ function rebuildDerived(gm: GameManager): void {
   m.fitCameraToFrontier();
   // Phase 2's raids are functions the save does not keep
   m.wirePhase2Raid();
-  // A pending dawn pick or a finished run stays paused, as it was
+  // A save from before kill-earned evolutions: its picks so far count as earned,
+  // so the old kill tally does not open a string of chambers on load
+  if (!(m.evolutionsEarned > 0)) m.evolutionsEarned = gm.getAppliedMutations().length;
+  // A pending evolution pick or a finished run stays paused, as it was
   if (m.mutationOffer || m.gameOver) m.gameLoop.setPaused(true);
 }
 

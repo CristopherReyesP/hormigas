@@ -296,6 +296,15 @@ export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
           {formatClock(stats.phaseRemaining)}
         </span>
         <WaveStatus stats={stats} />
+        {stats.evolution && (
+          <span
+            className={`strip-item strip-evo${stats.evolution.kills >= stats.evolution.needed - 1 ? ' strip-item--accent' : ''}`}
+            title={`Enemigos abatidos para la próxima evolución: ${stats.evolution.kills} de ${stats.evolution.needed}`}
+          >
+            <PixelIcon name="skull" />
+            {`EVO ${stats.evolution.kills}/${stats.evolution.needed}`}
+          </span>
+        )}
       </div>
 
       <div className="strip-group strip-group--right">

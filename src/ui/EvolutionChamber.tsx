@@ -105,7 +105,7 @@ export function EvolutionChamber({ offer, selected, lastPick, onSelect, onConfir
         <div className="chrome-plate evo-panel-plate">
           <div className="chrome-plate-inner evo-panel">
             <h2 id="evo-title" className="evo-title">CÁMARA DE EVOLUCIÓN</h2>
-            <p className="evo-subtitle">Amanecer del día {visible.dayNumber} · El enjambre muta</p>
+            <p className="evo-subtitle">Día {visible.dayNumber} · El enjambre se alimenta de sus presas y muta</p>
             <div className="evo-vein" aria-hidden="true" />
             <div className="evo-cards">
               {visible.options.map((option, index) => (

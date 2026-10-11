@@ -198,8 +198,8 @@ export function MutationsView({ mutations }: { mutations: readonly MutationId[] 
   if (owned.length === 0) {
     return (
       <p className="upg-hint">
-        Aún no hay mutaciones. Cada amanecer, desde el día 2, la Cámara de Evolución ofrece tres: elegir otra vez la misma
-        la acumula (hasta 3 veces).
+        Aún no hay mutaciones. Abate enemigos: al llegar a la cuenta (EVO en la barra superior) la Cámara de Evolución
+        ofrece tres. Elegir otra vez la misma la acumula (hasta 3 veces).
       </p>
     );
   }
