@@ -21,7 +21,11 @@ import {
   type CarryingComponent,
   type NestComponent,
   type FoodSourceComponent,
+  type HealthComponent,
+  type HungerComponent,
+  type QueenEntityComponent,
 } from '../components/components';
+import { eat } from './HungerSystem';
 import {
   ANT_DEPOSIT_RANGE,
   PORTER_MAX_COUNT,
@@ -33,6 +37,18 @@ import {
   BEETLE_MEAT_NUTRITION_MULTIPLIER,
   CRICKET_MEAT_NUTRITION_MULTIPLIER,
 } from '../../shared/constants';
+
+/** A waiting worker's sharing (trophallaxis): who it feeds, and from how far */
+export const WAIT_SHARE = {
+  /** The queen is fed below this share of her hunger */
+  queen: 0.8,
+  /** A nestmate is fed below this share of its hunger or health */
+  need: 0.6,
+  /** It looks for hungry nestmates this far (tiles) */
+  reach: 10,
+  /** Mouth to mouth: this close */
+  feedRange: 1.2,
+} as const;
 
 /**
  * Porter logistics: idle workers physically haul food from the surface nest
@@ -610,10 +626,79 @@ export class PorterSystem implements System {
       return;
     }
 
+    // While it waits, its load is not idle: it feeds the queen or a hungry or
+    // hurt nestmate mouth to mouth (trophallaxis), like real ants do
+    if (this.shareLoad(id, pos, carrying, dt)) return;
+
     const spot = this.waitSpot(id);
     if (spot && Math.hypot(spot.x - pos.x, spot.y - pos.y) > 0.4) {
       this.setUndergroundPath(id, pos, spot.x, spot.y);
     }
+  }
+
+  /**
+   * Trophallaxis: a waiting worker walks its load to whoever needs it most
+   * below ground (the queen when she is under WAIT_SHARE.queen of her hunger,
+   * else the hungriest or most hurt empty-mouthed nestmate within
+   * WAIT_SHARE.reach tiles) and feeds it. True while it is busy doing so.
+   */
+  private shareLoad(id: number, pos: PositionComponent, carrying: CarryingComponent, dt: number): boolean {
+    let target: { id: number; x: number; y: number } | null = null;
+    for (const queenId of this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.POSITION)) {
+      const queen = this.world.getComponent<QueenEntityComponent>(queenId, COMPONENT.QUEEN_ENTITY)!;
+      if (queen.hunger >= queen.maxHunger * WAIT_SHARE.queen) continue;
+      const at = this.world.getComponent<PositionComponent>(queenId, COMPONENT.POSITION)!;
+      target = { id: queenId, x: at.x, y: at.y };
+      break;
+    }
+    if (!target) {
+      let worst: number = WAIT_SHARE.need;
+      for (const other of this.world.query(COMPONENT.ANT, COMPONENT.HUNGER, COMPONENT.POSITION, COMPONENT.LAYER)) {
+        if (other === id) continue;
+        if (this.world.getComponent<LayerComponent>(other, COMPONENT.LAYER)!.layer !== Layer.Underground) continue;
+        const load = this.world.getComponent<CarryingComponent>(other, COMPONENT.CARRYING);
+        if (load && load.amount > 0) continue; // it eats its own load
+        const at = this.world.getComponent<PositionComponent>(other, COMPONENT.POSITION)!;
+        if (Math.hypot(at.x - pos.x, at.y - pos.y) > WAIT_SHARE.reach) continue;
+        const hunger = this.world.getComponent<HungerComponent>(other, COMPONENT.HUNGER)!;
+        const health = this.world.getComponent<HealthComponent>(other, COMPONENT.HEALTH);
+        const need = Math.min(hunger.current / hunger.max, health && health.max > 0 ? health.current / health.max : 1);
+        if (need < worst) {
+          worst = need;
+          target = { id: other, x: at.x, y: at.y };
+        }
+      }
+    }
+    if (!target) return false;
+
+    if (Math.hypot(target.x - pos.x, target.y - pos.y) > WAIT_SHARE.feedRange) {
+      const route = this.world.getComponent<PathComponent>(id, COMPONENT.PATH);
+      const end = route && route.currentIndex < route.waypoints.length ? route.waypoints[route.waypoints.length - 1] : null;
+      if (!end || Math.hypot(end.x - target.x, end.y - target.y) > WAIT_SHARE.feedRange) {
+        this.setUndergroundPath(id, pos, target.x, target.y);
+      }
+      return true;
+    }
+    this.clearPath(id);
+    const take = (want: number) => {
+      const bite = Math.min(want, carrying.amount);
+      carrying.amount -= bite;
+      return bite;
+    };
+    const queen = this.world.getComponent<QueenEntityComponent>(target.id, COMPONENT.QUEEN_ENTITY);
+    if (queen) {
+      // The nurses' rate: 5 food a second, 10 hunger per food
+      const feed = take(5 * dt);
+      queen.hunger = Math.min(queen.maxHunger, queen.hunger + feed * 10);
+    } else {
+      eat(this.world, this.world.getComponent<HungerComponent>(target.id, COMPONENT.HUNGER),
+        this.world.getComponent<HealthComponent>(target.id, COMPONENT.HEALTH), dt, take);
+    }
+    if (carrying.amount <= 1e-6) {
+      carrying.amount = 0;
+      carrying.resourceType = null;
+    }
+    return true;
   }
 
   /**

@@ -198,4 +198,21 @@ describe('rival raiders at the mound', () => {
     expect(layerOf(near)).toBe(Layer.Underground);
     expect(layerOf(far)).not.toBe(Layer.Underground);
   });
+
+  it('an assault outside the wave roll (a leftover dropped at nightfall) breaks in too, and guards stay home', async () => {
+    const { createNest } = await import('../entities/factories');
+    const { createCrystalUnit } = await import('../rival/crystalFactories');
+    const { CrystalUnitState } = await import('../components/components');
+    const { world, invasion } = setup();
+    const nx = Math.floor(WORLD_WIDTH / 2);
+    const ny = Math.floor(WORLD_HEIGHT / 2);
+    createNest(world, nx, ny);
+    const leftover = createCrystalUnit(world, 'drone', nx + 2, ny + 1);
+    const guard = createCrystalUnit(world, 'drone', nx - 2, ny + 1);
+    world.getComponent<{ state: string }>(leftover, COMPONENT.CRYSTAL_UNIT)!.state = CrystalUnitState.Assaulting;
+    (invasion as unknown as { driveInvaders(): void }).driveInvaders();
+    const layerOf = (id: EntityId) => world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer;
+    expect(layerOf(leftover)).toBe(Layer.Underground);
+    expect(layerOf(guard)).not.toBe(Layer.Underground);
+  });
 });

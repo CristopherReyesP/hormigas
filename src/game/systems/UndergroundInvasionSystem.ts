@@ -20,7 +20,10 @@ import {
   type NestComponent,
   type RenderComponent,
   type FacingComponent,
+  type CrystalUnitComponent,
+  CrystalUnitState,
 } from '../components/components';
+import { HUMAN_COMPONENT, type HumanUnitComponent } from '../rival/humanComponents';
 import { FactionId, isHostileTo, ownerOf } from '../factions/factions';
 import { createBeetle } from '../entities/factories';
 import { findPath, type PathGrid } from '../../simulation/pathfinding/AStar';
@@ -915,6 +918,42 @@ export class UndergroundInvasionSystem implements System {
    * The rival's raiders came to win: once one reaches the mound (an entrance
    * hole or the nest itself) it goes down after the queen, like the beetles.
    */
+  /**
+   * The rival's attackers that reach the mound outside the wave's roll (an
+   * earlier wave's leftovers, dropped from it at nightfall, or an assault the
+   * rival sent on its own) join the invaders, so they break in after the queen
+   * like the rest instead of standing at the entrance for good. Their goal
+   * becomes the mound hole, so the ones that stopped short walk up to it.
+   */
+  private enlistAssaulters(): void {
+    const near = (id: EntityId): boolean => {
+      if (this.invaders.has(id) || ownerOf(this.world, id) !== FactionId.RIVAL) return false;
+      if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground) return false;
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+      if (!pos) return false;
+      const nest = this.nestCell();
+      if (Math.hypot(nest.x - pos.x, nest.y - pos.y) < RAIDER_BREAK_IN_RADIUS * 2) return true;
+      return this.grid.getEntrances().some((e) => {
+        const hole = this.holeFor(e);
+        return Math.hypot(hole.x - pos.x, hole.y - pos.y) < RAIDER_BREAK_IN_RADIUS;
+      });
+    };
+    const hole = this.holeFor(this.grid.findNearestEntrance(this.nestCell().x + 0.5, this.nestCell().y + 0.5) ?? null);
+    const enlist = (id: EntityId, unit: { goal: Vector2 | null; repathTimer: number }): void => {
+      this.invaders.add(id);
+      unit.goal = { x: hole.x, y: hole.y };
+      unit.repathTimer = 0;
+    };
+    for (const id of this.world.query(COMPONENT.CRYSTAL_UNIT)) {
+      if (this.world.getComponent<CrystalUnitComponent>(id, COMPONENT.CRYSTAL_UNIT)!.state !== CrystalUnitState.Assaulting) continue;
+      if (near(id)) enlist(id, this.world.getComponent<CrystalUnitComponent>(id, COMPONENT.CRYSTAL_UNIT)!);
+    }
+    for (const id of this.world.query(HUMAN_COMPONENT.UNIT)) {
+      if (this.world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT)!.state !== 'assaulting') continue;
+      if (near(id)) enlist(id, this.world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT)!);
+    }
+  }
+
   private raidersBreakIn(): void {
     const entrances = this.grid.getEntrances();
     const nest = this.nestCell();
@@ -1336,6 +1375,7 @@ export class UndergroundInvasionSystem implements System {
   }
 
   private driveInvaders(): void {
+    this.enlistAssaulters();
     if (this.invaders.size === 0) return;
     this.driveMarchers();
     this.raidersBreakIn();

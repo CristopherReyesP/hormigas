@@ -242,3 +242,34 @@ describe('a full pantry: loaded workers wait for room', () => {
     expect(biggest).toBeLessThanOrEqual(pile + 1e-6);
   });
 });
+
+describe('while it waits, a loaded worker shares its load (trophallaxis)', () => {
+  it('feeds a hungry queen from its jaws', () => {
+    const { game, world, grid } = manager();
+    fillPantry(grid, 'leaf', grid.getPantryTileCapacity());
+    const loaded = loadWorkers(world, 2);
+    run(game, 30);
+    expect(waiting(world).length).toBeGreaterThan(0);
+
+    // The queen goes hungry: a waiting worker brings her its load
+    const queenId = world.query(COMPONENT.QUEEN_ENTITY)[0];
+    const queen = world.getComponent<{ hunger: number; maxHunger: number }>(queenId, COMPONENT.QUEEN_ENTITY)!;
+    queen.hunger = queen.maxHunger * 0.3;
+    const before = queen.hunger;
+    const carried = () => loaded.reduce((sum, id) => sum + (world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)?.amount ?? 0), 0);
+    const loadBefore = carried();
+    // No nurse to feed her instead, and the carriers never hungry themselves
+    for (const id of world.query(COMPONENT.ANT)) {
+      if (world.getComponent<AntComponent>(id, COMPONENT.ANT)!.role === AntRole.Nurse) world.destroyEntity(id);
+    }
+    const sated = () => {
+      for (const id of loaded) {
+        const h = world.getComponent<HungerComponent>(id, COMPONENT.HUNGER);
+        if (h) h.current = h.max;
+      }
+    };
+    run(game, 20, sated);
+    expect(queen.hunger).toBeGreaterThan(before);
+    expect(carried()).toBeLessThan(loadBefore);
+  });
+});
