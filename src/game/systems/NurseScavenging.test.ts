@@ -45,4 +45,26 @@ describe('loose meat inside the nest with no worker free', () => {
     system.update(0);
     expect(ant.state).toBe(AntState.FeedingQueen);
   });
+
+  it('a nurse grooming a larva breaks off for it', () => {
+    const { world, system, ant } = setup();
+    ant.state = AntState.GroomingBrood;
+    createFood(world, 12, 10, 30, FoodType.BeetleMeat, Layer.Underground);
+    system.update(0);
+    expect(ant.state).toBe(AntState.Scavenging);
+  });
+
+  it('with the pantry full, the nurse still picks it up and keeps it in her jaws for the queen and the larvae', () => {
+    const { world, system, nurse, ant } = setup();
+    vi.spyOn(UndergroundGrid.prototype, 'hasDepositSpace').mockReturnValue(false);
+    vi.spyOn(UndergroundGrid.prototype, 'findDepositTile').mockReturnValue(null);
+    createFood(world, 10, 10, 30, FoodType.BeetleMeat, Layer.Underground);
+    system.update(0);
+    expect(ant.state).toBe(AntState.Scavenging);
+    system.update(0);
+    expect(world.getComponent<CarryingComponent>(nurse, COMPONENT.CARRYING)!.amount).toBeGreaterThan(0);
+    // Back to the nursery with it (NurseAISystem hands it out), not waiting on the pantry
+    expect(ant.state).toBe(AntState.Idle);
+    vi.restoreAllMocks();
+  });
 });

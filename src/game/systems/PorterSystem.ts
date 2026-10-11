@@ -164,7 +164,7 @@ export class PorterSystem implements System {
         }
         continue;
       }
-      if (ant.role === AntRole.Nurse && this.isIdleBelow(id, ant)) idleUndergroundNurses.push(id);
+      if (ant.role === AntRole.Nurse && this.isIdleBelow(id, ant, true)) idleUndergroundNurses.push(id);
       if (ant.role !== AntRole.Worker) {
         if (this.standIns.has(id)) {
           if (this.driveStandIn(id, ant, nest, nestPos, dt)) {
@@ -242,12 +242,16 @@ export class PorterSystem implements System {
 
     // Scavenging beats porter duty: invader meat lying in the nest rots player
     // attention — underground idlers first (they're already down there)
+    // Even with the pantry full: meat rots on the floor, while in the jaws it
+    // feeds the queen, the larvae and the nestmates (a nurse uses it right away,
+    // a worker waits with it and shares it)
     const looseFood = this.countLooseUndergroundFood();
-    if (looseFood > 0 && this.grid.hasDepositSpace() && activeScavengers < Math.min(SCAVENGER_MAX_COUNT, looseFood)) {
-      // No worker free (or none left at all): a nurse already down there picks it up
-      const recruitId = idleUndergroundWorkers[0] ?? idleSurfaceWorkers[0] ?? idleUndergroundNurses[0];
+    if (looseFood > 0 && activeScavengers < Math.min(SCAVENGER_MAX_COUNT, looseFood)) {
+      // Whoever is already down there goes first: a free worker, else a nurse
+      // between brood chores; a worker from up top only when nobody is below
+      const recruitId = idleUndergroundWorkers[0] ?? idleUndergroundNurses[0] ?? idleSurfaceWorkers[0];
       if (recruitId !== undefined) {
-        if (idleUndergroundWorkers[0] === undefined && idleSurfaceWorkers[0] === undefined) this.nurseScavengers.add(recruitId);
+        if (this.world.getComponent<AntComponent>(recruitId, COMPONENT.ANT)!.role === AntRole.Nurse) this.nurseScavengers.add(recruitId);
         const recruit = this.world.getComponent<AntComponent>(recruitId, COMPONENT.ANT)!;
         recruit.state = AntState.Scavenging;
         recruit.stateTimer = 0;
@@ -314,8 +318,11 @@ export class PorterSystem implements System {
   }
 
   /** An unloaded idle ant below ground, free for a quick errand */
-  private isIdleBelow(id: number, ant: AntComponent): boolean {
-    if (ant.state !== AntState.Idle && ant.state !== AntState.Searching) return false;
+  private isIdleBelow(id: number, ant: AntComponent, grooming = false): boolean {
+    // A nurse grooming a larva is only speeding it up: she may break off for meat
+    const free = ant.state === AntState.Idle || ant.state === AntState.Searching
+      || (grooming && ant.state === AntState.GroomingBrood);
+    if (!free) return false;
     if (hasPlayerOrder(this.world, id) || this.transitSystem.isInTransit(id)) return false;
     if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)!.layer !== Layer.Underground) return false;
     return this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!.amount === 0;
@@ -799,9 +806,16 @@ export class PorterSystem implements System {
         food.resourceType === FoodType.BeetleMeat ? BEETLE_MEAT_NUTRITION_MULTIPLIER : 1.0;
       carrying.resourceType = 'meat';
       carrying.amount = raw * mult;
-      ant.state = AntState.Hauling;
       ant.stateTimer = 0;
       this.clearPath(id);
+      // A nurse with no meat pile to fill hands it out herself (NurseAISystem
+      // feeds the queen and the larvae from her jaws)
+      if (this.nurseScavengers.has(id) && !this.grid.findDepositTile('meat', pos.x, pos.y)) {
+        this.nurseScavengers.delete(id);
+        ant.state = AntState.Idle;
+        return;
+      }
+      ant.state = AntState.Hauling;
     } else {
       this.setUndergroundPath(id, pos, target.pos.x, target.pos.y);
     }

@@ -29,6 +29,7 @@ import {
   type PlayerOrderComponent,
 } from '../components/components';
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
+import { antSpawnStats } from '../run/antStats';
 import { findPath } from '../../simulation/pathfinding/AStar';
 import { buildAttackerMap, ensureCombatComponent } from './helpers/combatHelpers';
 import { canFight, completePlayerOrder, endPlayerOrder, findEnemyStructureNear, isEnemyStructure, isSurfaceEnemy } from './helpers/playerOrders';
@@ -41,6 +42,8 @@ import {
   PHEROMONE_MAX,
   MUSHROOM_NUTRITION_MULTIPLIER,
   MUSHROOM_PREFERENCE_MULTIPLIER,
+  MEAT_SCENT_RANGE,
+  MEAT_PREFERENCE_MULTIPLIER,
   SOLDIER_ATTACK_RANGE,
   SOLDIER_PATROL_RADIUS,
   SOLDIER_CHASE_RANGE,
@@ -110,6 +113,13 @@ const ORDER_GUARD_RANGE = 5;
 /** An enemy this close to the attacked base is one of its guards */
 const ORDER_BASE_GUARD_RADIUS = 10;
 
+/** Seconds between two calls to the meat of the kills (AntAISystem.callToMeat) */
+const MEAT_CALL_SECONDS = 0.25;
+/** At most this many workers sent for one meat pile */
+const MEAT_CALL_MAX_PER_PILE = 3;
+/** What a worker may drop to answer the call */
+const MEAT_CALL_STATES: ReadonlySet<string> = new Set([AntState.Idle, AntState.Searching, AntState.FetchingFood, AntState.Mining]);
+
 export class AntAISystem implements System {
   readonly name = 'AntAISystem';
   readonly priority = 5; // run before movement
@@ -129,6 +139,10 @@ export class AntAISystem implements System {
   private attackerByTarget: Map<EntityId, EntityId> = new Map();
   private enemySnapshot: Array<{ id: EntityId; x: number; y: number }> = [];
   private foodSnapshot: FoodEntry[] = [];
+  /** Seconds to the next call to the meat of the kills */
+  private meatCallTimer = 0;
+  /** Meat pile -> the workers sent for it */
+  private meatClaims = new Map<EntityId, EntityId[]>();
   /** foodSnapshot bucketed by position: harvest and sight checks look at nearby piles only */
   private foodGrid = new SpatialGrid<FoodEntry>(WORLD_WIDTH, WORLD_HEIGHT, 8);
   /** Scratch list for foodGrid lookups (reused, no per-ant allocation) */
@@ -193,6 +207,11 @@ export class AntAISystem implements System {
     if (this.allocateTimer <= 0) {
       this.allocateTimer = MINER_ALLOCATE_SECONDS;
       this.allocateMiners();
+    }
+    this.meatCallTimer -= dt;
+    if (this.meatCallTimer <= 0) {
+      this.meatCallTimer = MEAT_CALL_SECONDS;
+      this.callToMeat();
     }
 
     const ants = this.world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.PATH, COMPONENT.CARRYING);
@@ -1761,19 +1780,23 @@ export class AntAISystem implements System {
     const desperate = hunger !== undefined && hunger.current < hunger.max * HUNGER_EAT_THRESHOLD;
     const avoidGuarded = ant.role !== AntRole.Soldier && !desperate && this.enemySnapshot.length > 0;
 
-    for (const f of this.foodGrid.queryCircle(pos.x, pos.y, visionRange, this.foodNearby)) {
+    // Meat from a kill is known well past sight: the colony smells where its enemies fell
+    const scentRange = ant.role === AntRole.Worker ? Math.max(visionRange, MEAT_SCENT_RANGE) : visionRange;
+    for (const f of this.foodGrid.queryCircle(pos.x, pos.y, scentRange, this.foodNearby)) {
       const dx = f.x - pos.x;
       const dy = f.y - pos.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      // Only "see" food within vision range
-      if (dist >= visionRange) continue;
+      const meat = f.type === FoodType.BeetleMeat || f.type === FoodType.CricketMeat;
+      // Only "see" food within vision range (meat: within its scent)
+      if (dist >= (meat ? scentRange : visionRange)) continue;
 
       if (avoidGuarded && this.isGuardedByPredator(f.x, f.y)) continue;
       // No pile can take this food right now: leave it where it is
       if (!this.pantryRoom[pantryTypeOf(f.type)]) continue;
 
       // Mushrooms are "perceived" as closer (more desirable)
-      const effectiveDist = f.type === FoodType.Mushroom ? dist * MUSHROOM_PREFERENCE_MULTIPLIER : dist;
+      const effectiveDist = f.type === FoodType.Mushroom ? dist * MUSHROOM_PREFERENCE_MULTIPLIER
+        : meat ? dist * MEAT_PREFERENCE_MULTIPLIER : dist;
 
       if (effectiveDist < nearestDist) {
         nearestDist = effectiveDist;
@@ -1782,6 +1805,63 @@ export class AntAISystem implements System {
     }
 
     return nearest;
+  }
+
+  /**
+   * The call to the meat: a kill's meat on the surface near the nest gets
+   * workers sent for it, even when they are all busy hauling or exploring
+   * or mining (only an unloaded worker without a player order is taken). Meat is the
+   * richest food and it rots, and a worker only sees a few tiles around it,
+   * so without the call the carcasses of a fight lay untouched by the nest.
+   */
+  private callToMeat(): void {
+    if (this.nestEntityId === null) return;
+    const nestPos = this.world.getComponent<PositionComponent>(this.nestEntityId, COMPONENT.POSITION);
+    if (!nestPos || !this.pantryRoom.meat || this.surfaceGlut) return;
+    // Drop the claims that ended (the ant took a load, died or went elsewhere)
+    for (const [foodId, ants] of this.meatClaims) {
+      const live = ants.filter((a) => this.world.getComponent<AntComponent>(a, COMPONENT.ANT)?.state === AntState.GoingToFood);
+      if (live.length === 0 || !this.world.hasEntity(foodId)) this.meatClaims.delete(foodId);
+      else this.meatClaims.set(foodId, live);
+    }
+    const taken = new Set<EntityId>([...this.meatClaims.values()].flat());
+    const capacity = Math.max(1, antSpawnStats(this.world, AntRole.Worker).carryCapacity);
+    for (const f of this.foodSnapshot) {
+      if (f.type !== FoodType.BeetleMeat && f.type !== FoodType.CricketMeat) continue;
+      if (Math.hypot(f.x - nestPos.x, f.y - nestPos.y) > MEAT_SCENT_RANGE) continue;
+      if (this.isGuardedByPredator(f.x, f.y)) continue;
+      const food = this.world.getComponent<FoodSourceComponent>(f.id, COMPONENT.FOOD_SOURCE);
+      if (!food || food.amount <= 0) continue;
+      const claims = this.meatClaims.get(f.id) ?? [];
+      const wanted = Math.min(MEAT_CALL_MAX_PER_PILE, Math.ceil(food.amount / capacity));
+      if (claims.length >= wanted) continue;
+      // The nearest free worker up top: idle, searching, exploring or a porter not yet loaded
+      let best: EntityId | null = null;
+      let bestDist = Infinity;
+      for (const id of this.world.query(COMPONENT.ANT, COMPONENT.POSITION, COMPONENT.CARRYING)) {
+        if (taken.has(id)) continue;
+        const ant = this.world.getComponent<AntComponent>(id, COMPONENT.ANT)!;
+        if (ant.role !== AntRole.Worker || !MEAT_CALL_STATES.has(ant.state)) continue;
+        if (this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer === Layer.Underground) continue;
+        if (this.world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER) || ant.resourceOrder) continue;
+        if (this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!.amount > 0) continue;
+        const at = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+        const d = Math.hypot(at.x - f.x, at.y - f.y);
+        if (d < bestDist) {
+          bestDist = d;
+          best = id;
+        }
+      }
+      if (best === null) return; // nobody free: try again at the next call
+      const ant = this.world.getComponent<AntComponent>(best, COMPONENT.ANT)!;
+      if (ant.state === AntState.Mining) this.stopMining(ant);
+      ant.state = AntState.GoingToFood;
+      ant.stateTimer = 0;
+      this.pathToEntity(this.world.getComponent<PositionComponent>(best, COMPONENT.POSITION)!, f.id,
+        this.world.getComponent<PathComponent>(best, COMPONENT.PATH)!);
+      this.meatClaims.set(f.id, [...claims, best]);
+      taken.add(best);
+    }
   }
 
   /** Is a surface predator sitting on top of this food pile? */
