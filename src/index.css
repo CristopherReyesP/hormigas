@@ -973,6 +973,7 @@ button:focus-visible {
 .top-strip--fold-otherFood:not(.top-strip--open) :is(.strip-food--fungus, .strip-food--meat),
 .top-strip--fold-fullTag:not(.top-strip--open) .strip-pantry-full-short,
 .top-strip--fold-waveWords:not(.top-strip--open) .strip-wave-word,
+.top-strip--fold-antTotal:not(.top-strip--open) .strip-ant-total,
 .top-strip--fold-leaf:not(.top-strip--open) .strip-food--leaf {
   position: absolute;
   visibility: hidden;

@@ -27,6 +27,8 @@ export class PheromoneSystem implements System {
     for (let y = 0; y < this.grid.height; y++) {
       for (let x = 0; x < this.grid.width; x++) {
         const tile = this.grid.getTile(x, y)!;
+        // Most of the map holds no scent at all: nothing to decay
+        if (tile.foodPheromone === 0 && tile.homePheromone === 0 && tile.dangerPheromone === 0) continue;
 
         tile.foodPheromone *= effectiveDecayRate;
         tile.homePheromone *= effectiveDecayRate;

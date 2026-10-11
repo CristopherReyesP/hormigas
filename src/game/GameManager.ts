@@ -583,6 +583,8 @@ export class GameManager {
   private eventSystem: EventSystem;
   private statsCallback: ((stats: GameStats) => void) | null = null;
   private statsTicks = 0; // throttle stats updates
+  /** The game speed the stats throttle scales with (mirrors the loop's) */
+  private statsSpeed = 1;
   private undergroundGrid: UndergroundGrid;
   private undergroundCamera: Camera;
   private activeLayer: 'surface' | 'underground' = 'surface';
@@ -1794,9 +1796,11 @@ export class GameManager {
 
     this.tickListeners?.forEach((listener) => listener(dt));
 
-    // Send stats to UI (throttled every 10 ticks)
+    // Send stats to UI (throttled every 10 ticks at x1). The interval stretches
+    // with game speed, so the HUD refreshes ~6 times per real second whatever
+    // the speed (at x3 it re-rendered 18 times a second on a busy frame).
     this.statsTicks++;
-    if (this.statsCallback && this.statsTicks >= 10) {
+    if (this.statsCallback && this.statsTicks >= 10 * this.statsSpeed) {
       try {
         this.statsCallback(this.getStats());
       } catch (e) {
@@ -2026,6 +2030,7 @@ export class GameManager {
   /** + and -: one game speed step faster or slower, between ×1 and ×GAME_SPEED_MAX. */
   stepSpeed(step: 1 | -1): void {
     this.gameLoop.setSpeed(Math.max(1, Math.min(GAME_SPEED_MAX, this.gameLoop.getSpeed() + step)));
+    this.statsSpeed = this.gameLoop.getSpeed();
     this.publishStats();
   }
 
@@ -2099,6 +2104,7 @@ export class GameManager {
 
   setSpeed(speed: number): void {
     this.gameLoop.setSpeed(speed);
+    this.statsSpeed = this.gameLoop.getSpeed();
   }
 
   /** Listen to every simulation tick (game time, not frames); returns the unsubscribe */
@@ -3702,7 +3708,7 @@ export class GameManager {
    * workers, soldiers and scouts (nurses carry food already taken out of the
    * pantry; ore is not food). `types` are the food types among it.
    */
-  private foodOnItsWay(nests: EntityId[]): { entrance: number; carried: number; types: PantryFoodType[] } {
+  private foodOnItsWay(nests: readonly EntityId[]): { entrance: number; carried: number; types: PantryFoodType[] } {
     let entrance = 0;
     const types = new Set<PantryFoodType>();
     for (const id of nests) {

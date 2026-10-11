@@ -1,3 +1,4 @@
+import { PheromoneLayer } from '../../engine/renderer/PheromoneLayer';
 import type { World } from '../../engine/ecs/World';
 import type { CanvasRenderer } from '../../engine/renderer/CanvasRenderer';
 import type { TileGrid } from '../../simulation/world/TileGrid';
@@ -44,7 +45,7 @@ import {
   type CrystalUnitComponent,
   type CrystalSpireComponent,
 } from '../components/components';
-import { FARM_MULCH_CAPACITY, TILE_SIZE, PHEROMONE_MAX, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
+import { FARM_MULCH_CAPACITY, TILE_SIZE, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
 import { UndergroundTerrainType, ChamberType, TerrainType } from '../../simulation/world/types';
 import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
@@ -248,6 +249,7 @@ export class RenderSystem {
   private fxBrackets = new Map<string, OffscreenCanvas>();
   private fxHealthFrame!: OffscreenCanvas;
   private fxPheroStamps!: Record<'home' | 'food' | 'danger', OffscreenCanvas[]>;
+  private pheromoneLayer: PheromoneLayer | null = null;
   private fxGlows = new Map<string, OffscreenCanvas>();
   /** The Crystal Hive rival's units, spires and shields */
   private crystalArt = new CrystalRivalArt();
@@ -1822,35 +1824,12 @@ export class RenderSystem {
     const endX = Math.min(this.grid.width, Math.ceil((this.camera.x + viewW) / TILE_SIZE) + 1);
     const endY = Math.min(this.grid.height, Math.ceil((this.camera.y + viewH) / TILE_SIZE) + 1);
 
+    // Pre-rendered dithered diamond stamps, 3 quantized intensity levels per
+    // type, cached per chunk (PheromoneLayer) and added onto the ground
+    this.pheromoneLayer ??= new PheromoneLayer(this.grid.width, this.grid.height, this.fxPheroStamps);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-
-    // Pre-rendered dithered diamond stamps, 3 quantized intensity levels per type.
-    // Strength → level is a discrete step function (no smooth alpha scaling).
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
-        const tile = this.grid.getTile(x, y)!;
-        if (!this.visibilityGrid.isExplored(x, y)) continue;
-        const tpx = x * TILE_SIZE;
-        const tpy = y * TILE_SIZE;
-
-        if (tile.homePheromone > 1) {
-          const s = tile.homePheromone / PHEROMONE_MAX;
-          ctx.drawImage(this.fxPheroStamps.home[s > 0.6 ? 2 : s > 0.25 ? 1 : 0], tpx, tpy);
-        }
-
-        if (tile.foodPheromone > 1) {
-          const s = tile.foodPheromone / PHEROMONE_MAX;
-          ctx.drawImage(this.fxPheroStamps.food[s > 0.6 ? 2 : s > 0.25 ? 1 : 0], tpx, tpy);
-        }
-
-        if (tile.dangerPheromone > 1) {
-          const s = tile.dangerPheromone / PHEROMONE_MAX;
-          ctx.drawImage(this.fxPheroStamps.danger[s > 0.6 ? 2 : s > 0.25 ? 1 : 0], tpx, tpy);
-        }
-      }
-    }
-
+    this.pheromoneLayer.draw(ctx, this.grid, this.visibilityGrid, startX, startY, endX, endY);
     ctx.restore();
   }
 
