@@ -31,7 +31,7 @@ import {
 import type { VisibilityGrid } from '../../simulation/world/VisibilityGrid';
 import { findPath } from '../../simulation/pathfinding/AStar';
 import { buildAttackerMap, ensureCombatComponent } from './helpers/combatHelpers';
-import { canFight, completePlayerOrder, endPlayerOrder, findEnemyStructureNear, isSurfaceEnemy } from './helpers/playerOrders';
+import { canFight, completePlayerOrder, endPlayerOrder, findEnemyStructureNear, isEnemyStructure, isSurfaceEnemy } from './helpers/playerOrders';
 import { FactionId, isHostileTo } from '../factions/factions';
 import type { PantryFoodType, UndergroundGrid } from '../../simulation/world/UndergroundGrid';
 import type { TransitSystem } from './TransitSystem';
@@ -104,6 +104,11 @@ interface TileCandidate {
   y: number;
   score: number;
 }
+
+/** Tiles within which an ant sent against a base turns to fight a guard first */
+const ORDER_GUARD_RANGE = 5;
+/** An enemy this close to the attacked base is one of its guards */
+const ORDER_BASE_GUARD_RADIUS = 10;
 
 export class AntAISystem implements System {
   readonly name = 'AntAISystem';
@@ -467,6 +472,7 @@ export class AntAISystem implements System {
     // Target dead (or out of reach for too long): the attack is done. No
     // guard post out there: the colony AI takes the soldier back, so it goes
     // to defend the nest when the nest needs it.
+    if (this.fightGuardsOnTheWay(id, ant, pos, path, order, dt)) return;
     const enemy = order.targetId !== null ? this.enemyPosition(order.targetId) : null;
     if (!enemy || order.targetId === null) {
       endPlayerOrder(this.world, id);
@@ -481,6 +487,65 @@ export class AntAISystem implements System {
       }
     }
     this.fightStep(id, ant, pos, path, order, order.targetId, enemy, dt);
+  }
+
+  /**
+   * Sent against a base, an ant does not walk past its guards: a unit that
+   * comes within ORDER_GUARD_RANGE is fought first (chased while it stays in
+   * chase range), then the attack on the base picks up again. True while a
+   * guard holds the ant.
+   */
+  private fightGuardsOnTheWay(
+    id: EntityId,
+    ant: AntComponent,
+    pos: PositionComponent,
+    path: PathComponent,
+    order: PlayerOrderComponent,
+    dt: number
+  ): boolean {
+    if (order.goalId == null) {
+      if (order.targetId === null || !isEnemyStructure(this.world, order.targetId)) return false;
+      order.goalId = order.targetId;
+    }
+    const goal = order.goalId;
+    if (!this.enemyPosition(goal)) {
+      // The base fell: the attack is done (attackTarget ends it)
+      order.targetId = goal;
+      return false;
+    }
+    if (!canFight(this.world, id)) return false;
+    let guard = order.targetId !== null && order.targetId !== goal ? this.enemyPosition(order.targetId) : null;
+    if (guard && Math.hypot(guard.x - pos.x, guard.y - pos.y) > SOLDIER_CHASE_RANGE) guard = null;
+    if (!guard) {
+      const seen = this.nearestGuard(id, pos, this.enemyPosition(goal)!);
+      if (seen !== null) guard = this.engageOrderTarget(path, order, seen);
+    }
+    if (!guard || order.targetId === null || order.targetId === goal) {
+      // No guard on it: back to the base
+      if (order.targetId !== goal) this.engageOrderTarget(path, order, goal);
+      return false;
+    }
+    this.fightStep(id, ant, pos, path, order, order.targetId, guard, dt);
+    return true;
+  }
+
+  /**
+   * The closest enemy unit within ORDER_GUARD_RANGE that guards the base (it
+   * stands near it) or is biting this ant; a threat back home is not one.
+   */
+  private nearestGuard(id: EntityId, pos: PositionComponent, base: PositionComponent): EntityId | null {
+    let best: EntityId | null = null;
+    let bestDist = ORDER_GUARD_RANGE;
+    for (const e of this.enemySnapshot) {
+      const d = Math.hypot(e.x - pos.x, e.y - pos.y);
+      if (d >= bestDist) continue;
+      const guarding = Math.hypot(e.x - base.x, e.y - base.y) <= ORDER_BASE_GUARD_RADIUS;
+      const biting = this.world.getComponent<CombatComponent>(e.id, COMPONENT.COMBAT)?.targetEntityId === id;
+      if (!guarding && !biting) continue;
+      best = e.id;
+      bestDist = d;
+    }
+    return best;
   }
 
   /**

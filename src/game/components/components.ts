@@ -356,6 +356,8 @@ export interface PlayerOrderComponent {
   elapsed: number;
   /** A* routes requested so far (0 = still waiting for its first route) */
   routes: number;
+  /** Attack on a base: the base itself, kept while the ant fights the guards that come at it on the way */
+  goalId?: EntityId | null;
 }
 
 /** Which faction an entity belongs to. Read it through `ownerOf`, which falls back when it is missing. */

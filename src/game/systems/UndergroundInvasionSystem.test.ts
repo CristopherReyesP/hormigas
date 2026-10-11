@@ -155,3 +155,25 @@ describe('wave countdown', () => {
     expect(beetles(world)).toBe(waveComposition(1).total);
   });
 });
+
+describe('invaders inside the nest', () => {
+  it('stop to fight an ant in their way instead of walking past it to the queen', async () => {
+    const { createAnt, createBeetle, createQueen } = await import('../entities/factories');
+    const { AntRole } = await import('../components/components');
+    const { world, invasion } = setup();
+    const queen = createQueen(world, 40, 30);
+    world.addComponent(queen, COMPONENT.LAYER, { layer: Layer.Underground });
+    const invader = createBeetle(world, 20, 30);
+    world.getComponent<LayerComponent>(invader, COMPONENT.LAYER)!.layer = Layer.Underground;
+    (invasion as unknown as { invaders: Set<EntityId> }).invaders.add(invader);
+    const defender = createAnt(world, 23, 30, AntRole.Soldier);
+    world.addComponent(defender, COMPONENT.LAYER, { layer: Layer.Underground });
+    (invasion as unknown as { driveInvaders(): void }).driveInvaders();
+    const combat = world.getComponent<{ targetEntityId: EntityId | null }>(invader, COMPONENT.COMBAT)!;
+    expect(combat.targetEntityId).toBe(defender);
+    // Its route leads to the defender, not on to the queen
+    const path = world.getComponent<{ waypoints: Array<{ x: number; y: number }> }>(invader, COMPONENT.PATH)!;
+    const end = path.waypoints[path.waypoints.length - 1];
+    expect(Math.hypot(end.x - 23, end.y - 30)).toBeLessThan(2);
+  });
+});

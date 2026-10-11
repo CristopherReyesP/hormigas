@@ -69,7 +69,10 @@ describe('soldiers sent to attack commit to it', () => {
       for (const id of soldiers) {
         if (!world.hasEntity(id)) continue;
         // The attack order is never traded for a guard post or the colony AI on the way
-        expect(world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER)).toMatchObject({ kind: OrderKind.Attack, targetId: hive });
+        // (a guard of the hive may be fought first: the hive stays the goal)
+        const order = world.getComponent<PlayerOrderComponent>(id, COMPONENT.PLAYER_ORDER);
+        expect(order?.kind).toBe(OrderKind.Attack);
+        expect(order?.targetId === hive || order?.goalId === hive).toBe(true);
         const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
         const d = Math.hypot(pos.x - hivePos.x, pos.y - hivePos.y);
         minDistToHive.set(id, Math.min(minDistToHive.get(id) ?? Infinity, d));

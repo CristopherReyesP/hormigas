@@ -445,3 +445,32 @@ describe('picking the enemy under a right-click', () => {
     expect(findEnemyAt(world, { x: NX + 3.5, y: NY + 12 }, canSee)).toBeNull();
   });
 });
+
+describe('an attack on a base fights its guards first', () => {
+  it('ignores a threat far from the base that is not biting it', () => {
+    const { world, surface, run, orderOf, beetle } = setup();
+    const den = createBeetleDen(world, NX + 20, NY);
+    const soldier = createAnt(world, NX + 4, NY, AntRole.Soldier);
+    issueAttackOrders(world, surface, [soldier], den);
+    beetle(NX + 2, NY + 3, 40); // back home, standing still
+    run(2);
+    expect(orderOf(soldier)).toMatchObject({ kind: OrderKind.Attack, targetId: den });
+  });
+
+  it('turns on a guard that comes close on the way, then goes back to the base', () => {
+    const { world, surface, run, orderOf, combatOf, healthOf, beetle } = setup();
+    const den = createBeetleDen(world, NX + 20, NY);
+    const soldier = createAnt(world, NX + 4, NY, AntRole.Soldier);
+    issueAttackOrders(world, surface, [soldier], den);
+    // A guard by the den, on the soldier's way
+    const guard = beetle(NX + 14, NY + 2, 40);
+    run(15, () => orderOf(soldier)?.targetId === guard);
+    // The guard is the fight now; the den stays the goal
+    expect(orderOf(soldier)).toMatchObject({ kind: OrderKind.Attack, targetId: guard, goalId: den });
+    run(30, () => !world.hasEntity(guard) || healthOf(guard).current <= 0);
+    expect(!world.hasEntity(guard) || healthOf(guard).current <= 0).toBe(true);
+    run(1);
+    expect(orderOf(soldier)).toMatchObject({ kind: OrderKind.Attack, targetId: den });
+    expect(combatOf(soldier)?.targetEntityId === den || combatOf(soldier)?.targetEntityId === null).toBe(true);
+  });
+});

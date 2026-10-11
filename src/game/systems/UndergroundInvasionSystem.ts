@@ -236,6 +236,9 @@ interface PendingInvader {
  * its own size. Raiders still roaming the surface do not block it: the new
  * wave supersedes them.
  */
+/** Tiles within which an invader inside the nest turns to fight an ant instead of pushing on to the queen */
+const INVADER_ENGAGE_RANGE = 4.5;
+
 export class UndergroundInvasionSystem implements System {
   readonly name = 'UndergroundInvasionSystem';
   readonly priority = 8;
@@ -1322,7 +1325,7 @@ export class UndergroundInvasionSystem implements System {
 
       // Fight any ant nearby, otherwise march on the queen
       let target: { id: EntityId; x: number; y: number } | null = null;
-      let bestDist = 3.5;
+      let bestDist = INVADER_ENGAGE_RANGE;
       for (const a of ugAnts) {
         const d = Math.hypot(a.pos.x - pos.x, a.pos.y - pos.y);
         if (d < bestDist) {
@@ -1351,9 +1354,25 @@ export class UndergroundInvasionSystem implements System {
       }
       if (!target) continue;
 
+      const fightingAnt = target.id !== queenId && bestDist < INVADER_ENGAGE_RANGE;
+      const retarget = combat.targetEntityId !== target.id;
       combat.targetEntityId = target.id;
 
-      if (path.waypoints.length === 0 || path.currentIndex >= path.waypoints.length) {
+      if (fightingAnt) {
+        // A defender in the way is fought, not walked past: stop in reach and
+        // trade bites, else close in on it through the tunnels
+        if (bestDist <= combat.attackRange) {
+          path.waypoints = [];
+          path.currentIndex = 0;
+        } else if (retarget || path.waypoints.length === 0 || path.currentIndex >= path.waypoints.length) {
+          const route = this.grid.findPath(pos.x, pos.y, target.x, target.y);
+          path.waypoints = route && route.length > 0 ? route : [{ x: target.x, y: target.y }];
+          path.currentIndex = 0;
+        }
+        continue;
+      }
+
+      if (retarget || path.waypoints.length === 0 || path.currentIndex >= path.waypoints.length) {
         const route = this.grid.findPath(pos.x, pos.y, target.x, target.y);
         if (route && route.length > 0) {
           // Each invader stops at its own spot in the last tile: a pack that shares a route does not pile up as one

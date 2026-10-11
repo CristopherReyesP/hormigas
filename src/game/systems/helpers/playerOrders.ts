@@ -77,6 +77,12 @@ const STRUCTURE_STORES: ReadonlySet<string> = new Set([
   HUMAN_COMPONENT.BUILDING,
 ]);
 
+/** A den, hive, spire or Human building: a base, not a unit that fights back by walking up */
+export function isEnemyStructure(world: World, id: EntityId): boolean {
+  for (const store of STRUCTURE_STORES) if (world.getComponent(id, store) !== undefined) return true;
+  return false;
+}
+
 /**
  * A beetle, cricket, den, or a rival faction's unit or hive on the surface:
  * something the player's attack order may name.
