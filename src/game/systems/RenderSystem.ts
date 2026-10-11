@@ -1635,6 +1635,9 @@ export class RenderSystem {
           id,
           isAttacking
         );
+      } else if (render.shape === 'crystal_drone') {
+        // A Crystal raider that broke into the nest
+        this.drawCrystalDrone(ctx, pos.x, pos.y, id);
       } else if (render.shape === 'food') {
         // Meat dropped by invaders killed inside the nest — same sprite as surface food
         this.drawFood(ctx, pos.x, pos.y, id);
@@ -1800,6 +1803,8 @@ export class RenderSystem {
     }
 
     drawWaveUnits(ctx, this.world, Layer.Underground, this.animationTime, 1, null);
+    this.humanRenderer.drawUnderground(ctx, 1, this.animationTime, (c, px, py, current, max, always, scale, yOffset) =>
+      this.drawHealthBar(c, px, py, current, max, always, scale, yOffset));
     drawWaveFx(ctx, this.world, Layer.Underground, this.animationTime, null);
     const overlay = this.getWaveOverlay?.() ?? null;
     if (overlay) {

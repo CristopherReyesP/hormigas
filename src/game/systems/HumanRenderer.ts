@@ -128,10 +128,19 @@ export class HumanRenderer {
     return frames;
   }
 
-  private drawUnit(ctx: Ctx, id: EntityId, interpolation: number, time: number, healthBar: HealthBarDrawer): void {
-    if (!this.onSurface(id)) return;
+  /** Human troops that broke into the nest (the underground frame has no fog) */
+  drawUnderground(ctx: Ctx, interpolation: number, time: number, healthBar: HealthBarDrawer): void {
+    ctx.imageSmoothingEnabled = false;
+    for (const id of this.world.query(HUMAN_COMPONENT.UNIT, COMPONENT.POSITION)) {
+      if (this.onSurface(id)) continue;
+      this.drawUnit(ctx, id, interpolation, time, healthBar, true);
+    }
+  }
+
+  private drawUnit(ctx: Ctx, id: EntityId, interpolation: number, time: number, healthBar: HealthBarDrawer, below = false): void {
+    if (this.onSurface(id) === below) return;
     const pos = this.posOf(id);
-    if (!isTileVisible(this.fog, Math.round(pos.x), Math.round(pos.y))) return;
+    if (!below && !isTileVisible(this.fog, Math.round(pos.x), Math.round(pos.y))) return;
     const unit = this.world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT)!;
     const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
     const y = pos.prevY + (pos.y - pos.prevY) * interpolation;

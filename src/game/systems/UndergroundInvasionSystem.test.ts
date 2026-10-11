@@ -8,6 +8,8 @@ import {
   INVASION_ARM_LEAD,
   INVASION_BOSS_NIGHT,
   WAVE_WARNING_LEAD,
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
 } from '../../shared/constants';
 import { waveComposition } from '../run/waveComposition';
 import { WAVE_MARCH_COMPONENT } from '../run/waveMarch';
@@ -175,5 +177,25 @@ describe('invaders inside the nest', () => {
     const path = world.getComponent<{ waypoints: Array<{ x: number; y: number }> }>(invader, COMPONENT.PATH)!;
     const end = path.waypoints[path.waypoints.length - 1];
     expect(Math.hypot(end.x - 23, end.y - 30)).toBeLessThan(2);
+  });
+});
+
+describe('rival raiders at the mound', () => {
+  it('go down into the nest after the queen, and far ones stay up', async () => {
+    const { createNest } = await import('../entities/factories');
+    const { createCrystalUnit } = await import('../rival/crystalFactories');
+    const { world, invasion } = setup();
+    const nx = Math.floor(WORLD_WIDTH / 2);
+    const ny = Math.floor(WORLD_HEIGHT / 2);
+    createNest(world, nx, ny);
+    const near = createCrystalUnit(world, 'drone', nx + 2, ny + 1);
+    const far = createCrystalUnit(world, 'drone', nx + 20, ny);
+    const invaders = (invasion as unknown as { invaders: Set<EntityId> }).invaders;
+    invaders.add(near);
+    invaders.add(far);
+    (invasion as unknown as { driveInvaders(): void }).driveInvaders();
+    const layerOf = (id: EntityId) => world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer;
+    expect(layerOf(near)).toBe(Layer.Underground);
+    expect(layerOf(far)).not.toBe(Layer.Underground);
   });
 });

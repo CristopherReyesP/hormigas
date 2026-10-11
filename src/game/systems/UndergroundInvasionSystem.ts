@@ -236,6 +236,8 @@ interface PendingInvader {
  * its own size. Raiders still roaming the surface do not block it: the new
  * wave supersedes them.
  */
+/** Tiles from the mound at which a rival raider goes down into the nest */
+const RAIDER_BREAK_IN_RADIUS = 4.5;
 /** Tiles within which an invader inside the nest turns to fight an ant instead of pushing on to the queen */
 const INVADER_ENGAGE_RANGE = 4.5;
 
@@ -278,6 +280,8 @@ export class UndergroundInvasionSystem implements System {
   private bannerTimer = 0;
   private nextBannerId = 1;
   private raidSource: RaidSource | null = null;
+  /** A raider of this wave already went down into the nest (the alarm was raised) */
+  private raidersInside = false;
   /** Soldiers the player wants permanently stationed underground */
   private garrisonTarget = 0;
   /** Non-soldier ants drafted into total defense while a wave is inside the nest */
@@ -907,6 +911,49 @@ export class UndergroundInvasionSystem implements System {
     }
   }
 
+  /**
+   * The rival's raiders came to win: once one reaches the mound (an entrance
+   * hole or the nest itself) it goes down after the queen, like the beetles.
+   */
+  private raidersBreakIn(): void {
+    const entrances = this.grid.getEntrances();
+    const nest = this.nestCell();
+    const holes = entrances.map((e) => ({ entrance: e, hole: this.holeFor(e) }));
+    for (const id of this.invaders) {
+      if (this.world.getComponent(id, WAVE_MARCH_COMPONENT)) continue; // a beetle column: breakIn() takes it
+      const layer = this.world.getComponent<LayerComponent>(id, COMPONENT.LAYER);
+      const pos = this.world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+      if (!layer || !pos || layer.layer !== Layer.Surface) continue;
+      let entrance: TilePos | null = null;
+      let best = RAIDER_BREAK_IN_RADIUS;
+      for (const h of holes) {
+        const d = Math.hypot(h.hole.x - pos.x, h.hole.y - pos.y);
+        if (d < best) {
+          best = d;
+          entrance = h.entrance;
+        }
+      }
+      if (!entrance && Math.hypot(nest.x - pos.x, nest.y - pos.y) < RAIDER_BREAK_IN_RADIUS) {
+        entrance = this.grid.findNearestEntrance(nest.x + 0.5, nest.y + 0.5) ?? entrances[0] ?? null;
+      }
+      if (!entrance) continue;
+      layer.layer = Layer.Underground;
+      const off = spreadOffset(id);
+      pos.x = pos.prevX = entrance.x + 0.5 + off.x;
+      pos.y = pos.prevY = entrance.y + 0.5 + off.y;
+      this.stopMoving(id);
+      const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
+      if (combat) combat.targetEntityId = null;
+      pushWaveFx(this.world, { kind: 'dig', x: pos.x, y: pos.y, layer: Layer.Underground, radius: 1, life: 0.7 });
+      this.brokeIn++;
+      if (!this.raidersInside) {
+        this.raidersInside = true;
+        this.world.pushNotification('danger', `⚔️ ¡Los rivales entran al nido${this.whereLabel()}! Van por la reina`);
+        this.deploySoldiers(Math.max(this.nestBreakers() + 1, 3));
+      }
+    }
+  }
+
   /** Surface walls by tile (y * width + x) */
   private surfaceWalls(): Map<number, EntityId> {
     const walls = new Map<number, EntityId>();
@@ -1164,6 +1211,7 @@ export class UndergroundInvasionSystem implements System {
     this.marchFactor = marchSpeedFactor(Math.hypot(this.waveOrigin.x - this.waveHole.x, this.waveOrigin.y - this.waveHole.y), BEETLE_STATS.speed);
     this.columnIndex = 0;
     this.brokeIn = 0;
+    this.raidersInside = false;
     this.holeFreeAt.clear();
     this.waveNumber++;
     this.waveActive = true;
@@ -1290,6 +1338,7 @@ export class UndergroundInvasionSystem implements System {
   private driveInvaders(): void {
     if (this.invaders.size === 0) return;
     this.driveMarchers();
+    this.raidersBreakIn();
 
     const queens = this.world.query(COMPONENT.QUEEN_ENTITY, COMPONENT.POSITION);
     const queenId = queens.length > 0 ? queens[0] : null;
