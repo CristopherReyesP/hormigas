@@ -170,8 +170,8 @@ describe('the card on a touch screen', () => {
       'pause', 'speed', 'area-select', null, 'deselect',
     ]);
     expect(ids(touch({}).ctx)[12]).toBe('area-select');
-    // The desktop card is unchanged
-    expect(ids(context({}).ctx)[12]).toBeNull();
+    // The desktop colony card keeps the defender's breed button there
+    expect(ids(context({}).ctx)[12]).toBe('breed-defender');
     expect(ids(context({ selectedGroup: GROUP }).ctx)[1]).toBeNull();
   });
 

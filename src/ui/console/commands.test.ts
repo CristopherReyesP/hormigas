@@ -84,8 +84,8 @@ describe('surface command card', () => {
     expect(ids).toHaveLength(CARD_SLOTS);
     expect(ids).toEqual([
       'gather', 'explore', 'defend', 'retreat', 'descend',
-      'breed-worker', 'breed-soldier', 'breed-scout', 'breed-nurse', 'breed-defender',
-      'pause', 'speed', null, 'defenses-page', 'upgrades',
+      'breed-worker', 'breed-soldier', 'breed-scout', 'breed-nurse', 'breed-bomber',
+      'pause', 'speed', 'breed-defender', 'defenses-page', 'upgrades',
     ]);
   });
 

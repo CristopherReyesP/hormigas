@@ -99,12 +99,14 @@ const BREED_ORDER: ReadonlyArray<{ role: AntRole; icon: IconName }> = [
   { role: AntRole.Scout, icon: 'eye' },
   { role: AntRole.Nurse, icon: 'nurse' },
   { role: AntRole.Defender, icon: 'shield' },
-  // The breed rows of the cards are full: this one sits on the Colonia page
+  // On the surface card's breed row, and on the nest's Colonia page
   { role: AntRole.Bomber, icon: 'bomb' },
 ];
 
-/** The castes bred from the surface and nest cards (the rest from the Colonia page) */
+/** The castes bred from the nest card (the bomber from the Colonia page) */
 const NEST_BREED_ROLES: readonly AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse, AntRole.Defender];
+/** The surface card's breed row */
+const SURFACE_BREED_ROLES: readonly AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse, AntRole.Bomber];
 
 interface BuildToolDef {
   mode: BuildMode;
@@ -687,9 +689,12 @@ function surfaceRoot(ctx: CommandContext): Slot[] {
       altKeys: ctx.touch ? 'tocar el nido seleccionado' : 'clic en el nido seleccionado',
       run: act(ctx, () => ctx.switchLayer('underground')),
     },
-    ...breedCommands(ctx),
+    // The surface breed row: the castes that fight and forage up here. The
+    // defender lives below (the nest card breeds it); a mouse player, with a
+    // free slot, still finds it up here too
+    ...breedCommands(ctx, SURFACE_BREED_ROLES),
     ...timeCommands(ctx),
-    ctx.touch ? areaSelect(ctx) : null,
+    ctx.touch ? areaSelect(ctx) : breedCommands(ctx, [AntRole.Defender])[0],
     defensesButton(ctx),
     upgradesButton(ctx),
   ];
