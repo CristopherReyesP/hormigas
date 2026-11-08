@@ -21,6 +21,9 @@ const X4 = 360; // 4× strip left edge
 const CRICKET = SPRITE_GRID.cricket * ART_PX; // cricket frame size in px (96)
 const QUEEN = SPRITE_GRID.queen * ART_PX; // queen frame size in px (104)
 const STAND_QUEEN_COLS = 1 + FRAMES + 1; // top-down + walk frames 0-3 + swollen
+// The alien tarantula (Phase 2): top-down, walk frames 0-3, then its bite (gape, snap), at 1×
+const TARANTULA = SPRITE_GRID.tarantula * ART_PX; // tarantula frame size in px (176)
+const STAND_TARANTULA_COLS = 1 + FRAMES + 2;
 const LEAPER_POSES = LEAPER_FRAMES.length; // 4 walk frames + crouch + leap
 const CRICKET_BLOCK = CRICKET * 2 + 72; // leaper pose row: 2× strip + labels
 const CRICKET_DIR_BLOCK = CRICKET + 56; // leaper 16-direction row at 1×
@@ -30,6 +33,7 @@ const W = Math.max(
   X1 + DIRECTIONS * (CRICKET + 4),
   X1 + 12 * (CRICKET + 32) + 36,
   X1 + 80 + STAND_QUEEN_COLS * (QUEEN * 2 + 8),
+  X1 + 80 + STAND_TARANTULA_COLS * (TARANTULA + 8),
 ) + 16;
 const HOP_BLOCK = CRICKET + 72; // one hop cycle sampled left to right
 // Caste lineup: every caste side by side on dirt and moss, the way the game
@@ -49,8 +53,9 @@ const STAND_QUEEN_ROW = QUEEN * 2 + 12;
 const SPIDER = SPRITE_GRID.spider * ART_PX; // spider frame size in px (64)
 const STAND_SPIDER_COLS = 1 + FRAMES;
 const STAND_SPIDER_ROW = SPIDER * 2 + 12;
+const STAND_TARANTULA_ROW = TARANTULA + 12;
 const STAND_BLOCK = STAND_ROLES.length * STAND_CASTE_BLOCK + 48 + STANDING_VIEWS.length * STAND_QUEEN_ROW
-  + 48 + STANDING_VIEWS.length * STAND_SPIDER_ROW;
+  + 48 + STANDING_VIEWS.length * STAND_SPIDER_ROW + 48 + STANDING_VIEWS.length * STAND_TARANTULA_ROW;
 const H = ROLES.length * BLOCK_H + CRICKET_BLOCK + CRICKET_DIR_BLOCK + HOP_BLOCK + LINEUP_BLOCK + STAND_BLOCK + 56;
 
 const canvas = document.createElement('canvas');
@@ -248,6 +253,28 @@ for (let ri = 0; ri < ROLES.length; ri++) {
       const heading = VIEW_HEADING[view];
       if (i === 0) atlas.drawFrontierCreature(ctx, 'spider', cx, cy, heading, phaseFor(0));
       else atlas.drawFrontierCreature(ctx, 'spider', cx, cy, heading, phaseFor(i - 1), null, true);
+    }
+    ctx.restore();
+  });
+
+  // The alien tarantula: top-down, frames 0-3, then the bite pose (gape, snap), at 1×
+  const tarantulaTop = spiderTop + 48 + STANDING_VIEWS.length * STAND_SPIDER_ROW;
+  ctx.fillStyle = PAL.white;
+  ctx.font = 'bold 16px monospace';
+  ctx.fillText('STANDING 3/4  ALIEN TARANTULA  (top-down | frames 0-3 | bite gape | bite snap)  |  1x', X1, tarantulaTop);
+  STANDING_VIEWS.forEach((view, vi) => {
+    const cy = tarantulaTop + 32 + vi * STAND_TARANTULA_ROW + STAND_TARANTULA_ROW / 2;
+    ctx.fillStyle = PAL.white;
+    ctx.font = '14px monospace';
+    ctx.fillText(view, X1, cy - 7);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    for (let i = 0; i < STAND_TARANTULA_COLS; i++) {
+      const cx = X1 + 80 + i * (TARANTULA + 8) + TARANTULA / 2;
+      const heading = VIEW_HEADING[view];
+      if (i === 0) atlas.drawFrontierCreature(ctx, 'tarantula', cx, cy, heading, phaseFor(0));
+      else if (i <= FRAMES) atlas.drawFrontierCreature(ctx, 'tarantula', cx, cy, heading, phaseFor(i - 1), null, true);
+      else atlas.drawFrontierCreature(ctx, 'tarantula', cx, cy, heading, phaseFor(0), i - FRAMES - 1, true);
     }
     ctx.restore();
   });

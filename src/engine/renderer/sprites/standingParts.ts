@@ -109,11 +109,13 @@ export function paintLegs(
  * foot on the ground. Per gait step the foot moves `swing` px and the knee
  * half of it (as top-down: knee ±1, foot ±2). Flat segments are two
  * strands thick (`lit` over `dark`), steep ones one `lit` px; the knee is
- * `lit` so the joint reads.
+ * `lit` so the joint reads. A `thick` style paints big hairy legs instead
+ * (see ThickLegStyle).
  * Returns the knees.
  */
 export function paintArchedLegs(
   p: ArtPen, legs: readonly StandingLeg[], frame: number, swing: ArtPoint, lit: string, dark: string,
+  thick: ThickLegStyle | null = null,
 ): ArtPoint[] {
   const step = GAIT[frame % GAIT.length];
   const knees: ArtPoint[] = [];
@@ -121,6 +123,11 @@ export function paintArchedLegs(
     const s = leg.groupA ? step : -step;
     const knee: ArtPoint = [leg.knee[0] + Math.trunc(swing[0] * s / 2), leg.knee[1] + Math.trunc(swing[1] * s / 2)];
     const foot: ArtPoint = [leg.foot[0] + swing[0] * s, leg.foot[1] + swing[1] * s];
+    knees.push(knee);
+    if (thick) {
+      paintThickLeg(p, leg.hip, knee, foot, lit, dark, thick);
+      continue;
+    }
     for (const [a, b] of [[leg.hip, knee], [knee, foot]] as const) {
       // The shadow strand sits under a flat segment only: steep shins stay one
       // px thin, so the legs of a side never merge into a comb
@@ -128,9 +135,37 @@ export function paintArchedLegs(
     }
     p.polyline([leg.hip, knee, foot], lit);
     p.px(knee[0], knee[1], lit);
-    knees.push(knee);
   }
   return knees;
+}
+
+/**
+ * Thick arched legs (the 88-px tarantula): parallel strands across each
+ * segment, `width` px either side of the centre line on the femur and one
+ * fewer on the shin, `core` down the middle, `lit` beside it and `dark` on
+ * the edges, as top-down. Strands stack across a flat segment and side by
+ * side along a steep one; a `lit` knob covers the joint.
+ */
+export interface ThickLegStyle {
+  width: number;
+  core: string;
+  /** Called with each segment (hip → knee, knee → foot) once painted, for hairs. */
+  segment?: (a: ArtPoint, b: ArtPoint, halfWidth: number) => void;
+}
+
+function paintThickLeg(p: ArtPen, hip: ArtPoint, knee: ArtPoint, foot: ArtPoint, lit: string, dark: string, style: ThickLegStyle): void {
+  const segments = [[hip, knee, style.width], [knee, foot, Math.max(0, style.width - 1)]] as const;
+  for (const [a, b, w] of segments) {
+    const flat = Math.abs(b[1] - a[1]) <= Math.abs(b[0] - a[0]);
+    for (let off = -w; off <= w; off++) {
+      const color = off === 0 ? style.core : Math.abs(off) === 1 ? lit : dark;
+      const [dx, dy] = flat ? [0, off] : [off, 0];
+      p.line(a[0] + dx, a[1] + dy, b[0] + dx, b[1] + dy, color);
+    }
+  }
+  p.disc(knee[0], knee[1], style.width - 0.5, lit);
+  p.px(knee[0], knee[1], style.core);
+  for (const [a, b, w] of segments) style.segment?.(a, b, w);
 }
 
 /** An antenna's points on `frame` (the tip flicks on odd frames). */

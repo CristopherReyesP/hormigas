@@ -1,6 +1,6 @@
 // SpriteAtlas draws the weaver spider's 3/4 standing sheet only when asked for
-// a standing draw; every flat draw, and every other Phase 2 creature (the
-// tarantula included), keeps its top-down sheet.
+// a standing draw; every flat draw, and every other Phase 2 creature but the
+// tarantula (standingTarantulaAtlas.test.ts), keeps its top-down sheet.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SpriteAtlas, hasStandingFrontierView, type FrontierSpriteKind } from './SpriteAtlas';
 import { DIRECTIONS } from './pixelart/directions';
@@ -48,12 +48,12 @@ const phase = (frame: number) => ((frame + 0.5) * Math.PI * 2) / WALK_FRAMES;
 const MAP_HEADINGS = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
 const OTHERS: Array<[FrontierSpriteKind, number]> = [
   ['legionary', SPRITE_GRID.legionary], ['legion_queen', SPRITE_GRID.legionQueen], ['mantis', SPRITE_GRID.mantis],
-  ['tarantula', SPRITE_GRID.tarantula], ['centipede', SPRITE_GRID.centipede], ['spore_jelly', SPRITE_GRID.sporeJelly],
+  ['centipede', SPRITE_GRID.centipede], ['spore_jelly', SPRITE_GRID.sporeJelly],
   ['acid_spitter', SPRITE_GRID.acidSpitter],
 ];
 
 describe('SpriteAtlas standing weaver spider', () => {
-  it('only the weaver spider has standing views among the Phase 2 creatures', () => {
+  it('the weaver spider has standing views; the Phase 2 creatures without any keep none', () => {
     expect(hasStandingFrontierView('spider')).toBe(true);
     for (const [kind] of OTHERS) expect(hasStandingFrontierView(kind), kind).toBe(false);
   });

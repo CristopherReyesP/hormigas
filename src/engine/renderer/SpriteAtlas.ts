@@ -11,6 +11,7 @@ import { NO_MARKS, antSheetKey, type AntMarks } from './sprites/antMarks';
 import { STANDING_VIEWS, hasStandingView, paintStandingAnt, paintStandingQueen, standingView, type StandingView } from './sprites/standingAntSprites';
 import { paintLegionNest, paintLegionQueen, paintLegionary, paintMantis, paintSpider, paintSpiderLair, paintTarantula, paintCentipede, paintSporeJelly, paintAcidSpitter } from './sprites/frontierSprites';
 import { paintStandingSpider } from './sprites/standingSpiderSprite';
+import { paintStandingTarantula } from './sprites/standingTarantulaSprite';
 
 /** Phase 2's creatures beyond the wall, by sprite */
 export type FrontierSpriteKind = 'legionary' | 'legion_queen' | 'spider' | 'mantis' | 'tarantula'
@@ -18,9 +19,17 @@ export type FrontierSpriteKind = 'legionary' | 'legion_queen' | 'spider' | 'mant
 /** Phase 2's dens */
 export type FrontierDenSpriteKind = 'legion_nest' | 'spider_lair';
 
-/** Phase 2 creatures with standing (3/4) views, by sprite: grid size and the view painter. */
-const STANDING_FRONTIER: Partial<Record<FrontierSpriteKind, { grid: number; paint: (spec: { view: StandingView; frame: number }) => ArtGrid }>> = {
-  spider: { grid: SPRITE_GRID.spider, paint: paintStandingSpider },
+/**
+ * Phase 2 creatures with standing (3/4) views, by sprite: grid size, the view
+ * painter, and whether it paints a standing bite pose (baked as row 1).
+ */
+const STANDING_FRONTIER: Partial<Record<FrontierSpriteKind, {
+  grid: number;
+  paint: (spec: { view: StandingView; frame: number; bite?: boolean }) => ArtGrid;
+  bite: boolean;
+}>> = {
+  spider: { grid: SPRITE_GRID.spider, paint: paintStandingSpider, bite: false },
+  tarantula: { grid: SPRITE_GRID.tarantula, paint: paintStandingTarantula, bite: true },
 };
 
 /** Whether a Phase 2 creature stands in 3/4 view under a tilted camera (the others stand up their top-down sprite). */
@@ -421,8 +430,9 @@ export class SpriteAtlas {
    * A Phase 2 creature, facing `angle`; `biteFrame` (0 or 1) draws its bite
    * pose instead of the walk. `standing` (a tilted camera on the surface)
    * draws the 3/4 view `angle`, as the screen heading, picks, for creatures
-   * that have one (hasStandingFrontierView); they have no standing bite
-   * pose, so biting replays walk frames 0-1 like the top-down bite row.
+   * that have one (hasStandingFrontierView). The tarantula stands in its bite
+   * pose too; the others have none, so biting replays walk frames 0-1 like
+   * the top-down bite row.
    */
   drawFrontierCreature(
     ctx: CanvasRenderingContext2D, kind: FrontierSpriteKind, worldX: number, worldY: number, angle: number, legPhase: number,
@@ -432,12 +442,14 @@ export class SpriteAtlas {
     if (upright) {
       let standingSheet = this.standingFrontierSheets.get(kind);
       if (!standingSheet) {
-        standingSheet = new DirectionalSheet(upright.grid, WALK_FRAMES, 1, (_row, frame, view) =>
-          upright.paint({ view: STANDING_VIEWS[view], frame }), STANDING_VIEWS.length);
+        // Row 0 walks; row 1 is the bite pose, for creatures that stand in one
+        standingSheet = new DirectionalSheet(upright.grid, WALK_FRAMES, upright.bite ? 2 : 1, (row, frame, view) =>
+          upright.paint({ view: STANDING_VIEWS[view], frame, bite: row === 1 }), STANDING_VIEWS.length);
         this.standingFrontierSheets.set(kind, standingSheet);
       }
       const view = STANDING_VIEWS.indexOf(standingView(snapAngle(angle)));
-      standingSheet.drawFacing(ctx, worldX, worldY, view, biteFrame !== null ? biteFrame % 2 : walkFrame(legPhase));
+      if (biteFrame !== null) standingSheet.drawFacing(ctx, worldX, worldY, view, biteFrame % 2, upright.bite ? 1 : 0);
+      else standingSheet.drawFacing(ctx, worldX, worldY, view, walkFrame(legPhase));
       return;
     }
     let sheet = this.frontierSheets.get(kind);
