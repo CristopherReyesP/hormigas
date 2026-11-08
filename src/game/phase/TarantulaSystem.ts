@@ -32,7 +32,9 @@ export interface HuntClock {
 /**
  * The alien tarantula: it wants nothing but ants. It ignores food and dens,
  * senses the colony's ants from far off, stalks the nearest one and, once
- * close, pounces at triple speed. Every kill heals it (it feeds).
+ * close, pounces at triple speed. Every kill heals it a little (it feeds):
+ * barely in Phase 1, so an early colony can wear it down, a bit more in Phase 2,
+ * and never more than `maxFeedHeal` of its max health over its whole life.
  * - Phase 1: the first one comes on day TARANTULA.firstDay, then up to
  *   `phase1Max` roam at once, a new one every `spawnEvery` s.
  * - Phase 2 (`setPhase2`): up to `phase2Max`, coming faster.
@@ -53,8 +55,12 @@ export const TARANTULA = {
   pounceSeconds: 0.7,
   pounceSpeedMult: 3,
   pounceCooldown: 6,
-  /** Share of its max health a kill gives back */
-  feedHeal: 0.2,
+  /** Share of its max health a kill gives back in Phase 1 */
+  feedHeal: 0.01,
+  /** Share of its max health a kill gives back in Phase 2 */
+  phase2FeedHeal: 0.05,
+  /** Most of its max health it may ever regain from kills, however many ants it eats */
+  maxFeedHeal: 0.25,
   /** Seconds between two re-aims of its route */
   repath: 1,
 } as const;
@@ -157,7 +163,15 @@ export class TarantulaSystem implements System {
     if (last !== undefined && !this.world.hasEntity(last)) {
       this.prey.delete(id);
       const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-      if (health) health.current = Math.min(health.max, health.current + health.max * TARANTULA.feedHeal);
+      const share = this.phase2 ? TARANTULA.phase2FeedHeal : TARANTULA.feedHeal;
+      if (health && health.max > 0) {
+        const room = Math.max(0, TARANTULA.maxFeedHeal - (me.fed ?? 0));
+        const gained = Math.min(health.max - health.current, health.max * Math.min(share, room));
+        if (gained > 0) {
+          health.current += gained;
+          me.fed = (me.fed ?? 0) + gained / health.max;
+        }
+      }
     }
 
     // The pounce: a short burst at triple speed

@@ -37,6 +37,8 @@ export interface FrontierCreatureComponent {
   abilityTimer: number;
   /** The tarantula: seconds left in its pounce (it lunges at triple speed) */
   pounce?: number;
+  /** The tarantula: share of its max health it has regained from kills so far */
+  fed?: number;
 }
 
 export interface FrontierDenComponent {

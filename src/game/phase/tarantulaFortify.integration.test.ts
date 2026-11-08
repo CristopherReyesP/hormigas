@@ -74,6 +74,46 @@ describe('the alien tarantula', () => {
     game.stop();
   });
 
+  it('heals 1% of its max health per kill in Phase 1 and 5% in Phase 2', () => {
+    const feedAfterKill = (phase2: boolean) => {
+      const { game, world, tarantulas, tickFor } = setup();
+      if (phase2) tarantulas.setPhase2();
+      const id = tarantulas.spawn()!;
+      for (const other of world.query(COMPONENT.ANT)) world.destroyEntity(other);
+      const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+      const prey = createAnt(world, pos.x + 50, pos.y + 50, AntRole.Worker);
+      const health = world.getComponent<HealthComponent>(id, COMPONENT.HEALTH)!;
+      health.current = health.max / 2;
+      (tarantulas['prey'] as Map<number, number>).set(id, prey);
+      world.destroyEntity(prey);
+      tickFor(TICK);
+      const ratio = health.current / health.max;
+      game.stop();
+      return ratio;
+    };
+    expect(feedAfterKill(false)).toBeCloseTo(0.51);
+    expect(feedAfterKill(true)).toBeCloseTo(0.55);
+  });
+
+  it('never heals more than 25% of its max health from kills over its whole life', () => {
+    const { game, world, tarantulas, tickFor } = setup();
+    tarantulas.setPhase2();
+    const id = tarantulas.spawn()!;
+    for (const other of world.query(COMPONENT.ANT)) world.destroyEntity(other);
+    const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+    const health = world.getComponent<HealthComponent>(id, COMPONENT.HEALTH)!;
+    health.current = health.max * 0.1;
+    // Ten kills at 5% each would give back 50%
+    for (let kill = 0; kill < 10; kill++) {
+      const prey = createAnt(world, pos.x + 50, pos.y + 50, AntRole.Worker);
+      (tarantulas['prey'] as Map<number, number>).set(id, prey);
+      world.destroyEntity(prey);
+      tickFor(TICK);
+    }
+    expect(health.current / health.max).toBeCloseTo(0.35);
+    game.stop();
+  });
+
   it('comes more often and in numbers in Phase 2', () => {
     const { game, tarantulas } = setup();
     tarantulas.setPhase2();
