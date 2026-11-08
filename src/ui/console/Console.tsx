@@ -13,7 +13,7 @@ import { useHudLayout } from '../layout/useHudLayout';
 import { TouchCommandBar } from './TouchCommandBar';
 import { touchHint } from './touchHint';
 import { TouchFeedback, type CasteBurst, type OrderToast } from './TouchFeedback';
-import { CoachMarks } from './CoachMarks';
+import { CoachMarks } from './CoachMarks.tsx';
 import { HAPTIC_PATTERN, feedbackText, hapticFor, vibrate } from './feedbackText';
 import { humanHint, humanIdleHint } from '../races/human/humanCommands';
 import { DigMeter } from './DigMeter';

@@ -14,7 +14,7 @@ import { WaveAlert } from './ui/WaveAlert';
 import { NestAlert } from './ui/NestAlert';
 import { showLiveAlerts } from './ui/liveAlerts';
 import { NextWaveCard } from './ui/NextWaveCard';
-import { AlertStack } from './ui/AlertStack';
+import { AlertStack } from './ui/AlertStack.tsx';
 import { PantryFullNote } from './ui/console/PantryFullNote';
 import type { GameManager, GameStats } from './game/GameManager';
 import type { MutationId } from './game/run/MutationDefinitions';
