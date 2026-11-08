@@ -22,11 +22,11 @@ export type VfxCanvas = Pick<CanvasRenderingContext2D, 'fillStyle' | 'fillRect' 
 export type VfxPass = 'ground' | 'air';
 
 let ink = '';
-// The camera transform of the current draw call (scale + translate only).
-// Art pixels are snapped to whole device pixels with it: the camera's
-// 0.85 perspective squash would otherwise leave hairline seams between rows.
+// Camera matrix, including quarter turns; snap art blocks to device pixels.
 let scaleX = 1;
 let scaleY = 1;
+let crossX = 0;
+let crossY = 0;
 let offsetX = 0;
 let offsetY = 0;
 
@@ -39,13 +39,13 @@ function setInk(ctx: VfxCanvas, color: string): void {
 
 /** One art pixel at art-grid (gx, gy), as a whole-device-pixel block */
 function px(ctx: VfxCanvas, gx: number, gy: number, color: string): void {
-  const x0 = Math.round(gx * ART_PX * scaleX + offsetX);
-  const y0 = Math.round(gy * ART_PX * scaleY + offsetY);
-  const x1 = Math.round((gx + 1) * ART_PX * scaleX + offsetX);
-  const y1 = Math.round((gy + 1) * ART_PX * scaleY + offsetY);
+  const x0 = Math.round(gx * ART_PX * scaleX + gy * ART_PX * crossX + offsetX);
+  const y0 = Math.round(gx * ART_PX * crossY + gy * ART_PX * scaleY + offsetY);
+  const x1 = Math.round((gx + 1) * ART_PX * scaleX + (gy + 1) * ART_PX * crossX + offsetX);
+  const y1 = Math.round((gx + 1) * ART_PX * crossY + (gy + 1) * ART_PX * scaleY + offsetY);
   if (x1 === x0 || y1 === y0) return;
   setInk(ctx, color);
-  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  ctx.fillRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0));
 }
 
 /**
@@ -79,6 +79,8 @@ export function drawCombatVfx(
   const camera = ctx.getTransform();
   scaleX = camera.a;
   scaleY = camera.d;
+  crossX = camera.c;
+  crossY = camera.b;
   offsetX = camera.e;
   offsetY = camera.f;
   ctx.setTransform(1, 0, 0, 1, 0, 0);

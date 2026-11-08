@@ -16,7 +16,7 @@ const GAIT = [1, 0, -1, 0];
 const AXIS = Math.floor(SPRITE_GRID.ant / 2);
 
 /** One mandible stroke (upper half, mirrored): a polyline in one flesh tone. */
-interface JawStroke {
+export interface JawStroke {
   points: readonly ArtPoint[];
   tone: number;
 }
@@ -27,7 +27,7 @@ interface JawStroke {
  * plus tone shifts inside the one flesh ramp, never by a foreign accent color.
  * Every point stays within 11 art px of the pivot so no direction clips it.
  */
-interface SwarmCaste {
+export interface SwarmCaste {
   gx: number; grx: number; gry: number;      // gaster centre x + radii
   skin: 'flesh' | 'pale' | 'plated';         // gaster finish
   petiole: readonly number[];                // waist pixels on the axis
@@ -112,6 +112,11 @@ const SWARM_CASTES: Record<AntRole, SwarmCaste> = {
     eye: [17, 10], mouth: 20,
   },
 };
+
+/** A caste's top-down anatomy (read-only): the standing 3/4 views are derived from it. */
+export function swarmCaste(role: AntRole): Readonly<SwarmCaste> {
+  return SWARM_CASTES[role];
+}
 
 export interface AntSpriteSpec {
   role: AntRole;

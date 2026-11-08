@@ -48,7 +48,9 @@ Random events shake things up: rain, drought, disease, raids, leaf fall, resourc
 | `Space` | Pause |
 | `+` / `-` (or the speed button, `X`) | Game speed (×1, ×2, ×3) |
 | `1`–`9` | Recall a control group (`Ctrl` + digit binds, `Shift` + digit adds) |
-| `R` / `Home` | Reset the surface camera |
+| `,` / `.` | Rotate the view 90° counter-clockwise / clockwise |
+| `ArrowDown` / `ArrowUp` | Lower / raise the surface camera tilt (three levels; underground stays top-down) |
+| `R` / `Home` | Reset the active camera, rotation, and tilt |
 | `M` | Toggle the underground minimap |
 
 ## Architecture

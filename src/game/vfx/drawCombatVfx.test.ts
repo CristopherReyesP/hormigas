@@ -154,3 +154,20 @@ describe('drawCombatVfx — pixel art', () => {
     expect(fading.rects.length).toBeGreaterThan(0);
   });
 });
+
+it.each([[0, 1, -1, 0], [-1, 0, 0, -1], [0, -1, 1, 0]])('projects crisp VFX pixels through rotation %j', (a, b, c, d) => {
+  const vfx = new CombatVfx();
+  vfx.death(6, 6, Layer.Surface, 'beetle', 0);
+  const base = recorder();
+  drawCombatVfx(base, vfx, 'ground', Layer.Surface, CLEAR);
+  const rotated = recorder();
+  rotated.getTransform = () => ({ a, b, c, d, e: 500, f: 300 }) as DOMMatrix;
+  drawCombatVfx(rotated, vfx, 'ground', Layer.Surface, CLEAR);
+  expect(rotated.rects).toEqual(base.rects.map(([x, y, w, h]) => {
+    const x0 = a * x + c * y + 500;
+    const y0 = b * x + d * y + 300;
+    const x1 = a * (x + w) + c * (y + h) + 500;
+    const y1 = b * (x + w) + d * (y + h) + 300;
+    return [Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)];
+  }));
+});

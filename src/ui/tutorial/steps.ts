@@ -320,6 +320,9 @@ export const HELP_CONTROLS: Record<Device, ReadonlyArray<{ what: string; how: st
   mouse: [
     { what: 'Mover la cámara', how: 'Arrastra con el botón derecho o la rueda' },
     { what: 'Acercar o alejar', how: 'Gira la rueda' },
+    { what: 'Girar la vista', how: 'Coma (,) gira 90° a la izquierda; punto (.) a la derecha' },
+    { what: 'Inclinar la cámara', how: 'En superficie: flecha abajo baja la cámara; flecha arriba vuelve a la vista cenital' },
+    { what: 'Restablecer la cámara', how: 'R o Inicio restablece el zoom, el giro y la inclinación' },
     { what: 'Elegir una hormiga', how: 'Clic izquierdo' },
     { what: 'Elegir varias', how: 'Arrastra un recuadro con el botón izquierdo; Ctrl+clic elige a todas las de su tipo' },
     { what: 'Mover o atacar', how: 'Clic derecho en el suelo o en un enemigo' },

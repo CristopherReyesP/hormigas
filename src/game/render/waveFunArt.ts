@@ -1,3 +1,4 @@
+import { beginBillboard, beginUprightOverlay, type BillboardCamera } from '../../engine/renderer/uprightOverlay';
 // World-space art for the night-wave extras: nest defenses (Espina, Trampa
 // de resina, Muro de quitina), elite outlines and affix icons, mini-boss
 // crowns, the wave effects (heal pulses, blasts and their telegraphs, boss
@@ -72,11 +73,13 @@ function where(world: World, id: EntityId, interpolation: number): { x: number; 
 
 function healthBar(ctx: CanvasRenderingContext2D, cx: number, top: number, width: number, health: HealthComponent): void {
   if (health.current >= health.max) return;
+  beginUprightOverlay(ctx, cx, top);
   const ratio = Math.max(0, health.current / Math.max(1, health.max));
   ctx.fillStyle = '#000';
   ctx.fillRect(Math.round(cx - width / 2) - 1, Math.round(top) - 1, width + 2, 4);
   ctx.fillStyle = ratio > 0.5 ? PAL.healthGreen : ratio > 0.25 ? PAL.healthYellow : PAL.dangerRed;
   ctx.fillRect(Math.round(cx - width / 2), Math.round(top), Math.round(width * ratio), 2);
+  ctx.restore();
 }
 
 // ── Defenses ────────────────────────────────────────────────
@@ -225,7 +228,10 @@ export function drawWaveUnits(
   time: number,
   interpolation: number,
   visible: Visible | null,
+  camera: BillboardCamera | null = null,
 ): void {
+  // Under a tilted camera, badges and crowns ride over the standing (lifted, un-squashed) body
+  const tilted = camera !== null && camera.getTilt() > 0;
   for (const id of world.query(ELITE_COMPONENT)) {
     if (layerOf(world, id) !== layer) continue;
     const at = where(world, id, interpolation);
@@ -251,6 +257,8 @@ export function drawWaveUnits(
     ctx.stroke();
     // The affix badge over the head
     const by = cy - headRoom(world, id, r) - 9;
+    if (tilted) beginBillboard(ctx, camera, cx, cy, { height: r * 2 });
+    else beginUprightOverlay(ctx, cx, by);
     ctx.fillStyle = 'rgba(14, 8, 11, 0.85)';
     ctx.fillRect(Math.round(cx - 6), Math.round(by - 6), 12, 12);
     ctx.strokeStyle = color;
@@ -261,6 +269,7 @@ export function drawWaveUnits(
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(info.icon, cx, by + 0.5);
+    ctx.restore();
   }
   for (const id of world.query(BOSS_COMPONENT)) {
     if (layerOf(world, id) !== layer) continue;
@@ -289,6 +298,7 @@ export function drawWaveUnits(
     ctx.stroke();
     ctx.setLineDash([]);
     // The crown
+    if (tilted) beginBillboard(ctx, camera, cx, cy, { height: r * 2 });
     const top = cy - headRoom(world, id, r) - 14;
     ctx.fillStyle = PAL.crystal.gold[1];
     ctx.strokeStyle = '#000';
@@ -308,12 +318,15 @@ export function drawWaveUnits(
     ctx.fillRect(Math.round(cx) - 1, top + 3, 2, 2);
     const health = world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
     if (health) {
+      beginUprightOverlay(ctx, cx, top);
       const ratio = Math.max(0, health.current / Math.max(1, health.max));
       ctx.fillStyle = '#000';
       ctx.fillRect(Math.round(cx - r) - 1, top + 9, Math.round(r * 2) + 2, 4);
       ctx.fillStyle = PAL.dangerRed;
       ctx.fillRect(Math.round(cx - r), top + 10, Math.round(r * 2 * ratio), 2);
+      ctx.restore();
     }
+    if (tilted) ctx.restore();
   }
 }
 
@@ -502,6 +515,7 @@ export function drawGhost(ctx: CanvasRenderingContext2D, overlay: WaveOverlay, t
     ctx.fillStyle = withAlpha(color, 0.06);
     ctx.fill();
   }
+  beginUprightOverlay(ctx, cx, cy);
   // The cost tag (and why not, when it cannot go there)
   ctx.font = 'bold 8px system-ui, sans-serif';
   ctx.textAlign = 'center';
@@ -519,6 +533,7 @@ export function drawGhost(ctx: CanvasRenderingContext2D, overlay: WaveOverlay, t
     ctx.fillStyle = '#ffb0a0';
     ctx.fillText(g.reason, cx, cy + T * 0.75 + 18);
   }
+  ctx.restore();
 }
 
 /** A dashed amber trail from `home` toward `origin`, its arrow head pointing home: they come this way */

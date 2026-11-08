@@ -11,6 +11,7 @@ import { PAL } from '../../engine/renderer/pixelart/palette';
 import { UNIT_ART_PX, drawUnitFrame } from '../../engine/renderer/crystalUnits';
 import { HUMAN_FRAME_MS, bakeHumanUnit, type HumanUnitKind } from '../../engine/renderer/humanUnits';
 import { isTileVisible, type VisibilityReader } from '../../engine/renderer/fogVisibility';
+import { StandingSprites } from '../../engine/renderer/standingSprites';
 import {
   COMPONENT,
   Layer,
@@ -40,6 +41,9 @@ interface Frames {
 /** World px a muzzle sits above a unit's feet */
 const MUZZLE_LIFT = TILE_SIZE * 0.55;
 
+/** Never begun, so it always draws at once, top-down (the underground, or no camera) */
+const FLAT = new StandingSprites();
+
 /**
  * Walk frame for a unit at render time `time` (s). The render clock can be
  * negative or not yet set while the intro hands over, so wrap into range.
@@ -59,8 +63,11 @@ export class HumanRenderer {
     this.fog = fog;
   }
 
-  /** `hide`: entities to leave out this frame (a Human player's base while their opening raises it). */
-  draw(ctx: Ctx, interpolation: number, time: number, healthBar: HealthBarDrawer, hide?: (id: EntityId) => boolean): void {
+  /**
+   * `hide`: entities to leave out this frame (a Human player's base while their opening raises it).
+   * `standing`: RenderSystem's pass; under a tilted camera it stands and sorts buildings and troops.
+   */
+  draw(ctx: Ctx, interpolation: number, time: number, healthBar: HealthBarDrawer, hide?: (id: EntityId) => boolean, standing: StandingSprites = FLAT): void {
     let buildings = this.world.query(HUMAN_COMPONENT.BUILDING, COMPONENT.POSITION);
     let units = this.world.query(HUMAN_COMPONENT.UNIT, COMPONENT.POSITION);
     if (hide) {
@@ -72,9 +79,9 @@ export class HumanRenderer {
 
     // Back to front, so a building lower on the map overlaps the one behind it
     const sorted = [...buildings].sort((a, b) => this.posOf(a).y - this.posOf(b).y || a - b);
-    for (const id of sorted) this.drawBuilding(ctx, id, time, healthBar);
-    for (const id of units) this.drawUnit(ctx, id, interpolation, time, healthBar);
-    this.drawShots(ctx);
+    for (const id of sorted) this.drawBuilding(ctx, id, time, healthBar, standing);
+    for (const id of units) this.drawUnit(ctx, id, interpolation, time, healthBar, false, standing);
+    standing.after(() => this.drawShots(ctx));
   }
 
   private posOf(id: EntityId): PositionComponent {
@@ -86,7 +93,7 @@ export class HumanRenderer {
     return !layer || layer.layer === Layer.Surface;
   }
 
-  private drawBuilding(ctx: Ctx, id: EntityId, time: number, healthBar: HealthBarDrawer): void {
+  private drawBuilding(ctx: Ctx, id: EntityId, time: number, healthBar: HealthBarDrawer, standing: StandingSprites): void {
     if (!this.onSurface(id)) return;
     const pos = this.posOf(id);
     if (!this.fog.isExplored(Math.round(pos.x), Math.round(pos.y))) return;
@@ -94,15 +101,29 @@ export class HumanRenderer {
     const stats = HUMAN_BUILDING_STATS[building.kind];
     const px = pos.x * TILE_SIZE + TILE_SIZE / 2;
     const ground = pos.y * TILE_SIZE + TILE_SIZE / 2 + stats.halfWidth * TILE_SIZE * 0.5;
+    standing.shadow(ctx, px, ground, stats.halfWidth * TILE_SIZE);
+    standing.add(px, ground, () => this.paintBuilding(ctx, id, building, px, ground, time, healthBar, standing));
+  }
+
+  /** The building's floors, standing on `ground`, and its health bar */
+  private paintBuilding(
+    ctx: Ctx, id: EntityId, building: HumanBuildingComponent, px: number, ground: number, time: number, healthBar: HealthBarDrawer, standing: StandingSprites,
+  ): void {
+    const pos = this.posOf(id);
+    const stats = HUMAN_BUILDING_STATS[building.kind];
     const progress = building.constructing > 0 ? 1 - building.constructing / Math.max(1, stats.buildTime) : 1;
     const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
     const target = combat?.targetEntityId != null ? this.world.getComponent<PositionComponent>(combat.targetEntityId, COMPONENT.POSITION) : null;
-    drawHumanBuilding(ctx, building.kind, px, ground, UNIT_ART_PX, { progress, time, faceLeft: target ? target.x < pos.x : true });
+    // Tilted, the building stands screen-upright, so it faces its target's side of the screen
+    const heading = standing.billboard(ctx, px, ground, { heading: target ? Math.atan2(target.y - pos.y, target.x - pos.x) : Math.PI });
+    const faceLeft = standing.isTilted() ? Math.cos(heading) < 0 : target ? target.x < pos.x : true;
+    drawHumanBuilding(ctx, building.kind, px, ground, UNIT_ART_PX, { progress, time, faceLeft });
     const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
     if (health) {
       const art = humanBuildingArtSize(building.kind);
       healthBar(ctx, px, ground, health.current, health.max, true, building.kind === 'command_center' ? 2 : 1, -art.height * UNIT_ART_PX - 10);
     }
+    ctx.restore();
   }
 
   private framesOf(kind: HumanUnitKind): Frames {
@@ -137,26 +158,37 @@ export class HumanRenderer {
     }
   }
 
-  private drawUnit(ctx: Ctx, id: EntityId, interpolation: number, time: number, healthBar: HealthBarDrawer, below = false): void {
+  private drawUnit(ctx: Ctx, id: EntityId, interpolation: number, time: number, healthBar: HealthBarDrawer, below = false, standing: StandingSprites = FLAT): void {
     if (this.onSurface(id) === below) return;
     const pos = this.posOf(id);
     if (!below && !isTileVisible(this.fog, Math.round(pos.x), Math.round(pos.y))) return;
-    const unit = this.world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT)!;
     const x = pos.prevX + (pos.x - pos.prevX) * interpolation;
     const y = pos.prevY + (pos.y - pos.prevY) * interpolation;
     const px = x * TILE_SIZE + TILE_SIZE / 2;
     const py = y * TILE_SIZE + TILE_SIZE / 2;
+    standing.shadow(ctx, px, py + TILE_SIZE * 0.3, TILE_SIZE * 0.35);
+    standing.add(px, py, () => this.paintUnit(ctx, id, pos, px, py, time, healthBar, standing));
+  }
 
-    // Face the enemy it shoots at, else the way it walks
+  /** The trooper's frame, feet near (px, py), and its health bar */
+  private paintUnit(
+    ctx: Ctx, id: EntityId, pos: PositionComponent, px: number, py: number, time: number, healthBar: HealthBarDrawer, standing: StandingSprites,
+  ): void {
+    const unit = this.world.getComponent<HumanUnitComponent>(id, HUMAN_COMPONENT.UNIT)!;
+    // Face the enemy it shoots at, else the way it walks; tilted, the side of the screen it heads to
     const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
     const target = combat?.targetEntityId != null ? this.world.getComponent<PositionComponent>(combat.targetEntityId, COMPONENT.POSITION) : null;
     const facing = this.world.getComponent<FacingComponent>(id, COMPONENT.FACING);
-    const left = target ? target.x < pos.x : Math.cos(facing?.angle ?? 0) < 0;
+    const heading = standing.billboard(ctx, px, py, { heading: target ? Math.atan2(target.y - pos.y, target.x - pos.x) : facing?.angle ?? 0 });
+    const left = standing.isTilted() ? Math.cos(heading) < 0 : target ? target.x < pos.x : Math.cos(facing?.angle ?? 0) < 0;
 
     const kind: HumanUnitKind = unit.type === 'builder' ? 'soldier' : unit.type;
     const set = this.framesOf(kind);
     const frames = left ? set.left : set.right;
-    if (frames.length === 0) return;
+    if (frames.length === 0) {
+      ctx.restore();
+      return;
+    }
     const frame = frames[humanFrameIndex(time, id, frames.length)];
     const scale = unit.type === 'builder' ? 0.75 : 1;
     const w = Math.round(frame.width * scale);
@@ -175,6 +207,7 @@ export class HumanRenderer {
     }
     const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
     if (health) healthBar(ctx, px, py, health.current, health.max, false, 1, -h + TILE_SIZE * 0.1);
+    ctx.restore();
   }
 
   private visible(x: number, y: number): boolean {

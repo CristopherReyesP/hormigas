@@ -8,6 +8,7 @@ import { ART_PX, SPRITE_GRID } from '../engine/renderer/sprites/spriteScale';
 import { DIRECTIONS } from '../engine/renderer/pixelart/directions';
 import { LEAPER_FRAMES } from '../engine/renderer/sprites/wildlifeSprites';
 import { LEAP, LEAP_CYCLE, leapFrame } from '../game/render/leapMotion';
+import { STANDING_VIEWS } from '../engine/renderer/sprites/standingAntSprites';
 
 const ROLES: AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.Scout, AntRole.Nurse, AntRole.Defender];
 const FRAMES = 4;
@@ -18,6 +19,8 @@ const BLOCK_H = 240; // vertical space per role row
 const X1 = 16; // 1× strip left edge
 const X4 = 360; // 4× strip left edge
 const CRICKET = SPRITE_GRID.cricket * ART_PX; // cricket frame size in px (96)
+const QUEEN = SPRITE_GRID.queen * ART_PX; // queen frame size in px (104)
+const STAND_QUEEN_COLS = 1 + FRAMES + 1; // top-down + walk frames 0-3 + swollen
 const LEAPER_POSES = LEAPER_FRAMES.length; // 4 walk frames + crouch + leap
 const CRICKET_BLOCK = CRICKET * 2 + 72; // leaper pose row: 2× strip + labels
 const CRICKET_DIR_BLOCK = CRICKET + 56; // leaper 16-direction row at 1×
@@ -26,6 +29,7 @@ const W = Math.max(
   X1 + LEAPER_POSES * (CRICKET * 2 + 16),
   X1 + DIRECTIONS * (CRICKET + 4),
   X1 + 12 * (CRICKET + 32) + 36,
+  X1 + 80 + STAND_QUEEN_COLS * (QUEEN * 2 + 8),
 ) + 16;
 const HOP_BLOCK = CRICKET + 72; // one hop cycle sampled left to right
 // Caste lineup: every caste side by side on dirt and moss, the way the game
@@ -33,7 +37,21 @@ const HOP_BLOCK = CRICKET + 72; // one hop cycle sampled left to right
 const LINEUP_HEADINGS = [0, 4, 8, 12, 2, 6, 10, 14]; // direction indices
 const LINEUP_ROW = SPRITE + 8;
 const LINEUP_BLOCK = 48 + ROLES.length * LINEUP_ROW + 40 + ROLES.length * LINEUP_ROW * 2;
-const H = ROLES.length * BLOCK_H + CRICKET_BLOCK + CRICKET_DIR_BLOCK + HOP_BLOCK + LINEUP_BLOCK + 56;
+// Standing (3/4) views for a tilted camera, one block per caste and one for
+// the queen: one row per view at 4× (the queen at 2×), the top-down sprite
+// first for comparison, then walk frames 0-3, leaf, ore (queen: breathing)
+const STAND_ROLES: AntRole[] = [...ROLES, AntRole.Bomber];
+const STAND_COLS = 1 + FRAMES + 2;
+const STAND_ROW = SPRITE * 4 + 12;
+const STAND_CASTE_BLOCK = 48 + STANDING_VIEWS.length * STAND_ROW;
+const STAND_QUEEN_ROW = QUEEN * 2 + 12;
+// The weaver spider (Phase 2): top-down, then walk frames 0-3 (its bite replays them), at 2×
+const SPIDER = SPRITE_GRID.spider * ART_PX; // spider frame size in px (64)
+const STAND_SPIDER_COLS = 1 + FRAMES;
+const STAND_SPIDER_ROW = SPIDER * 2 + 12;
+const STAND_BLOCK = STAND_ROLES.length * STAND_CASTE_BLOCK + 48 + STANDING_VIEWS.length * STAND_QUEEN_ROW
+  + 48 + STANDING_VIEWS.length * STAND_SPIDER_ROW;
+const H = ROLES.length * BLOCK_H + CRICKET_BLOCK + CRICKET_DIR_BLOCK + HOP_BLOCK + LINEUP_BLOCK + STAND_BLOCK + 56;
 
 const canvas = document.createElement('canvas');
 canvas.width = W;
@@ -157,4 +175,80 @@ for (let ri = 0; ri < ROLES.length; ri++) {
   };
   lineup(1, top + 24);
   lineup(2, top + 24 + ROLES.length * LINEUP_ROW + 40);
+}
+
+// Standing (3/4) views: what a tilted camera shows (screen heading → view)
+{
+  const top0 = 40 + ROLES.length * BLOCK_H + CRICKET_BLOCK + CRICKET_DIR_BLOCK + HOP_BLOCK + LINEUP_BLOCK + 24;
+  const VIEW_HEADING = { front: Math.PI / 2, back: -Math.PI / 2, left: Math.PI, right: 0 } as const;
+  STAND_ROLES.forEach((role, ri) => {
+    const top = top0 + ri * STAND_CASTE_BLOCK;
+    ctx.fillStyle = PAL.white;
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText(`STANDING 3/4  ${role.toUpperCase()}  (top-down | frames 0-3 | leaf | ore)  |  4x`, X1, top);
+    STANDING_VIEWS.forEach((view, vi) => {
+      const cy = (top + 32 + vi * STAND_ROW + STAND_ROW / 2) / 4;
+      ctx.fillStyle = PAL.white;
+      ctx.font = '14px monospace';
+      ctx.fillText(view, X1, cy * 4 - 7);
+      ctx.save();
+      ctx.scale(4, 4);
+      ctx.imageSmoothingEnabled = false;
+      for (let i = 0; i < STAND_COLS; i++) {
+        const cx = (X1 + 80 + i * (SPRITE * 4 + 8) + (SPRITE * 4) / 2) / 4;
+        const heading = VIEW_HEADING[view];
+        if (i === 0) atlas.drawAnt(ctx, cx, cy, heading, phaseFor(0), role, false);
+        else {
+          const frame = i <= FRAMES ? i - 1 : 0;
+          const carrying = i === FRAMES + 1 ? true : i === FRAMES + 2 ? 'ore' : false;
+          atlas.drawAnt(ctx, cx, cy, heading, phaseFor(frame), role, carrying, false, undefined, true);
+        }
+      }
+      ctx.restore();
+    });
+  });
+
+  // The brood queen: top-down, frames 0-3, then the swollen breathing step, at 2×
+  const top = top0 + STAND_ROLES.length * STAND_CASTE_BLOCK;
+  ctx.fillStyle = PAL.white;
+  ctx.font = 'bold 16px monospace';
+  ctx.fillText('STANDING 3/4  QUEEN  (top-down | frames 0-3 | swollen)  |  2x', X1, top);
+  STANDING_VIEWS.forEach((view, vi) => {
+    const cy = (top + 32 + vi * STAND_QUEEN_ROW + STAND_QUEEN_ROW / 2) / 2;
+    ctx.fillStyle = PAL.white;
+    ctx.font = '14px monospace';
+    ctx.fillText(view, X1, cy * 2 - 7);
+    ctx.save();
+    ctx.scale(2, 2);
+    ctx.imageSmoothingEnabled = false;
+    for (let i = 0; i < STAND_QUEEN_COLS; i++) {
+      const cx = (X1 + 80 + i * (QUEEN * 2 + 8) + QUEEN) / 2;
+      const heading = VIEW_HEADING[view];
+      if (i === 0) atlas.drawQueenAnt(ctx, cx, cy, heading, phaseFor(0));
+      else atlas.drawQueenAnt(ctx, cx, cy, heading, phaseFor(i <= FRAMES ? i - 1 : 0), i > FRAMES, true);
+    }
+    ctx.restore();
+  });
+
+  // The weaver spider: top-down, then frames 0-3, at 2×
+  const spiderTop = top + 48 + STANDING_VIEWS.length * STAND_QUEEN_ROW;
+  ctx.fillStyle = PAL.white;
+  ctx.font = 'bold 16px monospace';
+  ctx.fillText('STANDING 3/4  WEAVER SPIDER  (top-down | frames 0-3; bite = frames 0-1)  |  2x', X1, spiderTop);
+  STANDING_VIEWS.forEach((view, vi) => {
+    const cy = (spiderTop + 32 + vi * STAND_SPIDER_ROW + STAND_SPIDER_ROW / 2) / 2;
+    ctx.fillStyle = PAL.white;
+    ctx.font = '14px monospace';
+    ctx.fillText(view, X1, cy * 2 - 7);
+    ctx.save();
+    ctx.scale(2, 2);
+    ctx.imageSmoothingEnabled = false;
+    for (let i = 0; i < STAND_SPIDER_COLS; i++) {
+      const cx = (X1 + 80 + i * (SPIDER * 2 + 8) + SPIDER) / 2;
+      const heading = VIEW_HEADING[view];
+      if (i === 0) atlas.drawFrontierCreature(ctx, 'spider', cx, cy, heading, phaseFor(0));
+      else atlas.drawFrontierCreature(ctx, 'spider', cx, cy, heading, phaseFor(i - 1), null, true);
+    }
+    ctx.restore();
+  });
 }

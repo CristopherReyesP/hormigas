@@ -1,3 +1,4 @@
+import { beginUprightOverlay } from '../../../engine/renderer/uprightOverlay';
 // World-space art for the player's Crystal Hive: the Hive's crown of spires
 // (the rival's comes from the meteor intro's crater), structures growing out
 // of the ground as they crystallize, the build ghost and the rally line.
@@ -66,6 +67,7 @@ export function drawGrowingSpire(
   ctx.clip();
   art.drawSpire(ctx, px, py, kind, target);
   ctx.restore();
+  beginUprightOverlay(ctx, px, py);
   // Progress bar at its foot
   const w = 24;
   const x = Math.round(px - w / 2);
@@ -74,6 +76,7 @@ export function drawGrowingSpire(
   ctx.fillRect(x - 1, y - 1, w + 2, 4);
   ctx.fillStyle = PAL.crystal.shield;
   ctx.fillRect(x, y, Math.round(w * growth), 2);
+  ctx.restore();
   return span.top;
 }
 

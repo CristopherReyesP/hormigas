@@ -221,3 +221,35 @@ describe('the mouse through pointer events', () => {
     input.destroy();
   });
 });
+
+it.each(['Comma', 'Period'])('does not rotate with %s while typing', code => {
+  const input = new InputManager(canvas());
+  const rotate = vi.fn();
+  input.onKeyAction(code, rotate);
+  for (const target of [{ tagName: 'INPUT' }, { tagName: 'TEXTAREA' }, { isContentEditable: true }]) {
+    const event = Object.assign(new Event('keydown', { cancelable: true }), { code, key: '.', repeat: false });
+    Object.defineProperty(event, 'target', { value: target });
+    win.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  }
+  expect(rotate).not.toHaveBeenCalled();
+  keydown({ code, key: '.' });
+  expect(rotate).toHaveBeenCalledOnce();
+  input.destroy();
+});
+
+it.each(['ArrowDown', 'ArrowUp'])('does not tilt with %s while typing', code => {
+  const input = new InputManager(canvas());
+  const tilt = vi.fn();
+  input.onKeyAction(code, tilt);
+  for (const target of [{ tagName: 'INPUT' }, { tagName: 'TEXTAREA' }, { isContentEditable: true }]) {
+    const event = Object.assign(new Event('keydown', { cancelable: true }), { code, key: code, repeat: false });
+    Object.defineProperty(event, 'target', { value: target });
+    win.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  }
+  expect(tilt).not.toHaveBeenCalled();
+  expect(keydown({ code, key: code }).defaultPrevented).toBe(true);
+  expect(tilt).toHaveBeenCalledOnce();
+  input.destroy();
+});

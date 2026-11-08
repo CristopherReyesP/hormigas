@@ -1,3 +1,4 @@
+import { beginUprightOverlay } from '../../engine/renderer/uprightOverlay';
 // World-space art for the underground fungus farm: the crop on each farm tile
 // (spores → sprouts → caps → mature glowing mushrooms → ripe), its sway and
 // breathing glow, spores drifting off mature caps, the growth pop, the ripe
@@ -399,6 +400,7 @@ function drawSparkle(ctx: Ctx, bx: number, by: number, time: number, v: FarmTile
 function drawGrowthBar(ctx: Ctx, tx: number, ty: number, progress: number, ripe: boolean): void {
   const x = tx * T + 2 * ART;
   const y = ty * T + 13 * ART;
+  beginUprightOverlay(ctx, tx * T + T / 2, y);
   const lit = ripe ? 10 : Math.floor(progress * 10);
   ctx.fillStyle = CAP[0];
   ctx.fillRect(x, y, 12 * ART, 3 * ART);
@@ -408,6 +410,7 @@ function drawGrowthBar(ctx: Ctx, tx: number, ty: number, progress: number, ripe:
     ctx.fillStyle = ripe ? GLOW[2] : GLOW[1];
     ctx.fillRect(x + ART, y + ART, lit * ART, ART);
   }
+  ctx.restore();
 }
 
 /** Crumb launch directions (art px per pluck) and their colors */

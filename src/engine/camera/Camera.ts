@@ -1,7 +1,7 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT, TILE_SIZE } from '../../shared/constants';
 
-// 1: one art pixel stays a square of whole screen px on both axes (no vertical squash).
-const PERSPECTIVE_Y_SCALE = 1;
+// Foreshortening is screen-space, after the camera quarter turn.
+const TILT_SCALES = [1, 0.75, 0.55] as const;
 
 // Pixel art shimmers at fractional zoom — zoom moves on a fixed 0.5 grid.
 export const ZOOM_STEP = 0.5;
@@ -79,6 +79,9 @@ export class Camera {
   y = 0;
   zoom = 1;
 
+  private rotation = 0;
+  private tilt = 0;
+
   private worldWidth: number;
   private worldHeight: number;
   /** Top-left tile of the area the view stays on (the whole map, or Phase 1's zone) */
@@ -118,15 +121,103 @@ export class Camera {
     return { x: this.areaX, y: this.areaY, width: this.worldWidth, height: this.worldHeight };
   }
 
+  getRotation(): number {
+    return this.rotation;
+  }
+
+  getTilt(): number {
+    return this.tilt;
+  }
+
+  getTiltScale(): number {
+    return TILT_SCALES[this.tilt];
+  }
+
+  /** Raise the camera towards a top-down view. */
+  tiltUp(): void {
+    this.changeTilt(-1);
+  }
+
+  /** Lower the camera towards the ground. */
+  tiltDown(): void {
+    this.changeTilt(1);
+  }
+
+  private changeTilt(delta: number): void {
+    if (this.directed) return;
+    const next = Math.max(0, Math.min(TILT_SCALES.length - 1, this.tilt + delta));
+    if (next === this.tilt) return;
+    const center = this.viewportCenterWorld();
+    this.tilt = next;
+    this.updateLimits();
+    this.zoom = snapZoom(this.zoom, this.limits);
+    // As with rotation, preserve the pivot even when it is near a map edge.
+    this.x = center.x - (this.viewport.x + this.viewport.w / 2) / this.zoom;
+    this.y = center.y - (this.viewport.y + this.viewport.h / 2) / this.zoom;
+  }
+
+  rotateCW(): void {
+    if (!this.directed) this.rotate(1);
+  }
+
+  rotateCCW(): void {
+    if (!this.directed) this.rotate(3);
+  }
+
+  private rotate(turns: number): void {
+    const center = this.viewportCenterWorld();
+    this.rotation = (this.rotation + turns) % 4;
+    this.updateLimits();
+    this.zoom = snapZoom(this.zoom, this.limits);
+    // Do not clamp on a turn: even at an edge, the pivot must remain fixed.
+    this.x = center.x - (this.viewport.x + this.viewport.w / 2) / this.zoom;
+    this.y = center.y - (this.viewport.y + this.viewport.h / 2) / this.zoom;
+  }
+
+  private updateLimits(): void {
+    const odd = this.rotation % 2 !== 0;
+    const unsquashedHeight = this.canvasH / this.getTiltScale();
+    this.limits = zoomLimits(odd ? unsquashedHeight : this.canvasW, odd ? this.canvasW : unsquashedHeight,
+      this.pixelRatio, this.worldWidth * TILE_SIZE, this.worldHeight * TILE_SIZE);
+  }
+
+  /** Exact quarter-turn vectors avoid trigonometric drift in pixel art. */
+  private rotateVector(x: number, y: number, inverse = false): { x: number; y: number } {
+    const turn = inverse ? (4 - this.rotation) % 4 : this.rotation;
+    switch (turn) {
+      case 1: return { x: -y, y: x };
+      case 2: return { x: -x, y: -y };
+      case 3: return { x: y, y: -x };
+      default: return { x, y };
+    }
+  }
+
   applyTransform(ctx: CanvasRenderingContext2D): void {
-    ctx.scale(this.zoom, this.zoom * PERSPECTIVE_Y_SCALE);
+    if (this.tilt !== 0) {
+      const cy = this.viewport.y + this.viewport.h / 2;
+      ctx.translate(0, cy);
+      ctx.scale(1, this.getTiltScale());
+      ctx.translate(0, -cy);
+    }
+    if (this.rotation !== 0) {
+      const cx = this.viewport.x + this.viewport.w / 2;
+      const cy = this.viewport.y + this.viewport.h / 2;
+      const axis = this.rotateVector(1, 0);
+      ctx.translate(cx, cy);
+      ctx.transform(axis.x, axis.y, -axis.y, axis.x, 0, 0);
+      ctx.translate(-cx, -cy);
+    }
+    ctx.scale(this.zoom, this.zoom);
     ctx.translate(-this.x, -this.y);
   }
 
   screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
+    const cx = this.viewport.x + this.viewport.w / 2;
+    const cy = this.viewport.y + this.viewport.h / 2;
+    const p = this.rotateVector(screenX - cx, (screenY - cy) / this.getTiltScale(), true);
     return {
-      x: screenX / this.zoom + this.x,
-      y: screenY / (this.zoom * PERSPECTIVE_Y_SCALE) + this.y,
+      x: (p.x + cx) / this.zoom + this.x,
+      y: (p.y + cy) / this.zoom + this.y,
     };
   }
 
@@ -140,8 +231,9 @@ export class Camera {
 
   pan(screenDx: number, screenDy: number): void {
     if (this.directed) return;
-    this.x -= screenDx / this.zoom;
-    this.y -= screenDy / (this.zoom * PERSPECTIVE_Y_SCALE);
+    const delta = this.rotateVector(screenDx, screenDy / this.getTiltScale(), true);
+    this.x -= delta.x / this.zoom;
+    this.y -= delta.y / this.zoom;
     this.clamp();
   }
 
@@ -161,8 +253,9 @@ export class Camera {
     this.zoom = stepZoom(this.zoom, delta > 0 ? -1 : 1, this.limits);
 
     // Keep world point under mouse cursor stationary
-    this.x = worldBefore.x - screenX / this.zoom;
-    this.y = worldBefore.y - screenY / (this.zoom * PERSPECTIVE_Y_SCALE);
+    const worldAfter = this.screenToWorld(screenX, screenY);
+    this.x += worldBefore.x - worldAfter.x;
+    this.y += worldBefore.y - worldAfter.y;
     this.clamp();
   }
 
@@ -177,8 +270,9 @@ export class Camera {
     if (next === this.zoom) return;
     const worldBefore = this.screenToWorld(screenX, screenY);
     this.zoom = next;
-    this.x = worldBefore.x - screenX / this.zoom;
-    this.y = worldBefore.y - screenY / (this.zoom * PERSPECTIVE_Y_SCALE);
+    const worldAfter = this.screenToWorld(screenX, screenY);
+    this.x += worldBefore.x - worldAfter.x;
+    this.y += worldBefore.y - worldAfter.y;
     this.clamp();
   }
 
@@ -214,7 +308,7 @@ export class Camera {
     this.canvasW = Math.max(1, width);
     this.canvasH = Math.max(1, height);
     this.pixelRatio = ratio;
-    this.limits = zoomLimits(this.canvasW, this.canvasH, ratio, this.worldWidth * TILE_SIZE, this.worldHeight * TILE_SIZE);
+    this.updateLimits();
     this.zoom = snapZoom(zoom, this.limits);
     this.defaultZoom = snapZoom(this.defaultZoom, this.limits);
     this.centerOn(center.x, center.y);
@@ -235,12 +329,19 @@ export class Camera {
 
   /** World px rect the WHOLE canvas shows (the HUD bars included): the culling bounds. */
   getCanvasWorldRect(): { x: number; y: number; w: number; h: number } {
-    return {
-      x: this.x,
-      y: this.y,
-      w: this.canvasW / this.zoom,
-      h: this.canvasH / (this.zoom * PERSPECTIVE_Y_SCALE),
-    };
+    return this.worldRect({ x: 0, y: 0, w: this.canvasW, h: this.canvasH });
+  }
+
+  private worldRect(rect: ViewportRect): ViewportRect {
+    const points = [
+      this.screenToWorld(rect.x, rect.y),
+      this.screenToWorld(rect.x + rect.w, rect.y),
+      this.screenToWorld(rect.x, rect.y + rect.h),
+      this.screenToWorld(rect.x + rect.w, rect.y + rect.h),
+    ];
+    const x = Math.min(...points.map(p => p.x));
+    const y = Math.min(...points.map(p => p.y));
+    return { x, y, w: Math.max(...points.map(p => p.x)) - x, h: Math.max(...points.map(p => p.y)) - y };
   }
 
   /**
@@ -263,33 +364,28 @@ export class Camera {
   }
 
   /** World pixel -> screen pixel. Inverse of screenToWorld; keeps
-   *  PERSPECTIVE_Y_SCALE private so callers that place screen-space effects
+   *  the tilt projection private so callers that place screen-space effects
    *  (the night light pools) cannot drift out of sync with the transform. */
   worldToScreen(worldX: number, worldY: number): { x: number; y: number } {
-    return {
-      x: (worldX - this.x) * this.zoom,
-      y: (worldY - this.y) * this.zoom * PERSPECTIVE_Y_SCALE,
-    };
+    const cx = this.viewport.x + this.viewport.w / 2;
+    const cy = this.viewport.y + this.viewport.h / 2;
+    const p = this.rotateVector((worldX - this.x) * this.zoom - cx, (worldY - this.y) * this.zoom - cy);
+    return { x: p.x + cx, y: p.y * this.getTiltScale() + cy };
   }
 
-  /** Visible world rect expressed in TILES. Keeps PERSPECTIVE_Y_SCALE private
+  /** Visible world rect expressed in TILES. Keeps the tilt projection private
    *  to this class — callers that draw a viewport box (the minimap) must not
    *  re-derive it and drift out of sync. */
   getViewRectTiles(): { x: number; y: number; w: number; h: number } {
-    const topLeft = this.screenToWorld(this.viewport.x, this.viewport.y);
-    return {
-      x: topLeft.x / TILE_SIZE,
-      y: topLeft.y / TILE_SIZE,
-      w: this.viewport.w / this.zoom / TILE_SIZE,
-      h: this.viewport.h / (this.zoom * PERSPECTIVE_Y_SCALE) / TILE_SIZE,
-    };
+    const rect = this.worldRect(this.viewport);
+    return { x: rect.x / TILE_SIZE, y: rect.y / TILE_SIZE, w: rect.w / TILE_SIZE, h: rect.h / TILE_SIZE };
   }
 
   /** Put a world point in the middle of the visible viewport. */
   centerOn(worldPixelX: number, worldPixelY: number): void {
     const v = this.viewport;
     this.x = worldPixelX - (v.x + v.w / 2) / this.zoom;
-    this.y = worldPixelY - (v.y + v.h / 2) / (this.zoom * PERSPECTIVE_Y_SCALE);
+    this.y = worldPixelY - (v.y + v.h / 2) / this.zoom;
     this.clamp();
   }
 
@@ -300,15 +396,11 @@ export class Camera {
 
   /** Keep the VISIBLE viewport on the map (with a little edge slack). */
   private clamp(): void {
-    const v = this.viewport;
-    const viewW = v.w / this.zoom;
-    const viewH = v.h / (this.zoom * PERSPECTIVE_Y_SCALE);
+    const view = this.worldRect(this.viewport);
     const ox = this.areaX * TILE_SIZE;
     const oy = this.areaY * TILE_SIZE;
-    const left = ox + Camera.clampAxis(this.x + v.x / this.zoom - ox, viewW, this.worldWidth * TILE_SIZE);
-    const top = oy + Camera.clampAxis(this.y + v.y / (this.zoom * PERSPECTIVE_Y_SCALE) - oy, viewH, this.worldHeight * TILE_SIZE);
-    this.x = left - v.x / this.zoom;
-    this.y = top - v.y / (this.zoom * PERSPECTIVE_Y_SCALE);
+    this.x += ox + Camera.clampAxis(view.x - ox, view.w, this.worldWidth * TILE_SIZE) - view.x;
+    this.y += oy + Camera.clampAxis(view.y - oy, view.h, this.worldHeight * TILE_SIZE) - view.y;
   }
 
   /** Clamp the view's leading edge; a view wider than the padded world is centered instead. */
@@ -347,10 +439,13 @@ export class Camera {
   /** Back to the default zoom with the area's top-left corner in view. */
   reset(): void {
     if (this.directed) return;
-    this.zoom = this.defaultZoom;
+    this.rotation = 0;
+    this.tilt = 0;
+    this.updateLimits();
+    this.zoom = snapZoom(this.defaultZoom, this.limits);
     this.wheelAccum = 0;
     this.x = this.areaX * TILE_SIZE - this.viewport.x / this.zoom;
-    this.y = this.areaY * TILE_SIZE - this.viewport.y / (this.zoom * PERSPECTIVE_Y_SCALE);
+    this.y = this.areaY * TILE_SIZE - this.viewport.y / this.zoom;
     this.clamp();
   }
 }

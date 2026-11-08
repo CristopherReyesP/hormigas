@@ -195,3 +195,41 @@ describe('game speed on + and -', () => {
     expect(game.getStats().speed).toBe(1);
   });
 });
+
+describe('camera rotation hotkeys', () => {
+  it('uses punctuation for both directions and resets the active camera', () => {
+    const game = manager();
+    press('Period');
+    expect(game['camera'].getRotation()).toBe(1);
+    press('Comma');
+    expect(game['camera'].getRotation()).toBe(0);
+    press('Comma');
+    press('Home');
+    expect(game['camera'].getRotation()).toBe(0);
+    game['activeLayer'] = 'underground';
+    press('Period');
+    expect(game['undergroundCamera'].getRotation()).toBe(1);
+    expect(game['camera'].getRotation()).toBe(0);
+    press('KeyR');
+    expect(game['undergroundCamera'].getRotation()).toBe(0);
+    game.stop();
+  });
+});
+
+describe('camera tilt hotkeys', () => {
+  it('registers arrow actions on the active camera', () => {
+    const game = manager();
+    expect(keyHandlers.has('ArrowDown')).toBe(true);
+    expect(keyHandlers.has('ArrowUp')).toBe(true);
+    press('ArrowDown');
+    expect(game['camera'].getTilt()).toBe(1);
+    press('ArrowDown');
+    press('ArrowDown');
+    expect(game['camera'].getTilt()).toBe(2);
+    press('ArrowUp');
+    expect(game['camera'].getTilt()).toBe(1);
+    press('Home');
+    expect(game['camera'].getTilt()).toBe(0);
+    game.stop();
+  });
+});

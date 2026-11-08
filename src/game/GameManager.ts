@@ -937,8 +937,12 @@ export class GameManager {
         if (!this.gameOver) this.openPhase2();
       });
     }
-    this.input.onKeyAction('Home', () => this.camera.reset());
-    this.input.onKeyAction('KeyR', () => this.camera.reset());
+    this.input.onKeyAction('Comma', () => this.activeCamera().rotateCCW());
+    this.input.onKeyAction('Period', () => this.activeCamera().rotateCW());
+    this.input.onKeyAction('ArrowDown', () => { if (this.activeLayer === 'surface') this.camera.tiltDown(); });
+    this.input.onKeyAction('ArrowUp', () => { if (this.activeLayer === 'surface') this.camera.tiltUp(); });
+    this.input.onKeyAction('Home', () => this.activeCamera().reset());
+    this.input.onKeyAction('KeyR', () => this.activeCamera().reset());
 
     // Setup canvas click handler for selection (screen coords → tile coords via camera)
     this.input.onCanvasClick((screenX, screenY, mods) => this.handleClick(screenX, screenY, mods));

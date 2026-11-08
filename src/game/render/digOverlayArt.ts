@@ -1,3 +1,4 @@
+import { beginUprightOverlay } from '../../engine/renderer/uprightOverlay';
 // The dig tool's map overlay: which earth can be dug, what never can, the
 // queue order of the pending marks with a ring for the ones being opened,
 // and the preview of the tiles a stroke or the pointer would mark.
@@ -34,6 +35,7 @@ const DIGITS: readonly string[] = [
 ];
 
 function drawNumber(ctx: CanvasRenderingContext2D, n: number, cx: number, cy: number, scale: number): void {
+  beginUprightOverlay(ctx, cx, cy);
   const text = String(n);
   const w = text.length * 4 * scale - scale;
   const x0 = Math.round(cx - w / 2);
@@ -48,6 +50,7 @@ function drawNumber(ctx: CanvasRenderingContext2D, n: number, cx: number, cy: nu
       if (bits[b] === '1') ctx.fillRect(gx + (b % 3) * scale, y0 + Math.floor(b / 3) * scale, scale, scale);
     }
   }
+  ctx.restore();
 }
 
 /** Draw the overlay over the visible tile window [x0, x1) × [y0, y1), in world space */

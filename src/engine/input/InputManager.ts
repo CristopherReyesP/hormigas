@@ -202,6 +202,10 @@ export class InputManager {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    // Camera keys retain their editing/navigation behavior in editable controls.
+    const target = e.target as HTMLElement | null;
+    if ((e.code === 'Comma' || e.code === 'Period' || e.code === 'ArrowDown' || e.code === 'ArrowUp') &&
+      (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable)) return;
     this.keysDown.add(e.code);
     const handler = this.keyHandlers.get(e.code) ?? this.keyHandlers.get(e.key);
     if (handler) {

@@ -1,3 +1,4 @@
+import { beginUprightOverlay } from '../../engine/renderer/uprightOverlay';
 // World-space art for the Crystal Hive rival: its hovering units (baked
 // crystal sheets), its spires (crystal towers that grow a floor at a time),
 // the hex ring a live shield shows and the cyan shield bar over the health bar.
@@ -98,6 +99,7 @@ export class CrystalRivalArt {
 
   /** The shield as a segmented cyan bar, the same size as the health bar */
   drawShieldBar(ctx: Ctx, frame: CanvasImageSource, px: number, y: number, current: number, max: number, scale = 1): void {
+    beginUprightOverlay(ctx, px, y);
     const ratio = Math.max(0, Math.min(1, current / Math.max(1, max)));
     const w = 25 * scale;
     const x = Math.round(px - w / 2);
@@ -106,5 +108,6 @@ export class CrystalRivalArt {
     if (current > 0 && lit === 0) lit = 1;
     ctx.fillStyle = PAL.crystal.shield;
     for (let i = 0; i < lit; i++) ctx.fillRect(x + (1 + i * 4) * scale, Math.round(y) + scale, 3 * scale, 2 * scale);
+    ctx.restore();
   }
 }

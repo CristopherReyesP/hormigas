@@ -1,3 +1,4 @@
+import { beginUprightOverlay } from '../../engine/renderer/uprightOverlay';
 /**
  * Resource art on the one art-pixel scale (ART_PX world px per art px, never
  * a fractional scale): the crystal cluster of a mineral node, the soft halo
@@ -133,12 +134,14 @@ export function drawMineHint(ctx: Ctx, px: number, py: number, time: number): vo
  * `width` art px wide, its top `below` art px under (px, py).
  */
 export function drawAmountBar(ctx: Ctx, px: number, py: number, frac: number, tone: ResourceTone, width = 12, below = 9): void {
+  beginUprightOverlay(ctx, px, py);
   const p = new PixelPainter(ctx, ART_PX, Math.round(px / ART_PX) * ART_PX, Math.round(py / ART_PX) * ART_PX);
   const x = -Math.floor(width / 2);
   const fill = Math.max(1, Math.round(width * Math.max(0, Math.min(1, frac))));
   p.rect(x - 1, below - 1, width + 2, 4, PAL.outline);
   p.rect(x, below, width, 2, '#2a2230');
   p.rect(x, below, fill, 2, RESOURCE_COLOR[tone]);
+  ctx.restore();
 }
 
 /** 3×5 digits and the plus sign for the ore float. */
@@ -158,6 +161,7 @@ export const ORE_FLOAT_SECONDS = 1.2;
 export function drawOreFloat(ctx: Ctx, px: number, py: number, amount: number, age: number): void {
   const t = age / ORE_FLOAT_SECONDS;
   if (t >= 1 || (t > 0.75 && Math.floor(age * 16) % 2 === 1)) return;
+  beginUprightOverlay(ctx, px, py);
   const text = `+${Math.round(amount)}`;
   const rise = Math.floor(t * 10); // whole art px
   const width = text.length * 4 - 1;
@@ -172,4 +176,5 @@ export function drawOreFloat(ctx: Ctx, px: number, py: number, amount: number, a
   };
   for (const [ox, oy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) glyph(ox, oy, PAL.crystal.outline);
   glyph(0, 0, RESOURCE_COLOR.crystal);
+  ctx.restore();
 }

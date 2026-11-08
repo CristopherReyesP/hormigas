@@ -2,13 +2,15 @@ import { AntRole } from '../../game/components/components';
 import { PAL, hash2 } from './pixelart/palette';
 import { PixelPainter } from './pixelart/PixelPainter';
 import { blitArtGrid, type ArtGrid } from './pixelart/ArtGrid';
-import { DIRECTIONS, directionIndex } from './pixelart/directions';
+import { DIRECTIONS, directionIndex, snapAngle } from './pixelart/directions';
 import { ART_PX, SPRITE_GRID, WALK_FRAMES, nestPixelsPerArtPixel, spritePivot, walkFrame } from './sprites/spriteScale';
 import { paintAnt, paintQueen } from './sprites/swarmSprites';
 import { LEAPER_FRAMES, type LeaperPose, leaperFrameIndex, paintBeetle, paintCricket } from './sprites/wildlifeSprites';
 import { FOOD_SIZE_LEVELS, FOOD_VARIANTS, paintDen, paintFood, paintGiantMushroom } from './sprites/propSprites';
 import { NO_MARKS, antSheetKey, type AntMarks } from './sprites/antMarks';
+import { STANDING_VIEWS, hasStandingView, paintStandingAnt, paintStandingQueen, standingView, type StandingView } from './sprites/standingAntSprites';
 import { paintLegionNest, paintLegionQueen, paintLegionary, paintMantis, paintSpider, paintSpiderLair, paintTarantula, paintCentipede, paintSporeJelly, paintAcidSpitter } from './sprites/frontierSprites';
+import { paintStandingSpider } from './sprites/standingSpiderSprite';
 
 /** Phase 2's creatures beyond the wall, by sprite */
 export type FrontierSpriteKind = 'legionary' | 'legion_queen' | 'spider' | 'mantis' | 'tarantula'
@@ -16,7 +18,18 @@ export type FrontierSpriteKind = 'legionary' | 'legion_queen' | 'spider' | 'mant
 /** Phase 2's dens */
 export type FrontierDenSpriteKind = 'legion_nest' | 'spider_lair';
 
+/** Phase 2 creatures with standing (3/4) views, by sprite: grid size and the view painter. */
+const STANDING_FRONTIER: Partial<Record<FrontierSpriteKind, { grid: number; paint: (spec: { view: StandingView; frame: number }) => ArtGrid }>> = {
+  spider: { grid: SPRITE_GRID.spider, paint: paintStandingSpider },
+};
+
+/** Whether a Phase 2 creature stands in 3/4 view under a tilted camera (the others stand up their top-down sprite). */
+export function hasStandingFrontierView(kind: FrontierSpriteKind): boolean {
+  return STANDING_FRONTIER[kind] !== undefined;
+}
+
 export { antGlowPoints, type AntGlowPoint } from './sprites/swarmSprites';
+export { hasStandingView, standingAntGlowPoints, standingView } from './sprites/standingAntSprites';
 
 /** Nest sprite canvas px per art px (the mound is drawn down to whole world px per art px). */
 const NEST_SCALE = 4;
@@ -28,31 +41,36 @@ const ANT_ROLES: readonly AntRole[] = [AntRole.Worker, AntRole.Soldier, AntRole.
 
 /** Baked ant sheets kept at once (~0.3 MB each): the colony's castes plus a few previews. */
 const MAX_ANT_SHEETS = 24;
+/** Baked standing (3/4) sheets kept at once (~0.07 MB each): one per caste and mark set, plus a few previews. */
+const MAX_STANDING_SHEETS = 12;
 
 /**
  * Every walk frame of one sprite in all 16 directions, baked once at 1 canvas
  * px per art px and drawn ART_PX times larger, unrotated and unsmoothed, so
- * each art pixel lands as a crisp square. Column = frame × 16 + direction,
- * row = a variant (carrying, swollen, size level…).
+ * each art pixel lands as a crisp square. Column = frame × facings + facing,
+ * row = a variant (carrying, swollen, size level…). A standing sheet bakes
+ * its few screen-facing views (`facings`) instead of the 16 directions.
  */
 class DirectionalSheet {
   private readonly canvas: HTMLCanvasElement;
   private readonly grid: number;
   private readonly frames: number;
+  private readonly facings: number;
   private readonly pivotPx: number;
 
-  constructor(grid: number, frames: number, rows: number, paint: (row: number, frame: number, direction: number) => ArtGrid) {
+  constructor(grid: number, frames: number, rows: number, paint: (row: number, frame: number, facing: number) => ArtGrid, facings = DIRECTIONS) {
     this.grid = grid;
     this.frames = frames;
+    this.facings = facings;
     this.pivotPx = spritePivot(grid) * ART_PX;
     this.canvas = document.createElement('canvas');
-    this.canvas.width = grid * frames * DIRECTIONS;
+    this.canvas.width = grid * frames * facings;
     this.canvas.height = grid * rows;
     const ctx = this.canvas.getContext('2d')!;
     for (let row = 0; row < rows; row++) {
       for (let frame = 0; frame < frames; frame++) {
-        for (let d = 0; d < DIRECTIONS; d++) {
-          blitArtGrid(ctx, paint(row, frame, d), (frame * DIRECTIONS + d) * grid, row * grid);
+        for (let d = 0; d < facings; d++) {
+          blitArtGrid(ctx, paint(row, frame, d), (frame * facings + d) * grid, row * grid);
         }
       }
     }
@@ -60,8 +78,13 @@ class DirectionalSheet {
 
   /** Draw with the sprite's pivot pixel on (worldX, worldY), facing the direction nearest `angle`. */
   draw(ctx: CanvasRenderingContext2D, worldX: number, worldY: number, angle: number, frame: number, row = 0): void {
+    this.drawFacing(ctx, worldX, worldY, directionIndex(angle), frame, row);
+  }
+
+  /** Draw baked facing `facing` (a direction, or a standing view index) with its pivot on (worldX, worldY). */
+  drawFacing(ctx: CanvasRenderingContext2D, worldX: number, worldY: number, facing: number, frame: number, row = 0): void {
     const g = this.grid;
-    const sx = ((frame % this.frames) * DIRECTIONS + directionIndex(angle)) * g;
+    const sx = ((frame % this.frames) * this.facings + facing) * g;
     const size = g * ART_PX;
     const smoothing = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
@@ -86,12 +109,17 @@ export class SpriteAtlas {
   private antSheets = new Map<string, DirectionalSheet>();
   // Per mark-set object, the sheet of each caste/shadow slot: draws skip key building
   private antSheetIndex = new WeakMap<AntMarks, DirectionalSheet[]>();
+  // Standing (3/4) sheets of the castes, same rows, one per caste and mark set
+  private standingSheets = new Map<string, DirectionalSheet>();
   private colonyMarks: AntMarks = NO_MARKS;
   private queenSheet: DirectionalSheet | null = null;
+  private standingQueenSheet: DirectionalSheet | null = null;
   private beetleSheet: DirectionalSheet | null = null;
   private cricketSheet: DirectionalSheet | null = null;
   private foodSheet: DirectionalSheet | null = null;
   private frontierSheets = new Map<FrontierSpriteKind, DirectionalSheet>();
+  // Standing (3/4) sheets of the creatures that have one, baked on first standing draw
+  private standingFrontierSheets = new Map<FrontierSpriteKind, DirectionalSheet>();
   private frontierDenSprites = new Map<FrontierDenSpriteKind, HTMLCanvasElement>();
 
   // Static props, pre-scaled to world px (they never rotate)
@@ -146,6 +174,18 @@ export class SpriteAtlas {
       if (this.antSheets.size > MAX_ANT_SHEETS) this.antSheets.delete(this.antSheets.keys().next().value!);
     }
     slots[slot] = sheet;
+    return sheet;
+  }
+
+  private standingSheet(role: AntRole, marks: AntMarks): DirectionalSheet {
+    const key = antSheetKey(role, false, marks);
+    let sheet = this.standingSheets.get(key);
+    if (!sheet) {
+      sheet = new DirectionalSheet(SPRITE_GRID.ant, WALK_FRAMES, 3, (row, frame, view) =>
+        paintStandingAnt({ role, view: STANDING_VIEWS[view], frame, carrying: row === 2 ? 'ore' : row === 1, marks }), STANDING_VIEWS.length);
+      this.standingSheets.set(key, sheet);
+      if (this.standingSheets.size > MAX_STANDING_SHEETS) this.standingSheets.delete(this.standingSheets.keys().next().value!);
+    }
     return sheet;
   }
 
@@ -292,21 +332,42 @@ export class SpriteAtlas {
     role: AntRole,
     isCarrying: boolean | 'ore',
     noShadow = false,
-    marks: AntMarks = this.colonyMarks
+    marks: AntMarks = this.colonyMarks,
+    standing = false,
   ): void {
     const row = isCarrying === 'ore' ? 2 : isCarrying ? 1 : 0;
+    // Standing under a tilted camera, `angle` is the screen heading: every
+    // caste shows the 3/4 view it picks
+    if (standing && hasStandingView(role)) {
+      const view = STANDING_VIEWS.indexOf(standingView(snapAngle(angle)));
+      this.standingSheet(role, marks).drawFacing(ctx, worldX, worldY, view, walkFrame(legPhase), row);
+      return;
+    }
     this.antSheet(role, !noShadow, marks).draw(ctx, worldX, worldY, angle, walkFrame(legPhase), row);
   }
 
-  /** The brood queen; `swollen` is the breathing step of her egg sac. */
+  /**
+   * The brood queen; `swollen` is the breathing step of her egg sac.
+   * `standing` (a tilted camera on the surface) draws her 3/4 view picked by
+   * `angle` as the screen heading, like drawAnt; she lives underground, so
+   * the game itself always draws her top-down.
+   */
   drawQueenAnt(
     ctx: CanvasRenderingContext2D,
     worldX: number,
     worldY: number,
     angle: number,
     legPhase: number,
-    swollen = false
+    swollen = false,
+    standing = false,
   ): void {
+    if (standing) {
+      this.standingQueenSheet ??= new DirectionalSheet(SPRITE_GRID.queen, WALK_FRAMES, 2, (row, frame, view) =>
+        paintStandingQueen({ view: STANDING_VIEWS[view], frame, swollen: row === 1 }), STANDING_VIEWS.length);
+      const view = STANDING_VIEWS.indexOf(standingView(snapAngle(angle)));
+      this.standingQueenSheet.drawFacing(ctx, worldX, worldY, view, walkFrame(legPhase), swollen ? 1 : 0);
+      return;
+    }
     this.queenSheet ??= new DirectionalSheet(SPRITE_GRID.queen, WALK_FRAMES, 2, (row, frame, direction) =>
       paintQueen({ frame, direction, swollen: row === 1 }));
     this.queenSheet.draw(ctx, worldX, worldY, angle, walkFrame(legPhase), swollen ? 1 : 0);
@@ -356,8 +417,29 @@ export class SpriteAtlas {
     this.beetleSheet.draw(ctx, worldX, worldY, angle, walkFrame(legPhase));
   }
 
-  /** A Phase 2 creature, facing `angle`; `biteFrame` (0 or 1) draws its bite pose instead of the walk */
-  drawFrontierCreature(ctx: CanvasRenderingContext2D, kind: FrontierSpriteKind, worldX: number, worldY: number, angle: number, legPhase: number, biteFrame: number | null = null): void {
+  /**
+   * A Phase 2 creature, facing `angle`; `biteFrame` (0 or 1) draws its bite
+   * pose instead of the walk. `standing` (a tilted camera on the surface)
+   * draws the 3/4 view `angle`, as the screen heading, picks, for creatures
+   * that have one (hasStandingFrontierView); they have no standing bite
+   * pose, so biting replays walk frames 0-1 like the top-down bite row.
+   */
+  drawFrontierCreature(
+    ctx: CanvasRenderingContext2D, kind: FrontierSpriteKind, worldX: number, worldY: number, angle: number, legPhase: number,
+    biteFrame: number | null = null, standing = false,
+  ): void {
+    const upright = standing ? STANDING_FRONTIER[kind] : undefined;
+    if (upright) {
+      let standingSheet = this.standingFrontierSheets.get(kind);
+      if (!standingSheet) {
+        standingSheet = new DirectionalSheet(upright.grid, WALK_FRAMES, 1, (_row, frame, view) =>
+          upright.paint({ view: STANDING_VIEWS[view], frame }), STANDING_VIEWS.length);
+        this.standingFrontierSheets.set(kind, standingSheet);
+      }
+      const view = STANDING_VIEWS.indexOf(standingView(snapAngle(angle)));
+      standingSheet.drawFacing(ctx, worldX, worldY, view, biteFrame !== null ? biteFrame % 2 : walkFrame(legPhase));
+      return;
+    }
     let sheet = this.frontierSheets.get(kind);
     if (!sheet) {
       const recipe = {

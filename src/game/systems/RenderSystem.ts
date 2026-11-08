@@ -1,3 +1,5 @@
+import { beginBillboard, beginUprightOverlay } from '../../engine/renderer/uprightOverlay';
+import { StandingSprites } from '../../engine/renderer/standingSprites';
 import { PheromoneLayer } from '../../engine/renderer/PheromoneLayer';
 import type { World } from '../../engine/ecs/World';
 import { frontierCreatureOf, frontierDenOf } from '../phase/frontierCreatures';
@@ -12,7 +14,7 @@ import { TerrainRenderer } from '../../engine/renderer/TerrainRenderer';
 import { FoliageOverlay } from '../../engine/renderer/FoliageOverlay';
 import { CloudShadows } from '../../engine/renderer/CloudShadows';
 import { PostProcessor, nightGlowAlpha, type ScreenLight } from '../../engine/renderer/PostProcessor';
-import { SpriteAtlas, antGlowPoints, sharedSpriteAtlas } from '../../engine/renderer/SpriteAtlas';
+import { SpriteAtlas, antGlowPoints, hasStandingView, sharedSpriteAtlas, standingAntGlowPoints, standingView } from '../../engine/renderer/SpriteAtlas';
 import { snapAngle } from '../../engine/renderer/pixelart/directions';
 import { computeUndergroundLight, UG_LIGHT_RIM, UG_LIGHT_FULL } from './undergroundLight';
 import { FogRenderer } from '../../engine/renderer/FogRenderer';
@@ -126,6 +128,21 @@ const SHADE_QUARTER = withAlpha(PAL.black, ALPHA_STEPS[2]);
 
 const NO_SHAKE: Vec2 = { x: 0, y: 0 };
 
+/**
+ * Rough body height (world px) of each centered sprite: a tilted camera lifts
+ * the body off its ground point by half of it, scaled by the tilt. Foot-anchored
+ * art (Crystal units, spires, the Hive's crown, Human troops) needs none.
+ */
+const STAND_HEIGHT = {
+  ant: TILE_SIZE,
+  beetle: TILE_SIZE * 1.25,
+  tarantula: TILE_SIZE * 3,
+  cricket: TILE_SIZE * 2,
+  den: TILE_SIZE * 1.5,
+  mushroom: TILE_SIZE * 1.5,
+  mineral: TILE_SIZE,
+} as const;
+
 /** The HUD chrome accent (--chrome-accent in index.css): the selection box line. */
 const CHROME_ACCENT = PAL.swarm.vein[1];
 /** Own-unit selection green: ellipses, move pings and order lines. */
@@ -229,6 +246,8 @@ export class RenderSystem {
   /** Race-specific marks drawn in world space over the units (a Human player's build ghost, rally points, selection) */
   private worldOverlay: ((ctx: CanvasRenderingContext2D, interpolation: number, time: number) => void) | null = null;
   private camera: Camera | null = null;
+  /** Units and tall props stand up and sort back to front while the surface camera is tilted */
+  private standing = new StandingSprites();
   private ambientParticles: AmbientParticleSystem;
   private ugGrid: UndergroundGrid | null = null;
   private ugCamera: Camera | null = null;
@@ -1099,7 +1118,7 @@ export class RenderSystem {
     drawDefenses(ctx, this.world, Layer.Surface, this.animationTime);
     this.renderEntitiesInterpolated(interpolation);
     const seen = (x: number, y: number) => isTileVisible(this.visibilityGrid, x, y);
-    drawWaveUnits(ctx, this.world, Layer.Surface, this.animationTime, interpolation, seen);
+    drawWaveUnits(ctx, this.world, Layer.Surface, this.animationTime, interpolation, seen, this.camera);
     drawWaveFx(ctx, this.world, Layer.Surface, this.animationTime, seen);
     this.renderDeathEffects(ctx, dt);
     // Clouds pass over the ground and everything on it — daytime only, no sun at night
@@ -1153,17 +1172,23 @@ export class RenderSystem {
     }
 
     ctx.fillStyle = PAL.swarm.vein[1];
+    // Tilted, the ants stand: their veins glow on the lifted, upright body
+    const tilted = this.camera.getTilt() > 0;
     for (let i = 0; i < this.glowAntCount; i++) {
       const a = this.glowAnts[i];
-      const cos = Math.cos(a.angle);
-      const sin = Math.sin(a.angle);
-      const points = antGlowPoints(a.role);
+      const angle = tilted ? beginBillboard(ctx, this.camera, a.x, a.y, { height: STAND_HEIGHT.ant, heading: a.angle }) : a.angle;
+      // A caste with standing 3/4 views glows on the view it shows (never turned)
+      const view = tilted && hasStandingView(a.role) ? standingView(angle) : null;
+      const cos = view ? 1 : Math.cos(angle);
+      const sin = view ? 0 : Math.sin(angle);
+      const points = view ? standingAntGlowPoints(view, a.role) : antGlowPoints(a.role);
       for (let k = 0; k < points.length; k++) {
         const x = a.x + cos * points[k].along - sin * points[k].across;
         const y = a.y + sin * points[k].along + cos * points[k].across;
         if (k === 0) this.drawGlowStamp(ctx, x, y, 7, 'swarmVein'); // halo on the gaster vein
         ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 3, 3);
       }
+      if (tilted) ctx.restore();
     }
 
     if (this.intro && this.craterTile && this.visibilityGrid.isExplored(this.craterTile.x, this.craterTile.y)) {
@@ -1191,9 +1216,7 @@ export class RenderSystem {
     this.ugCamera.applyTransform(ctx);
 
     const grid = this.ugGrid;
-    const { w: viewW, h: viewH } = this.ugCamera.getCanvasWorldRect();
-    const camX = this.ugCamera.x;
-    const camY = this.ugCamera.y;
+    const { x: camX, y: camY, w: viewW, h: viewH } = this.ugCamera.getCanvasWorldRect();
 
     const startX = Math.max(0, Math.floor(camX / TILE_SIZE) - 1);
     const startY = Math.max(0, Math.floor(camY / TILE_SIZE) - 1);
@@ -1869,11 +1892,11 @@ export class RenderSystem {
 
   private renderCreep(): void {
     if (!this.creep || !this.camera) return;
-    const { w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
-    const startX = Math.max(0, Math.floor(this.camera.x / TILE_SIZE));
-    const startY = Math.max(0, Math.floor(this.camera.y / TILE_SIZE));
-    const endX = Math.min(this.grid.width, Math.ceil((this.camera.x + viewW) / TILE_SIZE) + 1);
-    const endY = Math.min(this.grid.height, Math.ceil((this.camera.y + viewH) / TILE_SIZE) + 1);
+    const { x: camX, y: camY, w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
+    const startX = Math.max(0, Math.floor(camX / TILE_SIZE));
+    const startY = Math.max(0, Math.floor(camY / TILE_SIZE));
+    const endX = Math.min(this.grid.width, Math.ceil((camX + viewW) / TILE_SIZE) + 1);
+    const endY = Math.min(this.grid.height, Math.ceil((camY + viewH) / TILE_SIZE) + 1);
     this.creepArt.draw(this.renderer.getContext(), this.creep, startX, startY, endX, endY, (x, y) => this.visibilityGrid.isExplored(x, y));
   }
 
@@ -1882,11 +1905,11 @@ export class RenderSystem {
     if (!this.camera) return;
 
     // Viewport culling — only render visible tiles
-    const { w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
-    const startX = Math.max(0, Math.floor(this.camera.x / TILE_SIZE));
-    const startY = Math.max(0, Math.floor(this.camera.y / TILE_SIZE));
-    const endX = Math.min(this.grid.width, Math.ceil((this.camera.x + viewW) / TILE_SIZE) + 1);
-    const endY = Math.min(this.grid.height, Math.ceil((this.camera.y + viewH) / TILE_SIZE) + 1);
+    const { x: camX, y: camY, w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
+    const startX = Math.max(0, Math.floor(camX / TILE_SIZE));
+    const startY = Math.max(0, Math.floor(camY / TILE_SIZE));
+    const endX = Math.min(this.grid.width, Math.ceil((camX + viewW) / TILE_SIZE) + 1);
+    const endY = Math.min(this.grid.height, Math.ceil((camY + viewH) / TILE_SIZE) + 1);
 
     // Pre-rendered dithered diamond stamps, 3 quantized intensity levels per
     // type, cached per chunk (PheromoneLayer) and added onto the ground
@@ -1903,11 +1926,11 @@ export class RenderSystem {
     const ctx = this.renderer.getContext();
 
     // Get viewport culling bounds (same as pheromone rendering)
-    const { w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
-    const startX = Math.max(0, Math.floor(this.camera.x / TILE_SIZE));
-    const startY = Math.max(0, Math.floor(this.camera.y / TILE_SIZE));
-    const endX = Math.min(this.grid.width, Math.ceil((this.camera.x + viewW) / TILE_SIZE) + 1);
-    const endY = Math.min(this.grid.height, Math.ceil((this.camera.y + viewH) / TILE_SIZE) + 1);
+    const { x: camX, y: camY, w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
+    const startX = Math.max(0, Math.floor(camX / TILE_SIZE));
+    const startY = Math.max(0, Math.floor(camY / TILE_SIZE));
+    const endX = Math.min(this.grid.width, Math.ceil((camX + viewW) / TILE_SIZE) + 1);
+    const endY = Math.min(this.grid.height, Math.ceil((camY + viewH) / TILE_SIZE) + 1);
 
     this.ambientParticles.render(ctx, startX, startY, endX, endY);
   }
@@ -1916,12 +1939,12 @@ export class RenderSystem {
   private surfaceCullBounds(): { minX: number; minY: number; maxX: number; maxY: number } {
     if (!this.camera) return { minX: -Infinity, minY: -Infinity, maxX: Infinity, maxY: Infinity };
     const margin = 3;
-    const { w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
+    const { x: camX, y: camY, w: viewW, h: viewH } = this.camera.getCanvasWorldRect();
     return {
-      minX: this.camera.x / TILE_SIZE - margin,
-      minY: this.camera.y / TILE_SIZE - margin,
-      maxX: (this.camera.x + viewW) / TILE_SIZE + margin,
-      maxY: (this.camera.y + viewH) / TILE_SIZE + margin,
+      minX: camX / TILE_SIZE - margin,
+      minY: camY / TILE_SIZE - margin,
+      maxX: (camX + viewW) / TILE_SIZE + margin,
+      maxY: (camY + viewH) / TILE_SIZE + margin,
     };
   }
 
@@ -1929,6 +1952,7 @@ export class RenderSystem {
     const ctx = this.renderer.getContext();
     const cull = this.surfaceCullBounds();
     this.glowAntCount = 0;
+    this.standing.begin(ctx, this.camera);
 
     // Separate entities by type for proper render order
     const foodEntities: Array<{ id: number; pos: PositionComponent; radius: number }> = [];
@@ -2106,7 +2130,7 @@ export class RenderSystem {
     // Human player's own opening likewise holds back the player's base
     const hidePlayerHumans = this.intro?.hidesPlayerBase() ?? false;
     if (!this.intro?.hidesRivalBase()) this.humanRenderer.draw(ctx, interpolation, this.animationTime, (c, px, py, current, max, always, scale, yOffset) =>
-      this.drawHealthBar(c, px, py, current, max, always, scale, yOffset), hidePlayerHumans ? (id) => ownerOf(this.world, id) === FactionId.PLAYER : undefined);
+      this.drawHealthBar(c, px, py, current, max, always, scale, yOffset), hidePlayerHumans ? (id) => ownerOf(this.world, id) === FactionId.PLAYER : undefined, this.standing);
     // The Human player's selection rings, ghost and rally line wait for their base too
     if (!hidePlayerHumans) this.worldOverlay?.(ctx, interpolation, this.animationTime);
 
@@ -2125,26 +2149,22 @@ export class RenderSystem {
         const isSelected = !!(selectable && selectable.selected);
         const isInCombat = ant.state === AntState.AttackingEnemy;
         const isFleeing = ant.state === AntState.Fleeing;
-        this.drawAnt(ctx, x, y, facing.angle, facing.legPhase, ant.role, isSelected, isCarrying, isInCombat, isFleeing);
-        this.recordGlowAnt(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2, snapAngle(facing.angle), ant.role);
-
-        // Health bar for damaged ants
+        // Health bar for damaged ants, and the healing indicator: they stand with the body
         const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
-        if (health && health.current < health.max) {
+        const damaged = !!health && health.current < health.max;
+        const healing = ant.state === AntState.Healing;
+        const overlay = damaged || healing ? () => {
           const px = x * TILE_SIZE + TILE_SIZE / 2;
           const py = y * TILE_SIZE + TILE_SIZE / 2;
-          this.drawHealthBar(ctx, px, py, health.current, health.max);
-        }
-
-        // Healing indicator
-        if (ant.state === AntState.Healing) {
-          const px = x * TILE_SIZE + TILE_SIZE / 2;
-          const py = y * TILE_SIZE + TILE_SIZE / 2;
-          this.drawHealingIndicator(ctx, px, py, ant.stateTimer);
-        }
+          if (damaged) this.drawHealthBar(ctx, px, py, health!.current, health!.max);
+          if (healing) this.drawHealingIndicator(ctx, px, py, ant.stateTimer);
+        } : undefined;
+        this.drawAnt(ctx, x, y, facing.angle, facing.legPhase, ant.role, isSelected, isCarrying, isInCombat, isFleeing, overlay);
+        this.recordGlowAnt(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2, snapAngle(facing.angle), ant.role);
       }
     }
 
+    this.standing.flush();
     this.renderOreFloats(ctx);
   }
 
@@ -2205,16 +2225,21 @@ export class RenderSystem {
     const x = Math.round(px - w / 2);
     const y = Math.round(py + yOffset);
 
+    beginUprightOverlay(ctx, px, py + yOffset);
     ctx.drawImage(this.fxHealthFrame, x, y, w, h);
 
     let lit = Math.ceil(ratio * 6);
     if (current > 0 && lit === 0) lit = 1;
-    if (lit === 0) return;
+    if (lit === 0) {
+      ctx.restore();
+      return;
+    }
 
     ctx.fillStyle = ratio > 0.5 ? PAL.healthGreen : ratio > 0.25 ? PAL.healthYellow : PAL.dangerRed;
     for (let i = 0; i < lit; i++) {
       ctx.fillRect(x + (1 + i * 4) * scale, y + scale, 3 * scale, 2 * scale);
     }
+    ctx.restore();
   }
 
   private drawHealingIndicator(ctx: CanvasRenderingContext2D, px: number, py: number, timer: number): void {
@@ -2224,11 +2249,12 @@ export class RenderSystem {
     const crossY = Math.round(py - TILE_SIZE * 0.9);
     const cx = Math.round(px);
 
+    beginUprightOverlay(ctx, px, crossY);
     ctx.globalAlpha = step === 0 ? 0.5 : 0.75;
     ctx.fillStyle = PAL.healthGreen;
     ctx.fillRect(cx - size, crossY - 1, size * 2, 2);
     ctx.fillRect(cx - 1, crossY - size, 2, size * 2);
-    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   private renderDeathEffects(ctx: CanvasRenderingContext2D, dt: number): void {
@@ -2319,7 +2345,8 @@ export class RenderSystem {
     isSelected: boolean,
     isCarrying: boolean | 'ore',
     isInCombat: boolean,
-    isFleeing: boolean
+    isFleeing: boolean,
+    overlay?: () => void,
   ): void {
     let px = tileX * TILE_SIZE + TILE_SIZE / 2;
     let py = tileY * TILE_SIZE + TILE_SIZE / 2;
@@ -2347,7 +2374,13 @@ export class RenderSystem {
     // Drop shadow — pre-rendered dither stamp, offset simulates light from upper-left
     this.drawShadow(ctx, px + 2, py + 3, TILE_SIZE * 0.28, TILE_SIZE * 0.14);
 
-    this.spriteAtlas.drawAnt(ctx, px, py, facing, legPhase, role, isCarrying);
+    this.standing.add(px, py, () => {
+      const heading = this.standing.billboard(ctx, px, py, { height: STAND_HEIGHT.ant, heading: facing });
+      // Tilted, castes with standing 3/4 views show the one the screen heading picks
+      this.spriteAtlas.drawAnt(ctx, px, py, heading, legPhase, role, isCarrying, false, undefined, this.standing.isTilted());
+      overlay?.();
+      ctx.restore();
+    });
   }
 
   /**
@@ -2362,11 +2395,15 @@ export class RenderSystem {
     const py = tileY * TILE_SIZE + TILE_SIZE / 2;
     drawResourceHalo(ctx, px, py + 14, 13, 5, 'crystal');
     if (hint) drawMineHint(ctx, px, py + 14, this.animationTime);
-    drawMineralCluster(ctx, px, py, left, entityId);
-    if (left < 1) drawAmountBar(ctx, px, py, left, 'crystal', 12, 10);
+    this.standing.add(px, py, () => {
+      this.standing.billboard(ctx, px, py, { height: STAND_HEIGHT.mineral });
+      drawMineralCluster(ctx, px, py, left, entityId);
+      if (left < 1) drawAmountBar(ctx, px, py, left, 'crystal', 12, 10);
 
-    const selectable = this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE);
-    if (selectable && selectable.selected) this.drawSelectionBrackets(ctx, px, py, TILE_SIZE * 0.78, 'amber');
+      const selectable = this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE);
+      if (selectable && selectable.selected) this.drawSelectionBrackets(ctx, px, py, TILE_SIZE * 0.78, 'amber');
+      ctx.restore();
+    });
   }
 
   private drawFood(ctx: CanvasRenderingContext2D, tileX: number, tileY: number, entityId: number): void {
@@ -2388,7 +2425,11 @@ export class RenderSystem {
       // Drop shadow for giant mushroom (pre-rendered dither stamp)
       this.drawShadow(ctx, px + 2.5, py + 3.5, TILE_SIZE * 0.6, TILE_SIZE * 0.25);
 
-      this.spriteAtlas.drawGiantMushroom(ctx, px, py);
+      this.standing.add(px, py, () => {
+        this.standing.billboard(ctx, px, py, { height: STAND_HEIGHT.mushroom });
+        this.spriteAtlas.drawGiantMushroom(ctx, px, py);
+        ctx.restore();
+      });
     } else {
       // Normal food rendering: the item shrinks as it is used up
       const sizeLevel = Math.max(0, Math.min(4, Math.ceil(left * 5) - 1));
@@ -2521,6 +2562,7 @@ export class RenderSystem {
   }
 
   private renderWaveMarchOverFog(ctx: CanvasRenderingContext2D, interpolation: number): void {
+    this.standing.begin(ctx, this.camera);
     // The tarantula hunts the colony: always shown, fog or not, so the player can react
     for (const id of this.world.query(COMPONENT.BEETLE, COMPONENT.POSITION)) {
       if (!this.isTarantula(id)) continue;
@@ -2541,6 +2583,7 @@ export class RenderSystem {
       if (isTileVisible(this.visibilityGrid, Math.round(pos.x), Math.round(pos.y))) continue;
       this.drawWaveMarcher(ctx, id, pos, this.world.getComponent<WaveMarchComponent>(id, WAVE_MARCH_COMPONENT)!, interpolation);
     }
+    this.standing.flush();
   }
 
   /**
@@ -2626,17 +2669,22 @@ export class RenderSystem {
     // Drop shadow — slightly larger than ant shadow (pre-rendered dither stamp)
     this.drawShadow(ctx, px + 2.5, py + 4, TILE_SIZE * 0.32, TILE_SIZE * 0.16);
 
-    // Biting, it snaps its jaws: open and shut a few times a second
-    if (frontier) this.spriteAtlas.drawFrontierCreature(ctx, frontier.kind, px, py, facing, legPhase, isAttacking ? Math.floor(this.animationTime * 6) : null);
-    else this.spriteAtlas.drawBeetle(ctx, px, py, facing, legPhase);
+    const height = frontier?.kind === 'tarantula' ? STAND_HEIGHT.tarantula : STAND_HEIGHT.beetle;
+    this.standing.add(px, py, () => {
+      const heading = this.standing.billboard(ctx, px, py, { height, heading: facing });
+      // Biting, it snaps its jaws: open and shut a few times a second
+      if (frontier) this.spriteAtlas.drawFrontierCreature(ctx, frontier.kind, px, py, heading, legPhase, isAttacking ? Math.floor(this.animationTime * 6) : null, this.standing.isTilted());
+      else this.spriteAtlas.drawBeetle(ctx, px, py, heading, legPhase);
 
-    // Health bar (wider, higher and always shown over the big ones)
-    const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
-    if (health) {
-      const big = frontier?.kind === 'legion_queen' || frontier?.kind === 'mantis' || frontier?.kind === 'tarantula';
-      if (big) this.drawHealthBar(ctx, px, py, health.current, health.max, true, frontier?.kind === 'tarantula' ? 2.6 : 1.8, frontier?.kind === 'tarantula' ? -TILE_SIZE * 1.9 : -TILE_SIZE * 1.1);
-      else this.drawHealthBar(ctx, px, py, health.current, health.max);
-    }
+      // Health bar (wider, higher and always shown over the big ones)
+      const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
+      if (health) {
+        const big = frontier?.kind === 'legion_queen' || frontier?.kind === 'mantis' || frontier?.kind === 'tarantula';
+        if (big) this.drawHealthBar(ctx, px, py, health.current, health.max, true, frontier?.kind === 'tarantula' ? 2.6 : 1.8, frontier?.kind === 'tarantula' ? -TILE_SIZE * 1.9 : -TILE_SIZE * 1.1);
+        else this.drawHealthBar(ctx, px, py, health.current, health.max);
+      }
+      ctx.restore();
+    });
   }
 
   private drawBeetleDen(
@@ -2651,15 +2699,19 @@ export class RenderSystem {
     // Drop shadow (pre-rendered dither stamp)
     this.drawShadow(ctx, px + 3, py + 5, TILE_SIZE * 0.5, TILE_SIZE * 0.25);
 
-    const frontierDen = frontierDenOf(this.world, entityId);
-    if (frontierDen) this.spriteAtlas.drawFrontierDen(ctx, frontierDen.kind, px, py);
-    else this.spriteAtlas.drawBeetleDen(ctx, px, py);
+    this.standing.add(px, py, () => {
+      this.standing.billboard(ctx, px, py, { height: STAND_HEIGHT.den });
+      const frontierDen = frontierDenOf(this.world, entityId);
+      if (frontierDen) this.spriteAtlas.drawFrontierDen(ctx, frontierDen.kind, px, py);
+      else this.spriteAtlas.drawBeetleDen(ctx, px, py);
 
-    // Health bar — always visible for dens (player needs to see HP)
-    const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
-    if (health) {
-      this.drawHealthBar(ctx, px, py, health.current, health.max, true);
-    }
+      // Health bar — always visible for dens (player needs to see HP)
+      const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
+      if (health) {
+        this.drawHealthBar(ctx, px, py, health.current, health.max, true);
+      }
+      ctx.restore();
+    });
   }
 
   private drawCricket(
@@ -2706,13 +2758,17 @@ export class RenderSystem {
     const shrink = hop.lift > 0 ? 0.8 : 1;
     this.drawShadow(ctx, px + 4, py + 5, TILE_SIZE * 0.8 * shrink, TILE_SIZE * 0.4 * shrink);
 
-    this.spriteAtlas.drawCricket(ctx, px, py - hop.lift, facing, legPhase, hop.pose);
+    this.standing.add(px, py, () => {
+      const heading = this.standing.billboard(ctx, px, py, { height: STAND_HEIGHT.cricket, heading: facing });
+      this.spriteAtlas.drawCricket(ctx, px, py - hop.lift, heading, legPhase, hop.pose);
 
-    // Health bar — segmented pixel bar at 2× scale, positioned higher for the big sprite
-    const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
-    if (health && health.current < health.max) {
-      this.drawHealthBar(ctx, px, py, health.current, health.max, false, 2, -TILE_SIZE * 1.6);
-    }
+      // Health bar — segmented pixel bar at 2× scale, positioned higher for the big sprite
+      const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
+      if (health && health.current < health.max) {
+        this.drawHealthBar(ctx, px, py, health.current, health.max, false, 2, -TILE_SIZE * 1.6);
+      }
+      ctx.restore();
+    });
   }
 
   /** A Crystal unit: its hover cycle, the hex ring while shielded, and its shield and health bars */
@@ -2729,21 +2785,28 @@ export class RenderSystem {
     if (this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE)?.selected) {
       this.drawSelectionEllipse(ctx, px, py, kind === 'drone' ? AntRole.Worker : AntRole.Soldier);
     }
-    const top = this.crystalArt.drawUnit(ctx, px, py, kind, entityId, this.animationTime);
-    const shield = this.world.getComponent<ShieldComponent>(entityId, COMPONENT.SHIELD);
-    if (shield) {
-      const radius = (py - top) * 0.55;
-      this.crystalArt.drawShieldRing(ctx, px, py - (py - top) * 0.35, radius, shield.current / Math.max(1, shield.max), shield.sinceHit < 0.3);
-    }
-    this.drawCrystalBars(ctx, entityId, px, top - 6, kind === 'queen' ? 2 : 1);
+    this.standing.shadow(ctx, px, py, TILE_SIZE * (kind === 'queen' ? 0.8 : 0.4));
+    this.standing.add(px, py, () => {
+      this.standing.billboard(ctx, px, py);
+      const top = this.crystalArt.drawUnit(ctx, px, py, kind, entityId, this.animationTime);
+      const shield = this.world.getComponent<ShieldComponent>(entityId, COMPONENT.SHIELD);
+      if (shield) {
+        const radius = (py - top) * 0.55;
+        this.crystalArt.drawShieldRing(ctx, px, py - (py - top) * 0.35, radius, shield.current / Math.max(1, shield.max), shield.sinceHit < 0.3);
+      }
+      this.drawCrystalBars(ctx, entityId, px, top - 6, kind === 'queen' ? 2 : 1);
+      ctx.restore();
+    });
   }
 
   /** Shield bar (cyan) over the health bar, always shown for the rival's units and structures */
   private drawCrystalBars(ctx: CanvasRenderingContext2D, entityId: number, px: number, y: number, scale: number): void {
+    beginUprightOverlay(ctx, px, y);
     const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
     const shield = this.world.getComponent<ShieldComponent>(entityId, COMPONENT.SHIELD);
     if (health) this.drawHealthBar(ctx, px, 0, health.current, health.max, true, scale, y);
     if (shield) this.crystalArt.drawShieldBar(ctx, this.fxHealthFrame, px, y - 5 * scale, shield.current, shield.max, scale);
+    ctx.restore();
   }
 
   /** A spire of the Crystal Hive: taller with each floor */
@@ -2758,8 +2821,13 @@ export class RenderSystem {
     }
     // A Crystal player's structure rises out of the ground while it crystallizes
     const construction = this.world.getComponent<ConstructionComponent>(entityId, CRYSTAL_PLAYER_COMPONENT.CONSTRUCTION);
-    const top = drawGrowingSpire(ctx, this.crystalArt, px, py, spire.kind, spire.floors, construction, this.animationTime);
-    this.drawCrystalBars(ctx, entityId, px, top - 6, 1);
+    this.standing.shadow(ctx, px, py, TILE_SIZE * 0.5);
+    this.standing.add(px, py, () => {
+      this.standing.billboard(ctx, px, py);
+      const top = drawGrowingSpire(ctx, this.crystalArt, px, py, spire.kind, spire.floors, construction, this.animationTime);
+      this.drawCrystalBars(ctx, entityId, px, top - 6, 1);
+      ctx.restore();
+    });
   }
 
   /** The hive's energy core pulsing among its spires, and its health bar, always shown */
@@ -2767,13 +2835,18 @@ export class RenderSystem {
     const px = tileX * TILE_SIZE + TILE_SIZE / 2;
     const py = tileY * TILE_SIZE + TILE_SIZE / 2;
     this.drawGlowStamp(ctx, px, py, TILE_SIZE * 1.4, 'crystal');
-    if (this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE)?.selected) {
-      this.drawSelectionBrackets(ctx, px, py - TILE_SIZE * 0.8, TILE_SIZE * 2, 'green');
-    }
-    // The rival Hive on the Swarm's crater wears the crater's rim spires; every other Hive (a Crystal player's, or a rival's in their run) its crown
-    if (!this.intro?.drawsHiveAt({ x: tileX, y: tileY })) drawHiveCrown(ctx, this.crystalArt, px, py);
-    if (Math.floor(this.animationTime * 2) % 2 === 0) this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.8, 'crystal');
-    this.drawCrystalBars(ctx, entityId, px, py - TILE_SIZE * 2.4, 2);
+    this.standing.shadow(ctx, px, py, TILE_SIZE);
+    this.standing.add(px, py, () => {
+      this.standing.billboard(ctx, px, py);
+      if (this.world.getComponent<SelectableComponent>(entityId, COMPONENT.SELECTABLE)?.selected) {
+        this.drawSelectionBrackets(ctx, px, py - TILE_SIZE * 0.8, TILE_SIZE * 2, 'green');
+      }
+      // The rival Hive on the Swarm's crater wears the crater's rim spires; every other Hive (a Crystal player's, or a rival's in their run) its crown
+      if (!this.intro?.drawsHiveAt({ x: tileX, y: tileY })) drawHiveCrown(ctx, this.crystalArt, px, py);
+      if (Math.floor(this.animationTime * 2) % 2 === 0) this.drawGlowStamp(ctx, px, py, TILE_SIZE * 0.8, 'crystal');
+      this.drawCrystalBars(ctx, entityId, px, py - TILE_SIZE * 2.4, 2);
+      ctx.restore();
+    });
   }
 
   private drawCricketDen(
@@ -2788,12 +2861,16 @@ export class RenderSystem {
     // Drop shadow (pre-rendered dither stamp)
     this.drawShadow(ctx, px + 3, py + 5, TILE_SIZE * 0.5, TILE_SIZE * 0.25);
 
-    this.spriteAtlas.drawCricketDen(ctx, px, py);
+    this.standing.add(px, py, () => {
+      this.standing.billboard(ctx, px, py, { height: STAND_HEIGHT.den });
+      this.spriteAtlas.drawCricketDen(ctx, px, py);
 
-    // Health bar — always visible for dens (player needs to see HP)
-    const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
-    if (health) {
-      this.drawHealthBar(ctx, px, py, health.current, health.max, true);
-    }
+      // Health bar — always visible for dens (player needs to see HP)
+      const health = this.world.getComponent<HealthComponent>(entityId, COMPONENT.HEALTH);
+      if (health) {
+        this.drawHealthBar(ctx, px, py, health.current, health.max, true);
+      }
+      ctx.restore();
+    });
   }
 }

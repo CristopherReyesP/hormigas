@@ -47,6 +47,25 @@ export class ArtGrid {
   }
 }
 
+/**
+ * A left-right mirror of `grid` about pixel column `axis` (default: the grid's
+ * middle line): colors and both masks, so a light pass can follow it.
+ * Pixels mirrored off the grid are dropped.
+ */
+export function mirrorArtGrid(grid: ArtGrid, axis = (grid.width - 1) / 2): ArtGrid {
+  const out = new ArtGrid(grid.width, grid.height);
+  for (let y = 0; y < grid.height; y++) {
+    for (let x = 0; x < grid.width; x++) {
+      const mx = 2 * axis - x;
+      if (!out.inBounds(mx, y)) continue;
+      out.set(mx, y, grid.get(x, y));
+      out.setBody(mx, y, grid.isBody(x, y));
+      out.setSolid(mx, y, grid.isSolid(x, y));
+    }
+  }
+  return out;
+}
+
 const rgbaCache = new Map<string, number>();
 
 /** `#rrggbb` → packed 0xRRGGBB (cached; sprites reuse a few dozen palette colors). */
