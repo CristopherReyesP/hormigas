@@ -1,3 +1,4 @@
+import { consumeWaveRewardMult } from '../../run/dayEvents';
 import type { System } from '../../../engine/ecs/types';
 import { areaOf } from '../../../simulation/world/frontier';
 import type { World } from '../../../engine/ecs/World';
@@ -389,7 +390,10 @@ export class HumanWaveSystem implements WaveDirector {
 
   private payClear(): void {
     const perfect = this.lost === 0;
-    const reward = waveClearReward(this.waveNumber, perfect);
+    // Luna roja pays double for the wave it swelled
+    const mult = consumeWaveRewardMult(this.world);
+    const base = waveClearReward(this.waveNumber, perfect);
+    const reward = { minerals: base.minerals * mult, food: base.food * mult };
     this.pay(reward);
     this.watched.clear();
     this.showBanner('cleared', this.waveNumber, this.waveSize, { perfect, reward });

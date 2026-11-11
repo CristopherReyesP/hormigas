@@ -11,6 +11,7 @@ import {
 } from '../components/components';
 import { ROLE_STATS } from '../../shared/constants';
 import { casteMultipliers } from '../upgrades/upgradeEffects';
+import { veteranMultiplier, veteranOf } from './veterans';
 
 export interface AntSpawnStats {
   carryCapacity: number;
@@ -57,14 +58,18 @@ export function retrofitAntStats(world: World): void {
     }
     const carrying = world.getComponent<CarryingComponent>(antId, COMPONENT.CARRYING);
     if (carrying) carrying.maxCapacity = stats.carryCapacity;
+    // A veteran keeps its rank's bonus on top of what a newborn would get
+    const vet = veteranMultiplier(veteranOf(world, antId)?.rank ?? 0);
+    const maxHealth = Math.round(stats.maxHealth * vet);
+    const damage = Math.round(stats.damage * vet);
     const health = world.getComponent<HealthComponent>(antId, COMPONENT.HEALTH);
     if (health) {
-      health.current = Math.min(stats.maxHealth, health.current + Math.max(0, stats.maxHealth - health.max));
-      health.max = stats.maxHealth;
-      health.damage = stats.damage;
+      health.current = Math.min(maxHealth, health.current + Math.max(0, maxHealth - health.max));
+      health.max = maxHealth;
+      health.damage = damage;
     }
     const combat = world.getComponent<CombatComponent>(antId, COMPONENT.COMBAT);
-    if (combat) combat.attackDamage = stats.damage;
+    if (combat) combat.attackDamage = damage;
     const roleStats = world.getComponent<RoleStatsComponent>(antId, COMPONENT.ROLE_STATS);
     if (roleStats) roleStats.speedMultiplier = stats.speedMultiplier;
   }

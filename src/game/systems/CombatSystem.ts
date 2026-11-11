@@ -37,11 +37,15 @@ import { combatVfxFor, type BodyKind, type CombatVfx, type VictimKind } from '..
 import { damageAfterArmor } from './helpers/combatHelpers';
 import { humanShotsFor } from '../rival/humanShots';
 import { applyHumanSplash, fireHumanShot, handleHumanDeath, isHumanEntity } from './HumanCombat';
-import { FactionId, ownerOf } from '../factions/factions';
+import { FactionId, isHostileTo, ownerOf } from '../factions/factions';
 import { advanceWaveFx, waveRuntimeFor } from '../run/waveRuntime';
 import { onWaveUnitDeath } from '../run/waveDeaths';
 import { DEFENSE_STATS, STRUCTURE_COMPONENT, type StructureComponent } from '../run/defenses';
 import { tallyDeath } from '../upgrades/applyUpgrades';
+import { creditKill, mournVeteran } from '../run/veterans';
+import { claimTrophy } from '../run/trophies';
+import { dayEventMeatMult } from '../run/dayEvents';
+import { retrofitAntStats } from '../run/antStats';
 
 export class CombatSystem implements System {
   readonly name = 'CombatSystem';
@@ -197,6 +201,8 @@ export class CombatSystem implements System {
         this.handleDeath(targetId, toDestroy);
         toDestroy.push(targetId);
         combat.targetEntityId = null;
+        // The ant that landed the killing bite earns it toward its next rank
+        if (!this.world.getComponent(targetId, COMPONENT.ANT) && isHostileTo(this.world, FactionId.PLAYER, targetId)) creditKill(this.world, id);
       }
     }
 
@@ -295,6 +301,9 @@ export class CombatSystem implements System {
 
   private handleDeath(entityId: EntityId, _toDestroy: EntityId[]): void {
     tallyDeath(this.world, entityId);
+    mournVeteran(this.world, entityId);
+    // A boss leaves its relic: the whole colony takes the new bonus at once
+    if (claimTrophy(this.world, entityId)) retrofitAntStats(this.world);
     onWaveUnitDeath(this.world, entityId);
     if (this.handleStructureDeath(entityId)) return;
     if (handleHumanDeath(this.world, this.vfx, entityId)) return;
@@ -363,9 +372,9 @@ export class CombatSystem implements System {
     createFood(this.world, pos.x, pos.y, amount, type, layer);
   }
 
-  /** Meat left by a kill, scaled by run mutations (carrion_gut) */
+  /** Meat left by a kill, scaled by run mutations (carrion_gut) and the Día de caza */
   private meatDrop(amount: number): number {
-    return Math.round(amount * this.world.runModifiers.meatDropMult);
+    return Math.round(amount * this.world.runModifiers.meatDropMult * dayEventMeatMult(this.world));
   }
 
   private handleBeetleDeath(entityId: EntityId, beetle: BeetleComponent): void {

@@ -1,3 +1,4 @@
+import { consumeWaveRewardMult, dayEventExtraInvaders } from '../../run/dayEvents';
 import type { WaveDirector } from '../human/HumanWaveSystem';
 import { areaOf } from '../../../simulation/world/frontier';
 import type { World } from '../../../engine/ecs/World';
@@ -171,7 +172,7 @@ export class CrystalSurfaceWaveSystem implements WaveDirector {
   private nextWave(): CrystalWave {
     const base = waveComposition(this.waveNumber + 1, this.rival());
     const raiders = this.raidSource ? base.drones : 0;
-    const extra = Math.max(0, this.world.runModifiers.extraInvadersPerWave);
+    const extra = Math.max(0, this.world.runModifiers.extraInvadersPerWave) + dayEventExtraInvaders(this.world, base.total);
     const allBeetles = crystalWaveBeetles(base.youngBeetles + base.beetles + (base.drones - raiders) + extra);
     const young = Math.min(allBeetles, Math.round((allBeetles * base.youngBeetles) / Math.max(1, base.youngBeetles + base.beetles)));
     const beetles = allBeetles - young;
@@ -348,7 +349,10 @@ export class CrystalSurfaceWaveSystem implements WaveDirector {
   /** The wave is cleared: minerals, more for a defense that lost no unit */
   private payClear(): void {
     const perfect = this.lost === 0;
-    const reward = waveClearReward(this.waveNumber, perfect);
+    // Luna roja pays double for the wave it swelled
+    const mult = consumeWaveRewardMult(this.world);
+    const base = waveClearReward(this.waveNumber, perfect);
+    const reward = { minerals: base.minerals * mult, food: base.food * mult };
     this.world.minerals.deposit(reward.minerals);
     this.watched.clear();
     this.showBanner('cleared', this.waveNumber, this.waveSize, { perfect, reward: { minerals: reward.minerals, food: 0 } });

@@ -144,6 +144,8 @@ import { drawHumanPlayerOverlay } from './races/human/humanOverlay';
 import type { WaveDirector } from './races/human/HumanWaveSystem';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
+import { DAY_EVENTS, DayEventSystem } from './run/dayEvents';
+import { trophySummary, type TrophyId } from './run/trophies';
 import {
   AntRole,
   AntState,
@@ -528,6 +530,8 @@ export interface GameStats {
   /** Phase 2's opening banner while it is up */
   frontierBanner?: { title: string; subtitle: string } | null;
   activeEvents: Array<{ icon: string; name: string; remaining: number }>;
+  /** Boss relics the colony holds (trophies.ts) */
+  trophies?: Array<{ id: TrophyId; icon: string; name: string; description: string; count: number }>;
   dayPhase: 'day' | 'night';
   dayNumber: number;
   phaseRemaining: number; // seconds left in the current phase
@@ -629,6 +633,8 @@ export class GameManager {
   private antAISystem: AntAISystem;
   private selectionSystem: SelectionSystem;
   private eventSystem: EventSystem;
+  /** The special day each dawn may bring (Luna roja, Migración, ...) */
+  private dayEventSystem!: DayEventSystem;
   private statsCallback: ((stats: GameStats) => void) | null = null;
   private statsTicks = 0; // throttle stats updates
   /** The game speed the stats throttle scales with (mirrors the loop's) */
@@ -795,6 +801,8 @@ export class GameManager {
     // Register systems (render system is called manually during render, not during update)
     this.world.addSystem(this.eventSystem);
     this.world.addSystem(this.dayNightSystem);
+    this.dayEventSystem = new DayEventSystem(this.world, this.grid, this.dayNightSystem, modifiers);
+    this.world.addSystem(this.dayEventSystem);
     this.renderSystem.setDayPhaseProvider(() => ({
       phase: this.dayNightSystem.getPhase(),
       progress: this.dayNightSystem.getPhaseProgress(),
@@ -1685,6 +1693,7 @@ export class GameManager {
         this.tutorialCalm = held;
         this.dayNightSystem.setHeld(held);
         this.eventSystem.setHeld(held);
+        this.dayEventSystem.setHeld(held);
         this.invasionSystem.setHeld(held);
         this.defenseSystem.setHeld(held);
       },
@@ -4181,11 +4190,19 @@ export class GameManager {
       milestone: this.milestone?.info ?? null,
       frontier: this.frontierStats(),
       frontierBanner: this.frontierBanner ? { title: this.frontierBanner.title, subtitle: this.frontierBanner.subtitle } : null,
-      activeEvents: this.eventSystem.active.map((e) => ({
-        icon: e.definition.icon,
-        name: e.definition.name,
-        remaining: Math.ceil(e.remainingTime),
-      })),
+      activeEvents: [
+        ...(this.world.dayEvent.id ? [{
+          icon: DAY_EVENTS[this.world.dayEvent.id].icon,
+          name: DAY_EVENTS[this.world.dayEvent.id].name,
+          remaining: Math.ceil(this.dayEventSystem.remaining()),
+        }] : []),
+        ...this.eventSystem.active.map((e) => ({
+          icon: e.definition.icon,
+          name: e.definition.name,
+          remaining: Math.ceil(e.remainingTime),
+        })),
+      ],
+      trophies: trophySummary(this.world),
       dayPhase: this.dayNightSystem.getPhase(),
       dayNumber: this.dayNightSystem.getDayNumber(),
       phaseRemaining: Math.ceil(this.dayNightSystem.getPhaseRemaining()),

@@ -1,6 +1,7 @@
 import type { AntMarks } from '../../engine/renderer/sprites/antMarks';
 import { ADDITIVE_STATS, MULTIPLIER_STATS, MUTATION_DEFINITIONS, type MutationId, type RunStat } from './MutationDefinitions';
 import { colonyMarks } from './mutationMarks';
+import type { TrophyId } from './trophies';
 
 export type { RunStat } from './MutationDefinitions';
 
@@ -33,6 +34,8 @@ export class RunModifiers implements Record<RunStat, number> {
   defenderDamageMult = 1;
   defenderMaxHealthMult = 1;
   private readonly appliedMutations: MutationId[] = [];
+  /** Boss relics taken (trophies.ts); their bonus is already folded into the stats above */
+  private readonly trophies: TrophyId[] = [];
   private marks: AntMarks | null = null;
 
   /** Adds one stack of every effect; refuses (false, no change) at maxStacks. */
@@ -50,6 +53,14 @@ export class RunModifiers implements Record<RunStat, number> {
 
   getStacks(id: MutationId): number {
     return this.appliedMutations.filter(applied => applied === id).length;
+  }
+
+  addTrophy(id: TrophyId): void {
+    this.trophies.push(id);
+  }
+
+  getTrophyCount(id: TrophyId): number {
+    return this.trophies.filter(held => held === id).length;
   }
 
   getAppliedMutations(): MutationId[] {

@@ -1,3 +1,4 @@
+import { consumeWaveRewardMult, dayEventExtraInvaders } from '../run/dayEvents';
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import type { UndergroundGrid } from '../../simulation/world/UndergroundGrid';
@@ -396,7 +397,7 @@ export class UndergroundInvasionSystem implements System {
    */
   private nextComposition(): WaveComposition {
     const base = waveComposition(this.waveNumber + 1, this.rival());
-    const extra = Math.max(0, this.world.runModifiers.extraInvadersPerWave);
+    const extra = Math.max(0, this.world.runModifiers.extraInvadersPerWave) + dayEventExtraInvaders(this.world, base.total);
     const drones = this.raidSource ? base.drones : 0;
     const elites = drones === base.drones ? base.elites : base.elites.map((e) => (e.unit === 'drone' ? { ...e, unit: 'beetle' as const } : e));
     let boss: MiniBossKind | null = base.boss;
@@ -689,7 +690,10 @@ export class UndergroundInvasionSystem implements System {
   /** The wave is cleared: the bonus for a clean defense, a smaller reward otherwise */
   private payClear(): void {
     const perfect = this.antsLost === 0;
-    const reward = waveClearReward(this.waveNumber, perfect);
+    // Luna roja pays double for the wave it swelled
+    const mult = consumeWaveRewardMult(this.world);
+    const base = waveClearReward(this.waveNumber, perfect);
+    const reward = { minerals: base.minerals * mult, food: base.food * mult };
     const paid = this.pay(reward);
     this.watchedAnts.clear();
     this.showBanner('cleared', this.waveNumber, this.waveSize, { perfect, reward });

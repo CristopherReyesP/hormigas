@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { GameManager, GameStats } from '../../game/GameManager';
 import { PixelIcon } from './PixelIcon';
+import type { TrophyId } from '../../game/run/trophies';
 import type { IconName } from './pixelIcons';
 import { formatClock, stripEmoji } from './format';
 import { useFlashOnChange } from '../useFlashOnChange';
@@ -10,6 +11,9 @@ import '../races/crystal/crystal.css';
 import { HumanResources } from '../races/human/HumanResources';
 import { pantryFullText, pantryWaitersText, pantryWaitingText } from './pantryNote';
 import { STRIP_FOLDS, foldClassNames, planStripFolds, type StripFoldId } from './stripFold';
+
+/** The strip's pixel icon for each boss relic */
+const TROPHY_ICON: Record<TrophyId, IconName> = { fang: 'spine', crown: 'crown', banner: 'flag' };
 
 type FoodType = 'leaf' | 'mushroom' | 'meat';
 
@@ -309,6 +313,12 @@ export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
       </div>
 
       <div className="strip-group strip-group--right">
+        {(stats.trophies ?? []).map((trophy) => (
+          <span key={trophy.id} className="strip-item strip-item--accent" title={`Trofeo: ${trophy.name}${trophy.count > 1 ? ` ×${trophy.count}` : ''}. ${trophy.description}`}>
+            <PixelIcon name={TROPHY_ICON[trophy.id]} />
+            {trophy.count > 1 ? `×${trophy.count}` : ''}
+          </span>
+        ))}
         {stats.activeEvents.map((event) => {
           const name = stripEmoji(event.name);
           return (

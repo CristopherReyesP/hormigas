@@ -1,6 +1,7 @@
 import { FactionRegistry } from '../../game/factions/factions';
 import { RunModifiers } from '../../game/run/RunModifiers';
 import { MineralBank } from '../../game/economy/MineralBank';
+import { emptyDayEventState, type DayEventState } from '../../game/run/dayEvents';
 import { emptyRunTally, emptyUpgradeLevels, type RunTally, type UpgradeLevels } from '../../game/upgrades/upgradeLevels';
 import type { ComponentMap, System } from './types';
 import type { EntityId } from '../../shared/types';
@@ -69,6 +70,9 @@ export class World {
     porterBonus: 0,
     healRateMult: 1,
   };
+
+  /** Today's special day (dayEvents.ts): read by combat and the waves */
+  dayEvent: DayEventState = emptyDayEventState();
 
   /** The colony's minerals bank: miners deposit ore here, structures will spend it (P7) */
   readonly minerals = new MineralBank();

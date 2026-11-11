@@ -1,3 +1,4 @@
+import { MAX_RANK, veteranOf } from '../run/veterans';
 import { beginBillboard, beginUprightOverlay } from '../../engine/renderer/uprightOverlay';
 import { StandingSprites } from '../../engine/renderer/standingSprites';
 import { PheromoneLayer } from '../../engine/renderer/PheromoneLayer';
@@ -2153,11 +2154,13 @@ export class RenderSystem {
         const health = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
         const damaged = !!health && health.current < health.max;
         const healing = ant.state === AntState.Healing;
-        const overlay = damaged || healing ? () => {
+        const rank = veteranOf(this.world, id)?.rank ?? 0;
+        const overlay = damaged || healing || rank > 0 ? () => {
           const px = x * TILE_SIZE + TILE_SIZE / 2;
           const py = y * TILE_SIZE + TILE_SIZE / 2;
           if (damaged) this.drawHealthBar(ctx, px, py, health!.current, health!.max);
           if (healing) this.drawHealingIndicator(ctx, px, py, ant.stateTimer);
+          if (rank > 0) this.drawVeteranBadge(ctx, px, py, rank);
         } : undefined;
         this.drawAnt(ctx, x, y, facing.angle, facing.legPhase, ant.role, isSelected, isCarrying, isInCombat, isFleeing, overlay);
         this.recordGlowAnt(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2, snapAngle(facing.angle), ant.role);
@@ -2208,6 +2211,29 @@ export class RenderSystem {
 
   /** Chunky segmented pixel health bar: pre-rendered frame (1px outline border)
    *  + up to 6 lit segments of 3×2 art px filled by health threshold color. */
+  /** A veteran's badge over its head: one gold chevron per rank, a star at the top rank */
+  private drawVeteranBadge(ctx: CanvasRenderingContext2D, px: number, py: number, rank: number): void {
+    const y0 = Math.round(py - TILE_SIZE * 0.95);
+    beginUprightOverlay(ctx, px, y0);
+    const x0 = Math.round(px);
+    ctx.fillStyle = PAL.outline;
+    ctx.fillRect(x0 - 4, y0 - 1, 9, 2 + rank * 3);
+    ctx.fillStyle = rank >= MAX_RANK ? '#ffd84a' : '#e0b040';
+    for (let r = 0; r < rank; r++) {
+      const y = y0 + r * 3;
+      // A chevron: a 7-wide V two pixels deep
+      ctx.fillRect(x0 - 3, y, 2, 1);
+      ctx.fillRect(x0 + 2, y, 2, 1);
+      ctx.fillRect(x0 - 1, y + 1, 3, 1);
+    }
+    if (rank >= MAX_RANK) {
+      ctx.fillStyle = '#fff6b0';
+      ctx.fillRect(x0, y0 - 3, 1, 1);
+      ctx.fillRect(x0 - 1, y0 - 2, 3, 1);
+    }
+    ctx.restore();
+  }
+
   private drawHealthBar(
     ctx: CanvasRenderingContext2D,
     px: number,
