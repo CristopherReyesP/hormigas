@@ -18,6 +18,7 @@ const DETAILS = {
     costs: { [AntRole.Worker]: 20, [AntRole.Soldier]: 35, [AntRole.Scout]: 25, [AntRole.Nurse]: 15, [AntRole.Defender]: 30 },
   },
   farm: { tiles: 0, rate: 0, status: 'sin-tiles', stored: 0, capacity: 0 },
+  ranch: { tiles: 0, maxTiles: 8, cost: 25, rate: 0, status: 'sin-tiles', stored: 0, capacity: 0 },
   eatFirst: 'leaf',
   garrison: { target: 2, current: 1 },
   upgrades: [],

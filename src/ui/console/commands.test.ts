@@ -42,6 +42,7 @@ const details: ColonyDetails = {
     },
   },
   farm: { tiles: 2, rate: 0, status: 'sin-hojas', stored: 0, capacity: 0 },
+  ranch: { tiles: 0, maxTiles: 8, cost: 25, rate: 0, status: 'sin-tiles', stored: 0, capacity: 0 },
   farmTile: null,
   eatFirst: 'leaf',
   garrison: { target: 2, current: 1 },
@@ -305,7 +306,7 @@ describe('nest command card', () => {
     expect(commands).toHaveLength(CARD_SLOTS);
     expect(commands.map((c) => c?.id ?? null)).toEqual([
       'garrison-down', 'garrison-up', 'diet-leaf', 'diet-mushroom', 'diet-meat',
-      'upgrades', 'breed-bomber', null, null, null,
+      'upgrades', 'breed-bomber', 'ranch', null, null,
       null, 'defenses-page', 'miners-down', 'miners-up', 'back',
     ]);
     commands[1]!.run();

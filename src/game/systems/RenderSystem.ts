@@ -50,7 +50,7 @@ import {
   type CrystalUnitComponent,
   type CrystalSpireComponent,
 } from '../components/components';
-import { FARM_MULCH_CAPACITY, TILE_SIZE, WORLD_WIDTH, WORLD_HEIGHT, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
+import { APHID_TILE_CAPACITY, FARM_MULCH_CAPACITY, TILE_SIZE, WORLD_WIDTH, WORLD_HEIGHT, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT } from '../../shared/constants';
 import { UndergroundTerrainType, ChamberType, TerrainType } from '../../simulation/world/types';
 import { AmbientParticleSystem } from '../particles';
 import { PAL, hash2, withAlpha } from '../../engine/renderer/pixelart/palette';
@@ -64,6 +64,7 @@ import type { CrystalOverlay } from '../races/crystal/CrystalPlayerController';
 import { drawCrystalOverlay, drawGrowingSpire, drawHiveCrown } from '../races/crystal/crystalPlayerArt';
 import { CRYSTAL_PLAYER_COMPONENT, type ConstructionComponent } from '../races/crystal/crystalPlayerComponents';
 import { FungusFarmArt } from '../render/fungusFarmArt';
+import { drawAphidRanchTile } from '../render/aphidRanchArt';
 import { CreepArt } from '../render/creepArt';
 import type { CreepGrid } from '../../simulation/world/CreepGrid';
 import { carriedFoodSprite } from '../render/fungusGrowth';
@@ -744,6 +745,13 @@ export class RenderSystem {
     this.getFarmStatus = fn;
   }
 
+  private getRanchScared: (() => boolean) | null = null;
+
+  /** Invaders in the nest: the ranch's aphids huddle still */
+  setRanchScaredProvider(fn: () => boolean): void {
+    this.getRanchScared = fn;
+  }
+
   /** The farm tile the player tapped: farm growth bars show while one is set */
   setFarmFocusProvider(fn: () => { x: number; y: number } | null): void {
     this.getFarmFocus = fn;
@@ -1305,6 +1313,12 @@ export class RenderSystem {
             this.farmTilesInView.push({ x, y, amount });
           }
           this.farmTileCount++;
+        }
+
+        // Aphid ranch: the aphids on their roots and the honeydew they have given
+        if (tile.chamberType === ChamberType.AphidRanch && tile.walkable) {
+          const honeydew = tile.food?.type === 'honeydew' ? tile.food.amount : 0;
+          drawAphidRanchTile(ctx, px, py, T, x, y, honeydew, APHID_TILE_CAPACITY, farmTime, this.getRanchScared?.() ?? false);
         }
 
         // Designation overlay (dashed border, quantized alpha)

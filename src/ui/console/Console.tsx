@@ -43,6 +43,7 @@ function applyBuildMode(gm: GameManager | null, mode: BuildMode | null, layer: '
   gm.setDigMode(mode === 'dig');
   gm.setIncubationMode(mode === 'incubation');
   gm.setFarmMode(mode === 'farm');
+  gm.setRanchMode(mode === 'ranch');
   gm.setStorageMode(mode === 'storage');
   gm.setThroneMode(mode === 'throne');
   gm.setDefenseMode(mode === 'defense');

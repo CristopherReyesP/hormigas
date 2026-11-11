@@ -18,7 +18,7 @@ import { digLimitMessage, type DigStatus } from '../../game/dig/digStatus';
  */
 
 /** Nest tools (underground only) and the defense build tools (both layers: Espina, Trampa, Muro) */
-export type BuildMode = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense' | DefenseKind;
+export type BuildMode = 'dig' | 'incubation' | 'farm' | 'ranch' | 'storage' | 'throne' | 'defense' | DefenseKind;
 /** 'groups' is the touch stand-in for Ctrl/Shift+digit: bind the selection to a control group; 'build' is a Human builder's Construir menu */
 export type CardPage = 'root' | 'colony' | 'groups' | 'defenses' | 'build';
 
@@ -159,6 +159,7 @@ export const BUILD_MODE_HINT: Record<BuildMode, string> = {
   dig: 'EXCAVAR: haz clic en la tierra para marcar túneles; clic en una marca la quita · Esc cancela',
   incubation: 'INCUBACIÓN: haz clic en casillas excavadas · Esc cancela',
   farm: 'GRANJA: haz clic en casillas excavadas para sembrar hongos · Esc cancela',
+  ranch: 'ESTABLO: haz clic en casillas excavadas para traer pulgones; cada casilla cuesta comida · Esc cancela',
   storage: 'ALMACÉN: haz clic en casillas excavadas para ampliar la despensa · Esc cancela',
   throne: 'TRONO: marca casillas de trono; luego, sin herramienta, haz clic en un trono para mudar a la reina · Esc cancela',
   defense: 'DEFENSA: haz clic en casillas excavadas; las defensoras montan guardia allí · Esc cancela',
@@ -172,6 +173,7 @@ export const BUILD_MODE_TOUCH_HINT: Record<BuildMode, string> = {
   dig: 'EXCAVAR: toca o arrastra el dedo sobre la tierra · toca una marca para quitarla',
   incubation: 'INCUBACIÓN: toca o pinta casillas excavadas',
   farm: 'GRANJA: toca o pinta casillas excavadas',
+  ranch: 'ESTABLO: toca casillas excavadas; cada una cuesta comida',
   storage: 'ALMACÉN: toca o pinta casillas excavadas',
   throne: 'TRONO: pinta casillas de trono; luego, sin herramienta, toca un trono',
   defense: 'DEFENSA: toca o pinta casillas excavadas',
@@ -750,6 +752,34 @@ function nestRoot(ctx: CommandContext): Slot[] {
   return NEST_ROOT_ORDER.map((id) => byId.get(id) ?? null);
 }
 
+const RANCH_STATUS_LINE: Record<string, string> = {
+  'sin-tiles': 'Aún no hay pulgones.',
+  asustados: 'Hay invasores en el nido: los pulgones no dan melaza hasta que se vayan.',
+  llena: 'Las casillas están llenas de melaza.',
+  produciendo: 'Dando melaza.',
+};
+
+/** The aphid ranch tool, on the Colonia page: its price, its tiles and what it is doing */
+function ranchTool(ctx: CommandContext): CommandDef {
+  const { ranch } = ctx.details;
+  const full = ranch.maxTiles > 0 && ranch.tiles >= ranch.maxTiles;
+  const how = ctx.touch ? 'Toca casillas excavadas' : 'Haz clic en casillas excavadas';
+  const state = ranch.tiles > 0
+    ? ` ${RANCH_STATUS_LINE[ranch.status] ?? ''} Melaza: ${ranch.stored}/${ranch.capacity}.`
+    : '';
+  return {
+    id: 'ranch',
+    label: 'Establo de pulgones',
+    icon: 'aphid',
+    description: `${how}: los pulgones dan melaza poco a poco, sin hojas ni salir del nido. La colonia la come primero. Hasta ${ranch.maxTiles} casillas; los invasores los asustan.${state}`,
+    cost: { amount: ranch.cost, resource: 'comida', short: !full && ctx.stats.foodStored < ranch.cost },
+    badge: ranch.tiles > 0 ? `${ranch.tiles}/${ranch.maxTiles}` : undefined,
+    badgeTone: ranch.status === 'asustados' ? 'danger' : undefined,
+    active: ctx.buildMode === 'ranch',
+    run: act(ctx, () => ctx.toggleBuildMode('ranch')),
+  };
+}
+
 /** Hotkey of a nest root command, from its declared slot. */
 function nestKey(id: string): string {
   return cardHotkeys()[NEST_ROOT_ORDER.indexOf(id)] ?? '';
@@ -798,7 +828,7 @@ function colonyPage(ctx: CommandContext): Slot[] {
     diet('meat', 'carne', 'meat'),
     upgradesButton(ctx),
     breedCommands(ctx, [AntRole.Bomber])[0],
-    null,
+    ranchTool(ctx),
     null,
     null,
     null,

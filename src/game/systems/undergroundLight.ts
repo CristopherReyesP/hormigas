@@ -64,7 +64,7 @@ export function computeUndergroundLight(
       // every pantry, farm and defense post the player carves out of a corridor.
       if (t.terrain === UndergroundTerrainType.Chamber || t.chamberType !== null) {
         let c = UG_COLOR_AMBER; // queen + general
-        if (t.chamberType === ChamberType.FoodStorage || t.chamberType === ChamberType.FungusFarm) {
+        if (t.chamberType === ChamberType.FoodStorage || t.chamberType === ChamberType.FungusFarm || t.chamberType === ChamberType.AphidRanch) {
           c = UG_COLOR_GREEN;
         } else if (t.chamberType === ChamberType.Incubation || t.chamberType === ChamberType.Egg) {
           c = UG_COLOR_WARM;

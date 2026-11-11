@@ -50,6 +50,8 @@ export const ChamberType = {
   General: 'general',
   Incubation: 'incubation',
   FungusFarm: 'fungus_farm',
+  /** Aphid ranch: aphids kept below make honeydew with no leaves from outside */
+  AphidRanch: 'aphid_ranch',
   Defense: 'defense',
 } as const;
 export type ChamberType = typeof ChamberType[keyof typeof ChamberType];

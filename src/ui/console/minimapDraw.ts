@@ -237,6 +237,8 @@ export function drawUndergroundMinimap(
           color = PAL.nurse;
         } else if (tile.chamberType === ChamberType.FungusFarm) {
           color = FUNGUS_FARM_MINIMAP_COLOR;
+        } else if (tile.chamberType === ChamberType.AphidRanch) {
+          color = PAL.glowAmber;
         } else if (tile.chamberType === ChamberType.Defense) {
           color = PAL.defender;
         } else {

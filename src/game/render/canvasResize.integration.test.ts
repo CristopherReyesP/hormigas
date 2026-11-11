@@ -7,7 +7,7 @@ vi.mock('../../engine/input/InputManager', () => ({ InputManager: class {
 } }));
 vi.mock('../systems/RenderSystem', () => ({ RenderSystem: class {
   setCamera() {} setUndergroundContext() {} setDayPhaseProvider() {} setCreep() {}
-  setFarmStatusProvider() {} setFarmFocusProvider() {} queueFarmHarvest() {} setWaveOverlayProvider() {} setDigOverlayProvider() {} invalidateTerrain() {} renderInterpolated() {}
+  setFarmStatusProvider() {} setFarmFocusProvider() {} setRanchScaredProvider() {} queueFarmHarvest() {} setWaveOverlayProvider() {} setDigOverlayProvider() {} invalidateTerrain() {} renderInterpolated() {}
   startMeteorIntro() {} skipIntro() { return true; }
 } }));
 vi.stubGlobal('window', new EventTarget());

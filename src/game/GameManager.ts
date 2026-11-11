@@ -100,6 +100,7 @@ import type { MeteorKind } from './render/meteorShower';
 import { DOMINION_MEASURE_SECONDS, DOMINION_TARGET, densInside, dominionScore, frontierHint, frontierReady, measureTerritory, type FrontierProgress } from './phase/frontierProgress';
 import { SpoilageSystem } from './systems/SpoilageSystem';
 import { FungusFarmSystem } from './systems/FungusFarmSystem';
+import { AphidRanchSystem } from './systems/AphidRanchSystem';
 import { farmGrowthProgress, farmTileStatusLabel, isFarmTileReady } from './render/fungusGrowth';
 import { UndergroundHealingSystem } from './systems/UndergroundHealingSystem';
 import { resolveRunOutcome, type RunOutcome } from './run/RunOutcome';
@@ -222,6 +223,8 @@ import {
   MINERAL_EDGE_MARGIN,
   CONTROL_GROUP_SLOTS,
   GAME_SPEED_MAX,
+  APHID_MAX_TILES,
+  APHID_TILE_COST,
 } from '../shared/constants';
 
 /** Mixed into the run seed so the crater does not share the dawn offers' draws. */
@@ -344,12 +347,13 @@ const IDLE_QUEEN_HINT_SECONDS = 25;
 const IDLE_QUEEN_REPEAT_SECONDS = 60;
 
 /** A build tool a finger stroke paints with */
-type PaintTool = 'dig' | 'incubation' | 'farm' | 'storage' | 'throne' | 'defense';
+type PaintTool = 'dig' | 'incubation' | 'farm' | 'ranch' | 'storage' | 'throne' | 'defense';
 /** The zone each tool marks; dig marks earth for digging, not a zone */
 const ZONE_OF_TOOL: Record<PaintTool, ChamberType | null> = {
   dig: null,
   incubation: ChamberType.Incubation,
   farm: ChamberType.FungusFarm,
+  ranch: ChamberType.AphidRanch,
   storage: ChamberType.FoodStorage,
   throne: ChamberType.Queen,
   defense: ChamberType.Defense,
@@ -469,6 +473,8 @@ export interface GameStats {
    */
   foodStored: number;
   mushroomStored: number;
+  /** Honeydew on the aphid ranch (part of foodStored) */
+  honeydewStored?: number;
   meatStored: number;
   pantryStored: number;
   pantryCapacity: number;
@@ -684,6 +690,8 @@ export class GameManager {
   private fungusFarmSystem!: FungusFarmSystem;
   private dayNightSystem!: DayNightSystem;
   private farmMode = false;
+  private aphidRanchSystem!: AphidRanchSystem;
+  private ranchMode = false;
   private throneMode = false;
   private defenseMode = false;
   private digMode = false;
@@ -898,6 +906,10 @@ export class GameManager {
     this.world.addSystem(new SpoilageSystem(this.world));
     this.fungusFarmSystem = new FungusFarmSystem(this.world, this.undergroundGrid);
     this.world.addSystem(this.fungusFarmSystem);
+    // Aphids give honeydew with nothing from outside; invaders in the nest scare them
+    this.aphidRanchSystem = new AphidRanchSystem(this.world, this.undergroundGrid, () => this.invasionSystem.invadersOn('underground') > 0);
+    this.world.addSystem(this.aphidRanchSystem);
+    this.renderSystem.setRanchScaredProvider(() => this.aphidRanchSystem.getStatus().status === 'asustados');
     // Farm tiles pulse while producing — render needs to know the farm state
     this.renderSystem.setFarmStatusProvider(() => this.fungusFarmSystem.getStatus().status);
     // A Humans run swaps the colony systems for the Human base's
@@ -1161,6 +1173,8 @@ export class GameManager {
         this.designateIncubation(tile.x, tile.y);
       } else if (this.farmMode) {
         this.designateFarm(tile.x, tile.y);
+      } else if (this.ranchMode) {
+        this.designateRanch(tile.x, tile.y);
       } else if (this.storageMode) {
         this.designateStorage(tile.x, tile.y);
       } else if (this.throneMode) {
@@ -1427,6 +1441,7 @@ export class GameManager {
     if (this.digMode) return 'dig';
     if (this.incubationMode) return 'incubation';
     if (this.farmMode) return 'farm';
+    if (this.ranchMode) return 'ranch';
     if (this.storageMode) return 'storage';
     if (this.throneMode) return 'throne';
     if (this.defenseMode) return 'defense';
@@ -1493,6 +1508,7 @@ export class GameManager {
     if (isZone !== stroke.erase) return; // already what the stroke paints
     if (stroke.tool === 'incubation') this.designateIncubation(x, y);
     else if (stroke.tool === 'farm') this.designateFarm(x, y);
+    else if (stroke.tool === 'ranch') this.designateRanch(x, y);
     else if (stroke.tool === 'storage') this.designateStorage(x, y);
     else if (stroke.tool === 'throne') this.designateThrone(x, y);
     else this.designateDefense(x, y);
@@ -3064,6 +3080,7 @@ export class GameManager {
     this.digMode = false;
     this.incubationMode = false;
     this.farmMode = false;
+    this.ranchMode = false;
     this.storageMode = false;
     this.throneMode = false;
     this.defenseMode = false;
@@ -3098,6 +3115,61 @@ export class GameManager {
 
   isFarmMode(): boolean {
     return this.farmMode;
+  }
+
+  setRanchMode(enabled: boolean): void {
+    if (enabled) this.clearBuildModes();
+    this.ranchMode = enabled;
+  }
+
+  isRanchMode(): boolean {
+    return this.ranchMode;
+  }
+
+  /** Aphid ranch state for the UI: tiles, honeydew per second, why it gives nothing, and its stock */
+  getRanchStatus(): { tiles: number; maxTiles: number; cost: number; rate: number; status: string; stored: number; capacity: number } {
+    const s = this.aphidRanchSystem.getStatus();
+    return {
+      ...s,
+      // Counted live: the system only recounts once a second
+      tiles: this.undergroundGrid.getRanchTiles().length,
+      maxTiles: APHID_MAX_TILES,
+      cost: APHID_TILE_COST,
+      stored: Math.floor(this.undergroundGrid.getRanchStored()),
+      capacity: this.undergroundGrid.getRanchCapacity(),
+    };
+  }
+
+  /**
+   * Toggle a walkable tile as aphid ranch. A new tile costs APHID_TILE_COST
+   * food (the aphids brought in) and the ranch holds APHID_MAX_TILES at most;
+   * removing one gives nothing back.
+   */
+  designateRanch(tileX: number, tileY: number): boolean {
+    const tile = this.undergroundGrid.getTile(tileX, tileY);
+    if (!tile || !tile.walkable) return false;
+    if (tile.chamberType === ChamberType.AphidRanch) {
+      if (tile.food && tile.food.amount >= 1) {
+        this.world.pushNotification('warning', '🐛 No puedes quitar un establo con melaza: espera a que se coma', 'ranch-undesignate', 3000);
+        return false;
+      }
+      tile.food = null;
+      tile.chamberType = ChamberType.General;
+    } else {
+      if (tile.chamberType !== ChamberType.General && tile.chamberType !== null && tile.chamberType !== undefined) return false;
+      if (this.undergroundGrid.getRanchTiles().length >= APHID_MAX_TILES) {
+        this.world.pushNotification('warning', `🐛 El establo ya tiene sus ${APHID_MAX_TILES} casillas`, 'ranch-full', 3000);
+        return false;
+      }
+      if (!this.deductFromStorage(APHID_TILE_COST)) {
+        this.world.pushNotification('warning', `🐛 Traer pulgones cuesta ${APHID_TILE_COST} de comida por casilla`, 'ranch-cost', 3000);
+        return false;
+      }
+      tile.chamberType = ChamberType.AphidRanch;
+    }
+    this.undergroundGrid.invalidateChamberCache();
+    if (this.renderSystem) this.renderSystem.invalidateUndergroundTexture();
+    return true;
   }
 
   setStorageMode(enabled: boolean): void {
@@ -3193,6 +3265,7 @@ export class GameManager {
       tile.chamberType === ChamberType.Queen ||
       tile.chamberType === ChamberType.FoodStorage ||
       tile.chamberType === ChamberType.Incubation ||
+      tile.chamberType === ChamberType.AphidRanch ||
       tile.chamberType === ChamberType.Defense
     ) return false;
     // Un-designation guard: a farm tile still holding mushrooms can't be removed
@@ -3222,6 +3295,7 @@ export class GameManager {
       tile.chamberType === ChamberType.Queen ||
       tile.chamberType === ChamberType.Incubation ||
       tile.chamberType === ChamberType.FungusFarm ||
+      tile.chamberType === ChamberType.AphidRanch ||
       tile.chamberType === ChamberType.Defense
     ) return false;
     // Un-designation guard: a pantry tile holding food can't be removed
@@ -3256,7 +3330,8 @@ export class GameManager {
       tile.chamberType === ChamberType.Queen ||
       tile.chamberType === ChamberType.FoodStorage ||
       tile.chamberType === ChamberType.Incubation ||
-      tile.chamberType === ChamberType.FungusFarm
+      tile.chamberType === ChamberType.FungusFarm ||
+      tile.chamberType === ChamberType.AphidRanch
     ) return false;
     // Toggle: defense ↔ general
     tile.chamberType = tile.chamberType === ChamberType.Defense ? ChamberType.General : ChamberType.Defense;
@@ -3276,6 +3351,7 @@ export class GameManager {
       tile.chamberType === ChamberType.FoodStorage ||
       tile.chamberType === ChamberType.Incubation ||
       tile.chamberType === ChamberType.FungusFarm ||
+      tile.chamberType === ChamberType.AphidRanch ||
       tile.chamberType === ChamberType.Defense
     ) return false;
     // Toggle: queen ↔ general
@@ -3447,6 +3523,7 @@ export class GameManager {
       tile.chamberType === ChamberType.Queen ||
       tile.chamberType === ChamberType.FoodStorage ||
       tile.chamberType === ChamberType.FungusFarm ||
+      tile.chamberType === ChamberType.AphidRanch ||
       tile.chamberType === ChamberType.Defense
     ) return false;
     // Toggle: if already incubation, remove it (set to General)
@@ -3807,7 +3884,7 @@ export class GameManager {
     return {
       pantry: {
         stored: stored.total,
-        capacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
+        capacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity() + this.undergroundGrid.getRanchCapacity(),
         tiles: this.undergroundGrid.getPantryTiles().length,
       },
       surfaceStock: nest ? Math.floor(nest.foodStored) : 0,
@@ -4030,7 +4107,7 @@ export class GameManager {
         position: { x: Math.round(pos.x), y: Math.round(pos.y) },
         foodStored: nest.foodStored,
         pantryStored: Math.floor(this.undergroundGrid.getPantryStored().total),
-        pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
+        pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity() + this.undergroundGrid.getRanchCapacity(),
         mushroomStored: nest.mushroomStored,
         meatStored: nest.meatStored,
         totalAnts: ants.length,
@@ -4141,12 +4218,13 @@ export class GameManager {
       foodStored: Math.floor(pantryStored.total),
       mushroomStored: Math.floor(pantryStored.mushroom),
       meatStored: Math.floor(pantryStored.meat),
+      honeydewStored: Math.floor(pantryStored.honeydew),
       pantryStored: Math.floor(pantryStored.total),
       entranceFoodStored: Math.floor(transit.entrance),
       foodInTransit: Math.floor(transit.entrance + transit.carried),
       pantryFull: !this.undergroundGrid.hasDepositSpace() || transit.types.some((type) => !this.undergroundGrid.hasDepositSpace([type])),
       antsWaitingForPantry,
-      pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity(),
+      pantryCapacity: this.undergroundGrid.getPantryCapacity() + this.undergroundGrid.getFarmCapacity() + this.undergroundGrid.getRanchCapacity(),
       mineralsStored: Math.floor(this.world.minerals.stored),
       miners: this.minerStats(),
       upgradesAffordable: this.humanPlayer ? 0 : affordableCount(this.world.upgradeLevels, this.upgradeFunds()),

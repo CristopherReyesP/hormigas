@@ -225,6 +225,11 @@ export const SURFACE_SPOILAGE_RATE = 0.0015; // fraction of surface nest food lo
 // Fungus farming — farm tiles convert stored leaves into mushrooms
 export const FUNGUS_CONVERSION_PER_TILE = 0.35; // leaves consumed per second per farm tile
 export const FUNGUS_YIELD = 1.4;                // mushrooms produced per leaf consumed
+// Aphid ranch — aphids kept below give honeydew with nothing from the surface: the colony's lifeline under a siege
+export const APHID_TILE_COST = 25;              // food a ranch tile costs (the aphids brought in)
+export const APHID_HONEYDEW_PER_TILE = 0.08;    // honeydew per second per ranch tile
+export const APHID_TILE_CAPACITY = 30;          // honeydew a ranch tile holds: a trickle to live on, not a bank
+export const APHID_MAX_TILES = 8;               // the ranch never replaces foraging
 export const FARM_MULCH_CAPACITY = 36;          // leaf mulch a farm tile holds: gardener ants lay it, the fungus eats it (≈ one ripe bed)
 
 // ── Defenders & underground design ─────────────────────────────────

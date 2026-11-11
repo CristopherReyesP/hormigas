@@ -248,7 +248,8 @@ function useStripFolds(ref: RefObject<HTMLElement | null>, open: boolean): Strip
  * datos opens; the pantry, the minerals, the wave timer and pause stay.
  */
 export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
-  const leaves = Math.max(0, stats.foodStored - stats.mushroomStored - stats.meatStored);
+  const honeydew = stats.honeydewStored ?? 0;
+  const leaves = Math.max(0, stats.foodStored - stats.mushroomStored - stats.meatStored - honeydew);
   const night = stats.dayPhase === 'night';
   const eatFirst = gameManager?.getConsumptionPriority();
   const select = (type: FoodType) => (gameManager ? () => gameManager.setConsumptionPriority(type) : undefined);

@@ -8,6 +8,8 @@ export interface ColonyDetails {
   queen: { health: number; maxHealth: number; hunger: number; maxHunger: number; isLaying: boolean } | null;
   brood: BroodSnapshot;
   farm: { tiles: number; rate: number; status: string; stored: number; capacity: number };
+  /** The aphid ranch: honeydew with nothing from outside */
+  ranch: { tiles: number; maxTiles: number; cost: number; rate: number; status: string; stored: number; capacity: number };
   /** The farm tile the player tapped, with its growth line */
   farmTile: { x: number; y: number; progress: number; ready: boolean; label: string } | null;
   eatFirst: 'leaf' | 'mushroom' | 'meat';
@@ -39,6 +41,7 @@ const EMPTY: ColonyDetails = {
     },
   },
   farm: { tiles: 0, rate: 0, status: 'sin-tiles', stored: 0, capacity: 0 },
+  ranch: { tiles: 0, maxTiles: 0, cost: 0, rate: 0, status: 'sin-tiles', stored: 0, capacity: 0 },
   farmTile: null,
   eatFirst: 'leaf',
   garrison: { target: 0, current: 0 },
@@ -54,6 +57,7 @@ function read(gm: GameManager): ColonyDetails {
     queen: gm.getQueenStats(),
     brood: gm.getBroodSnapshot(),
     farm: gm.getFarmStatus(),
+    ranch: gm.getRanchStatus(),
     farmTile: gm.getFocusedFarmTile(),
     eatFirst: gm.getConsumptionPriority(),
     garrison: gm.getGarrisonInfo(),

@@ -173,7 +173,7 @@ export class AntAISystem implements System {
    * Per tick: which food types a pantry pile can still take. While a type has
    * no room nobody starts a trip for it (the loads would only wait below).
    */
-  private pantryRoom: Record<PantryFoodType, boolean> = { leaf: true, mushroom: true, meat: true };
+  private pantryRoom: Record<PantryFoodType, boolean> = { leaf: true, mushroom: true, meat: true, honeydew: false };
   /** A* runs left this tick for ordered ants: a 40-ant order routes over a few frames, not in one */
   private orderRoutesLeft = 0;
 

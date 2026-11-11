@@ -60,6 +60,17 @@ const ICON_ART = {
     'G.......',
     '........',
   ],
+  // An aphid with its drop of honeydew
+  aphid: [
+    '........',
+    '.l...l..',
+    '..gggg..',
+    '.gllllg.',
+    '.glllgg.',
+    '..gggg.Y',
+    '.G.G.GYy',
+    '.......Y',
+  ],
   fungus: [
     '..rrrr..',
     '.rRRrrr.',

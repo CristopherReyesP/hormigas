@@ -31,6 +31,7 @@ const DETAILS: ColonyDetails = {
   queen: { health: 500, maxHealth: 500, hunger: 900, maxHunger: 1000, isLaying: false },
   brood: BROOD,
   farm: { tiles: 0, rate: 0, status: 'sin-tiles', stored: 0, capacity: 0 },
+  ranch: { tiles: 0, maxTiles: 8, cost: 25, rate: 0, status: 'sin-tiles', stored: 0, capacity: 0 },
   farmTile: null,
   eatFirst: 'leaf',
   garrison: { target: 2, current: 1 },

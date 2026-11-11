@@ -861,6 +861,7 @@ export class PorterSystem implements System {
       leaf: Math.max(0, nest.foodStored - nest.mushroomStored - nest.meatStored),
       mushroom: nest.mushroomStored,
       meat: nest.meatStored,
+      honeydew: 0, // never on the entrance pile: the colony eats it on the ranch
     };
     return this.grid
       .getConsumptionOrder()

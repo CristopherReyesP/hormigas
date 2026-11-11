@@ -1,8 +1,9 @@
 import { UndergroundTerrainType, ChamberType } from './types';
 import type { WalkableGrid } from './WalkableGrid';
-import { FARM_MULCH_CAPACITY, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT, QUEEN_CHAMBER_SIZE, STARTING_FOOD_CHAMBER_SIZE, INCUBATION_CHAMBER_SIZE, PANTRY_TILE_CAPACITY, ROCK_POCKET_COUNT, ENTRANCE_ROW } from '../../shared/constants';
+import { APHID_TILE_CAPACITY, FARM_MULCH_CAPACITY, UNDERGROUND_WIDTH, UNDERGROUND_HEIGHT, QUEEN_CHAMBER_SIZE, STARTING_FOOD_CHAMBER_SIZE, INCUBATION_CHAMBER_SIZE, PANTRY_TILE_CAPACITY, ROCK_POCKET_COUNT, ENTRANCE_ROW } from '../../shared/constants';
 
-export type PantryFoodType = 'leaf' | 'mushroom' | 'meat';
+/** 'honeydew' only ever sits on AphidRanch tiles: the colony eats it there, nobody hauls it */
+export type PantryFoodType = 'leaf' | 'mushroom' | 'meat' | 'honeydew';
 
 /** A physical food pile sitting on a pantry tile. One type per tile. */
 export interface PantryFood {
@@ -15,14 +16,16 @@ export interface UndergroundTile {
   walkable: boolean;
   designated: boolean;
   chamberType: ChamberType | null;
-  /** Food pile — only ever non-null on FoodStorage tiles (any type) and FungusFarm tiles (mushrooms the farm grows) */
+  /** Food pile — only ever non-null on FoodStorage tiles (any type), FungusFarm tiles (mushrooms the farm grows) and AphidRanch tiles (honeydew) */
   food: PantryFood | null;
   /** Leaf mulch gardener ants laid on a FungusFarm tile: the fungus grows by eating it */
   mulch?: number;
 }
 
 const FOOD_EPSILON = 1e-6;
-const PANTRY_TYPES: PantryFoodType[] = ['leaf', 'mushroom', 'meat'];
+/** What the pantry itself stores, and what the eating policy chooses between */
+export type HauledFoodType = Exclude<PantryFoodType, 'honeydew'>;
+const PANTRY_TYPES: HauledFoodType[] = ['leaf', 'mushroom', 'meat'];
 
 export class UndergroundGrid implements WalkableGrid {
   readonly width = UNDERGROUND_WIDTH;
@@ -356,18 +359,18 @@ export class UndergroundGrid implements WalkableGrid {
   // Player-set: eating mushrooms/meat first PROTECTS the leaf supply the
   // fungus farm needs — with the old hardcoded leaf-first order the farm
   // was permanently starved by its own colony.
-  private consumptionPriority: PantryFoodType = 'leaf';
+  private consumptionPriority: HauledFoodType = 'leaf';
 
-  setConsumptionPriority(type: PantryFoodType): void {
+  setConsumptionPriority(type: HauledFoodType): void {
     this.consumptionPriority = type;
   }
 
-  getConsumptionPriority(): PantryFoodType {
+  getConsumptionPriority(): HauledFoodType {
     return this.consumptionPriority;
   }
 
   /** Eat order derived from the policy: priority type first, then the default chain */
-  getConsumptionOrder(): PantryFoodType[] {
+  getConsumptionOrder(): HauledFoodType[] {
     return [this.consumptionPriority, ...PANTRY_TYPES.filter((t) => t !== this.consumptionPriority)];
   }
 
@@ -385,6 +388,7 @@ export class UndergroundGrid implements WalkableGrid {
       ChamberType.FoodStorage,
       ChamberType.Incubation,
       ChamberType.FungusFarm,
+      ChamberType.AphidRanch,
       ChamberType.Defense,
     ];
     const seen = new Set<number>();
@@ -445,16 +449,20 @@ export class UndergroundGrid implements WalkableGrid {
     return tile !== null && tile.walkable && tile.chamberType === ChamberType.FungusFarm;
   }
 
-  /** Any tile that can hold a food pile: pantry (intake) or farm (grown mushrooms) */
+  private isRanchTile(tile: UndergroundTile | null): tile is UndergroundTile {
+    return tile !== null && tile.walkable && tile.chamberType === ChamberType.AphidRanch;
+  }
+
+  /** Any tile that can hold a food pile: pantry (intake), farm (grown mushrooms) or aphid ranch (honeydew) */
   private isFoodTile(tile: UndergroundTile | null): tile is UndergroundTile {
-    return this.isPantryTile(tile) || this.isFarmTile(tile);
+    return this.isPantryTile(tile) || this.isFarmTile(tile) || this.isRanchTile(tile);
   }
 
   // Coordinate cache: pantry/farm designations change rarely (player clicks),
   // but these lists are read MANY times per frame (porters, nurses, farm,
   // render, stats). Walkability never reverts, so cached coords stay valid
   // until a designation toggles — GameManager invalidates on each toggle.
-  private chamberCoords: { pantry: Array<{ x: number; y: number }>; farm: Array<{ x: number; y: number }> } | null = null;
+  private chamberCoords: { pantry: Array<{ x: number; y: number }>; farm: Array<{ x: number; y: number }>; ranch: Array<{ x: number; y: number }> } | null = null;
 
   /** Call after any chamberType mutation (designations) */
   invalidateChamberCache(): void {
@@ -465,18 +473,20 @@ export class UndergroundGrid implements WalkableGrid {
     this.layoutVersion++;
   }
 
-  private getChamberCoords(): { pantry: Array<{ x: number; y: number }>; farm: Array<{ x: number; y: number }> } {
+  private getChamberCoords(): { pantry: Array<{ x: number; y: number }>; farm: Array<{ x: number; y: number }>; ranch: Array<{ x: number; y: number }> } {
     if (!this.chamberCoords) {
       const pantry: Array<{ x: number; y: number }> = [];
       const farm: Array<{ x: number; y: number }> = [];
+      const ranch: Array<{ x: number; y: number }> = [];
       for (let y = 0; y < this.height; y++) {
         for (let x = 0; x < this.width; x++) {
           const tile = this.getTile(x, y);
           if (this.isPantryTile(tile)) pantry.push({ x, y });
           else if (this.isFarmTile(tile)) farm.push({ x, y });
+          else if (this.isRanchTile(tile)) ranch.push({ x, y });
         }
       }
-      this.chamberCoords = { pantry, farm };
+      this.chamberCoords = { pantry, farm, ranch };
     }
     return this.chamberCoords;
   }
@@ -495,10 +505,29 @@ export class UndergroundGrid implements WalkableGrid {
     return this.withFood(this.getChamberCoords().farm);
   }
 
-  /** Pantry + farm tiles — everywhere stored food can sit */
+  /** All AphidRanch tiles with their honeydew (live references) */
+  getRanchTiles(): Array<{ x: number; y: number; food: PantryFood | null }> {
+    return this.withFood(this.getChamberCoords().ranch);
+  }
+
+  /** Honeydew the ranch can hold */
+  getRanchCapacity(): number {
+    return this.getChamberCoords().ranch.length * APHID_TILE_CAPACITY;
+  }
+
+  /** Honeydew on the ranch tiles now */
+  getRanchStored(): number {
+    let total = 0;
+    for (const t of this.getRanchTiles()) {
+      if (t.food && t.food.amount > FOOD_EPSILON) total += t.food.amount;
+    }
+    return total;
+  }
+
+  /** Pantry + farm + ranch tiles — everywhere stored food can sit */
   private getFoodTiles(): Array<{ x: number; y: number; food: PantryFood | null }> {
-    const { pantry, farm } = this.getChamberCoords();
-    return this.withFood(pantry).concat(this.withFood(farm));
+    const { pantry, farm, ranch } = this.getChamberCoords();
+    return this.withFood(pantry).concat(this.withFood(farm), this.withFood(ranch));
   }
 
   /** Total pantry capacity derived from designated tiles */
@@ -521,8 +550,8 @@ export class UndergroundGrid implements WalkableGrid {
   }
 
   /** Totals by type across all food piles (pantry + farm) */
-  getPantryStored(): { leaf: number; mushroom: number; meat: number; total: number } {
-    const stored = { leaf: 0, mushroom: 0, meat: 0, total: 0 };
+  getPantryStored(): { leaf: number; mushroom: number; meat: number; honeydew: number; total: number } {
+    const stored = { leaf: 0, mushroom: 0, meat: 0, honeydew: 0, total: 0 };
     for (const t of this.getFoodTiles()) {
       if (t.food && t.food.amount > FOOD_EPSILON) {
         stored[t.food.type] += t.food.amount;
@@ -668,7 +697,9 @@ export class UndergroundGrid implements WalkableGrid {
    *  Returns the amount actually accepted (0 on type mismatch / full / invalid tile). */
   depositFood(x: number, y: number, type: PantryFoodType, amount: number): number {
     const tile = this.getTile(x, y);
-    const accepts = this.isPantryTile(tile) || (type === 'mushroom' && this.isFarmTile(tile));
+    const accepts = type === 'honeydew'
+      ? this.isRanchTile(tile)
+      : this.isPantryTile(tile) || (type === 'mushroom' && this.isFarmTile(tile));
     if (!accepts || tile === null || amount <= 0) return 0;
     if (tile.food && tile.food.amount > FOOD_EPSILON && tile.food.type !== type) return 0;
 
@@ -676,7 +707,7 @@ export class UndergroundGrid implements WalkableGrid {
       tile.food = { type, amount: 0 }; // first deposit claims the tile's type
     }
 
-    const space = this.getPantryTileCapacity() - tile.food.amount;
+    const space = (type === 'honeydew' ? APHID_TILE_CAPACITY : this.getPantryTileCapacity()) - tile.food.amount;
     const accepted = Math.min(space, amount);
     if (accepted <= 0) return 0;
     tile.food.amount += accepted;
@@ -726,13 +757,14 @@ export class UndergroundGrid implements WalkableGrid {
    * each type first. Returns the per-type breakdown so callers can mirror
    * the deduction onto the aggregate ledger.
    */
-  drainFood(amount: number, preferType?: PantryFoodType): { leaf: number; mushroom: number; meat: number; total: number } {
-    const result = { leaf: 0, mushroom: 0, meat: 0, total: 0 };
+  drainFood(amount: number, preferType?: PantryFoodType): { leaf: number; mushroom: number; meat: number; honeydew: number; total: number } {
+    const result = { leaf: 0, mushroom: 0, meat: 0, honeydew: 0, total: 0 };
     if (amount <= 0) return result;
 
+    // Honeydew goes first: it cannot be stored anywhere else, and eating it spares the pantry
     const order: PantryFoodType[] = preferType
-      ? [preferType, ...PANTRY_TYPES.filter((t) => t !== preferType)]
-      : this.getConsumptionOrder();
+      ? [preferType, ...(['honeydew', ...PANTRY_TYPES] as PantryFoodType[]).filter((t) => t !== preferType)]
+      : ['honeydew', ...this.getConsumptionOrder()];
 
     let remaining = amount;
     for (const type of order) {
