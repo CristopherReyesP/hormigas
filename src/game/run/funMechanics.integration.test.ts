@@ -106,7 +106,7 @@ describe('boss trophies', () => {
 });
 
 describe('day events', () => {
-  it('none comes before day 3; a rolled one lasts until the next dawn', () => {
+  it('none comes before day 3; then a dawn offers two days and the player picks one', () => {
     const { game, world, tickFor } = setup();
     const clock = game['dayNightSystem'] as { getDayNumber(): number };
     const events = game['dayEventSystem'] as DayEventSystem;
@@ -115,17 +115,41 @@ describe('day events', () => {
     day.mockReturnValue(2);
     tickFor(TICK);
     expect(world.dayEvent.id).toBeNull();
+    expect(world.dayEvent.offer).toBeNull();
     day.mockReturnValue(3);
     tickFor(TICK);
-    const first = world.dayEvent.id;
-    expect(first).not.toBeNull();
+    // Two different days on offer, nothing started yet
+    const offer = world.dayEvent.offer!;
+    expect(offer).toHaveLength(2);
+    expect(offer[0]).not.toBe(offer[1]);
+    expect(world.dayEvent.id).toBeNull();
+    expect(game.getStats().dayEventOffer?.options.map((o) => o.id)).toEqual(offer);
+    // One that is not on offer is refused; the second one is taken
+    const other = (['calm', 'hunt', 'migration', 'redMoon'] as const).find((id) => !offer.includes(id))!;
+    expect(game.chooseDayEvent(other)).toBe(false);
+    expect(game.chooseDayEvent(offer[1])).toBe(true);
+    expect(world.dayEvent.id).toBe(offer[1]);
+    expect(world.dayEvent.offer).toBeNull();
     tickFor(1);
-    expect(world.dayEvent.id).toBe(first);
-    // The next dawn never repeats yesterday's
+    expect(world.dayEvent.id).toBe(offer[1]);
+    // The next dawn never offers yesterday's
     day.mockReturnValue(4);
     tickFor(TICK);
-    expect(world.dayEvent.id).not.toBeNull();
-    expect(world.dayEvent.id).not.toBe(first);
+    expect(world.dayEvent.id).toBeNull();
+    expect(world.dayEvent.offer).not.toContain(offer[1]);
+    game.stop();
+  });
+
+  it('an unanswered offer starts its first day when the countdown runs out', () => {
+    const { game, world, tickFor } = setup();
+    const events = game['dayEventSystem'] as DayEventSystem;
+    events.random = () => 0;
+    tickFor(TICK); // the first tick settles day 1
+    events.offer(null);
+    const first = world.dayEvent.offer![0];
+    tickFor(DAY_EVENT.chooseSeconds + 0.5);
+    expect(world.dayEvent.id).toBe(first);
+    expect(world.dayEvent.offer).toBeNull();
     game.stop();
   });
 
@@ -230,6 +254,25 @@ describe('game feel and quality of life', () => {
     expect((game['antAISystem'] as unknown as { undergroundFoodAvailable: boolean }).undergroundFoodAvailable).toBe(true);
     const state = world.getComponent<{ state: string }>(ant, COMPONENT.ANT)!.state;
     expect([AntState.ReturningHome, AntState.Healing]).toContain(state);
+    game.stop();
+  });
+});
+
+describe('the legacy between runs', () => {
+  it('a run that ends reports the ADN it banked, its best veteran and its relics', () => {
+    const { game, world } = setup();
+    const ant = createAnt(world, CX + 2, CY + 2, AntRole.Soldier);
+    for (let k = 0; k < VETERAN.rankKills[2]; k++) creditKill(world, ant);
+    claimTrophy(world, createFrontierCreature(world, 'tarantula', CX + 5, CY + 5, null));
+    const clock = game['dayNightSystem'] as { getDayNumber(): number };
+    vi.spyOn(clock, 'getDayNumber').mockReturnValue(4); // three nights survived
+    const summary = (game as unknown as { legacySummary(victory: boolean): NonNullable<import('../GameManager').GameOverStats['legacy']> }).legacySummary(false);
+    // 3 nights x5 + 1 trophy x10 + 1 captain x5 = 30, plus the achievements they unlock
+    const achievements = summary.achievements.map((a) => a.name);
+    expect(achievements).toEqual(expect.arrayContaining(['Primer amanecer', 'Matatarántulas', 'Leyenda viva']));
+    expect(summary.dnaGained).toBe(30 + achievements.length * 10);
+    expect(summary.bestVeteran).toEqual({ title: expect.stringContaining('Capitana'), kills: VETERAN.rankKills[2] });
+    expect(summary.trophies).toEqual([{ name: TROPHIES.fang.name, count: 1 }]);
     game.stop();
   });
 });

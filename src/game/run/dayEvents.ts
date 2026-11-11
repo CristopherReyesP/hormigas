@@ -20,6 +20,8 @@ export type DayEventId = (typeof DAY_EVENT_IDS)[number];
 export interface DayEventDef {
   name: string;
   icon: string;
+  /** One line for the dawn's choice card */
+  blurb: string;
   announcement: string;
   severity: 'info' | 'warning' | 'danger' | 'success';
 }
@@ -27,18 +29,22 @@ export interface DayEventDef {
 export const DAY_EVENTS: Readonly<Record<DayEventId, DayEventDef>> = {
   calm: {
     name: 'Día tranquilo', icon: '☀️', severity: 'success',
+    blurb: 'Menos depredadores y +50% de comida',
     announcement: '☀️ Día tranquilo: menos depredadores y más comida. Aprovecha para crecer',
   },
   hunt: {
     name: 'Día de caza', icon: '🍖', severity: 'warning',
+    blurb: 'Depredadores más fieros, doble de carne',
     announcement: '🍖 Día de caza: los depredadores rondan con más hambre, pero cada presa deja el doble de carne',
   },
   migration: {
     name: 'Migración', icon: '🦗', severity: 'info',
+    blurb: 'Una manada de saltamontes para cazar',
     announcement: '🦗 ¡Migración! Una manada de saltamontes cruza el territorio: carne para quien la cace',
   },
   redMoon: {
     name: 'Luna roja', icon: '🌕', severity: 'danger',
+    blurb: 'Oleada +40% esta noche, paga el doble',
     announcement: '🌕 Luna roja: esta noche la oleada será más grande… y superarla pagará el doble',
   },
 };
@@ -47,6 +53,8 @@ export const DAY_EVENT = {
   firstDay: 3,
   /** Chance that a dawn brings a special day */
   chance: 0.6,
+  /** Seconds the player has to pick between the two days offered; then the first one comes */
+  chooseSeconds: 20,
   calm: { enemySpawn: 0.4, foodSpawn: 1.5 },
   hunt: { aggression: 1.25, meat: 2 },
   migration: { herd: 6 },
@@ -61,10 +69,15 @@ export interface DayEventState {
   day: number;
   /** Luna roja's double pay, held until the wave it doubled is cleared */
   redMoonReward: boolean;
+  /** Luna roja waves cleared this run (an achievement counts them) */
+  redMoonsCleared: number;
+  /** The two days this dawn offers while the player picks, and the seconds left to do it */
+  offer: DayEventId[] | null;
+  offerTimer: number;
 }
 
 export function emptyDayEventState(): DayEventState {
-  return { id: null, day: 0, redMoonReward: false };
+  return { id: null, day: 0, redMoonReward: false, redMoonsCleared: 0, offer: null, offerTimer: 0 };
 }
 
 /** Today's event, or null */
@@ -86,6 +99,7 @@ export function dayEventExtraInvaders(world: World, base: number): number {
 export function consumeWaveRewardMult(world: World): number {
   if (!world.dayEvent.redMoonReward) return 1;
   world.dayEvent.redMoonReward = false;
+  world.dayEvent.redMoonsCleared = (world.dayEvent.redMoonsCleared ?? 0) + 1;
   return DAY_EVENT.redMoon.rewardMult;
 }
 
@@ -136,16 +150,40 @@ export class DayEventSystem implements System {
     return this.clock.getPhase() === 'day' ? left + NIGHT_DURATION : left;
   }
 
-  update(): void {
+  update(dt = 0): void {
     const state = this.world.dayEvent;
     const day = this.clock.getDayNumber();
     if (day !== state.day) {
       state.day = day;
       const previous = state.id;
       state.id = null;
-      if (!this.held && day >= DAY_EVENT.firstDay && this.random() < DAY_EVENT.chance) this.start(previous);
+      state.offer = null;
+      if (!this.held && day >= DAY_EVENT.firstDay && this.random() < DAY_EVENT.chance) this.offer(previous);
+    }
+    // The player did not pick in time: the first of the two comes
+    if (state.offer) {
+      state.offerTimer -= dt;
+      if (state.offerTimer <= 0) this.start(null, state.offer[0]);
     }
     this.applyModifiers();
+  }
+
+  /** A special dawn: two days to pick from, never yesterday's */
+  offer(previous: DayEventId | null = null): void {
+    const pool = DAY_EVENT_IDS.filter((id) => id !== previous);
+    const first = pool.splice(Math.min(pool.length - 1, Math.floor(this.random() * pool.length)), 1)[0];
+    const second = pool[Math.min(pool.length - 1, Math.floor(this.random() * pool.length))];
+    const state = this.world.dayEvent;
+    state.offer = [first, second];
+    state.offerTimer = DAY_EVENT.chooseSeconds;
+    this.world.pushNotification('info', `🌅 Amanecer especial: elige entre ${DAY_EVENTS[first].name} y ${DAY_EVENTS[second].name}`);
+  }
+
+  /** The player picks one of the two days offered; false when it is not on offer */
+  choose(id: DayEventId): boolean {
+    if (!this.world.dayEvent.offer?.includes(id)) return false;
+    this.start(null, id);
+    return true;
   }
 
   /** Begin a special day, never the same as yesterday's */
@@ -153,6 +191,7 @@ export class DayEventSystem implements System {
     const pool = DAY_EVENT_IDS.filter((id) => id !== previous);
     const id = pick ?? pool[Math.min(pool.length - 1, Math.floor(this.random() * pool.length))];
     const state = this.world.dayEvent;
+    state.offer = null;
     state.id = id;
     const def = DAY_EVENTS[id];
     if (id === 'redMoon') state.redMoonReward = true;

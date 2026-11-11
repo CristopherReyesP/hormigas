@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { LegacyPanel } from './LegacyPanel';
 import { GAME_VERSION } from '../shared/version';
 import { installAudioUi } from '../audio';
 import { AntRole } from '../game/components/components';
@@ -18,6 +19,7 @@ interface TitleScreenProps {
 /** The game's front door: a cinematic aerial shot of the colony's tide breaking on the Crystal Hive's, then the title. */
 export function TitleScreen({ onStart, onTutorial, savedRun }: TitleScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [legacyOpen, setLegacyOpen] = useState(false);
   // The first screen: from here on every button ticks and taps, and the first click unlocks audio
   useEffect(() => installAudioUi(), []);
 
@@ -66,8 +68,12 @@ export function TitleScreen({ onStart, onTutorial, savedRun }: TitleScreenProps)
             TUTORIAL
           </button>
         )}
+        <button type="button" className="race-tutorial title-tutorial" data-legacy-open="" title="ADN, herencias y logros que pasan de una partida a otra" onClick={() => setLegacyOpen(true)}>
+          LEGADO
+        </button>
         {savedRun && <div className="title-saves">{savedRun}</div>}
       </div>
+      {legacyOpen && <LegacyPanel onClose={() => setLegacyOpen(false)} />}
       <p className="game-version game-version--title" data-game-version="">{GAME_VERSION}</p>
     </div>
   );

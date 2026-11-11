@@ -59,6 +59,10 @@ export class RunModifiers implements Record<RunStat, number> {
     this.trophies.push(id);
   }
 
+  getTrophies(): TrophyId[] {
+    return [...this.trophies];
+  }
+
   getTrophyCount(id: TrophyId): number {
     return this.trophies.filter(held => held === id).length;
   }

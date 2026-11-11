@@ -41,8 +41,8 @@ export function NotificationStack({ notifications, hint, hintTone = 'hint', hint
             onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
             onClick={() => onFocus(at)}
           >
-            {stripEmoji(n.message)}
             <span className="notif-go" aria-hidden="true">▸ IR</span>
+            {stripEmoji(n.message)}
           </button>
         ) : (
           <div key={n.id} className={`notif-line notif-line--${n.severity}`}>

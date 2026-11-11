@@ -6,6 +6,7 @@ import { Console } from './ui/console/Console';
 import { ObjectivePanel } from './ui/ObjectivePanel';
 import { GameOverScreen } from './ui/GameOverScreen';
 import { MilestoneBanner } from './ui/MilestoneBanner';
+import { DayEventChoice } from './ui/DayEventChoice';
 import { EvolutionChamber } from './ui/EvolutionChamber';
 import { RacePicker } from './ui/RacePicker';
 import { TitleScreen } from './ui/TitleScreen';
@@ -299,6 +300,9 @@ export default function App() {
           <NestAlert state={stats.nestAlert} activeLayer={stats.activeLayer} onGoToNest={handleGoToNest} />
         )}
         {!stats.introPlaying && !stats.gameOver && <MilestoneBanner milestone={stats.milestone} />}
+        {!stats.introPlaying && !stats.gameOver && !stats.mutationOffer && (
+          <DayEventChoice offer={stats.dayEventOffer} onPick={(id) => gameManager?.chooseDayEvent(id)} />
+        )}
         {!stats.introPlaying && !stats.gameOver && <FrontierBanner banner={stats.frontierBanner} />}
       </AlertStack>
       {/* Pause menu: save, load, back to the start screen */}

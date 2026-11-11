@@ -73,6 +73,9 @@ export class World {
     healRateMult: 1,
   };
 
+  /** The run's feats the legacy and the end screen read (veterans.ts, threat.ts) */
+  legend: { captains: number; peakAnts: number; bestVeteran: { title: string; kills: number } | null } = { captains: 0, peakAnts: 0, bestVeteran: null };
+
   /** Wounded veterans walk home to heal on their own (veterans.ts); the player can turn it off */
   veteranRetreat = true;
 

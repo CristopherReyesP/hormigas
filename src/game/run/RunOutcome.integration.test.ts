@@ -76,6 +76,8 @@ describe('run outcome manager integration', () => {
     expect(state.gameOver).toEqual({
       outcome: 'defeat', survivedTicks: 123, ...world.metrics, build: expect.any(Array),
       nightsSurvived: 9, bestNight: 9, newRecord: true,
+      // Nine nights bank 45 ADN, plus the two night achievements they unlock
+      legacy: expect.objectContaining({ dnaGained: 65, bestVeteran: null, trophies: [] }),
       // Nothing was seen taking her health away: the cause is unknown
       cause: { kind: 'unknown', core: 'queen' },
       diedOn: { day: 10, phase: 'night' }, // the whole day passed in one tick: dusk fell

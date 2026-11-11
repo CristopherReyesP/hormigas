@@ -77,10 +77,9 @@ export class ThreatSystem implements System {
 
   /** Measure the colony now */
   measure(): number {
-    const now = threatLevel({
-      day: this.clock.getDayNumber(),
-      ants: this.world.query(COMPONENT.ANT).length,
-    });
+    const ants = this.world.query(COMPONENT.ANT).length;
+    this.world.legend.peakAnts = Math.max(this.world.legend.peakAnts, ants);
+    const now = threatLevel({ day: this.clock.getDayNumber(), ants });
     this.level = Math.max(this.level, now);
     return this.level;
   }

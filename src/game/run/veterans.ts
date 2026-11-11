@@ -82,7 +82,10 @@ export function creditKill(world: World, id: EntityId): void {
   }
   vet.kills++;
   const rank = rankFor(vet.kills);
-  if (rank <= vet.rank) return;
+  if (rank <= vet.rank) {
+    remember(world, vet);
+    return;
+  }
   const before = veteranMultiplier(vet.rank);
   vet.rank = rank;
   const scale = veteranMultiplier(rank) / before;
@@ -102,10 +105,18 @@ export function creditKill(world: World, id: EntityId): void {
   const role = ROLE_LABEL[ant.role] ?? 'hormiga';
   if (rank >= MAX_RANK) {
     vet.name = veteranName(id);
+    world.legend.captains++;
     world.pushNotification('success', `🎖️ Una ${role} con ${vet.kills} bajas asciende: ¡${veteranTitle(vet)}! Cuídala`, undefined, 0, at);
   } else {
     world.pushNotification('info', `🎖️ Una ${role} asciende a ${TITLES[rank]} (${vet.kills} bajas)`, `veteran-rank-${rank}`, 8000, at);
   }
+  remember(world, vet);
+}
+
+/** The run remembers its deadliest ranked ant, for the end screen */
+function remember(world: World, vet: VeteranComponent): void {
+  const best = world.legend.bestVeteran;
+  if (vet.rank >= 1 && (!best || vet.kills >= best.kills)) world.legend.bestVeteran = { title: veteranTitle(vet), kills: vet.kills };
 }
 
 function whereIs(world: World, id: EntityId): { x: number; y: number; layer: LayerValue } | undefined {

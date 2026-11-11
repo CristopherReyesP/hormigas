@@ -144,9 +144,10 @@ import { drawHumanPlayerOverlay } from './races/human/humanOverlay';
 import type { WaveDirector } from './races/human/HumanWaveSystem';
 import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
-import { DAY_EVENTS, DayEventSystem } from './run/dayEvents';
+import { DAY_EVENTS, DayEventSystem, type DayEventId } from './run/dayEvents';
 import { trophySummary, type TrophyId } from './run/trophies';
 import { veteranInfo } from './run/veterans';
+import { ACHIEVEMENTS, ACHIEVEMENT_DNA, PERK_VALUE, bankRun, loadLegacy, runDna, type AchievementId, type RunFeats } from './meta/legacy';
 import {
   AntRole,
   AntState,
@@ -402,6 +403,14 @@ export interface GameOverStats {
   nightsSurvived: number;
   /** The local record, this run included */
   bestNight: number;
+  /** What the run leaves behind: ADN banked, achievements unlocked, its deadliest ant and its relics */
+  legacy?: {
+    dnaGained: number;
+    dnaTotal: number;
+    achievements: Array<{ name: string; description: string }>;
+    bestVeteran: { title: string; kills: number } | null;
+    trophies: Array<{ name: string; count: number }>;
+  };
   /** This run beat the record the browser had when it started */
   newRecord: boolean;
 }
@@ -536,6 +545,8 @@ export interface GameStats {
   frontierBanner?: { title: string; subtitle: string } | null;
   activeEvents: Array<{ icon: string; name: string; remaining: number }>;
   /** Boss relics the colony holds (trophies.ts) */
+  /** A special dawn: the two days to pick from, and the seconds left to do it */
+  dayEventOffer?: { options: Array<{ id: DayEventId; name: string; blurb: string }>; remaining: number } | null;
   /** Wounded veterans retreat to heal on their own (undefined for the races without ants) */
   veteranRetreat?: boolean;
   trophies?: Array<{ id: TrophyId; icon: string; name: string; description: string; count: number }>;
@@ -661,6 +672,10 @@ export class GameManager {
   private idleQueenSeconds = 0;
   /** The tutorial holds the calm: no wave, no defenses firing, no nest alarm */
   private tutorialCalm = false;
+  /** The legacy (meta/legacy.ts): the part of this run's ADN already banked, all it earned, and what it unlocked */
+  private dnaBanked = 0;
+  private dnaThisRun = 0;
+  private achievementsThisRun: AchievementId[] = [];
   /** A Humans run (setup.playerRace 'human'): the player's base, its systems and its clicks; null for the Swarm */
   private humanPlayer: HumanPlayerRun | null = null;
   private gameOver: GameOverStats | null = null;
@@ -1849,6 +1864,30 @@ export class GameManager {
       const y = nestY + Math.sin(angle) * dist;
       createAnt(this.world, x, y, AntRole.Worker);
     }
+    this.applyLegacyPerks(nestX, nestY);
+  }
+
+  /** The herencias bought with ADN (meta/legacy.ts): a new colony starts with them */
+  private applyLegacyPerks(nestX: number, nestY: number): void {
+    const { perks } = loadLegacy();
+    const around = (role: AntRole, count: number) => {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 1 + Math.random() * 2;
+        createAnt(this.world, nestX + Math.cos(angle) * dist, nestY + Math.sin(angle) * dist, role);
+      }
+    };
+    around(AntRole.Worker, perks.brood * PERK_VALUE.brood);
+    around(AntRole.Soldier, perks.guard * PERK_VALUE.guard);
+    if (perks.ore > 0) this.world.minerals.deposit(perks.ore * PERK_VALUE.ore);
+    if (perks.pantry > 0) {
+      const tile = this.undergroundGrid.findDepositTile('leaf');
+      if (tile) this.undergroundGrid.depositFood(tile.x, tile.y, 'leaf', perks.pantry * PERK_VALUE.pantry);
+    }
+    if (perks.chitin > 0) {
+      this.runModifiers.antMaxHealthMult *= 1 + perks.chitin * PERK_VALUE.chitin;
+      retrofitAntStats(this.world);
+    }
   }
 
   private clearCorridor(startX: number, startY: number, dirX: number, dirY: number): void {
@@ -1959,6 +1998,35 @@ export class GameManager {
   }
 
   /** Nights the colony has lived through: the night on now does not count yet */
+  /** What this run has done, as the legacy counts it */
+  private runFeats(victory: boolean): RunFeats {
+    const trophies = this.runModifiers.getTrophies();
+    return {
+      nights: this.nightsSurvived(),
+      trophies: trophies.length,
+      trophyKinds: new Set(trophies).size,
+      tarantulas: this.runModifiers.getTrophyCount('fang'),
+      captains: this.world.legend.captains,
+      redMoons: this.world.dayEvent.redMoonsCleared ?? 0,
+      victory,
+      peakAnts: this.world.legend.peakAnts,
+    };
+  }
+
+  /** Bank what the run earned since the last time (each dawn, and when it ends), and announce new achievements */
+  private bankLegacy(victory = false): number {
+    if (this.tutorialCalm) return loadLegacy().dna;
+    const feats = this.runFeats(victory || this.rivalCoreFallen === true || this.phase2Won === true);
+    const result = bankRun(feats, this.dnaBanked ?? 0, undefined, this.achievementsThisRun ?? []);
+    this.dnaBanked = Math.max(this.dnaBanked ?? 0, runDna(feats));
+    this.dnaThisRun = (this.dnaThisRun ?? 0) + result.gained;
+    this.achievementsThisRun = [...(this.achievementsThisRun ?? []), ...result.unlocked];
+    for (const id of result.unlocked) {
+      this.world.pushNotification('success', `🏅 Logro: ${ACHIEVEMENTS[id].name} (+${ACHIEVEMENT_DNA} ADN). ${ACHIEVEMENTS[id].description}`);
+    }
+    return result.legacy.dna;
+  }
+
   private nightsSurvived(): number {
     return Math.max(0, this.dayNightSystem.getDayNumber() - 1);
   }
@@ -1970,6 +2038,7 @@ export class GameManager {
   private celebrateDawn(): void {
     const nights = this.nightsSurvived();
     recordNight(nights);
+    this.bankLegacy();
     const milestone = nightMilestone(nights);
     if (!milestone) return;
     // The Swarm stocks the food in its pantry; a Human expedition banks it as rations
@@ -2269,6 +2338,7 @@ export class GameManager {
         : {}),
       ...(outcome === 'victory' && frontierConquered && !coreDestroyed ? { frontierConquered: true as const } : {}),
       nightsSurvived,
+      legacy: this.legacySummary(outcome === 'victory'),
       bestNight: recordNight(nightsSurvived),
       newRecord: nightsSurvived > 0 && nightsSurvived > this.runStartBest,
     };
@@ -2277,6 +2347,18 @@ export class GameManager {
 
     // Push final stats immediately so the UI shows the game-over screen without waiting
     this.publishStats();
+  }
+
+  /** Bank the run and sum up what it leaves behind, for the end screen */
+  private legacySummary(victory: boolean): NonNullable<GameOverStats['legacy']> {
+    const dnaTotal = this.bankLegacy(victory);
+    return {
+      dnaGained: this.dnaThisRun ?? 0,
+      dnaTotal,
+      achievements: (this.achievementsThisRun ?? []).map((id) => ({ name: ACHIEVEMENTS[id].name, description: ACHIEVEMENTS[id].description })),
+      bestVeteran: this.world.legend.bestVeteran,
+      trophies: trophySummary(this.world).map((t) => ({ name: t.name, count: t.count })),
+    };
   }
 
   /** Push a snapshot now: the throttled publish in update() stops while paused. */
@@ -3499,6 +3581,11 @@ export class GameManager {
     this.input.setCamera(this.camera);
   }
 
+  /** Pick one of the two special days this dawn offers */
+  chooseDayEvent(id: DayEventId): boolean {
+    return this.dayEventSystem.choose(id);
+  }
+
   /** Turn the veterans' retreat on or off: wounded ranked ants walk home to heal on their own */
   toggleVeteranRetreat(): boolean {
     this.world.veteranRetreat = !this.world.veteranRetreat;
@@ -4231,6 +4318,10 @@ export class GameManager {
           remaining: Math.ceil(e.remainingTime),
         })),
       ],
+      dayEventOffer: this.world.dayEvent.offer ? {
+        options: this.world.dayEvent.offer.map((id) => ({ id, name: DAY_EVENTS[id].name, blurb: DAY_EVENTS[id].blurb })),
+        remaining: Math.max(0, Math.ceil(this.world.dayEvent.offerTimer)),
+      } : null,
       trophies: trophySummary(this.world),
       veteranRetreat: this.humanPlayer || this.crystal ? undefined : this.world.veteranRetreat,
       dayPhase: this.dayNightSystem.getPhase(),

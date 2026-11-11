@@ -187,6 +187,37 @@ export function GameOverScreen({ stats, onRestart, onContinue }: GameOverScreenP
           )}
         </div>}
 
+        {stats.legacy && (
+          <div data-testid="run-legacy" style={{ textAlign: 'left', marginBottom: 22 }}>
+            <div className="pixel-heading" style={{ color: 'var(--chrome-dim)', marginBottom: 6 }}>
+              Legado
+            </div>
+            <div style={rowStyle}>
+              {label('star', 'ADN ganado')}
+              <strong className="pixel-number" style={{ color: 'var(--chrome-accent)' }}>{`+${stats.legacy.dnaGained} (total ${stats.legacy.dnaTotal})`}</strong>
+            </div>
+            {stats.legacy.bestVeteran && (
+              <div style={rowStyle}>
+                {label('sword', 'Mejor veterana')}
+                <strong>{`${stats.legacy.bestVeteran.title} · ${stats.legacy.bestVeteran.kills} bajas`}</strong>
+              </div>
+            )}
+            {stats.legacy.trophies.length > 0 && (
+              <div style={rowStyle}>
+                {label('crown', 'Trofeos')}
+                <strong>{stats.legacy.trophies.map((t) => (t.count > 1 ? `${t.name} ×${t.count}` : t.name)).join(' · ')}</strong>
+              </div>
+            )}
+            {stats.legacy.achievements.map((a) => (
+              <div key={a.name} style={{ ...rowStyle, borderBottom: '1px solid var(--chrome-panel-light)' }} title={a.description}>
+                {label('flag', `Logro: ${a.name}`)}
+                <strong style={{ color: 'var(--chrome-accent)' }}>¡NUEVO!</strong>
+              </div>
+            ))}
+            <div style={{ color: 'var(--chrome-dim)', marginTop: 6 }}>Gasta el ADN en herencias desde el menú principal (LEGADO).</div>
+          </div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
         {victory && onContinue && (
           <button

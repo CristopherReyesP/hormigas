@@ -1264,7 +1264,7 @@ button:focus-visible {
 }
 .notif-line--go:hover { filter: brightness(1.25); }
 .notif-go {
-  margin-left: 10px;
+  margin-right: 10px;
   color: var(--chrome-accent);
 }
 
@@ -3759,3 +3759,108 @@ button:focus-visible {
   pointer-events: none;
   z-index: 2;
 }
+
+/* ── LEGADO: ADN, herencias and achievements (title screen) ── */
+.legacy-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  padding: 12px;
+}
+.legacy-panel {
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px 24px;
+  background: var(--chrome-panel);
+  color: var(--chrome-text);
+  font-size: 8px;
+  line-height: 1.8;
+}
+.legacy-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.legacy-title {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 16px;
+  color: var(--chrome-accent);
+}
+.legacy-dna {
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  color: var(--chrome-accent);
+}
+.legacy-note { color: var(--chrome-dim); margin: 8px 0 12px; }
+.legacy-sub {
+  margin: 12px 0 6px;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  color: var(--chrome-dim);
+}
+.legacy-list { list-style: none; margin: 0; padding: 0; }
+.legacy-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--chrome-border);
+}
+.legacy-row-text { display: flex; flex-direction: column; }
+.legacy-row-blurb { color: var(--chrome-dim); }
+.legacy-buy { min-width: 84px; padding: 6px 10px; font-size: 8px; }
+.legacy-buy:disabled { opacity: 0.45; cursor: default; }
+.legacy-list--achievements {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px 16px;
+}
+.legacy-ach { display: flex; flex-direction: column; opacity: 0.55; }
+.legacy-ach--done { opacity: 1; }
+.legacy-ach--done strong { color: var(--chrome-accent); }
+.legacy-close { display: block; margin: 16px auto 0; padding: 10px 24px; font-size: 8px; }
+
+/* ── The dawn's choice between two special days ── */
+.day-choice {
+  pointer-events: auto;
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 29;
+  width: min(460px, calc(100% - 24px));
+  padding: 8px 10px 10px;
+  background: var(--chrome-panel);
+  color: var(--chrome-text);
+  font-size: 8px;
+  line-height: 1.7;
+}
+.day-choice-head {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-pixel);
+  color: var(--chrome-accent);
+  margin-bottom: 6px;
+}
+.day-choice-clock { color: var(--chrome-warn); }
+.day-choice-options { display: flex; gap: 8px; }
+.day-choice-btn {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 8px;
+  font-size: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.day-choice-btn:first-child { border-color: var(--chrome-accent); }
+.day-choice-blurb { color: var(--chrome-dim); white-space: normal; }
