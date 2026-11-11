@@ -412,16 +412,17 @@ export class RenderSystem {
       const c = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
       const sctx = c.getContext('2d')!;
       const p = new PixelPainter(sctx, 2);
-      const drops = level === 0 ? 3 : level === 1 ? 6 : 10;
+      // Few and faint: a trail is a hint on the ground, never brighter than the ants that walk it
+      const drops = level === 0 ? 2 : level === 1 ? 3 : 5;
       for (let i = 0; i < drops; i++) {
         const dx = 1 + Math.floor(hash2(salt * 13 + i, level * 7 + 1) * 14);
         const dy = 1 + Math.floor(hash2(salt * 17 + i, level * 5 + 3) * 14);
-        sctx.globalAlpha = 0.15;
+        sctx.globalAlpha = 0.06;
         p.px(dx - 1, dy, color);
         p.px(dx + 1, dy, color);
         p.px(dx, dy - 1, color);
         p.px(dx, dy + 1, color);
-        sctx.globalAlpha = level === 2 ? 0.55 : 0.4;
+        sctx.globalAlpha = level === 2 ? 0.3 : 0.2;
         p.px(dx, dy, color);
       }
       return c;
