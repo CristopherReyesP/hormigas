@@ -863,6 +863,8 @@ export class GameManager {
       this.dayNightSystem,
       this.grid
     );
+    // Soldiers waiting at the shaft for a sortie defend the nest instead when it is breached
+    transitSystem.setNestBreached(() => this.invasionSystem.invadersOn('underground') > 0);
     if (setup.playerRace === 'crystal') {
       // The Crystal Hive has no cave: its night waves cross the surface to the Hive (the controller adds them)
       this.crystal = new CrystalPlayerController(this.world, this.grid, this.dayNightSystem, (x, y) => this.visibilityGrid.isExplored(x, y));
