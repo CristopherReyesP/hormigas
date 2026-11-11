@@ -1,4 +1,6 @@
 import { MAX_RANK, veteranOf } from '../run/veterans';
+import { drawFloatTexts, impactFlash, impactShake } from '../vfx/feedbackFx';
+import { dayAmbience } from '../run/dayEvents';
 import { beginBillboard, beginUprightOverlay } from '../../engine/renderer/uprightOverlay';
 import { StandingSprites } from '../../engine/renderer/standingSprites';
 import { PheromoneLayer } from '../../engine/renderer/PheromoneLayer';
@@ -1086,7 +1088,8 @@ export class RenderSystem {
     this.followMeteorShower(dt);
     const introShake = this.intro?.getShake() ?? NO_SHAKE;
     const showerShake = this.meteorShower.shake();
-    const shake = showerShake.x === 0 && showerShake.y === 0 ? introShake : { x: introShake.x + showerShake.x, y: introShake.y + showerShake.y };
+    const hit = impactShake(this.world);
+    const shake = { x: introShake.x + showerShake.x + hit.x, y: introShake.y + showerShake.y + hit.y };
 
     const ctx = this.renderer.getContext();
     this.renderer.clear();
@@ -1098,6 +1101,7 @@ export class RenderSystem {
     // Branch: underground or surface
     if (this.getActiveLayer && this.getActiveLayer() === 'underground') {
       this.renderUndergroundFrame(ctx, dt, shake);
+      this.renderScreenFlash(ctx);
       this.renderDragBox(ctx);
       this.intro?.drawScreenFx(ctx, null);
       return;
@@ -1127,6 +1131,7 @@ export class RenderSystem {
       this.cloudShadows.draw(ctx, this.animationTime, this.camera.getCanvasWorldRect());
     }
     drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Surface, this.visibilityGrid);
+    drawFloatTexts(ctx, this.world, Layer.Surface, seen);
     this.fogRenderer.update();
     this.fogRenderer.draw(ctx);
     this.renderWaveMarchOverFog(ctx, interpolation);
@@ -1145,9 +1150,33 @@ export class RenderSystem {
     ctx.restore();
     this.postProcessor.setLights(dayPhase?.phase === 'night' ? this.collectSurfaceLights() : []);
     this.postProcessor.apply(ctx);
+    this.renderDayAmbience(ctx, dayPhase?.phase ?? 'day');
     if (dayPhase) this.renderNightGlow(ctx, dayPhase.phase, dayPhase.progress, shake);
+    this.renderScreenFlash(ctx);
     this.renderDragBox(ctx);
     if (this.camera) this.intro?.drawScreenFx(ctx, this.camera);
+  }
+
+  /** Today's special day colors the whole surface: a red sky under the Luna roja, warm light on a calm day */
+  private renderDayAmbience(ctx: CanvasRenderingContext2D, phase: 'day' | 'night'): void {
+    const tint = dayAmbience(this.world.dayEvent.id, phase);
+    if (!tint) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = `rgba(${tint.color},${tint.alpha})`;
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.restore();
+  }
+
+  /** The flash of a big moment (a boss falls, a veteran dies, the wave lands) */
+  private renderScreenFlash(ctx: CanvasRenderingContext2D): void {
+    const flash = impactFlash(this.world);
+    if (!flash) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = `rgba(${flash.color},${flash.alpha})`;
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.restore();
   }
 
   /**
@@ -1837,6 +1866,7 @@ export class RenderSystem {
       drawGhost(ctx, overlay, this.animationTime);
     }
     drawCombatVfx(ctx, combatVfxFor(this.world), 'air', Layer.Underground, null);
+    drawFloatTexts(ctx, this.world, Layer.Underground);
     this.farmArt.drawPlucks(ctx, farmTime);
     ctx.restore(); // restore camera transform
 

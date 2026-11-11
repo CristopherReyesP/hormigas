@@ -1,3 +1,4 @@
+import { pushImpact } from '../vfx/feedbackFx';
 import { consumeWaveRewardMult, dayEventExtraInvaders } from '../run/dayEvents';
 import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
@@ -1246,6 +1247,7 @@ export class UndergroundInvasionSystem implements System {
 
   private launchWave(): void {
     emitAudio({ type: 'wave' });
+    pushImpact(this.world, 5, '255,70,50', 0.5);
     const wave = this.nextComposition();
     this.pickEntrance();
     // The column's road: from the scouted edge to the hole of the scouted entrance

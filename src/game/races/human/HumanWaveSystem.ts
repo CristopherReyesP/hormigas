@@ -1,3 +1,4 @@
+import { pushImpact } from '../../vfx/feedbackFx';
 import { consumeWaveRewardMult } from '../../run/dayEvents';
 import type { System } from '../../../engine/ecs/types';
 import { areaOf } from '../../../simulation/world/frontier';
@@ -450,6 +451,7 @@ export class HumanWaveSystem implements WaveDirector {
 
   private launchWave(): void {
     emitAudio({ type: 'wave' });
+    pushImpact(this.world, 5, '255,70,50', 0.5);
     const wave = this.nextComposition();
     this.waveNumber++;
     this.active = true;

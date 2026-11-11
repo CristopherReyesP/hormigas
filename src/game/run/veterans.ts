@@ -5,7 +5,8 @@
 
 import type { World } from '../../engine/ecs/World';
 import type { EntityId } from '../../shared/types';
-import { AntRole, COMPONENT, type AntComponent, type CombatComponent, type HealthComponent } from '../components/components';
+import { AntRole, COMPONENT, Layer, type AntComponent, type CombatComponent, type HealthComponent, type LayerComponent, type LayerValue, type PositionComponent } from '../components/components';
+import { FLOAT_COLOR, pushFloat } from '../vfx/feedbackFx';
 
 export const VETERAN_COMPONENT = 'veteran';
 
@@ -21,6 +22,8 @@ export const VETERAN = {
   rankKills: [3, 8, 15],
   /** Extra damage and max health per rank */
   perRank: 0.12,
+  /** With the retreat on, a ranked ant below this share of its health walks home to heal */
+  retreatBelow: 0.35,
 } as const;
 
 export const MAX_RANK = VETERAN.rankKills.length;
@@ -93,18 +96,43 @@ export function creditKill(world: World, id: EntityId): void {
   const combat = world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
   if (combat) combat.attackDamage = Math.round(combat.attackDamage * scale);
 
+  const at = whereIs(world, id);
+  if (at) pushFloat(world, at, '¡ASCENSO!', FLOAT_COLOR.promo, 13, 1.4);
+
   const role = ROLE_LABEL[ant.role] ?? 'hormiga';
   if (rank >= MAX_RANK) {
     vet.name = veteranName(id);
-    world.pushNotification('success', `🎖️ Una ${role} con ${vet.kills} bajas asciende: ¡${veteranTitle(vet)}! Cuídala`);
+    world.pushNotification('success', `🎖️ Una ${role} con ${vet.kills} bajas asciende: ¡${veteranTitle(vet)}! Cuídala`, undefined, 0, at);
   } else {
-    world.pushNotification('info', `🎖️ Una ${role} asciende a ${TITLES[rank]} (${vet.kills} bajas)`, `veteran-rank-${rank}`, 8000);
+    world.pushNotification('info', `🎖️ Una ${role} asciende a ${TITLES[rank]} (${vet.kills} bajas)`, `veteran-rank-${rank}`, 8000, at);
   }
+}
+
+function whereIs(world: World, id: EntityId): { x: number; y: number; layer: LayerValue } | undefined {
+  const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+  if (!pos) return undefined;
+  return { x: pos.x, y: pos.y, layer: world.getComponent<LayerComponent>(id, COMPONENT.LAYER)?.layer ?? Layer.Surface };
 }
 
 /** A veteran falls: the named ones are mourned by name */
 export function mournVeteran(world: World, id: EntityId): void {
   const vet = veteranOf(world, id);
   if (!vet || vet.rank < 2) return;
-  world.pushNotification('danger', `🪦 Cayó ${veteranTitle(vet)} tras ${vet.kills} bajas`);
+  world.pushNotification('danger', `🪦 Cayó ${veteranTitle(vet)} tras ${vet.kills} bajas`, undefined, 0, whereIs(world, id));
+}
+
+/** A ranked ant's card line: its title and kills (undefined below rank 1) */
+export function veteranInfo(world: World, id: EntityId): { title: string; kills: number; rank: number } | undefined {
+  const vet = veteranOf(world, id);
+  if (!vet || vet.rank < 1) return undefined;
+  return { title: veteranTitle(vet), kills: vet.kills, rank: vet.rank };
+}
+
+/** A ranked ant hurt badly enough to pull out of the fight (when the colony's retreat is on) */
+export function shouldRetreat(world: World, id: EntityId): boolean {
+  if (!world.veteranRetreat) return false;
+  const vet = veteranOf(world, id);
+  if (!vet || vet.rank < 1) return false;
+  const health = world.getComponent<HealthComponent>(id, COMPONENT.HEALTH);
+  return !!health && health.current > 0 && health.current < health.max * VETERAN.retreatBelow;
 }

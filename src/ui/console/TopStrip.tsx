@@ -313,6 +313,23 @@ export function TopStrip({ stats, gameManager, onHelp }: TopStripProps) {
       </div>
 
       <div className="strip-group strip-group--right">
+        {stats.veteranRetreat !== undefined && (
+          <button
+            type="button"
+            className={`strip-item strip-vet${stats.veteranRetreat ? ' strip-item--accent' : ''}`}
+            title={stats.veteranRetreat
+              ? 'Retirada de veteranas: ACTIVADA. Las veteranas malheridas vuelven solas al nido a curarse. Toca para desactivar.'
+              : 'Retirada de veteranas: DESACTIVADA. Pelean hasta el final. Toca para activar.'}
+            aria-label="Retirada automática de veteranas"
+            aria-pressed={stats.veteranRetreat}
+            disabled={!gameManager}
+            onMouseDown={(e) => e.preventDefault()} // keep focus off: Space must stay the pause key
+            onClick={() => gameManager?.toggleVeteranRetreat()}
+          >
+            <PixelIcon name={stats.veteranRetreat ? 'heart' : 'sword'} />
+            VET
+          </button>
+        )}
         {(stats.trophies ?? []).map((trophy) => (
           <span key={trophy.id} className="strip-item strip-item--accent" title={`Trofeo: ${trophy.name}${trophy.count > 1 ? ` ×${trophy.count}` : ''}. ${trophy.description}`}>
             <PixelIcon name={TROPHY_ICON[trophy.id]} />

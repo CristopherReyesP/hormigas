@@ -48,6 +48,8 @@ export class World {
     severity: 'info' | 'success' | 'warning' | 'danger';
     message: string;
     createdAt: number; // wall-clock ms (display lifecycle only)
+    /** Where it happened (tile): the toast becomes a button that takes the camera there */
+    at?: { x: number; y: number; layer?: 'surface' | 'underground' };
   }> = [];
 
   /** Lifetime colony metrics — incremented by systems, read by ObjectiveSystem */
@@ -70,6 +72,9 @@ export class World {
     porterBonus: 0,
     healRateMult: 1,
   };
+
+  /** Wounded veterans walk home to heal on their own (veterans.ts); the player can turn it off */
+  veteranRetreat = true;
 
   /** Today's special day (dayEvents.ts): read by combat and the waves */
   dayEvent: DayEventState = emptyDayEventState();
@@ -95,7 +100,8 @@ export class World {
     severity: 'info' | 'success' | 'warning' | 'danger',
     message: string,
     key?: string,
-    cooldownMs = 0
+    cooldownMs = 0,
+    at?: { x: number; y: number; layer?: 'surface' | 'underground' }
   ): void {
     const now = Date.now();
     if (key && cooldownMs > 0) {
@@ -103,7 +109,7 @@ export class World {
       if (last !== undefined && now - last < cooldownMs) return;
       this.notificationCooldowns.set(key, now);
     }
-    this.notifications.push({ id: this.nextNotificationId++, severity, message, createdAt: now });
+    this.notifications.push({ id: this.nextNotificationId++, severity, message, createdAt: now, ...(at ? { at: { x: at.x, y: at.y, layer: at.layer } } : {}) });
     if (this.notifications.length > 20) this.notifications.shift();
   }
 

@@ -146,6 +146,7 @@ import { createDefaultModifiers } from './events/GlobalModifiers';
 import { EventSystem } from './events/EventSystem';
 import { DAY_EVENTS, DayEventSystem } from './run/dayEvents';
 import { trophySummary, type TrophyId } from './run/trophies';
+import { veteranInfo } from './run/veterans';
 import {
   AntRole,
   AntState,
@@ -267,6 +268,8 @@ export interface SelectedEntityInfo {
   carrying?: { type: string | null; amount: number };
   /** Stats with their bonus over the caste base, from Mejoras and mutations ("Daño 10 (+2)") */
   antStats?: AntStatLine[];
+  /** A ranked veteran: its title ("Capitana Mandíbula") and kills */
+  veteran?: { title: string; kills: number; rank: number };
   // Food-specific
   foodAmount?: number;
   foodType?: string;
@@ -366,6 +369,8 @@ export interface GameNotification {
   severity: 'info' | 'success' | 'warning' | 'danger';
   message: string;
   createdAt: number;
+  /** Where it happened: clicking the toast takes the camera there (focusOn) */
+  at?: { x: number; y: number; layer?: 'surface' | 'underground' };
 }
 
 export type { UpgradeId } from './upgrades/upgradeTable';
@@ -531,6 +536,8 @@ export interface GameStats {
   frontierBanner?: { title: string; subtitle: string } | null;
   activeEvents: Array<{ icon: string; name: string; remaining: number }>;
   /** Boss relics the colony holds (trophies.ts) */
+  /** Wounded veterans retreat to heal on their own (undefined for the races without ants) */
+  veteranRetreat?: boolean;
   trophies?: Array<{ id: TrophyId; icon: string; name: string; description: string; count: number }>;
   dayPhase: 'day' | 'night';
   dayNumber: number;
@@ -3492,6 +3499,27 @@ export class GameManager {
     this.input.setCamera(this.camera);
   }
 
+  /** Turn the veterans' retreat on or off: wounded ranked ants walk home to heal on their own */
+  toggleVeteranRetreat(): boolean {
+    this.world.veteranRetreat = !this.world.veteranRetreat;
+    this.world.pushNotification('info', this.world.veteranRetreat
+      ? '🎖️ Retirada de veteranas ACTIVADA: las heridas vuelven solas al nido a curarse'
+      : '🎖️ Retirada de veteranas DESACTIVADA: pelean hasta el final');
+    return this.world.veteranRetreat;
+  }
+
+  /** Take the camera to tile (x, y) of `layer`: what a click on a located alert does */
+  focusOn(x: number, y: number, layer: 'surface' | 'underground' = 'surface'): void {
+    if (layer === 'underground') {
+      if (this.activeLayer !== 'underground') this.enterUnderground();
+      if (this.activeLayer !== 'underground') return;
+      this.undergroundCamera.centerOn(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2);
+      return;
+    }
+    if (this.activeLayer !== 'surface') this.exitUnderground();
+    this.camera.centerOn(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2);
+  }
+
   getActiveLayer(): 'surface' | 'underground' {
     return this.activeLayer;
   }
@@ -3901,6 +3929,7 @@ export class GameManager {
         hunger: hunger ? { current: hunger.current, max: hunger.max } : undefined,
         carrying: carrying ? { type: carrying.resourceType, amount: carrying.amount } : undefined,
         antStats: antStatLines(this.world, selectedId),
+        veteran: veteranInfo(this.world, selectedId),
       };
     }
 
@@ -4203,6 +4232,7 @@ export class GameManager {
         })),
       ],
       trophies: trophySummary(this.world),
+      veteranRetreat: this.humanPlayer || this.crystal ? undefined : this.world.veteranRetreat,
       dayPhase: this.dayNightSystem.getPhase(),
       dayNumber: this.dayNightSystem.getDayNumber(),
       phaseRemaining: Math.ceil(this.dayNightSystem.getPhaseRemaining()),

@@ -112,7 +112,7 @@ export class TarantulaSystem implements System {
       const at = randomEdgeTile(this.grid.bounds, Math.floor(Math.random() * 4), Math.random, 2);
       if (!this.grid.isWalkable(at.x, at.y)) continue;
       const id = createFrontierCreature(this.world, 'tarantula', at.x, at.y, null);
-      this.world.pushNotification('danger', '🕷️ ¡Una tarántula alienígena caza en el territorio! Solo quiere hormigas: protege a tus obreras');
+      this.world.pushNotification('danger', '🕷️ ¡Una tarántula alienígena caza en el territorio! Solo quiere hormigas: protege a tus obreras', undefined, 0, at);
       return id;
     }
     return null;

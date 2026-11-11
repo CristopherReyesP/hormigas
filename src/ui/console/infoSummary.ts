@@ -14,7 +14,12 @@ export function selectionTitle(sel: SelectedEntityInfo): { name: string; faction
     if (sel.type === 'crystal_unit') return { name: CRYSTAL_UNIT_NAME[sel.crystalKind ?? 'drone'], faction: 'Colmena de Cristal · tuya' };
   }
   switch (sel.type) {
-    case 'ant': return { name: ROLE_LABEL[sel.role ?? AntRole.Worker], faction: 'Enjambre mutante' };
+    case 'ant': {
+      const role = ROLE_LABEL[sel.role ?? AntRole.Worker];
+      // A veteran shows its rank (and name) and what it has killed
+      if (sel.veteran) return { name: `${sel.veteran.title} · ${role}`, faction: `Enjambre mutante · veterana · ${sel.veteran.kills} bajas` };
+      return { name: role, faction: 'Enjambre mutante' };
+    }
     case 'nest': return { name: 'Nido', faction: 'Enjambre mutante · colmena' };
     case 'beetle': return { name: 'Acorazado', faction: 'Fauna salvaje' };
     case 'cricket': return { name: LEAPER_NAME.one, faction: 'Fauna salvaje' };

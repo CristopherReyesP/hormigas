@@ -1,3 +1,4 @@
+import { shouldRetreat } from '../run/veterans';
 import type { System } from '../../engine/ecs/types';
 import { HUMAN_COMPONENT } from '../rival/humanComponents';
 import type { World } from '../../engine/ecs/World';
@@ -239,6 +240,22 @@ export class AntAISystem implements System {
       const carrying = this.world.getComponent<CarryingComponent>(id, COMPONENT.CARRYING)!;
 
       ant.stateTimer += dt;
+
+      // A badly hurt veteran pulls out and walks home to heal (it eats below): even
+      // an order yields, the colony does not throw its best ants away
+      if (ant.role !== AntRole.Bomber && ant.state !== AntState.Healing && this.undergroundFoodAvailable && this.transitSystem
+        && !this.transitSystem.isInTransit(id) && shouldRetreat(this.world, id)) {
+        if (order) endPlayerOrder(this.world, id);
+        if (ant.state !== AntState.ReturningHome) {
+          ant.state = AntState.ReturningHome;
+          ant.stateTimer = 0;
+          const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT);
+          if (combat) combat.targetEntityId = null;
+          this.pathToNest(pos, path);
+        }
+        this.handleReturningHome(id, ant, pos, path, carrying);
+        continue;
+      }
 
       // A player order outranks the colony AI and every safety net below. A
       // worker's order ends on arrival and this loop picks its job back up; a
@@ -1346,8 +1363,8 @@ export class AntAISystem implements System {
         // carry it below — and go back to their own job.
         this.dropAtStockpile(carrying);
         ant.state = AntState.Searching;
-      } else if (this.isHungry(_id) && this.undergroundFoodAvailable && this.transitSystem) {
-        // Came home hungry: ride down and eat (eating also heals)
+      } else if ((this.isHungry(_id) || shouldRetreat(this.world, _id)) && this.undergroundFoodAvailable && this.transitSystem) {
+        // Came home hungry, or a veteran pulled out wounded: ride down and eat (eating also heals)
         ant.state = AntState.Healing;
         this.transitSystem.requestTransit(_id, 'enter');
       } else {

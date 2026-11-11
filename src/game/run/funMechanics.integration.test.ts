@@ -175,3 +175,61 @@ describe('saving', () => {
     loaded.stop();
   });
 });
+
+describe('game feel and quality of life', () => {
+  it('bites on one enemy merge into a single damage number; small hits on ants stay quiet', async () => {
+    const { advanceFeedback, addDamage, feedbackFor, FEEDBACK, pushImpact, impactShake, impactFlash } = await import('../vfx/feedbackFx');
+    const { game, world } = setup();
+    const at = { x: 5, y: 5, layer: 'surface' as const };
+    addDamage(world, 900, at, 8, false);
+    addDamage(world, 900, at, 6, false);
+    addDamage(world, 901, at, 5, true); // a colony ant: below the quiet threshold
+    advanceFeedback(world, FEEDBACK.damageWindow + 0.01);
+    expect(feedbackFor(world).texts.map((t) => t.text)).toEqual(['-14']);
+    advanceFeedback(world, FEEDBACK.textLife + 0.1);
+    expect(feedbackFor(world).texts).toEqual([]);
+    // An impact shakes and flashes, then is gone
+    pushImpact(world, 6, '255,0,0', 0.4);
+    advanceFeedback(world, 0.05);
+    expect(Math.abs(impactShake(world).x) + Math.abs(impactShake(world).y)).toBeGreaterThan(0);
+    expect(impactFlash(world)?.alpha).toBeGreaterThan(0);
+    advanceFeedback(world, 0.5);
+    expect(impactShake(world)).toEqual({ x: 0, y: 0 });
+    expect(impactFlash(world)).toBeNull();
+    game.stop();
+  });
+
+  it('a promotion toast knows where it happened, and focusOn takes the camera there', () => {
+    const { game, world } = setup();
+    const ant = createAnt(world, CX + 6, CY + 4, AntRole.Soldier);
+    for (let k = 0; k < VETERAN.rankKills[2]; k++) creditKill(world, ant);
+    const toast = world.notifications.find((n) => n.message.includes('Capitana'));
+    expect(toast?.at).toEqual(expect.objectContaining({ x: CX + 6, y: CY + 4 }));
+    const camera = game['camera'] as { centerOn(x: number, y: number): void };
+    const centerOn = vi.spyOn(camera, 'centerOn');
+    game.focusOn(CX + 6, CY + 4);
+    expect(centerOn).toHaveBeenCalled();
+    game.stop();
+  });
+
+  it('a badly hurt veteran pulls out and heads home; with the retreat off it fights on', async () => {
+    const { shouldRetreat } = await import('./veterans');
+    const { AntState } = await import('../components/components');
+    const { game, world, tickFor } = setup();
+    const ant = createAnt(world, CX + 8, CY + 6, AntRole.Soldier);
+    for (let k = 0; k < VETERAN.rankKills[0]; k++) creditKill(world, ant);
+    const health = world.getComponent<HealthComponent>(ant, COMPONENT.HEALTH)!;
+    expect(shouldRetreat(world, ant)).toBe(false);
+    health.current = health.max * 0.2;
+    expect(shouldRetreat(world, ant)).toBe(true);
+    game.toggleVeteranRetreat();
+    expect(shouldRetreat(world, ant)).toBe(false);
+    game.toggleVeteranRetreat();
+    tickFor(0.5);
+    // The starting pantry has food, so going home can heal it
+    expect((game['antAISystem'] as unknown as { undergroundFoodAvailable: boolean }).undergroundFoodAvailable).toBe(true);
+    const state = world.getComponent<{ state: string }>(ant, COMPONENT.ANT)!.state;
+    expect([AntState.ReturningHome, AntState.Healing]).toContain(state);
+    game.stop();
+  });
+});

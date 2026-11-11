@@ -222,7 +222,14 @@ export function Console({ stats, gameManager, refreshStats, tutorialRunning = fa
 
   return (
     <>
-      <NotificationStack notifications={stats.notifications} hint={hint} hintTone={hintTone} hintExtra={hintExtra} hideMessage={digLimit?.text} />
+      <NotificationStack
+        notifications={stats.notifications}
+        hint={hint}
+        hintTone={hintTone}
+        hintExtra={hintExtra}
+        hideMessage={digLimit?.text}
+        onFocus={gameManager ? (at) => gameManager.focusOn(at.x, at.y, at.layer) : undefined}
+      />
       <footer className="hive-console">
         <div className="console-deck" aria-hidden="true">
           <div className="console-vein" />

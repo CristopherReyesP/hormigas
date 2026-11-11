@@ -89,6 +89,17 @@ export function consumeWaveRewardMult(world: World): number {
   return DAY_EVENT.redMoon.rewardMult;
 }
 
+/** The screen tint of today's event: an rgb triplet and its alpha, or null on an ordinary day */
+export function dayAmbience(id: DayEventId | null, phase: 'day' | 'night'): { color: string; alpha: number } | null {
+  switch (id) {
+    case 'redMoon': return { color: '190,20,30', alpha: phase === 'night' ? 0.2 : 0.07 };
+    case 'calm': return phase === 'day' ? { color: '255,215,120', alpha: 0.07 } : null;
+    case 'hunt': return { color: '210,90,20', alpha: 0.07 };
+    case 'migration': return phase === 'day' ? { color: '130,210,120', alpha: 0.05 } : null;
+    default: return null;
+  }
+}
+
 export interface DayClock {
   getDayNumber(): number;
   getPhase(): 'day' | 'night';
@@ -144,9 +155,10 @@ export class DayEventSystem implements System {
     const state = this.world.dayEvent;
     state.id = id;
     const def = DAY_EVENTS[id];
-    this.world.pushNotification(def.severity, def.announcement);
     if (id === 'redMoon') state.redMoonReward = true;
-    if (id === 'migration') this.spawnHerd();
+    // The herd's toast takes the camera to where it came in
+    const herd = id === 'migration' ? this.spawnHerd() : null;
+    this.world.pushNotification(def.severity, def.announcement, undefined, 0, herd ?? undefined);
   }
 
   private applyModifiers(): void {
@@ -160,14 +172,17 @@ export class DayEventSystem implements System {
   }
 
   /** The herd comes in along one edge of the territory */
-  private spawnHerd(): void {
+  private spawnHerd(): { x: number; y: number } | null {
     const side = Math.floor(this.random() * 4);
     let placed = 0;
+    let first: { x: number; y: number } | null = null;
     for (let attempt = 0; attempt < 60 && placed < DAY_EVENT.migration.herd; attempt++) {
       const at = randomEdgeTile(this.grid.bounds, side, this.random, 3);
       if (!this.grid.isWalkable(at.x, at.y)) continue;
       createCricket(this.world, at.x, at.y, null);
+      first ??= at;
       placed++;
     }
+    return first;
   }
 }

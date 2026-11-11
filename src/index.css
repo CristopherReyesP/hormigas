@@ -1090,6 +1090,7 @@ button:focus-visible {
 }
 
 /* Pause / speed readout: a button, so a finger can pause */
+.strip-vet,
 .strip-time {
   font: inherit;
   background: transparent;
@@ -1098,6 +1099,8 @@ button:focus-visible {
   line-height: 1.7;
   cursor: pointer;
 }
+
+.strip-vet { color: var(--chrome-text-dim, inherit); }
 
 .strip-sep {
   width: 2px;
@@ -1248,6 +1251,21 @@ button:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   animation: notif-in 200ms steps(3) both;
+}
+
+.notif-line--go {
+  pointer-events: auto;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+}
+.notif-line--go:hover { filter: brightness(1.25); }
+.notif-go {
+  margin-left: 10px;
+  color: var(--chrome-accent);
 }
 
 .notif-line--info { border-left-color: var(--chrome-info); }
@@ -2253,6 +2271,7 @@ button:focus-visible {
 
 /* Strip buttons: a finger-sized hit area without growing the strip */
 .hud-layer--touch .strip-food,
+.hud-layer--touch .strip-vet,
 .hud-layer--touch .strip-time {
   min-height: 24px;
   min-width: 40px;

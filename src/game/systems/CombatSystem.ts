@@ -42,9 +42,10 @@ import { advanceWaveFx, waveRuntimeFor } from '../run/waveRuntime';
 import { onWaveUnitDeath } from '../run/waveDeaths';
 import { DEFENSE_STATS, STRUCTURE_COMPONENT, type StructureComponent } from '../run/defenses';
 import { tallyDeath } from '../upgrades/applyUpgrades';
-import { creditKill, mournVeteran } from '../run/veterans';
-import { claimTrophy } from '../run/trophies';
+import { creditKill, mournVeteran, veteranOf } from '../run/veterans';
+import { claimTrophy, trophyFor } from '../run/trophies';
 import { dayEventMeatMult } from '../run/dayEvents';
+import { FLOAT_COLOR, addDamage, advanceFeedback, pushFloat, pushImpact } from '../vfx/feedbackFx';
 import { retrofitAntStats } from '../run/antStats';
 
 export class CombatSystem implements System {
@@ -67,6 +68,7 @@ export class CombatSystem implements System {
     this.vfx.advance(dt);
     humanShotsFor(this.world).advance(dt);
     advanceWaveFx(this.world, dt);
+    advanceFeedback(this.world, dt);
     this.buryWaveKills();
 
     const combatants = this.world.query(COMPONENT.COMBAT, COMPONENT.POSITION);
@@ -147,6 +149,7 @@ export class CombatSystem implements System {
       const beetleDen = this.world.getComponent<BeetleDenComponent>(targetId, COMPONENT.BEETLE_DEN);
       if (beetleDen) {
         beetleDen.health -= damage;
+        addDamage(this.world, targetId, { x: targetPos.x, y: targetPos.y, layer: targetLayer?.layer ?? Layer.Surface }, damage, false);
         this.syncDenHealthBar(targetId, beetleDen.health);
         combat.attackTimer = combat.attackCooldown;
         this.emitHit(id, pos, targetPos, targetLayer?.layer ?? Layer.Surface, 'beetleDen');
@@ -162,6 +165,7 @@ export class CombatSystem implements System {
       const cricketDen = this.world.getComponent<CricketDenComponent>(targetId, COMPONENT.CRICKET_DEN);
       if (cricketDen) {
         cricketDen.health -= damage;
+        addDamage(this.world, targetId, { x: targetPos.x, y: targetPos.y, layer: targetLayer?.layer ?? Layer.Surface }, damage, false);
         this.syncDenHealthBar(targetId, cricketDen.health);
         combat.attackTimer = combat.attackCooldown;
         this.emitHit(id, pos, targetPos, targetLayer?.layer ?? Layer.Surface, 'cricketDen');
@@ -187,8 +191,10 @@ export class CombatSystem implements System {
       // Crystal shields soak the hit first; armor then cuts what reaches the hull
       const hull = this.soakWithShield(targetId, damage, pos, targetPos, hitLayer);
       if (hull > 0) {
-        targetHealth.current -= damageAfterArmor(this.world, targetId, hull);
+        const dealt = damageAfterArmor(this.world, targetId, hull);
+        targetHealth.current -= dealt;
         this.emitHit(id, pos, targetPos, hitLayer, this.victimKind(targetId));
+        addDamage(this.world, targetId, { x: targetPos.x, y: targetPos.y, layer: hitLayer }, dealt, ownerOf(this.world, targetId) === FactionId.PLAYER);
       }
       // A tank shell also hits the enemies around its target
       for (const victim of applyHumanSplash(this.world, id, targetId, damage)) {
@@ -301,6 +307,7 @@ export class CombatSystem implements System {
 
   private handleDeath(entityId: EntityId, _toDestroy: EntityId[]): void {
     tallyDeath(this.world, entityId);
+    this.bigDeathFeedback(entityId);
     mournVeteran(this.world, entityId);
     // A boss leaves its relic: the whole colony takes the new bonus at once
     if (claimTrophy(this.world, entityId)) retrofitAntStats(this.world);
@@ -325,6 +332,23 @@ export class CombatSystem implements System {
     // Ant death — Swarm goo
     const pos = this.world.getComponent<PositionComponent>(entityId, COMPONENT.POSITION);
     if (pos) this.emitDeath(entityId, pos, 'ant');
+  }
+
+  /** The deaths the player should feel: a boss goes down with a shake and a flash, a ranked veteran with a red one */
+  private bigDeathFeedback(entityId: EntityId): void {
+    const pos = this.world.getComponent<PositionComponent>(entityId, COMPONENT.POSITION);
+    if (!pos) return;
+    const at = { x: pos.x, y: pos.y, layer: this.layerOf(entityId) };
+    if (trophyFor(this.world, entityId) && isHostileTo(this.world, FactionId.PLAYER, entityId)) {
+      pushImpact(this.world, 7, '255,210,110', 0.6);
+      pushFloat(this.world, at, '¡JEFE ABATIDO!', FLOAT_COLOR.boss, 15, 1.6);
+      return;
+    }
+    const vet = veteranOf(this.world, entityId);
+    if (vet && vet.rank >= 2) {
+      pushImpact(this.world, 4, '255,60,50', 0.4);
+      pushFloat(this.world, at, vet.name ? `† ${vet.name}` : '† Sargento', FLOAT_COLOR.friendly, 13, 1.6);
+    }
   }
 
   /** A nest defense collapses; DefenseSystem frees its tile */

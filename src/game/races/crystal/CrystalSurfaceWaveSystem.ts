@@ -1,3 +1,4 @@
+import { pushImpact } from '../../vfx/feedbackFx';
 import { consumeWaveRewardMult, dayEventExtraInvaders } from '../../run/dayEvents';
 import type { WaveDirector } from '../human/HumanWaveSystem';
 import { areaOf } from '../../../simulation/world/frontier';
@@ -374,6 +375,7 @@ export class CrystalSurfaceWaveSystem implements WaveDirector {
 
   private launchWave(): void {
     emitAudio({ type: 'wave' });
+    pushImpact(this.world, 5, '255,70,50', 0.5);
     const wave = this.nextWave();
     this.waveNumber++;
     this.waveActive = true;

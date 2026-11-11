@@ -6,7 +6,7 @@
 
 import type { World } from '../../engine/ecs/World';
 import type { EntityId } from '../../shared/types';
-import { COMPONENT } from '../components/components';
+import { COMPONENT, type PositionComponent } from '../components/components';
 import { FactionId, isHostileTo } from '../factions/factions';
 import { frontierCreatureOf } from '../phase/frontierCreatures';
 import { BOSS_COMPONENT } from './miniBoss';
@@ -77,7 +77,8 @@ export function claimTrophy(world: World, id: EntityId): boolean {
   run.addTrophy(trophy);
   for (const stat of def.stats) run[stat] *= def.factor;
   const count = run.getTrophyCount(trophy);
-  world.pushNotification('success', `${def.icon} ¡Trofeo: ${def.name}${count > 1 ? ` ×${count}` : ''}! ${def.description}`);
+  const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION);
+  world.pushNotification('success', `${def.icon} ¡Trofeo: ${def.name}${count > 1 ? ` ×${count}` : ''}! ${def.description}`, undefined, 0, pos ? { x: pos.x, y: pos.y } : undefined);
   return true;
 }
 
