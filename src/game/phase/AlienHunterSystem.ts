@@ -17,6 +17,7 @@ import { FactionId, ownerOf } from '../factions/factions';
 import { dealDamage } from '../run/waveRuntime';
 import { FRONTIER_CREATURE_COMPONENT, createFrontierCreature, frontierCreatureOf, type FrontierCreatureKind } from './frontierCreatures';
 import { threatMultipliers } from './threat';
+import { CAMP, retreatPoint, tickCamp } from './campLimit';
 
 /** How a hunter fights */
 type HunterStyle = 'melee' | 'kamikaze' | 'ranged';
@@ -184,6 +185,19 @@ export class AlienHunterSystem implements System {
       const d = Math.hypot(p.pos.x - pos.x, p.pos.y - pos.y);
       if (d < best) { best = d; target = p; }
     }
+    // No camping on the nest (campLimit): once it has had enough it waits far off
+    const colony = this.colony();
+    const me = frontierCreatureOf(this.world, id)!;
+    let away = false;
+    if (colony) {
+      const camp = tickCamp(me, Math.hypot(colony.x - pos.x, colony.y - pos.y), target !== null, dt);
+      away = camp !== 'hunt';
+      if (camp === 'start') {
+        me.retreatAt = retreatPoint(pos, colony, this.grid.bounds, (x, y) => this.grid.isWalkable(x, y)) ?? undefined;
+        this.repath.set(id, 0);
+      }
+    }
+    if (away && best > CAMP.defendRange) target = null;
 
     if (rule.style === 'kamikaze' && target && best <= JELLY_BURST.trigger) {
       this.burst(id, pos, prey);
@@ -220,7 +234,7 @@ export class AlienHunterSystem implements System {
     this.repath.set(id, wait);
     if (wait > 0 && path.currentIndex < path.waypoints.length) return;
     this.repath.set(id, REPATH);
-    const goal = target ? { x: target.pos.x, y: target.pos.y } : this.colony();
+    const goal = target ? { x: target.pos.x, y: target.pos.y } : away ? me.retreatAt ?? null : colony;
     if (!goal) return;
     const route = findPath(this.grid, { x: Math.round(pos.x), y: Math.round(pos.y) }, { x: Math.round(goal.x), y: Math.round(goal.y) }, PATH_STEPS);
     if (route && route.length > 0) {

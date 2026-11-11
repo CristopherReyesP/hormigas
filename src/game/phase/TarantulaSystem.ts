@@ -23,6 +23,7 @@ import {
   frontierCreatureOf,
   type FrontierCreatureComponent,
 } from './frontierCreatures';
+import { CAMP, retreatPoint, tickCamp } from './campLimit';
 
 /** What a day clock tells the hunters */
 export interface HuntClock {
@@ -35,6 +36,8 @@ export interface HuntClock {
  * close, pounces at triple speed. Every kill heals it a little (it feeds):
  * barely in Phase 1, so an early colony can wear it down, a bit more in Phase 2,
  * and never more than `maxFeedHeal` of its max health over its whole life.
+ * It does not camp on the nest (campLimit): with no ant in reach near the
+ * entrance, or after a while there, it withdraws and waits far off.
  * - Phase 1: the first one comes on day TARANTULA.firstDay, then up to
  *   `phase1Max` roam at once, a new one every `spawnEvery` s.
  * - Phase 2 (`setPhase2`): up to `phase2Max`, coming faster.
@@ -189,6 +192,19 @@ export class TarantulaSystem implements System {
       const d = Math.hypot(a.pos.x - pos.x, a.pos.y - pos.y);
       if (d < best) { best = d; target = a; }
     }
+    // No camping on the nest: once it has had enough it waits far off, and only bites what comes to it
+    const colony = this.colony();
+    let away = false;
+    if (colony) {
+      const camp = tickCamp(me, Math.hypot(colony.x - pos.x, colony.y - pos.y), target !== null, dt);
+      away = camp !== 'hunt';
+      if (camp === 'start') {
+        me.retreatAt = retreatPoint(pos, colony, this.grid.bounds, (x, y) => this.grid.isWalkable(x, y)) ?? undefined;
+        me.repath = 0;
+        me.pounce = undefined;
+      }
+    }
+    if (away && best > CAMP.defendRange) target = null;
     if (target && best <= combat.attackRange + 0.2) {
       combat.targetEntityId = target.id;
       this.prey.set(id, target.id);
@@ -207,7 +223,7 @@ export class TarantulaSystem implements System {
     me.repath -= dt;
     if (me.repath > 0 && path.currentIndex < path.waypoints.length) return;
     me.repath = TARANTULA.repath;
-    const goal = target ? { x: target.pos.x, y: target.pos.y } : this.colony();
+    const goal = target ? { x: target.pos.x, y: target.pos.y } : away ? me.retreatAt ?? null : colony;
     if (!goal) return;
     const route = findPath(this.grid, { x: Math.round(pos.x), y: Math.round(pos.y) }, { x: Math.round(goal.x), y: Math.round(goal.y) }, PATH_STEPS);
     if (route && route.length > 0) {

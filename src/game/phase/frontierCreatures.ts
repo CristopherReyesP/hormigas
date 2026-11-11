@@ -19,6 +19,7 @@ import {
 } from '../components/components';
 import { createBeetle, createBeetleDen } from '../entities/factories';
 import { ANT_SPEED } from '../../shared/constants';
+import type { CampState } from './campLimit';
 
 export type FrontierCreatureKind = 'legionary' | 'legion_queen' | 'spider' | 'mantis' | 'tarantula'
   | 'centipede' | 'spore_jelly' | 'acid_spitter';
@@ -27,7 +28,7 @@ export type FrontierDenKind = 'legion_nest' | 'spider_lair';
 export const FRONTIER_CREATURE_COMPONENT = 'frontier_creature';
 export const FRONTIER_DEN_COMPONENT = 'frontier_den';
 
-export interface FrontierCreatureComponent {
+export interface FrontierCreatureComponent extends CampState {
   kind: FrontierCreatureKind;
   /** Marching on the colony with a night wave (steered by FrontierSystem, not the beetle AI) */
   raider: boolean;

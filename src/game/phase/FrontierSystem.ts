@@ -32,6 +32,7 @@ import {
   type FrontierCreatureKind,
   type FrontierDenComponent,
 } from './frontierCreatures';
+import { retreatPoint, tickCamp } from './campLimit';
 
 /** How far a den's creatures stray from it before they turn back (tiles); mantises roam free */
 const LEASH = { legionary: 9, legion_queen: 5, spider: 8 } as const;
@@ -358,6 +359,24 @@ export class FrontierSystem implements System {
       const d = Math.hypot(p.pos.x - pos.x, p.pos.y - pos.y);
       if (d < best) { best = d; target = p; }
     }
+    // No camping on the nest (campLimit): the column has had enough and goes home, back on its den's leash
+    const colony = this.colony();
+    if (colony && tickCamp(creature, Math.hypot(colony.x - pos.x, colony.y - pos.y), target !== null, dt) !== 'hunt') {
+      creature.raider = false;
+      creature.withdraw = undefined;
+      creature.camp = 0;
+      creature.campIdle = 0;
+      const beetle = this.world.getComponent<BeetleComponent>(id, COMPONENT.BEETLE);
+      const home = beetle && beetle.denEntityId !== null ? this.world.getComponent<PositionComponent>(beetle.denEntityId, COMPONENT.POSITION) : undefined;
+      const back = home ?? retreatPoint(pos, colony, this.grid.bounds, (x, y) => this.grid.isWalkable(x, y));
+      const way = back ? findPath(this.grid, { x: Math.round(pos.x), y: Math.round(pos.y) }, { x: Math.round(back.x), y: Math.round(back.y) }, RAIDER_PATH_STEPS) : null;
+      if (way && way.length > 0) {
+        path.waypoints = way;
+        path.currentIndex = 0;
+      }
+      combat.targetEntityId = null;
+      return;
+    }
     if (target && best <= combat.attackRange + 0.2) {
       combat.targetEntityId = target.id;
       path.waypoints = [];
@@ -367,7 +386,7 @@ export class FrontierSystem implements System {
     combat.targetEntityId = null;
     if (creature.repath > 0 && path.currentIndex < path.waypoints.length) return;
     creature.repath = RAIDER_REPATH;
-    const goal = target ? { x: target.pos.x, y: target.pos.y } : this.colony();
+    const goal = target ? { x: target.pos.x, y: target.pos.y } : colony;
     if (!goal) return;
     const start = { x: Math.round(pos.x), y: Math.round(pos.y) };
     if (!target && Math.hypot(goal.x - pos.x, goal.y - pos.y) < 3) {

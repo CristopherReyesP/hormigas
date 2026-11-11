@@ -7,6 +7,7 @@ import { fakeCanvas, finishIntro, CRYSTAL_RIVAL_SETUP } from '../../test/gameMan
 import { WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
 import { frontierCreatureOf } from './frontierCreatures';
 import type { TarantulaSystem } from './TarantulaSystem';
+import { CAMP } from './campLimit';
 import { FORTIFY, FORTIFY_CORE_COMPONENT, FORTIFY_DEFENSE_COMPONENT, type FortifyCoreComponent } from '../rival/fortify';
 import { HUMAN_COMPONENT, type HumanBuildingComponent } from '../rival/humanComponents';
 
@@ -111,6 +112,31 @@ describe('the alien tarantula', () => {
       tickFor(TICK);
     }
     expect(health.current / health.max).toBeCloseTo(0.35);
+    game.stop();
+  });
+
+  it('does not camp on the nest: with no ant outside it withdraws, far from the entrance', () => {
+    const { game, world, tarantulas, tickFor } = setup();
+    const id = tarantulas.spawn()!;
+    const pos = world.getComponent<PositionComponent>(id, COMPONENT.POSITION)!;
+    const cx = Math.floor(WORLD_WIDTH / 2);
+    const cy = Math.floor(WORLD_HEIGHT / 2);
+    pos.x = pos.prevX = cx - 3;
+    pos.y = pos.prevY = cy + 2;
+    // Nobody outside: the colony hides in the nest
+    for (const other of world.query(COMPONENT.ANT)) world.destroyEntity(other);
+    tickFor(CAMP.idlePatience + 1);
+    const me = frontierCreatureOf(world, id)!;
+    expect(me.withdraw).toBeGreaterThan(0);
+    tickFor(15);
+    expect(Math.hypot(pos.x - cx, pos.y - cy)).toBeGreaterThan(CAMP.radius);
+
+    // An ant comes out now: it is left alone while the tarantula stays away
+    const worker = createAnt(world, cx, cy + 1, AntRole.Worker);
+    tickFor(5);
+    const health = world.getComponent<HealthComponent>(worker, COMPONENT.HEALTH)!;
+    expect(world.hasEntity(worker) && health.current === health.max).toBe(true);
+    expect(Math.hypot(pos.x - cx, pos.y - cy)).toBeGreaterThan(CAMP.radius);
     game.stop();
   });
 
