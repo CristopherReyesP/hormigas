@@ -5,7 +5,8 @@ import { COMPONENT, AntRole, type HealthComponent, type PathComponent, type Posi
 import { createAnt } from '../entities/factories';
 import { fakeCanvas, finishIntro, CRYSTAL_RIVAL_SETUP } from '../../test/gameManagerMocks';
 import { WORLD_HEIGHT, WORLD_WIDTH } from '../../shared/constants';
-import { frontierCreatureOf } from './frontierCreatures';
+import { FRONTIER_CREATURE_STATS, frontierCreatureOf } from './frontierCreatures';
+import { THREAT, type ThreatSystem } from './threat';
 import type { TarantulaSystem } from './TarantulaSystem';
 import { FORTIFY, FORTIFY_CORE_COMPONENT, FORTIFY_DEFENSE_COMPONENT, type FortifyCoreComponent } from '../rival/fortify';
 import { HUMAN_COMPONENT, type HumanBuildingComponent } from '../rival/humanComponents';
@@ -95,7 +96,7 @@ describe('the alien tarantula', () => {
     expect(feedAfterKill(true)).toBeCloseTo(0.55);
   });
 
-  it('never heals more than 25% of its max health from kills over its whole life', () => {
+  it('never heals more than 10% of its max health from kills over its whole life', () => {
     const { game, world, tarantulas, tickFor } = setup();
     tarantulas.setPhase2();
     const id = tarantulas.spawn()!;
@@ -110,7 +111,19 @@ describe('the alien tarantula', () => {
       world.destroyEntity(prey);
       tickFor(TICK);
     }
-    expect(health.current / health.max).toBeCloseTo(0.35);
+    expect(health.current / health.max).toBeCloseTo(0.2);
+    game.stop();
+  });
+
+  it('a high threat level grows its health far less than other enemies', () => {
+    const { game, world, tarantulas, tickFor } = setup();
+    (game['threatSystem'] as ThreatSystem).level = 100;
+    const id = tarantulas.spawn()!;
+    tickFor(TICK);
+    const health = world.getComponent<HealthComponent>(id, COMPONENT.HEALTH)!;
+    const base = FRONTIER_CREATURE_STATS.tarantula.health;
+    expect(health.max).toBe(Math.round(base * THREAT.tarantulaMaxHealthMult));
+    expect(health.max).toBeLessThan(base * THREAT.maxHealthMult);
     game.stop();
   });
 

@@ -8,6 +8,7 @@ import type { System } from '../../engine/ecs/types';
 import type { World } from '../../engine/ecs/World';
 import { COMPONENT, type CombatComponent, type HealthComponent } from '../components/components';
 import { FactionId, ownerOf } from '../factions/factions';
+import { frontierCreatureOf } from './frontierCreatures';
 
 export const THREAT = {
   /** Levels each source adds: a level a day from day `firstDay`, one per `antsPerLevel` ants past `freeAnts`,
@@ -21,6 +22,8 @@ export const THREAT = {
   healthPerLevel: 0.05,
   damagePerLevel: 0.03,
   maxHealthMult: 3,
+  /** The alien tarantula is already a boss (2600 HP): it grows far less, or the colony's bites (8 a soldier) never wear it down */
+  tarantulaMaxHealthMult: 1.4,
   maxDamageMult: 2.5,
   /** Seconds between two measurements */
   measureEvery: 1,
@@ -111,7 +114,8 @@ export class ThreatSystem implements System {
       this.world.addComponent<ThreatScaledComponent>(id, THREAT_SCALED_COMPONENT, { level: this.level });
       const hp = this.world.getComponent<HealthComponent>(id, COMPONENT.HEALTH)!;
       const ratio = hp.max > 0 ? hp.current / hp.max : 1;
-      hp.max = Math.max(1, Math.round(hp.max * health));
+      const healthMult = frontierCreatureOf(this.world, id)?.kind === 'tarantula' ? Math.min(health, THREAT.tarantulaMaxHealthMult) : health;
+      hp.max = Math.max(1, Math.round(hp.max * healthMult));
       hp.current = Math.max(1, Math.round(hp.max * ratio));
       hp.damage = Math.max(0, Math.round(hp.damage * damage));
       const combat = this.world.getComponent<CombatComponent>(id, COMPONENT.COMBAT)!;

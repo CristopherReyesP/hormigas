@@ -35,6 +35,7 @@ export interface HuntClock {
  * close, pounces at triple speed. Every kill heals it a little (it feeds):
  * barely in Phase 1, so an early colony can wear it down, a bit more in Phase 2,
  * and never more than `maxFeedHeal` of its max health over its whole life.
+ * The threat level grows its health far less than other enemies' (threat.ts).
  * - Phase 1: the first one comes on day TARANTULA.firstDay, then up to
  *   `phase1Max` roam at once, a new one every `spawnEvery` s.
  * - Phase 2 (`setPhase2`): up to `phase2Max`, coming faster.
@@ -60,7 +61,7 @@ export const TARANTULA = {
   /** Share of its max health a kill gives back in Phase 2 */
   phase2FeedHeal: 0.05,
   /** Most of its max health it may ever regain from kills, however many ants it eats */
-  maxFeedHeal: 0.25,
+  maxFeedHeal: 0.1,
   /** Seconds between two re-aims of its route */
   repath: 1,
 } as const;
