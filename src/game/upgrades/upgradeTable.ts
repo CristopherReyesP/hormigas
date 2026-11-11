@@ -5,7 +5,9 @@
  * Prices are paid with what a colony actually has: food from the underground
  * pantry plus minerals from the bank (P7.1); a few lines also ask for farm
  * mushrooms. Each row of `costs` is the price of the NEXT level, so a line has
- * as many levels as rows, and the rows escalate.
+ * as many levels as rows, and the rows escalate. The fighting lines (damage,
+ * carapace, workerHp, defenderDamage) run to 6 levels: the late game's spare
+ * food buys a colony that keeps pace with the enemies' threat.
  *
  * What a level does lives in upgradeEffects.ts; this file only says what it costs.
  */
@@ -71,13 +73,13 @@ export const UPGRADE_TABLE: readonly UpgradeDef[] = [
   { id: 'carry', group: 'castes', name: 'Obreras fuertes', blurb: 'Las obreras cargan más comida.',
     costs: [c(40, 0), c(70, 10), c(110, 25)] },
   { id: 'damage', group: 'castes', name: 'Soldados feroces', blurb: 'Los soldados pegan más fuerte.',
-    costs: [c(50, 10), c(80, 20), c(120, 35)] },
+    costs: [c(50, 10), c(80, 20), c(120, 35), c(180, 55), c(260, 80), c(360, 110)] },
   { id: 'carapace', group: 'castes', name: 'Caparazón', blurb: 'Soldados y defensoras con más vida.',
-    costs: [c(50, 10), c(80, 20), c(120, 35)] },
+    costs: [c(50, 10), c(80, 20), c(120, 35), c(180, 55), c(260, 80), c(360, 110)] },
   { id: 'workerHp', group: 'castes', name: 'Exoesqueleto', blurb: 'Obreras, exploradoras y nodrizas con más vida.',
-    costs: [c(40, 5), c(65, 15), c(100, 30)] },
+    costs: [c(40, 5), c(65, 15), c(100, 30), c(150, 45), c(220, 70), c(300, 95)] },
   { id: 'defenderDamage', group: 'castes', name: 'Guardia letal', blurb: 'Las defensoras pegan más fuerte.',
-    costs: [c(50, 10), c(80, 20), c(120, 35)] },
+    costs: [c(50, 10), c(80, 20), c(120, 35), c(180, 55), c(260, 80), c(360, 110)] },
   { id: 'legs', group: 'castes', name: 'Patas ágiles', blurb: 'Todas las castas caminan más rápido.',
     costs: [c(45, 10), c(75, 20), c(115, 35)] },
   // ── Colonia ──

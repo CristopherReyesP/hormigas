@@ -45,4 +45,8 @@ describe('upgrade cost table', () => {
     expect(maxLevel('queenLay')).toBe(4);
     expect(costAt('queenLay', 4)).toBeNull();
   });
+
+  it('the fighting lines run to 6 levels, so a late colony keeps pace with the threat', () => {
+    for (const id of ['damage', 'carapace', 'workerHp', 'defenderDamage'] as const) expect(maxLevel(id)).toBe(6);
+  });
 });
